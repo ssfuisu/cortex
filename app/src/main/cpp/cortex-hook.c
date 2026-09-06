@@ -298,8 +298,14 @@ int execve(const char *filename, char *const argv[], char *const envp[]) {
                 char ld_so[PATH_MAX];
                 #if defined(__aarch64__)
                 snprintf(ld_so, sizeof(ld_so), "%s/lib/ld-linux-aarch64.so.1", g_cortex_root);
+                if (access(ld_so, X_OK) != 0) {
+                    snprintf(ld_so, sizeof(ld_so), "%s/usr/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1", g_cortex_root);
+                }
                 #elif defined(__arm__)
                 snprintf(ld_so, sizeof(ld_so), "%s/lib/ld-linux-armhf.so.3", g_cortex_root);
+                if (access(ld_so, X_OK) != 0) {
+                    snprintf(ld_so, sizeof(ld_so), "%s/usr/lib/arm-linux-gnueabihf/ld-linux-armhf.so.3", g_cortex_root);
+                }
                 #else
                 snprintf(ld_so, sizeof(ld_so), "%s/lib64/ld-linux-x86-64.so.2", g_cortex_root);
                 #endif

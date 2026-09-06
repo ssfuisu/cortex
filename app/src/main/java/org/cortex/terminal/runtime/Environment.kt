@@ -44,7 +44,9 @@ object Environment {
         val ldLibraryPathList = listOf(
             "$root/lib",
             "$root/usr/lib",
+            "$root/lib/aarch64-linux-gnu",
             "$root/usr/lib/aarch64-linux-gnu",
+            "$root/lib/arm-linux-gnueabihf",
             "$root/usr/lib/arm-linux-gnueabihf",
             nativeLibs,
             "/system/lib64",

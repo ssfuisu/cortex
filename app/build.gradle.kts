@@ -36,6 +36,10 @@ android {
         }
     }
 
+    androidResources {
+        noCompress += listOf("gz", "tgz")
+    }
+
     signingConfigs {
         create("release") {
             val ksFile = file("cortex-release.keystore")

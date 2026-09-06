@@ -128,11 +128,21 @@ class MainActivity : AppCompatActivity() {
         }
 
         applyPreferences()
-        createNewSession()
-
-        // Focus and request keyboard on start
-        terminalView.post {
-            terminalView.showKeyboard()
+        if (!BootstrapManager.isBootstrapInstalled(this)) {
+            kotlin.concurrent.thread {
+                BootstrapManager.installBootstrapFromAssets(this)
+                runOnUiThread {
+                    createNewSession()
+                    terminalView.post {
+                        terminalView.showKeyboard()
+                    }
+                }
+            }
+        } else {
+            createNewSession()
+            terminalView.post {
+                terminalView.showKeyboard()
+            }
         }
     }
 

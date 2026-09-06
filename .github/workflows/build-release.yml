@@ -60,6 +60,24 @@ jobs:
             -keypass cortexpassword \
             -dname "CN=Cortex, OU=Terminal, O=Cortex, C=US"
 
+      - name: Bundle Debian Glibc Minimal Bootstrap into APK
+        run: |
+          mkdir -p app/src/main/assets
+
+          echo "Preparing 64-bit Debian Glibc minimal bootstrap..."
+          docker pull --platform linux/arm64 debian:bookworm-slim
+          CID_64=$(docker create --platform linux/arm64 debian:bookworm-slim)
+          docker export "$CID_64" | gzip -9 > app/src/main/assets/bootstrap-arm64.tar.gz
+          docker rm "$CID_64"
+
+          echo "Preparing 32-bit Debian Glibc minimal bootstrap..."
+          docker pull --platform linux/arm/v7 debian:bookworm-slim
+          CID_32=$(docker create --platform linux/arm/v7 debian:bookworm-slim)
+          docker export "$CID_32" | gzip -9 > app/src/main/assets/bootstrap-arm.tar.gz
+          docker rm "$CID_32"
+
+          ls -lh app/src/main/assets/
+
       - name: Build Release APKs
         run: |
           ./gradlew assembleRelease --stacktrace
