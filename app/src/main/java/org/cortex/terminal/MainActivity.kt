@@ -3,7 +3,7 @@ package org.cortex.terminal
 import android.content.Intent
 import android.os.Bundle
 import android.view.WindowManager
-import android.widget.Button
+import android.widget.ImageView
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -24,12 +24,12 @@ class MainActivity : AppCompatActivity() {
     private lateinit var extraKeysView: ExtraKeysView
     private lateinit var appTitle: TextView
     private lateinit var btnMenu: TextView
-    private lateinit var btnSettings: Button
+    private lateinit var btnDrawerSettings: ImageView
 
     private lateinit var sessionRecyclerView: RecyclerView
     private lateinit var sessionAdapter: SessionAdapter
-    private lateinit var btnDrawerKeyboard: Button
-    private lateinit var btnDrawerNewSession: Button
+    private lateinit var btnDrawerKeyboard: TextView
+    private lateinit var btnDrawerNewSession: TextView
 
     private lateinit var sessionManager: SessionManager
 
@@ -42,7 +42,7 @@ class MainActivity : AppCompatActivity() {
         extraKeysView = findViewById(R.id.extraKeysView)
         appTitle = findViewById(R.id.appTitle)
         btnMenu = findViewById(R.id.btnMenu)
-        btnSettings = findViewById(R.id.btnSettings)
+        btnDrawerSettings = findViewById(R.id.btnDrawerSettings)
 
         sessionRecyclerView = findViewById(R.id.sessionRecyclerView)
         btnDrawerKeyboard = findViewById(R.id.btnDrawerKeyboard)
@@ -65,7 +65,8 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        btnSettings.setOnClickListener {
+        btnDrawerSettings.setOnClickListener {
+            drawerLayout.closeDrawer(GravityCompat.START)
             startActivity(Intent(this, SettingsActivity::class.java))
         }
 

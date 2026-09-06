@@ -2,48 +2,22 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/sessionItemRoot"
     android:layout_width="match_parent"
-    android:layout_height="wrap_content"
+    android:layout_height="56dp"
     android:orientation="horizontal"
     android:gravity="center_vertical"
-    android:background="@drawable/key_button_bg"
-    android:padding="12dp"
-    android:layout_marginBottom="8dp">
+    android:paddingStart="20dp"
+    android:paddingEnd="16dp"
+    android:background="?attr/selectableItemBackground">
 
     <TextView
-        android:id="@+id/sessionIndexText"
-        android:layout_width="32dp"
-        android:layout_height="32dp"
-        android:gravity="center"
-        android:text="1"
-        android:textSize="14sp"
-        android:textStyle="bold"
-        android:textColor="#ffffff"
-        android:background="@drawable/key_button_active" />
-
-    <LinearLayout
+        android:id="@+id/sessionLabelText"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_weight="1"
-        android:orientation="vertical"
-        android:layout_marginStart="12dp">
-
-        <TextView
-            android:id="@+id/sessionTitleText"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Session 1"
-            android:textColor="#ffffff"
-            android:textSize="14sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/sessionStatusText"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Active"
-            android:textColor="#a6e3a1"
-            android:textSize="11sp" />
-    </LinearLayout>
+        android:text="[1]"
+        android:textColor="#ffffff"
+        android:textSize="18sp"
+        android:textStyle="bold" />
 
     <TextView
         android:id="@+id/btnSessionClose"
@@ -51,9 +25,8 @@
         android:layout_height="36dp"
         android:gravity="center"
         android:text="×"
-        android:textColor="#f38ba8"
-        android:textSize="20sp"
-        android:textStyle="bold"
+        android:textColor="#a6adc8"
+        android:textSize="22sp"
         android:background="?attr/selectableItemBackgroundBorderless" />
 
 </LinearLayout>

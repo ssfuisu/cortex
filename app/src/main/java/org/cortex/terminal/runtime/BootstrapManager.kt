@@ -31,27 +31,33 @@ object BootstrapManager {
             }
         }
 
+        val d = "$"
         val bashrc = File(home, ".bashrc")
-        if (!bashrc.exists()) {
-            val d = "$"
-            bashrc.writeText(
-                "# Cortex Terminal Environment\n" +
-                "export PS1='\\[\\033[01;32m\\]cortex\\[\\033[00m\\]:\\[\\033[01;34m\\]\\w\\[\\033[00m\\]" + d + " '\n" +
+        if (!bashrc.exists() || !bashrc.readText().contains("PS1=")) {
+            val bashrcContent = "# Cortex Terminal Environment\n" +
+                "if [ -n \"" + d + "BASH_VERSION\" ]; then\n" +
+                "    export PS1='\\w " + d + " '\n" +
+                "else\n" +
+                "    export PS1='~ " + d + " '\n" +
+                "fi\n" +
                 "alias ll='ls -la'\n" +
                 "alias la='ls -A'\n" +
                 "alias l='ls -CF'\n" +
                 "alias cls='clear'\n"
-            )
+            bashrc.writeText(bashrcContent)
         }
 
         val profile = File(home, ".profile")
-        if (!profile.exists()) {
-            val d = "$"
-            profile.writeText(
+        if (!profile.exists() || !profile.readText().contains("PS1=")) {
+            val profileContent = "if [ -n \"" + d + "BASH_VERSION\" ]; then\n" +
+                "    export PS1='\\w " + d + " '\n" +
+                "else\n" +
+                "    export PS1='~ " + d + " '\n" +
+                "fi\n" +
                 "if [ -f \"" + d + "HOME/.bashrc\" ]; then\n" +
                 "    . \"" + d + "HOME/.bashrc\"\n" +
                 "fi\n"
-            )
+            profile.writeText(profileContent)
         }
 
         val cortexInfo = File(root, "bin/cortex-info")

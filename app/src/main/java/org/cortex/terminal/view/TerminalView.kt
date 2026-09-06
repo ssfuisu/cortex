@@ -217,10 +217,10 @@ class TerminalView @JvmOverloads constructor(
 
     fun showKeyboard() {
         requestFocus()
+        val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+        imm?.showSoftInput(this, InputMethodManager.SHOW_IMPLICIT)
         post {
-            val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
-            imm?.showSoftInput(this, InputMethodManager.SHOW_FORCED)
-            imm?.toggleSoftInput(InputMethodManager.SHOW_FORCED, InputMethodManager.HIDE_IMPLICIT_ONLY)
+            imm?.showSoftInput(this, InputMethodManager.SHOW_IMPLICIT)
         }
     }
 
@@ -235,24 +235,57 @@ class TerminalView @JvmOverloads constructor(
         imm?.toggleSoftInput(InputMethodManager.SHOW_FORCED, 0)
     }
 
+    override fun onCheckIsTextEditor(): Boolean = true
+
     override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection {
-        outAttrs.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+        outAttrs.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
         outAttrs.imeOptions = EditorInfo.IME_ACTION_NONE or EditorInfo.IME_FLAG_NO_FULLSCREEN
 
-        return object : BaseInputConnection(this, true) {
+        return object : BaseInputConnection(this, false) {
+            private var composingLength = 0
+
             override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
-                if (text != null && text.isNotEmpty()) {
-                    for (ch in text) {
-                        sendChar(ch)
+                composingLength = 0
+                if (!text.isNullOrEmpty()) {
+                    for (i in 0 until text.length) {
+                        sendChar(text[i])
                     }
                 }
                 return true
             }
 
-            override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
-                for (i in 0 until beforeLength) {
+            override fun setComposingText(text: CharSequence?, newCursorPosition: Int): Boolean {
+                val str = text?.toString() ?: ""
+                for (i in 0 until composingLength) {
                     sendKeySequence(KeyEvent.KEYCODE_DEL)
                 }
+                for (ch in str) {
+                    sendChar(ch)
+                }
+                composingLength = str.length
+                return true
+            }
+
+            override fun setComposingRegion(start: Int, end: Int): Boolean = true
+
+            override fun finishComposingText(): Boolean {
+                composingLength = 0
+                return true
+            }
+
+            override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
+                if (beforeLength == 0 && afterLength == 0) {
+                    sendKeySequence(KeyEvent.KEYCODE_DEL)
+                } else {
+                    for (i in 0 until beforeLength) {
+                        sendKeySequence(KeyEvent.KEYCODE_DEL)
+                    }
+                }
+                return true
+            }
+
+            override fun performEditorAction(actionCode: Int): Boolean {
+                sendKeySequence(KeyEvent.KEYCODE_ENTER)
                 return true
             }
 

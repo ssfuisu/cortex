@@ -66,7 +66,9 @@ object Environment {
             "LC_ALL=en_US.UTF-8",
             "USER=cortex",
             "LOGNAME=cortex",
-            "HOSTNAME=cortex-android"
+            "HOSTNAME=cortex-android",
+            "PS1=~ $ ",
+            "ENV=$home/.profile"
         )
 
         if (preloadStr.isNotEmpty()) {

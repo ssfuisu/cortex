@@ -163,9 +163,6 @@ Java_org_cortex_terminal_pty_PtyNative_createPty(
     (*env)->ReleaseStringUTFChars(env, cmdStr, cmd);
     if (cwd) (*env)->ReleaseStringUTFChars(env, cwdStr, cwd);
 
-    // Set non-blocking or standard I/O on masterFd
-    int flags = fcntl(masterFd, F_GETFL, 0);
-    fcntl(masterFd, F_SETFL, flags | O_NONBLOCK);
 
     jintArray result = (*env)->NewIntArray(env, 2);
     jint values[2] = { masterFd, pid };
