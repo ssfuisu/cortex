@@ -62,6 +62,18 @@ static const char *rewrite_path(const char *path, char *buffer, size_t bufsize) 
     return path;
 }
 
+#ifndef O_TMPFILE
+#define O_TMPFILE (020000000 | 00200000)
+#endif
+
+static inline int open_needs_mode(int flags) {
+#ifdef O_TMPFILE
+    return ((flags & O_CREAT) != 0) || ((flags & O_TMPFILE) == O_TMPFILE);
+#else
+    return (flags & O_CREAT) != 0;
+#endif
+}
+
 // Hook open
 typedef int (*orig_open_f_type)(const char *pathname, int flags, ...);
 int open(const char *pathname, int flags, ...) {
@@ -74,7 +86,7 @@ int open(const char *pathname, int flags, ...) {
     const char *target = rewrite_path(pathname, buf, sizeof(buf));
 
     mode_t mode = 0;
-    if (__OPEN_NEEDS_MODE(flags)) {
+    if (open_needs_mode(flags)) {
         va_list args;
         va_start(args, flags);
         mode = va_arg(args, mode_t);
@@ -96,7 +108,7 @@ int openat(int dirfd, const char *pathname, int flags, ...) {
     const char *target = rewrite_path(pathname, buf, sizeof(buf));
 
     mode_t mode = 0;
-    if (__OPEN_NEEDS_MODE(flags)) {
+    if (open_needs_mode(flags)) {
         va_list args;
         va_start(args, flags);
         mode = va_arg(args, mode_t);
