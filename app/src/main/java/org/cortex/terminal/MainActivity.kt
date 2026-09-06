@@ -81,8 +81,20 @@ class MainActivity : AppCompatActivity() {
             onClose = { index ->
                 val session = sessionManager.sessions.getOrNull(index)
                 if (session != null) {
-                    sessionManager.removeSession(session)
-                    sessionAdapter.notifyDataSetChanged()
+                    if (sessionManager.sessions.size > 1) {
+                        sessionManager.removeSession(session)
+                        sessionAdapter.notifyDataSetChanged()
+                    } else {
+                        AlertDialog.Builder(this)
+                            .setTitle(R.string.exit_confirm_title)
+                            .setMessage(R.string.exit_confirm_message)
+                            .setPositiveButton(R.string.yes) { _, _ ->
+                                sessionManager.destroyAll()
+                                finish()
+                            }
+                            .setNegativeButton(R.string.no, null)
+                            .show()
+                    }
                 }
             }
         )

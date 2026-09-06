@@ -38,10 +38,38 @@ class SettingsActivity : AppCompatActivity() {
         override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
             setPreferencesFromResource(R.xml.root_preferences, rootKey)
 
+            findPreference<Preference>("apt_install_pref")?.setOnPreferenceClickListener {
+                showAptInfo()
+                true
+            }
+
             findPreference<Preference>("cortex_info_pref")?.setOnPreferenceClickListener {
                 showRuntimeInfo()
                 true
             }
+        }
+
+        private fun showAptInfo() {
+            val ctx = requireContext()
+            val aptFile = java.io.File(Environment.getCortexRoot(ctx), "usr/bin/apt")
+            val isInstalled = aptFile.exists()
+            val status = if (isInstalled) "Installed and Ready" else "Available (Run 'apt' in terminal)"
+
+            val msg = """
+                Status: $status
+                Architecture: ${CortexRuntime.architecture}
+                Package System: Debian APT / DPKG with GNU libc
+
+                To install or use packages, simply open the terminal and run:
+                  apt update
+                  apt install <package>
+            """.trimIndent()
+
+            AlertDialog.Builder(ctx)
+                .setTitle("APT Package Manager")
+                .setMessage(msg)
+                .setPositiveButton("OK", null)
+                .show()
         }
 
         private fun showRuntimeInfo() {

@@ -34,6 +34,8 @@ object Environment {
             "$root/bin",
             "$root/usr/bin",
             "$root/usr/local/bin",
+            "$root/usr/sbin",
+            "$root/sbin",
             "/system/bin",
             "/system/xbin"
         )

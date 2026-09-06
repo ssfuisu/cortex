@@ -18,6 +18,11 @@
 
     <PreferenceCategory app:title="Environment">
         <Preference
+            app:key="apt_install_pref"
+            app:summary="Debian GNU/Linux Glibc rootfs and APT package manager"
+            app:title="APT Package Manager" />
+
+        <Preference
             app:key="cortex_info_pref"
             app:summary="Tap to view rootless Glibc environment details"
             app:title="Runtime Information" />

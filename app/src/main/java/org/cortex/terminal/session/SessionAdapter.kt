@@ -38,13 +38,19 @@ class SessionAdapter(
             holder.labelText.setTextColor(Color.parseColor("#cdd6f4"))
         }
 
-        holder.closeBtn.visibility = if (sessionManager.sessions.size > 1) View.VISIBLE else View.GONE
+        holder.closeBtn.visibility = View.VISIBLE
         holder.closeBtn.setOnClickListener {
-            onClose(position)
+            val pos = holder.bindingAdapterPosition
+            if (pos != RecyclerView.NO_POSITION) {
+                onClose(pos)
+            }
         }
 
         holder.root.setOnClickListener {
-            onSelect(position)
+            val pos = holder.bindingAdapterPosition
+            if (pos != RecyclerView.NO_POSITION) {
+                onSelect(pos)
+            }
         }
     }
 

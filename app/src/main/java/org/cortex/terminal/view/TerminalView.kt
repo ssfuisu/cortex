@@ -1,24 +1,34 @@
 package org.cortex.terminal.view
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.Rect
 import android.graphics.Typeface
 import android.text.InputType
 import android.util.AttributeSet
 import android.view.GestureDetector
+import android.view.Gravity
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
 import android.view.inputmethod.BaseInputConnection
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
 import android.view.inputmethod.InputMethodManager
+import android.widget.LinearLayout
+import android.widget.PopupWindow
+import android.widget.TextView
+import android.widget.Toast
 import org.cortex.terminal.emulator.KeyMapper
 import org.cortex.terminal.emulator.TerminalColor
 import org.cortex.terminal.session.TerminalSession
+import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
 
@@ -45,6 +55,35 @@ class TerminalView @JvmOverloads constructor(
         color = TerminalColor.CURSOR_COLOR
     }
 
+    // Text Selection Properties
+    var isSelecting = false
+        private set
+    var selectStartRow = 0
+    var selectStartCol = 0
+    var selectEndRow = 0
+    var selectEndCol = 0
+
+    private enum class ActiveHandle {
+        NONE, START, END
+    }
+    private var activeHandle = ActiveHandle.NONE
+
+    private val selectionBgPaint = Paint().apply {
+        color = Color.WHITE
+        style = Paint.Style.FILL
+    }
+    private val selectionHandlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#89b4fa")
+        style = Paint.Style.FILL
+    }
+    private val selectionHandleStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        style = Paint.Style.STROKE
+        strokeWidth = 3f
+    }
+
+    private var actionPopup: PopupWindow? = null
+
     var charWidth = 0f
         private set
     var charHeight = 0f
@@ -70,6 +109,7 @@ class TerminalView @JvmOverloads constructor(
             distanceX: Float,
             distanceY: Float
         ): Boolean {
+            if (isSelecting) return false
             val historySize = session?.emulator?.buffer?.history?.size ?: 0
             val lineDelta = (distanceY / charHeight).toInt()
             if (lineDelta != 0) {
@@ -81,9 +121,16 @@ class TerminalView @JvmOverloads constructor(
         }
 
         override fun onSingleTapUp(e: MotionEvent): Boolean {
+            if (isSelecting) {
+                clearSelection()
+            }
             requestFocus()
             showKeyboard()
             return true
+        }
+
+        override fun onLongPress(e: MotionEvent) {
+            startSelectionAt(e.x, e.y)
         }
     })
 
@@ -111,6 +158,7 @@ class TerminalView @JvmOverloads constructor(
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
+        scrollOffset = 0
         updateTerminalDimensions()
     }
 
@@ -121,6 +169,7 @@ class TerminalView @JvmOverloads constructor(
             if (newCols != cols || newRows != rows) {
                 cols = newCols
                 rows = newRows
+                scrollOffset = 0
                 session?.updateDimensions(rows, cols, width, height)
             }
         }
@@ -140,6 +189,7 @@ class TerminalView @JvmOverloads constructor(
         try {
             for (r in 0 until rows) {
                 val row = buffer.getVisibleRow(r, scrollOffset)
+                val bufferRow = r - scrollOffset
                 val y = r * charHeight
 
                 for (c in 0 until min(cols, row.cols)) {
@@ -149,28 +199,66 @@ class TerminalView @JvmOverloads constructor(
                     val bg = row.bgColors[c]
                     val style = row.styles[c]
 
-                    val isInverse = (style.toInt() and 4) != 0
-                    val drawBg = if (isInverse) fg else bg
-                    val drawFg = if (isInverse) bg else fg
+                    val selected = isCellSelected(bufferRow, c)
 
-                    // Draw cell background
-                    if (drawBg != TerminalColor.DEFAULT_BG) {
-                        bgPaint.color = drawBg
-                        canvas.drawRect(x, y, x + charWidth, y + charHeight, bgPaint)
-                    }
+                    if (selected) {
+                        // Highlight selected region with crisp white background
+                        canvas.drawRect(x, y, x + charWidth, y + charHeight, selectionBgPaint)
 
-                    // Draw character
-                    if (char != ' ') {
-                        textPaint.color = drawFg
+                        // Render character in dark black so underlying text is crystal clear
+                        textPaint.color = Color.BLACK
                         textPaint.isFakeBoldText = (style.toInt() and 1) != 0
                         textPaint.isUnderlineText = (style.toInt() and 2) != 0
                         canvas.drawText(char.toString(), x, y + charBaseline, textPaint)
+                    } else {
+                        val isInverse = (style.toInt() and 4) != 0
+                        val drawBg = if (isInverse) fg else bg
+                        val drawFg = if (isInverse) bg else fg
+
+                        // Draw cell background
+                        if (drawBg != TerminalColor.DEFAULT_BG) {
+                            bgPaint.color = drawBg
+                            canvas.drawRect(x, y, x + charWidth, y + charHeight, bgPaint)
+                        }
+
+                        // Draw character
+                        if (char != ' ') {
+                            textPaint.color = drawFg
+                            textPaint.isFakeBoldText = (style.toInt() and 1) != 0
+                            textPaint.isUnderlineText = (style.toInt() and 2) != 0
+                            canvas.drawText(char.toString(), x, y + charBaseline, textPaint)
+                        }
                     }
                 }
             }
 
-            // Draw cursor if at bottom of scrollback
-            if (scrollOffset == 0 && buffer.isCursorVisible) {
+            // Draw selection pin handles ("iğneler")
+            if (isSelecting) {
+                val norm = getNormalizedSelection()
+                val minR = norm[0]
+                val minC = norm[1]
+                val maxR = norm[2]
+                val maxC = norm[3]
+
+                val startScreenR = minR + scrollOffset
+                val endScreenR = maxR + scrollOffset
+                val radius = 13f * resources.displayMetrics.density
+
+                if (startScreenR in 0 until rows) {
+                    val startX = minC * charWidth
+                    val startY = (startScreenR + 1) * charHeight
+                    drawPinHandle(canvas, startX, startY, isStart = true, radius)
+                }
+
+                if (endScreenR in 0 until rows) {
+                    val endX = (maxC + 1) * charWidth
+                    val endY = (endScreenR + 1) * charHeight
+                    drawPinHandle(canvas, endX, endY, isStart = false, radius)
+                }
+            }
+
+            // Draw cursor if at bottom of scrollback and not selecting
+            if (!isSelecting && scrollOffset == 0 && buffer.isCursorVisible) {
                 val cRow = buffer.cursorRow
                 val cCol = buffer.cursorCol
                 if (cRow in 0 until rows && cCol in 0 until cols) {
@@ -192,10 +280,30 @@ class TerminalView @JvmOverloads constructor(
         }
     }
 
+    private fun drawPinHandle(canvas: Canvas, tipX: Float, tipY: Float, isStart: Boolean, radius: Float) {
+        val centerX = if (isStart) tipX - radius * 0.7f else tipX + radius * 0.7f
+        val centerY = tipY + radius
+
+        val path = Path().apply {
+            moveTo(tipX, tipY)
+            lineTo(centerX, centerY - radius * 0.5f)
+            lineTo(if (isStart) tipX else tipX, centerY)
+            close()
+        }
+        canvas.drawPath(path, selectionHandlePaint)
+        canvas.drawCircle(centerX, centerY, radius, selectionHandlePaint)
+        canvas.drawCircle(centerX, centerY, radius, selectionHandleStroke)
+    }
+
     private var downX = 0f
     private var downY = 0f
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (isSelecting) {
+            handleSelectionTouch(event)
+            return true
+        }
+
         gestureDetector.onTouchEvent(event)
         when (event.action) {
             MotionEvent.ACTION_DOWN -> {
@@ -213,6 +321,246 @@ class TerminalView @JvmOverloads constructor(
             }
         }
         return true
+    }
+
+    private fun handleSelectionTouch(event: MotionEvent) {
+        val density = resources.displayMetrics.density
+        val touchTolerance = 40f * density
+        val radius = 13f * density
+
+        val norm = getNormalizedSelection()
+        val minR = norm[0]
+        val minC = norm[1]
+        val maxR = norm[2]
+        val maxC = norm[3]
+
+        val startScreenR = minR + scrollOffset
+        val endScreenR = maxR + scrollOffset
+
+        val startHandleX = minC * charWidth - radius * 0.7f
+        val startHandleY = (startScreenR + 1) * charHeight + radius
+
+        val endHandleX = (maxC + 1) * charWidth + radius * 0.7f
+        val endHandleY = (endScreenR + 1) * charHeight + radius
+
+        when (event.action) {
+            MotionEvent.ACTION_DOWN -> {
+                val distStart = hypot(event.x - startHandleX, event.y - startHandleY)
+                val distEnd = hypot(event.x - endHandleX, event.y - endHandleY)
+
+                activeHandle = if (distStart < touchTolerance) {
+                    ActiveHandle.START
+                } else if (distEnd < touchTolerance) {
+                    ActiveHandle.END
+                } else {
+                    ActiveHandle.NONE
+                }
+
+                if (activeHandle == ActiveHandle.NONE) {
+                    // Tap outside selection handles cancels selection
+                    clearSelection()
+                    requestFocus()
+                    showKeyboard()
+                } else {
+                    hideActionPopup()
+                }
+            }
+            MotionEvent.ACTION_MOVE -> {
+                if (activeHandle == ActiveHandle.START) {
+                    selectStartRow = screenYToBufferRow(event.y)
+                    selectStartCol = screenXToCol(event.x)
+                    invalidate()
+                } else if (activeHandle == ActiveHandle.END) {
+                    selectEndRow = screenYToBufferRow(event.y)
+                    selectEndCol = screenXToCol(event.x)
+                    invalidate()
+                }
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                activeHandle = ActiveHandle.NONE
+                if (isSelecting) {
+                    showActionPopup()
+                }
+            }
+        }
+    }
+
+    private fun screenYToBufferRow(y: Float): Int {
+        val screenRow = (y / charHeight).toInt().coerceIn(0, rows - 1)
+        return screenRow - scrollOffset
+    }
+
+    private fun screenXToCol(x: Float): Int {
+        return (x / charWidth).toInt().coerceIn(0, cols - 1)
+    }
+
+    private fun isCellSelected(bufferRow: Int, col: Int): Boolean {
+        if (!isSelecting) return false
+        val norm = getNormalizedSelection()
+        val minR = norm[0]
+        val minC = norm[1]
+        val maxR = norm[2]
+        val maxC = norm[3]
+
+        if (bufferRow < minR || bufferRow > maxR) return false
+        if (bufferRow == minR && bufferRow == maxR) {
+            return col in minC..maxC
+        }
+        if (bufferRow == minR) return col >= minC
+        if (bufferRow == maxR) return col <= maxC
+        return true
+    }
+
+    private fun getNormalizedSelection(): IntArray {
+        return if (selectStartRow < selectEndRow || (selectStartRow == selectEndRow && selectStartCol <= selectEndCol)) {
+            intArrayOf(selectStartRow, selectStartCol, selectEndRow, selectEndCol)
+        } else {
+            intArrayOf(selectEndRow, selectEndCol, selectStartRow, selectStartCol)
+        }
+    }
+
+    private fun startSelectionAt(x: Float, y: Float) {
+        val buffer = session?.emulator?.buffer ?: return
+        val bufferRow = screenYToBufferRow(y)
+        val col = screenXToCol(x)
+
+        val row = if (bufferRow < 0) {
+            val hIdx = buffer.history.size + bufferRow
+            if (hIdx in 0 until buffer.history.size) buffer.history[hIdx] else null
+        } else if (bufferRow in 0 until rows) {
+            buffer.screen[bufferRow]
+        } else null
+
+        var startC = col
+        var endC = col
+
+        if (row != null && col in 0 until row.cols) {
+            val isWordChar = { c: Char -> c.isLetterOrDigit() || c == '_' || c == '-' || c == '/' || c == '.' }
+            val clickedChar = row.chars[col]
+
+            if (isWordChar(clickedChar)) {
+                while (startC > 0 && isWordChar(row.chars[startC - 1])) {
+                    startC--
+                }
+                while (endC < row.cols - 1 && isWordChar(row.chars[endC + 1])) {
+                    endC++
+                }
+            } else if (clickedChar != ' ') {
+                while (startC > 0 && row.chars[startC - 1] != ' ') {
+                    startC--
+                }
+                while (endC < row.cols - 1 && row.chars[endC + 1] != ' ') {
+                    endC++
+                }
+            }
+        }
+
+        selectStartRow = bufferRow
+        selectStartCol = startC
+        selectEndRow = bufferRow
+        selectEndCol = endC
+        isSelecting = true
+        invalidate()
+        post {
+            showActionPopup()
+        }
+    }
+
+    private fun showActionPopup() {
+        if (!isSelecting || !isAttachedToWindow) return
+        hideActionPopup()
+
+        val layout = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setBackgroundColor(Color.parseColor("#181825"))
+            val pad = (6 * resources.displayMetrics.density).toInt()
+            setPadding(pad, pad, pad, pad)
+            elevation = 16f * resources.displayMetrics.density
+        }
+
+        val createButton = { text: String, onClick: () -> Unit ->
+            TextView(context).apply {
+                this.text = text
+                setTextColor(Color.WHITE)
+                textSize = 13f
+                isAllCaps = true
+                typeface = Typeface.DEFAULT_BOLD
+                val hPad = (14 * resources.displayMetrics.density).toInt()
+                val vPad = (10 * resources.displayMetrics.density).toInt()
+                setPadding(hPad, vPad, hPad, vPad)
+                setBackgroundResource(android.R.drawable.list_selector_background)
+                setOnClickListener { onClick() }
+            }
+        }
+
+        val btnCopy = createButton("Copy") {
+            val norm = getNormalizedSelection()
+            val text = session?.emulator?.buffer?.getSelectedText(norm[0], norm[1], norm[2], norm[3]) ?: ""
+            if (text.isNotEmpty()) {
+                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                clipboard.setPrimaryClip(ClipData.newPlainText("Cortex", text))
+                Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
+            }
+            clearSelection()
+        }
+
+        val btnPaste = createButton("Paste") {
+            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            val item = clipboard.primaryClip?.getItemAt(0)
+            val text = item?.coerceToText(context)?.toString() ?: ""
+            if (text.isNotEmpty()) {
+                session?.write(text)
+                scrollOffset = 0
+                invalidate()
+            }
+            clearSelection()
+        }
+
+        val btnSelectAll = createButton("Select All") {
+            val histSize = session?.emulator?.buffer?.history?.size ?: 0
+            selectStartRow = -histSize
+            selectStartCol = 0
+            selectEndRow = rows - 1
+            selectEndCol = cols - 1
+            invalidate()
+            post {
+                showActionPopup()
+            }
+        }
+
+        layout.addView(btnCopy)
+        layout.addView(btnPaste)
+        layout.addView(btnSelectAll)
+
+        val popup = PopupWindow(layout, ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, false).apply {
+            isOutsideTouchable = false
+        }
+        actionPopup = popup
+
+        val norm = getNormalizedSelection()
+        val startScreenR = (norm[0] + scrollOffset).coerceIn(0, rows - 1)
+        val popupX = (norm[1] * charWidth).toInt().coerceIn(20, max(20, width - 260))
+        val popupY = ((startScreenR * charHeight) - 56 * resources.displayMetrics.density).toInt().coerceAtLeast(10)
+
+        popup.showAtLocation(this, Gravity.NO_GRAVITY, popupX, popupY)
+    }
+
+    fun hideActionPopup() {
+        actionPopup?.dismiss()
+        actionPopup = null
+    }
+
+    fun clearSelection() {
+        if (isSelecting) {
+            isSelecting = false
+            hideActionPopup()
+            invalidate()
+        }
+    }
+
+    override fun onDetachedFromWindow() {
+        hideActionPopup()
+        super.onDetachedFromWindow()
     }
 
     fun showKeyboard() {
@@ -245,6 +593,7 @@ class TerminalView @JvmOverloads constructor(
             private var composingLength = 0
 
             override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
+                clearSelection()
                 composingLength = 0
                 if (!text.isNullOrEmpty()) {
                     for (i in 0 until text.length) {
@@ -255,6 +604,7 @@ class TerminalView @JvmOverloads constructor(
             }
 
             override fun setComposingText(text: CharSequence?, newCursorPosition: Int): Boolean {
+                clearSelection()
                 val str = text?.toString() ?: ""
                 for (i in 0 until composingLength) {
                     sendKeySequence(KeyEvent.KEYCODE_DEL)
@@ -274,6 +624,7 @@ class TerminalView @JvmOverloads constructor(
             }
 
             override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
+                clearSelection()
                 if (beforeLength == 0 && afterLength == 0) {
                     sendKeySequence(KeyEvent.KEYCODE_DEL)
                 } else {
@@ -285,12 +636,14 @@ class TerminalView @JvmOverloads constructor(
             }
 
             override fun performEditorAction(actionCode: Int): Boolean {
+                clearSelection()
                 sendKeySequence(KeyEvent.KEYCODE_ENTER)
                 return true
             }
 
             override fun sendKeyEvent(event: KeyEvent): Boolean {
                 if (event.action == KeyEvent.ACTION_DOWN) {
+                    clearSelection()
                     return onKeyDown(event.keyCode, event)
                 }
                 return true
@@ -299,6 +652,8 @@ class TerminalView @JvmOverloads constructor(
     }
 
     fun sendChar(ch: Char) {
+        clearSelection()
+        scrollOffset = 0
         val bytes = KeyMapper.getCharBytes(ch, isCtrlPressed, isAltPressed)
         session?.write(bytes)
         isCtrlPressed = false
@@ -306,6 +661,8 @@ class TerminalView @JvmOverloads constructor(
     }
 
     fun sendKeySequence(keyCode: Int): Boolean {
+        clearSelection()
+        scrollOffset = 0
         val bytes = KeyMapper.getEscapeSequence(keyCode, isCtrlPressed, isAltPressed)
         return if (bytes != null) {
             session?.write(bytes)
@@ -318,6 +675,8 @@ class TerminalView @JvmOverloads constructor(
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        clearSelection()
+        scrollOffset = 0
         if (sendKeySequence(keyCode)) {
             return true
         }

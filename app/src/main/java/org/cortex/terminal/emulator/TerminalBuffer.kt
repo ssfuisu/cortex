@@ -26,17 +26,59 @@ class TerminalBuffer(var rows: Int, var cols: Int, private val maxHistory: Int =
 
     fun resize(newRows: Int, newCols: Int) {
         if (newRows == rows && newCols == cols) return
+        if (newRows <= 0 || newCols <= 0) return
+
         val newScreen = Array(newRows) { TerminalRow(newCols) }
-        val copyRows = minOf(rows, newRows)
-        for (r in 0 until copyRows) {
-            newScreen[r].copyFrom(screen[r])
+
+        if (newRows < rows) {
+            // Screen shrunk (keyboard shown). Preserve cursorRow and active lines above it.
+            val linesToShift = if (cursorRow >= newRows) cursorRow - newRows + 1 else 0
+
+            // Push lines above visible area to history so they are not lost
+            if (!isAlternate) {
+                for (r in 0 until linesToShift) {
+                    val hRow = TerminalRow(cols)
+                    hRow.copyFrom(screen[r])
+                    history.addLast(hRow)
+                    if (history.size > maxHistory) {
+                        history.removeFirst()
+                    }
+                }
+            }
+
+            // Copy lines into new screen
+            for (r in 0 until newRows) {
+                val srcR = r + linesToShift
+                if (srcR in 0 until rows) {
+                    newScreen[r].copyFrom(screen[srcR])
+                }
+            }
+
+            cursorRow = (cursorRow - linesToShift).coerceIn(0, newRows - 1)
+        } else {
+            // Screen expanded (keyboard dismissed).
+            val linesToAdd = newRows - rows
+            val restoredCount = if (!isAlternate) minOf(linesToAdd, history.size) else 0
+
+            // Restore lines from history to the top of new screen
+            for (r in 0 until restoredCount) {
+                val hRow = history.removeLast()
+                newScreen[restoredCount - 1 - r].copyFrom(hRow)
+            }
+
+            // Copy existing screen lines below restored lines
+            for (r in 0 until rows) {
+                newScreen[r + restoredCount].copyFrom(screen[r])
+            }
+
+            cursorRow = (cursorRow + restoredCount).coerceIn(0, newRows - 1)
         }
+
         screen = newScreen
         rows = newRows
         cols = newCols
         scrollTop = 0
         scrollBottom = rows - 1
-        cursorRow = cursorRow.coerceIn(0, rows - 1)
         cursorCol = cursorCol.coerceIn(0, cols - 1)
     }
 
@@ -171,7 +213,12 @@ class TerminalBuffer(var rows: Int, var cols: Int, private val maxHistory: Int =
         }
     }
 
-    fun getSelectedText(startRow: Int, startCol: Int, endRow: Int, endCol: Int): String {
+    fun getSelectedText(r1: Int, c1: Int, r2: Int, c2: Int): String {
+        val (startRow, startCol, endRow, endCol) = if (r1 < r2 || (r1 == r2 && c1 <= c2)) {
+            listOf(r1, c1, r2, c2)
+        } else {
+            listOf(r2, c2, r1, c1)
+        }
         val sb = StringBuilder()
         for (r in startRow..endRow) {
             val row = (if (r < 0) {
@@ -189,6 +236,6 @@ class TerminalBuffer(var rows: Int, var cols: Int, private val maxHistory: Int =
             }
             if (r != endRow) sb.append("\n")
         }
-        return sb.toString()
+        return sb.toString().trimEnd()
     }
 }
