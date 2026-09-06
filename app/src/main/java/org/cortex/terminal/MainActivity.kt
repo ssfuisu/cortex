@@ -7,18 +7,29 @@ import android.widget.Button
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.GravityCompat
+import androidx.drawerlayout.widget.DrawerLayout
 import androidx.preference.PreferenceManager
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
+import org.cortex.terminal.session.SessionAdapter
 import org.cortex.terminal.session.SessionManager
 import org.cortex.terminal.view.ExtraKeysView
 import org.cortex.terminal.view.TerminalView
 
 class MainActivity : AppCompatActivity() {
 
+    private lateinit var drawerLayout: DrawerLayout
     private lateinit var terminalView: TerminalView
     private lateinit var extraKeysView: ExtraKeysView
     private lateinit var appTitle: TextView
-    private lateinit var btnNewTab: Button
+    private lateinit var btnMenu: TextView
     private lateinit var btnSettings: Button
+
+    private lateinit var sessionRecyclerView: RecyclerView
+    private lateinit var sessionAdapter: SessionAdapter
+    private lateinit var btnDrawerKeyboard: Button
+    private lateinit var btnDrawerNewSession: Button
 
     private lateinit var sessionManager: SessionManager
 
@@ -26,15 +37,58 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
+        drawerLayout = findViewById(R.id.drawerLayout)
         terminalView = findViewById(R.id.terminalView)
         extraKeysView = findViewById(R.id.extraKeysView)
         appTitle = findViewById(R.id.appTitle)
-        btnNewTab = findViewById(R.id.btnNewTab)
+        btnMenu = findViewById(R.id.btnMenu)
         btnSettings = findViewById(R.id.btnSettings)
 
+        sessionRecyclerView = findViewById(R.id.sessionRecyclerView)
+        btnDrawerKeyboard = findViewById(R.id.btnDrawerKeyboard)
+        btnDrawerNewSession = findViewById(R.id.btnDrawerNewSession)
+
         extraKeysView.terminalView = terminalView
+        extraKeysView.onMenuClick = {
+            if (drawerLayout.isDrawerOpen(GravityCompat.START)) {
+                drawerLayout.closeDrawer(GravityCompat.START)
+            } else {
+                drawerLayout.openDrawer(GravityCompat.START)
+            }
+        }
+
+        btnMenu.setOnClickListener {
+            if (drawerLayout.isDrawerOpen(GravityCompat.START)) {
+                drawerLayout.closeDrawer(GravityCompat.START)
+            } else {
+                drawerLayout.openDrawer(GravityCompat.START)
+            }
+        }
+
+        btnSettings.setOnClickListener {
+            startActivity(Intent(this, SettingsActivity::class.java))
+        }
 
         sessionManager = SessionManager(this)
+
+        sessionAdapter = SessionAdapter(
+            sessionManager = sessionManager,
+            onSelect = { index ->
+                sessionManager.switchTo(index)
+                drawerLayout.closeDrawer(GravityCompat.START)
+            },
+            onClose = { index ->
+                val session = sessionManager.sessions.getOrNull(index)
+                if (session != null) {
+                    sessionManager.removeSession(session)
+                    sessionAdapter.notifyDataSetChanged()
+                }
+            }
+        )
+
+        sessionRecyclerView.layoutManager = LinearLayoutManager(this)
+        sessionRecyclerView.adapter = sessionAdapter
+
         sessionManager.onSessionChanged = { session ->
             runOnUiThread {
                 if (session == null) {
@@ -44,21 +98,29 @@ class MainActivity : AppCompatActivity() {
                     val tabNum = sessionManager.currentSessionIndex + 1
                     val totalTabs = sessionManager.sessions.size
                     appTitle.text = "Cortex [$tabNum/$totalTabs]"
+                    sessionAdapter.notifyDataSetChanged()
                     terminalView.invalidate()
                 }
             }
         }
 
-        btnNewTab.setOnClickListener {
-            createNewSession()
+        btnDrawerKeyboard.setOnClickListener {
+            drawerLayout.closeDrawer(GravityCompat.START)
+            terminalView.showKeyboard()
         }
 
-        btnSettings.setOnClickListener {
-            startActivity(Intent(this, SettingsActivity::class.java))
+        btnDrawerNewSession.setOnClickListener {
+            createNewSession()
+            drawerLayout.closeDrawer(GravityCompat.START)
         }
 
         applyPreferences()
         createNewSession()
+
+        // Focus and request keyboard on start
+        terminalView.post {
+            terminalView.showKeyboard()
+        }
     }
 
     override fun onResume() {
@@ -95,13 +157,20 @@ class MainActivity : AppCompatActivity() {
         val tabNum = sessionManager.currentSessionIndex + 1
         val totalTabs = sessionManager.sessions.size
         appTitle.text = "Cortex [$tabNum/$totalTabs]"
+        sessionAdapter.notifyDataSetChanged()
     }
 
     override fun onBackPressed() {
+        if (drawerLayout.isDrawerOpen(GravityCompat.START)) {
+            drawerLayout.closeDrawer(GravityCompat.START)
+            return
+        }
+
         if (sessionManager.sessions.size > 1) {
             val current = sessionManager.currentSession
             if (current != null) {
                 sessionManager.removeSession(current)
+                sessionAdapter.notifyDataSetChanged()
                 return
             }
         }

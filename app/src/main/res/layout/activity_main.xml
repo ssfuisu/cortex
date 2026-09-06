@@ -1,63 +1,139 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<androidx.drawerlayout.widget.DrawerLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/drawerLayout"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
     android:background="#181825">
 
-    <!-- Top Action Toolbar -->
+    <!-- Main Terminal Interface -->
     <LinearLayout
-        android:id="@+id/topBar"
         android:layout_width="match_parent"
-        android:layout_height="44dp"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:background="#11111b"
-        android:paddingStart="12dp"
-        android:paddingEnd="12dp">
+        android:layout_height="match_parent"
+        android:orientation="vertical">
 
-        <TextView
-            android:id="@+id/appTitle"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="Cortex"
-            android:textColor="#cdd6f4"
-            android:textStyle="bold"
-            android:textSize="16sp" />
+        <!-- Top Action Bar -->
+        <LinearLayout
+            android:id="@+id/topBar"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:background="#11111b"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp">
 
-        <Button
-            android:id="@+id/btnNewTab"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
-            android:text="+"
-            android:textColor="#cdd6f4"
-            android:background="#1e1e2e"
-            android:textSize="16sp"
-            android:layout_marginEnd="8dp" />
+            <TextView
+                android:id="@+id/btnMenu"
+                android:layout_width="38dp"
+                android:layout_height="38dp"
+                android:gravity="center"
+                android:text="☰"
+                android:textColor="#cdd6f4"
+                android:textSize="20sp"
+                android:textStyle="bold"
+                android:background="?attr/selectableItemBackgroundBorderless" />
 
-        <Button
-            android:id="@+id/btnSettings"
-            android:layout_width="wrap_content"
-            android:layout_height="36dp"
-            android:text="Setup"
-            android:textAllCaps="false"
-            android:textColor="#cdd6f4"
-            android:background="#1e1e2e"
-            android:textSize="12sp" />
+            <TextView
+                android:id="@+id/appTitle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="8dp"
+                android:text="Cortex"
+                android:textColor="#ffffff"
+                android:textStyle="bold"
+                android:textSize="15sp" />
+
+            <Button
+                android:id="@+id/btnSettings"
+                android:layout_width="wrap_content"
+                android:layout_height="34dp"
+                android:text="Setup"
+                android:textAllCaps="false"
+                android:textColor="#89b4fa"
+                android:background="@drawable/key_button_bg"
+                android:textSize="12sp"
+                android:paddingStart="14dp"
+                android:paddingEnd="14dp" />
+        </LinearLayout>
+
+        <!-- Terminal Display Surface -->
+        <org.cortex.terminal.view.TerminalView
+            android:id="@+id/terminalView"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1" />
+
+        <!-- 2-Row Extra Keys Keyboard Toolbar -->
+        <org.cortex.terminal.view.ExtraKeysView
+            android:id="@+id/extraKeysView"
+            android:layout_width="match_parent"
+            android:layout_height="76dp" />
+
     </LinearLayout>
 
-    <!-- Terminal Display Area -->
-    <org.cortex.terminal.view.TerminalView
-        android:id="@+id/terminalView"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1" />
+    <!-- Termux-Style Left Sessions Navigation Drawer -->
+    <LinearLayout
+        android:id="@+id/navDrawer"
+        android:layout_width="280dp"
+        android:layout_height="match_parent"
+        android:layout_gravity="start"
+        android:orientation="vertical"
+        android:background="#11111b"
+        android:padding="16dp">
 
-    <!-- Keyboard Toolbar -->
-    <org.cortex.terminal.view.ExtraKeysView
-        android:id="@+id/extraKeysView"
-        android:layout_width="match_parent"
-        android:layout_height="48dp" />
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="CORTEX"
+            android:textColor="#89b4fa"
+            android:textSize="18sp"
+            android:textStyle="bold" />
 
-</LinearLayout>
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Active Sessions"
+            android:textColor="#a6adc8"
+            android:textSize="12sp"
+            android:layout_marginBottom="16dp" />
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/sessionRecyclerView"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1" />
+
+        <!-- Drawer Bottom Action Controls -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginTop="12dp">
+
+            <Button
+                android:id="@+id/btnDrawerKeyboard"
+                android:layout_width="match_parent"
+                android:layout_height="42dp"
+                android:text="KEYBOARD"
+                android:textColor="#cdd6f4"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:background="@drawable/key_button_bg"
+                android:layout_marginBottom="8dp" />
+
+            <Button
+                android:id="@+id/btnDrawerNewSession"
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:text="+ NEW SESSION"
+                android:textColor="#181825"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:background="@drawable/key_button_active" />
+        </LinearLayout>
+
+    </LinearLayout>
+
+</androidx.drawerlayout.widget.DrawerLayout>

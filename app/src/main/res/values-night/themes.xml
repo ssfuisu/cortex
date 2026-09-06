@@ -1,11 +1,46 @@
 <resources>
-    <style name="Theme.Cortex" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+    <!-- Base Material 3 Dark Application Theme -->
+    <style name="Theme.Cortex" parent="Theme.Material3.Dark.NoActionBar">
         <item name="colorPrimary">@color/cortex_primary</item>
-        <item name="colorPrimaryVariant">@color/cortex_surface</item>
         <item name="colorOnPrimary">@color/cortex_bg</item>
+        <item name="colorPrimaryContainer">@color/cortex_surface</item>
+        <item name="colorOnPrimaryContainer">@color/cortex_fg</item>
+
         <item name="colorSecondary">@color/cortex_secondary</item>
-        <item name="android:statusBarColor">@color/cortex_bar</item>
-        <item name="android:navigationBarColor">@color/cortex_bar</item>
+        <item name="colorOnSecondary">@color/cortex_bg</item>
+
+        <item name="colorSurface">@color/cortex_surface</item>
+        <item name="colorOnSurface">@color/cortex_fg</item>
+        <item name="colorSurfaceVariant">@color/cortex_surface</item>
+        <item name="colorOnSurfaceVariant">#a6adc8</item>
+
+        <item name="android:textColor">#ffffff</item>
+        <item name="android:textColorPrimary">#ffffff</item>
+        <item name="android:textColorSecondary">#a6adc8</item>
+        <item name="android:textColorTertiary">#9399b2</item>
+
         <item name="android:windowBackground">@color/cortex_bg</item>
+        <item name="android:statusBarColor">#11111b</item>
+        <item name="android:navigationBarColor">#11111b</item>
+
+        <!-- Material 3 Preferences Dark Theme -->
+        <item name="preferenceTheme">@style/PreferenceThemeOverlay</item>
+    </style>
+
+    <!-- Specific theme for SettingsActivity with Toolbar -->
+    <style name="Theme.Cortex.Settings" parent="Theme.Material3.Dark">
+        <item name="colorPrimary">@color/cortex_primary</item>
+        <item name="colorOnPrimary">@color/cortex_bg</item>
+        <item name="colorSurface">@color/cortex_surface</item>
+        <item name="colorOnSurface">#ffffff</item>
+
+        <item name="android:textColor">#ffffff</item>
+        <item name="android:textColorPrimary">#ffffff</item>
+        <item name="android:textColorSecondary">#a6adc8</item>
+
+        <item name="android:windowBackground">@color/cortex_bg</item>
+        <item name="android:statusBarColor">#11111b</item>
+        <item name="android:navigationBarColor">#11111b</item>
+        <item name="preferenceTheme">@style/PreferenceThemeOverlay</item>
     </style>
 </resources>

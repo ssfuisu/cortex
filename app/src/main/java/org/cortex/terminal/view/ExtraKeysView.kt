@@ -2,69 +2,84 @@ package org.cortex.terminal.view
 
 import android.content.Context
 import android.graphics.Color
+import android.graphics.Typeface
 import android.util.AttributeSet
 import android.view.Gravity
 import android.view.KeyEvent
 import android.widget.Button
-import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
+import org.cortex.terminal.R
 
 class ExtraKeysView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
     defStyleAttr: Int = 0
-) : HorizontalScrollView(context, attrs, defStyleAttr) {
-
-    private val container = LinearLayout(context).apply {
-        orientation = LinearLayout.HORIZONTAL
-        gravity = Gravity.CENTER_VERTICAL
-    }
+) : LinearLayout(context, attrs, defStyleAttr) {
 
     var terminalView: TerminalView? = null
+    var onMenuClick: (() -> Unit)? = null
 
     private var ctrlButton: Button? = null
     private var altButton: Button? = null
 
     init {
-        isHorizontalScrollBarEnabled = false
-        setBackgroundColor(Color.parseColor("#11111b"))
-        addView(container)
-        populateButtons()
+        orientation = VERTICAL
+        setBackgroundColor(Color.parseColor("#000000"))
+        buildLayout()
     }
 
-    private fun populateButtons() {
-        val keys = listOf(
+    private fun buildLayout() {
+        val row1Keys = listOf(
             "ESC" to { terminalView?.sendKeySequence(KeyEvent.KEYCODE_ESCAPE) },
-            "TAB" to { terminalView?.sendKeySequence(KeyEvent.KEYCODE_TAB) },
+            "☰" to { onMenuClick?.invoke() },
+            "↕" to { terminalView?.sendKeySequence(KeyEvent.KEYCODE_PAGE_DOWN) },
+            "HOME" to { terminalView?.sendKeySequence(KeyEvent.KEYCODE_MOVE_HOME) },
+            "↑" to { terminalView?.sendKeySequence(KeyEvent.KEYCODE_DPAD_UP) },
+            "END" to { terminalView?.sendKeySequence(KeyEvent.KEYCODE_MOVE_END) },
+            "PGUP" to { terminalView?.sendKeySequence(KeyEvent.KEYCODE_PAGE_UP) }
+        )
+
+        val row2Keys = listOf(
+            "⇆" to { terminalView?.sendKeySequence(KeyEvent.KEYCODE_TAB) },
             "CTRL" to { toggleCtrl() },
             "ALT" to { toggleAlt() },
-            "-" to { terminalView?.sendChar('-') },
-            "/" to { terminalView?.sendChar('/') },
-            "|" to { terminalView?.sendChar('|') },
-            "~" to { terminalView?.sendChar('~') },
-            "UP" to { terminalView?.sendKeySequence(KeyEvent.KEYCODE_DPAD_UP) },
-            "DOWN" to { terminalView?.sendKeySequence(KeyEvent.KEYCODE_DPAD_DOWN) },
-            "LEFT" to { terminalView?.sendKeySequence(KeyEvent.KEYCODE_DPAD_LEFT) },
-            "RIGHT" to { terminalView?.sendKeySequence(KeyEvent.KEYCODE_DPAD_RIGHT) }
+            "←" to { terminalView?.sendKeySequence(KeyEvent.KEYCODE_DPAD_LEFT) },
+            "↓" to { terminalView?.sendKeySequence(KeyEvent.KEYCODE_DPAD_DOWN) },
+            "→" to { terminalView?.sendKeySequence(KeyEvent.KEYCODE_DPAD_RIGHT) },
+            "PGDN" to { terminalView?.sendKeySequence(KeyEvent.KEYCODE_PAGE_DOWN) }
         )
+
+        addView(createRow(row1Keys))
+        addView(createRow(row2Keys))
+    }
+
+    private fun createRow(keys: List<Pair<String, () -> Unit>>): LinearLayout {
+        val rowLayout = LinearLayout(context).apply {
+            orientation = HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            layoutParams = LayoutParams(
+                LayoutParams.MATCH_PARENT,
+                (38 * resources.displayMetrics.density).toInt()
+            )
+        }
+
+        val marginPx = (2 * resources.displayMetrics.density).toInt()
 
         for ((label, action) in keys) {
             val btn = Button(context).apply {
                 text = label
-                textSize = 12f
-                setTextColor(Color.parseColor("#cdd6f4"))
-                setBackgroundColor(Color.parseColor("#1e1e2e"))
-                val pad = (8 * resources.displayMetrics.density).toInt()
-                setPadding(pad, 0, pad, 0)
-                val params = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                    (36 * resources.displayMetrics.density).toInt()
-                ).apply {
-                    val margin = (4 * resources.displayMetrics.density).toInt()
-                    setMargins(margin, margin, margin, margin)
+                textSize = if (label.length > 3) 10f else 12f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(Color.parseColor("#ffffff"))
+                setBackgroundResource(R.drawable.key_button_bg)
+                isAllCaps = false
+                gravity = Gravity.CENTER
+                setPadding(0, 0, 0, 0)
+
+                val params = LayoutParams(0, LayoutParams.MATCH_PARENT, 1f).apply {
+                    setMargins(marginPx, marginPx, marginPx, marginPx)
                 }
                 layoutParams = params
-                isAllCaps = false
 
                 setOnClickListener {
                     action()
@@ -74,8 +89,10 @@ class ExtraKeysView @JvmOverloads constructor(
             if (label == "CTRL") ctrlButton = btn
             if (label == "ALT") altButton = btn
 
-            container.addView(btn)
+            rowLayout.addView(btn)
         }
+
+        return rowLayout
     }
 
     private fun toggleCtrl() {
@@ -92,18 +109,25 @@ class ExtraKeysView @JvmOverloads constructor(
 
     fun updateModifierStyles() {
         val view = terminalView ?: return
-        ctrlButton?.setBackgroundColor(
-            if (view.isCtrlPressed) Color.parseColor("#f38ba8") else Color.parseColor("#1e1e2e")
-        )
-        ctrlButton?.setTextColor(
-            if (view.isCtrlPressed) Color.parseColor("#11111b") else Color.parseColor("#cdd6f4")
-        )
 
-        altButton?.setBackgroundColor(
-            if (view.isAltPressed) Color.parseColor("#a6e3a1") else Color.parseColor("#1e1e2e")
-        )
-        altButton?.setTextColor(
-            if (view.isAltPressed) Color.parseColor("#11111b") else Color.parseColor("#cdd6f4")
-        )
+        ctrlButton?.let { btn ->
+            if (view.isCtrlPressed) {
+                btn.setBackgroundResource(R.drawable.key_button_active)
+                btn.setTextColor(Color.parseColor("#181825"))
+            } else {
+                btn.setBackgroundResource(R.drawable.key_button_bg)
+                btn.setTextColor(Color.parseColor("#ffffff"))
+            }
+        }
+
+        altButton?.let { btn ->
+            if (view.isAltPressed) {
+                btn.setBackgroundResource(R.drawable.key_button_active)
+                btn.setTextColor(Color.parseColor("#181825"))
+            } else {
+                btn.setBackgroundResource(R.drawable.key_button_bg)
+                btn.setTextColor(Color.parseColor("#ffffff"))
+            }
+        }
     }
 }
