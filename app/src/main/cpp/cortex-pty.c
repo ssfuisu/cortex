@@ -275,3 +275,170 @@ Java_org_cortex_terminal_pty_PtyNative_closeFd(
         close(fd);
     }
 }
+
+static void mkdirs_for_path(const char *path) {
+    char temp[PATH_MAX];
+    strncpy(temp, path, sizeof(temp) - 1);
+    temp[sizeof(temp) - 1] = '\0';
+    for (char *p = temp + 1; *p; p++) {
+        if (*p == '/') {
+            *p = '\0';
+            mkdir(temp, 0755);
+            *p = '/';
+        }
+    }
+}
+
+static int extract_tar_archive(const char *tar_path, const char *dest_dir) {
+    int fd = open(tar_path, O_RDONLY);
+    if (fd < 0) return -1;
+
+    char block[512];
+    char long_name[PATH_MAX] = {0};
+    char long_link[PATH_MAX] = {0};
+
+    while (read(fd, block, 512) == 512) {
+        int all_zero = 1;
+        for (int i = 0; i < 512; i++) {
+            if (block[i] != 0) { all_zero = 0; break; }
+        }
+        if (all_zero) break;
+
+        char name[PATH_MAX] = {0};
+        char linkname[PATH_MAX] = {0};
+
+        if (long_name[0] != '\0') {
+            strncpy(name, long_name, sizeof(name) - 1);
+            long_name[0] = '\0';
+        } else {
+            if (strncmp(block + 257, "ustar", 5) == 0 && block[345] != '\0') {
+                snprintf(name, sizeof(name), "%.155s/%.100s", block + 345, block);
+            } else {
+                snprintf(name, sizeof(name), "%.100s", block);
+            }
+        }
+
+        if (long_link[0] != '\0') {
+            strncpy(linkname, long_link, sizeof(linkname) - 1);
+            long_link[0] = '\0';
+        } else {
+            snprintf(linkname, sizeof(linkname), "%.100s", block + 157);
+        }
+
+        unsigned long mode = strtoul(block + 100, NULL, 8);
+        if (mode == 0) mode = 0755;
+        unsigned long long size = strtoull(block + 124, NULL, 8);
+        char typeflag = block[156];
+
+        if (typeflag == 'L') {
+            unsigned long long rem = size;
+            size_t pos = 0;
+            while (rem > 0) {
+                char dblock[512];
+                ssize_t n = read(fd, dblock, 512);
+                if (n <= 0) break;
+                size_t chunk = (rem < 512) ? rem : 512;
+                if (pos + chunk < sizeof(long_name)) {
+                    memcpy(long_name + pos, dblock, chunk);
+                    pos += chunk;
+                }
+                rem -= (rem < 512) ? rem : 512;
+            }
+            long_name[pos] = '\0';
+            continue;
+        }
+
+        if (typeflag == 'K') {
+            unsigned long long rem = size;
+            size_t pos = 0;
+            while (rem > 0) {
+                char dblock[512];
+                ssize_t n = read(fd, dblock, 512);
+                if (n <= 0) break;
+                size_t chunk = (rem < 512) ? rem : 512;
+                if (pos + chunk < sizeof(long_link)) {
+                    memcpy(long_link + pos, dblock, chunk);
+                    pos += chunk;
+                }
+                rem -= (rem < 512) ? rem : 512;
+            }
+            long_link[pos] = '\0';
+            continue;
+        }
+
+        if (typeflag == 'x' || typeflag == 'g') {
+            unsigned long long rem = size;
+            while (rem > 0) {
+                char dblock[512];
+                ssize_t n = read(fd, dblock, 512);
+                if (n <= 0) break;
+                rem -= (rem < 512) ? rem : 512;
+            }
+            continue;
+        }
+
+        const char *rel = name;
+        while (*rel == '.' || *rel == '/') rel++;
+        if (*rel == '\0') continue;
+
+        char dest_path[PATH_MAX];
+        snprintf(dest_path, sizeof(dest_path), "%s/%s", dest_dir, rel);
+
+        mkdirs_for_path(dest_path);
+
+        if (typeflag == '5' || (typeflag == '\0' && name[strlen(name) - 1] == '/')) {
+            mkdir(dest_path, mode & 0777);
+            chmod(dest_path, (mode & 0777) | 0700);
+        } else if (typeflag == '2') {
+            unlink(dest_path);
+            symlink(linkname, dest_path);
+        } else if (typeflag == '1') {
+            char target_path[PATH_MAX];
+            const char *lrel = linkname;
+            while (*lrel == '.' || *lrel == '/') lrel++;
+            snprintf(target_path, sizeof(target_path), "%s/%s", dest_dir, lrel);
+            unlink(dest_path);
+            link(target_path, dest_path);
+        } else {
+            unlink(dest_path);
+            int out_fd = open(dest_path, O_WRONLY | O_CREAT | O_TRUNC, (mode & 0777) | 0600);
+            unsigned long long rem = size;
+            while (rem > 0) {
+                char dblock[512];
+                ssize_t n = read(fd, dblock, 512);
+                if (n <= 0) break;
+                size_t chunk = (rem < 512) ? rem : 512;
+                if (out_fd >= 0) {
+                    ssize_t written = write(out_fd, dblock, chunk);
+                    (void)written;
+                }
+                rem -= (rem < 512) ? rem : 512;
+            }
+            if (out_fd >= 0) {
+                close(out_fd);
+                chmod(dest_path, mode & 0777);
+            }
+        }
+    }
+
+    close(fd);
+    return 0;
+}
+
+JNIEXPORT jint JNICALL
+Java_org_cortex_terminal_pty_PtyNative_extractTar(
+    JNIEnv *env,
+    jclass clazz,
+    jstring tarPathStr,
+    jstring destDirStr
+) {
+    (void)clazz;
+    const char *tarPath = (*env)->GetStringUTFChars(env, tarPathStr, NULL);
+    const char *destDir = (*env)->GetStringUTFChars(env, destDirStr, NULL);
+
+    int res = extract_tar_archive(tarPath, destDir);
+
+    (*env)->ReleaseStringUTFChars(env, tarPathStr, tarPath);
+    (*env)->ReleaseStringUTFChars(env, destDirStr, destDir);
+    return res;
+}

@@ -34,4 +34,7 @@ object PtyNative {
 
     @JvmStatic
     external fun closeFd(fd: Int)
+
+    @JvmStatic
+    external fun extractTar(tarPath: String, destDir: String): Int
 }
