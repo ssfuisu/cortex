@@ -1,0 +1,11 @@
+<resources>
+    <style name="Theme.Cortex" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/cortex_primary</item>
+        <item name="colorPrimaryVariant">@color/cortex_surface</item>
+        <item name="colorOnPrimary">@color/cortex_bg</item>
+        <item name="colorSecondary">@color/cortex_secondary</item>
+        <item name="android:statusBarColor">@color/cortex_bar</item>
+        <item name="android:navigationBarColor">@color/cortex_bar</item>
+        <item name="android:windowBackground">@color/cortex_bg</item>
+    </style>
+</resources>

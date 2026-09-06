@@ -1,0 +1,135 @@
+name: Build and Release Cortex APKs
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build Signed APKs
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Accept Android SDK Licenses
+        run: |
+          yes | sdkmanager --licenses || true
+
+      - name: Install Android NDK and CMake
+        run: |
+          sdkmanager --install "ndk;26.1.10909125" "cmake;3.22.1"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Prepare Gradle Wrapper
+        run: |
+          if [ ! -f gradle/wrapper/gradle-wrapper.jar ]; then
+            curl -sLo gradle/wrapper/gradle-wrapper.jar https://raw.githubusercontent.com/gradle/gradle/v8.7.0/gradle/wrapper/gradle-wrapper.jar || gradle wrapper --gradle-version 8.7 || true
+          fi
+          chmod +x gradlew
+
+      - name: Generate Release Signing Key
+        run: |
+          keytool -genkeypair -v \
+            -keystore /tmp/cortex-release.keystore \
+            -alias cortex \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -storepass cortex123 \
+            -keypass cortex123 \
+            -dname "CN=Cortex, OU=Terminal, O=Cortex, C=US"
+
+      - name: Build Release APKs
+        run: |
+          ./gradlew assembleRelease --stacktrace
+
+      - name: Sign and Align APKs
+        run: |
+          BUILD_TOOLS_DIR=$(ls -d $ANDROID_HOME/build-tools/* | tail -n 1)
+          APKSIGNER="$BUILD_TOOLS_DIR/apksigner"
+          
+          mkdir -p release-apks
+
+          # Locate 64-bit APK
+          ARM64_RAW=$(find app/build/outputs/apk/release -name "*arm64-v8a*.apk" | head -n 1)
+          # Locate 32-bit APK
+          ARM32_RAW=$(find app/build/outputs/apk/release -name "*armeabi-v7a*.apk" | head -n 1)
+
+          echo "Found 64-bit APK: $ARM64_RAW"
+          echo "Found 32-bit APK: $ARM32_RAW"
+
+          # Sign 64-bit APK
+          $APKSIGNER sign \
+            --ks /tmp/cortex-release.keystore \
+            --ks-pass pass:cortex123 \
+            --key-pass pass:cortex123 \
+            --out release-apks/Cortex-arm64-v8a-signed.apk \
+            "$ARM64_RAW"
+
+          # Sign 32-bit APK
+          $APKSIGNER sign \
+            --ks /tmp/cortex-release.keystore \
+            --ks-pass pass:cortex123 \
+            --key-pass pass:cortex123 \
+            --out release-apks/Cortex-armeabi-v7a-signed.apk \
+            "$ARM32_RAW"
+
+          # Verify Signatures
+          $APKSIGNER verify release-apks/Cortex-arm64-v8a-signed.apk
+          $APKSIGNER verify release-apks/Cortex-armeabi-v7a-signed.apk
+
+          echo "APKs signed and verified successfully."
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: cortex-release-apks
+          path: release-apks/*.apk
+
+      - name: Create GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="v1.0.${{ github.run_number }}"
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            VERSION="${{ github.ref_name }}"
+          fi
+
+          NOTES="Cortex Release $VERSION
+
+          Signed Android Release Packages:
+          - Cortex-arm64-v8a-signed.apk (64-bit ARM devices)
+          - Cortex-armeabi-v7a-signed.apk (32-bit ARM devices)
+
+          Features:
+          - Native Linux PTY execution without root
+          - Zero-overhead LD_PRELOAD path redirection (no PRoot ptrace penalty)
+          - Full ANSI/256-color terminal support
+          - Extra keys toolbar and multi-tab session management"
+
+          gh release create "$VERSION" \
+            release-apks/Cortex-arm64-v8a-signed.apk \
+            release-apks/Cortex-armeabi-v7a-signed.apk \
+            --title "Cortex Release $VERSION" \
+            --notes "$NOTES"

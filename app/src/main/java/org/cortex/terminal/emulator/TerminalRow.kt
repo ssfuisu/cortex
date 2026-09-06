@@ -1,0 +1,42 @@
+package org.cortex.terminal.emulator
+
+class TerminalRow(val cols: Int) {
+    val chars = CharArray(cols) { ' ' }
+    val fgColors = IntArray(cols) { TerminalColor.DEFAULT_FG }
+    val bgColors = IntArray(cols) { TerminalColor.DEFAULT_BG }
+    val styles = ByteArray(cols) { 0 } // bit 0: bold, bit 1: underline, bit 2: inverse
+
+    fun clear(fg: Int = TerminalColor.DEFAULT_FG, bg: Int = TerminalColor.DEFAULT_BG) {
+        for (i in 0 until cols) {
+            chars[i] = ' '
+            fgColors[i] = fg
+            bgColors[i] = bg
+            styles[i] = 0
+        }
+    }
+
+    fun setChar(col: Int, char: Char, fg: Int, bg: Int, style: Byte = 0) {
+        if (col in 0 until cols) {
+            chars[col] = char
+            fgColors[col] = fg
+            bgColors[col] = bg
+            styles[col] = style
+        }
+    }
+
+    fun copyFrom(other: TerminalRow) {
+        val count = minOf(cols, other.cols)
+        System.arraycopy(other.chars, 0, chars, 0, count)
+        System.arraycopy(other.fgColors, 0, fgColors, 0, count)
+        System.arraycopy(other.bgColors, 0, bgColors, 0, count)
+        System.arraycopy(other.styles, 0, styles, 0, count)
+    }
+
+    fun getText(): String {
+        var lastNonSpace = cols - 1
+        while (lastNonSpace >= 0 && chars[lastNonSpace] == ' ') {
+            lastNonSpace--
+        }
+        return if (lastNonSpace < 0) "" else String(chars, 0, lastNonSpace + 1)
+    }
+}

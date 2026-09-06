@@ -1,0 +1,9 @@
+<resources>
+    <color name="cortex_bg">#181825</color>
+    <color name="cortex_surface">#1e1e2e</color>
+    <color name="cortex_bar">#11111b</color>
+    <color name="cortex_fg">#cdd6f4</color>
+    <color name="cortex_primary">#89b4fa</color>
+    <color name="cortex_secondary">#a6e3a1</color>
+    <color name="cortex_accent">#f38ba8</color>
+</resources>

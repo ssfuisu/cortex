@@ -1,0 +1,17 @@
+<resources>
+    <string-array name="font_size_entries">
+        <item>Small (10sp)</item>
+        <item>Normal (12sp)</item>
+        <item>Medium (14sp)</item>
+        <item>Large (16sp)</item>
+        <item>Huge (18sp)</item>
+    </string-array>
+
+    <string-array name="font_size_values">
+        <item>10</item>
+        <item>12</item>
+        <item>14</item>
+        <item>16</item>
+        <item>18</item>
+    </string-array>
+</resources>

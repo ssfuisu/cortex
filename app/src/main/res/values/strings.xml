@@ -1,0 +1,10 @@
+<resources>
+    <string name="app_name">Cortex</string>
+    <string name="settings_title">Cortex Settings</string>
+    <string name="new_tab">New Tab</string>
+    <string name="close_tab">Close Tab</string>
+    <string name="exit_confirm_title">Exit Session</string>
+    <string name="exit_confirm_message">Do you want to close this terminal session?</string>
+    <string name="yes">Yes</string>
+    <string name="no">No</string>
+</resources>
