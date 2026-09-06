@@ -53,7 +53,7 @@ class ExtraKeysView @JvmOverloads constructor(
         addView(createRow(row2Keys))
     }
 
-    private fun createRow(keys: List<Pair<String, () -> Unit>>): LinearLayout {
+    private fun createRow(keys: List<Pair<String, () -> Any?>>): LinearLayout {
         val rowLayout = LinearLayout(context).apply {
             orientation = HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
