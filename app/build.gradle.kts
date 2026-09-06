@@ -7,6 +7,8 @@ android {
     namespace = "org.cortex.terminal"
     compileSdk = 34
 
+    ndkVersion = "26.1.10909125"
+
     defaultConfig {
         applicationId = "org.cortex.terminal"
         minSdk = 24
@@ -15,10 +17,6 @@ android {
         versionName = "1.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-
-        ndk {
-            abiFilters.addAll(listOf("arm64-v8a", "armeabi-v7a"))
-        }
 
         externalNativeBuild {
             cmake {

@@ -51,49 +51,55 @@ jobs:
       - name: Generate Release Signing Key
         run: |
           keytool -genkeypair -v \
-            -keystore /tmp/cortex-release.keystore \
+            -keystore app/cortex-release.keystore \
             -alias cortex \
             -keyalg RSA \
             -keysize 2048 \
             -validity 10000 \
-            -storepass cortex123 \
-            -keypass cortex123 \
+            -storepass cortexpassword \
+            -keypass cortexpassword \
             -dname "CN=Cortex, OU=Terminal, O=Cortex, C=US"
 
       - name: Build Release APKs
         run: |
           ./gradlew assembleRelease --stacktrace
 
-      - name: Sign and Align APKs
+      - name: Prepare and Verify Signed APKs
         run: |
           BUILD_TOOLS_DIR=$(ls -d $ANDROID_HOME/build-tools/* | tail -n 1)
           APKSIGNER="$BUILD_TOOLS_DIR/apksigner"
           
           mkdir -p release-apks
 
-          # Locate 64-bit APK
           ARM64_RAW=$(find app/build/outputs/apk/release -name "*arm64-v8a*.apk" | head -n 1)
-          # Locate 32-bit APK
           ARM32_RAW=$(find app/build/outputs/apk/release -name "*armeabi-v7a*.apk" | head -n 1)
 
           echo "Found 64-bit APK: $ARM64_RAW"
           echo "Found 32-bit APK: $ARM32_RAW"
 
-          # Sign 64-bit APK
-          $APKSIGNER sign \
-            --ks /tmp/cortex-release.keystore \
-            --ks-pass pass:cortex123 \
-            --key-pass pass:cortex123 \
-            --out release-apks/Cortex-arm64-v8a-signed.apk \
-            "$ARM64_RAW"
+          # Sign or copy 64-bit
+          if $APKSIGNER verify "$ARM64_RAW" >/dev/null 2>&1; then
+            cp "$ARM64_RAW" release-apks/Cortex-arm64-v8a-signed.apk
+          else
+            $APKSIGNER sign \
+              --ks app/cortex-release.keystore \
+              --ks-pass pass:cortexpassword \
+              --key-pass pass:cortexpassword \
+              --out release-apks/Cortex-arm64-v8a-signed.apk \
+              "$ARM64_RAW"
+          fi
 
-          # Sign 32-bit APK
-          $APKSIGNER sign \
-            --ks /tmp/cortex-release.keystore \
-            --ks-pass pass:cortex123 \
-            --key-pass pass:cortex123 \
-            --out release-apks/Cortex-armeabi-v7a-signed.apk \
-            "$ARM32_RAW"
+          # Sign or copy 32-bit
+          if $APKSIGNER verify "$ARM32_RAW" >/dev/null 2>&1; then
+            cp "$ARM32_RAW" release-apks/Cortex-armeabi-v7a-signed.apk
+          else
+            $APKSIGNER sign \
+              --ks app/cortex-release.keystore \
+              --ks-pass pass:cortexpassword \
+              --key-pass pass:cortexpassword \
+              --out release-apks/Cortex-armeabi-v7a-signed.apk \
+              "$ARM32_RAW"
+          fi
 
           # Verify Signatures
           $APKSIGNER verify release-apks/Cortex-arm64-v8a-signed.apk
