@@ -72,9 +72,7 @@ object BootstrapManager {
             cortexInfo.setExecutable(true, false)
         }
 
-        if (!isBootstrapInstalled(context)) {
-            installBootstrapFromAssets(context)
-        }
+        // File system structure initialized
     }
 
     fun isBootstrapInstalled(context: Context): Boolean {
@@ -97,30 +95,32 @@ object BootstrapManager {
 
         if (!hasAsset) return false
 
-        val tmpArchive = File(context.cacheDir, assetName)
+        val tmpTar = File(context.cacheDir, "bootstrap.tar")
         return try {
-            context.assets.open(assetName).use { input ->
-                tmpArchive.outputStream().use { output ->
-                    input.copyTo(output)
+            context.assets.open(assetName).use { rawIn ->
+                java.util.zip.GZIPInputStream(rawIn).use { gzIn ->
+                    tmpTar.outputStream().use { out ->
+                        gzIn.copyTo(out)
+                    }
                 }
             }
 
-            val tarBin = File("/system/bin/tar")
-            if (tarBin.exists() && tarBin.canExecute()) {
-                val process = ProcessBuilder(
-                    tarBin.absolutePath,
-                    "-xzf",
-                    tmpArchive.absolutePath,
-                    "-C",
-                    root.absolutePath
-                ).redirectErrorStream(true).start()
-                process.waitFor()
+            val tarCmd = when {
+                File("/system/bin/tar").exists() -> listOf("/system/bin/tar", "-xf", tmpTar.absolutePath, "-C", root.absolutePath)
+                File("/system/bin/toybox").exists() -> listOf("/system/bin/toybox", "tar", "-xf", tmpTar.absolutePath, "-C", root.absolutePath)
+                else -> listOf("tar", "-xf", tmpTar.absolutePath, "-C", root.absolutePath)
             }
+            val process = ProcessBuilder(tarCmd).redirectErrorStream(true).start()
+            process.waitFor()
 
-            // Fix executable permissions on extracted binary directories
-            listOf("bin", "sbin", "usr/bin", "usr/sbin").forEach { sub ->
-                File(root, sub).listFiles()?.forEach { file ->
-                    file.setExecutable(true, false)
+            // Fix executable permissions on extracted binary directories and dynamic linkers
+            root.walkTopDown().forEach { file ->
+                if (file.isFile) {
+                    val pName = file.parentFile?.name
+                    if (pName in listOf("bin", "sbin") || file.name.startsWith("ld-linux")) {
+                        file.setExecutable(true, false)
+                        file.setReadable(true, false)
+                    }
                 }
             }
 
@@ -144,22 +144,27 @@ object BootstrapManager {
             android.util.Log.e("BootstrapManager", "Error extracting bootstrap from APK", e)
             false
         } finally {
-            tmpArchive.delete()
+            if (tmpTar.exists()) {
+                tmpTar.delete()
+            }
         }
     }
 
     fun getInitialShellCommand(context: Context): String {
         val root = Environment.getCortexRoot(context)
         val debianBash = File(root, "usr/bin/bash")
-        if (debianBash.exists() && debianBash.canExecute()) {
+        if (debianBash.exists()) {
+            debianBash.setExecutable(true, false)
             return debianBash.absolutePath
         }
         val customBash = File(root, "bin/bash")
-        if (customBash.exists() && customBash.canExecute()) {
+        if (customBash.exists()) {
+            customBash.setExecutable(true, false)
             return customBash.absolutePath
         }
         val customSh = File(root, "bin/sh")
-        if (customSh.exists() && customSh.canExecute()) {
+        if (customSh.exists()) {
+            customSh.setExecutable(true, false)
             return customSh.absolutePath
         }
         return if (File("/system/bin/sh").exists()) "/system/bin/sh" else "/bin/sh"

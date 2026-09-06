@@ -286,35 +286,46 @@ int execve(const char *filename, char *const argv[], char *const envp[]) {
     char buf[PATH_MAX];
     const char *target = rewrite_path(filename, buf, sizeof(buf));
 
-    // Transparently route glibc ELF binaries through ld.so if present
     init_cortex_hook();
-    if (g_cortex_root[0] != '\0') {
+    // Only intercept binaries/scripts within CORTEX_ROOT
+    if (g_cortex_root[0] != '\0' && strncmp(target, g_cortex_root, strlen(g_cortex_root)) == 0) {
         int fd = orig_open ? orig_open(target, O_RDONLY) : open(target, O_RDONLY);
         if (fd >= 0) {
-            unsigned char elf_hdr[16];
-            ssize_t n = read(fd, elf_hdr, 16);
+            char hdr[256];
+            ssize_t n = read(fd, hdr, sizeof(hdr) - 1);
             close(fd);
-            if (n >= 4 && elf_hdr[0] == 0x7f && elf_hdr[1] == 'E' && elf_hdr[2] == 'L' && elf_hdr[3] == 'F') {
-                char ld_so[PATH_MAX];
+
+            // 1. Transparently route glibc ELF binaries through ld.so
+            if (n >= 4 && (unsigned char)hdr[0] == 0x7f && hdr[1] == 'E' && hdr[2] == 'L' && hdr[3] == 'F') {
+                char ld_so[PATH_MAX] = {0};
                 #if defined(__aarch64__)
-                snprintf(ld_so, sizeof(ld_so), "%s/lib/ld-linux-aarch64.so.1", g_cortex_root);
-                if (access(ld_so, X_OK) != 0) {
-                    snprintf(ld_so, sizeof(ld_so), "%s/usr/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1", g_cortex_root);
+                snprintf(ld_so, sizeof(ld_so), "%s/usr/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1", g_cortex_root);
+                if (access(ld_so, F_OK) != 0) {
+                    snprintf(ld_so, sizeof(ld_so), "%s/lib/ld-linux-aarch64.so.1", g_cortex_root);
+                }
+                if (access(ld_so, F_OK) != 0) {
+                    snprintf(ld_so, sizeof(ld_so), "%s/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1", g_cortex_root);
                 }
                 #elif defined(__arm__)
-                snprintf(ld_so, sizeof(ld_so), "%s/lib/ld-linux-armhf.so.3", g_cortex_root);
-                if (access(ld_so, X_OK) != 0) {
-                    snprintf(ld_so, sizeof(ld_so), "%s/usr/lib/arm-linux-gnueabihf/ld-linux-armhf.so.3", g_cortex_root);
+                snprintf(ld_so, sizeof(ld_so), "%s/usr/lib/arm-linux-gnueabihf/ld-linux-armhf.so.3", g_cortex_root);
+                if (access(ld_so, F_OK) != 0) {
+                    snprintf(ld_so, sizeof(ld_so), "%s/lib/ld-linux-armhf.so.3", g_cortex_root);
+                }
+                if (access(ld_so, F_OK) != 0) {
+                    snprintf(ld_so, sizeof(ld_so), "%s/lib/arm-linux-gnueabihf/ld-linux-armhf.so.3", g_cortex_root);
                 }
                 #else
                 snprintf(ld_so, sizeof(ld_so), "%s/lib64/ld-linux-x86-64.so.2", g_cortex_root);
                 #endif
 
-                if (access(ld_so, X_OK) == 0 && strcmp(target, ld_so) != 0) {
+                if (access(ld_so, F_OK) == 0 && strcmp(target, ld_so) != 0) {
+                    chmod(ld_so, 0755);
+                    chmod(target, 0755);
+
                     int argc = 0;
                     while (argv && argv[argc]) argc++;
 
-                    char **new_argv = (char **)malloc(sizeof(char *) * (argc + 4));
+                    char **new_argv = (char **)malloc(sizeof(char *) * (argc + 5));
                     new_argv[0] = ld_so;
                     new_argv[1] = (char *)"--argv0";
                     new_argv[2] = (char *)argv[0];
@@ -325,8 +336,78 @@ int execve(const char *filename, char *const argv[], char *const envp[]) {
                     return orig_execve(ld_so, new_argv, envp);
                 }
             }
+
+            // 2. Handle scripts with shebang lines (e.g., #!/bin/sh, #!/usr/bin/perl)
+            if (n >= 2 && hdr[0] == '#' && hdr[1] == '!') {
+                hdr[n] = '\0';
+                char *newline = strchr(hdr, '\n');
+                if (newline) *newline = '\0';
+
+                char *interp = hdr + 2;
+                while (*interp == ' ' || *interp == '\t') interp++;
+                char *interp_arg = strchr(interp, ' ');
+                if (interp_arg) {
+                    *interp_arg = '\0';
+                    interp_arg++;
+                    while (*interp_arg == ' ' || *interp_arg == '\t') interp_arg++;
+                }
+
+                char interp_buf[PATH_MAX];
+                const char *rewritten_interp = rewrite_path(interp, interp_buf, sizeof(interp_buf));
+                if (access(rewritten_interp, F_OK) != 0 && strcmp(interp, "/bin/sh") == 0) {
+                    if (access("/system/bin/sh", X_OK) == 0) {
+                        rewritten_interp = "/system/bin/sh";
+                    }
+                }
+
+                int orig_argc = 0;
+                while (argv && argv[orig_argc]) orig_argc++;
+
+                int has_arg = (interp_arg && *interp_arg) ? 1 : 0;
+                char **new_argv = (char **)malloc(sizeof(char *) * (orig_argc + has_arg + 2));
+                int idx = 0;
+                new_argv[idx++] = (char *)rewritten_interp;
+                if (has_arg) {
+                    new_argv[idx++] = interp_arg;
+                }
+                new_argv[idx++] = (char *)target;
+                for (int i = 1; i < orig_argc; i++) {
+                    new_argv[idx++] = argv[i];
+                }
+                new_argv[idx] = NULL;
+
+                return execve(rewritten_interp, new_argv, envp);
+            }
         }
     }
 
     return orig_execve(target, argv, envp);
+}
+
+extern char **environ;
+
+int execv(const char *path, char *const argv[]) {
+    return execve(path, argv, environ);
+}
+
+int execvp(const char *file, char *const argv[]) {
+    if (strchr(file, '/')) {
+        return execve(file, argv, environ);
+    }
+    const char *path_env = getenv("PATH");
+    if (!path_env) path_env = "/usr/bin:/bin";
+    char path_copy[4096];
+    strncpy(path_copy, path_env, sizeof(path_copy) - 1);
+    path_copy[sizeof(path_copy) - 1] = '\0';
+    char *saveptr = NULL;
+    char *token = strtok_r(path_copy, ":", &saveptr);
+    while (token) {
+        char candidate[PATH_MAX];
+        snprintf(candidate, sizeof(candidate), "%s/%s", token, file);
+        if (access(candidate, X_OK) == 0) {
+            return execve(candidate, argv, environ);
+        }
+        token = strtok_r(NULL, ":", &saveptr);
+    }
+    return execve(file, argv, environ);
 }

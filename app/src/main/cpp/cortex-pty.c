@@ -10,7 +10,9 @@
 #include <termios.h>
 #include <sys/ioctl.h>
 #include <sys/types.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
+#include <limits.h>
 #include <android/log.h>
 
 #define TAG "CortexPty"
@@ -140,7 +142,51 @@ Java_org_cortex_terminal_pty_PtyNative_createPty(
             chdir("/");
         }
 
-        // Execute command
+        // Route Debian glibc ELF binaries through ld.so if inside CORTEX_ROOT
+        const char *cortex_root = NULL;
+        for (int i = 0; i < envCount; i++) {
+            if (strncmp(envp[i], "CORTEX_ROOT=", 12) == 0) {
+                cortex_root = envp[i] + 12;
+                break;
+            }
+        }
+
+        if (cortex_root && strlen(cortex_root) > 0 && strncmp(cmd, cortex_root, strlen(cortex_root)) == 0) {
+            char ld_so[PATH_MAX] = {0};
+            #if defined(__aarch64__)
+            snprintf(ld_so, sizeof(ld_so), "%s/usr/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1", cortex_root);
+            if (access(ld_so, F_OK) != 0) {
+                snprintf(ld_so, sizeof(ld_so), "%s/lib/ld-linux-aarch64.so.1", cortex_root);
+            }
+            if (access(ld_so, F_OK) != 0) {
+                snprintf(ld_so, sizeof(ld_so), "%s/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1", cortex_root);
+            }
+            #elif defined(__arm__)
+            snprintf(ld_so, sizeof(ld_so), "%s/usr/lib/arm-linux-gnueabihf/ld-linux-armhf.so.3", cortex_root);
+            if (access(ld_so, F_OK) != 0) {
+                snprintf(ld_so, sizeof(ld_so), "%s/lib/ld-linux-armhf.so.3", cortex_root);
+            }
+            if (access(ld_so, F_OK) != 0) {
+                snprintf(ld_so, sizeof(ld_so), "%s/lib/arm-linux-gnueabihf/ld-linux-armhf.so.3", cortex_root);
+            }
+            #endif
+
+            if (access(ld_so, F_OK) == 0) {
+                chmod(ld_so, 0755);
+                chmod(cmd, 0755);
+                char **new_argv = malloc(sizeof(char *) * (argCount + 5));
+                new_argv[0] = ld_so;
+                new_argv[1] = "--argv0";
+                new_argv[2] = argv[0];
+                new_argv[3] = (char *)cmd;
+                for (int i = 1; i <= argCount; i++) {
+                    new_argv[i + 3] = argv[i];
+                }
+                execve(ld_so, new_argv, envp);
+            }
+        }
+
+        // Execute command normally if not glibc or if ld.so not found
         execve(cmd, argv, envp);
 
         // If execve fails, print diagnostic and exit

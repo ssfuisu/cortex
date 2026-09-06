@@ -12,6 +12,7 @@ import androidx.drawerlayout.widget.DrawerLayout
 import androidx.preference.PreferenceManager
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import org.cortex.terminal.runtime.BootstrapManager
 import org.cortex.terminal.session.SessionAdapter
 import org.cortex.terminal.session.SessionManager
 import org.cortex.terminal.view.ExtraKeysView
@@ -129,9 +130,18 @@ class MainActivity : AppCompatActivity() {
 
         applyPreferences()
         if (!BootstrapManager.isBootstrapInstalled(this)) {
+            val progress = android.app.ProgressDialog(this).apply {
+                setMessage("Setting up Cortex Glibc environment...")
+                setCancelable(false)
+                show()
+            }
             kotlin.concurrent.thread {
                 BootstrapManager.installBootstrapFromAssets(this)
                 runOnUiThread {
+                    try {
+                        progress.dismiss()
+                    } catch (e: Exception) {
+                    }
                     createNewSession()
                     terminalView.post {
                         terminalView.showKeyboard()
