@@ -33,39 +33,37 @@ object BootstrapManager {
 
         val bashrc = File(home, ".bashrc")
         if (!bashrc.exists()) {
+            val d = "$"
             bashrc.writeText(
-                """
-                # Cortex Terminal Environment
-                export PS1='\[\033[01;32m\]cortex\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ '
-                alias ll='ls -la'
-                alias la='ls -A'
-                alias l='ls -CF'
-                alias cls='clear'
-                """.trimIndent()
+                "# Cortex Terminal Environment\n" +
+                "export PS1='\\[\\033[01;32m\\]cortex\\[\\033[00m\\]:\\[\\033[01;34m\\]\\w\\[\\033[00m\\]" + d + " '\n" +
+                "alias ll='ls -la'\n" +
+                "alias la='ls -A'\n" +
+                "alias l='ls -CF'\n" +
+                "alias cls='clear'\n"
             )
         }
 
         val profile = File(home, ".profile")
         if (!profile.exists()) {
+            val d = "$"
             profile.writeText(
-                """
-                if [ -f "$HOME/.bashrc" ]; then
-                    . "$HOME/.bashrc"
-                fi
-                """.trimIndent()
+                "if [ -f \"" + d + "HOME/.bashrc\" ]; then\n" +
+                "    . \"" + d + "HOME/.bashrc\"\n" +
+                "fi\n"
             )
         }
 
         val cortexInfo = File(root, "bin/cortex-info")
         if (!cortexInfo.exists()) {
+            val d = "$"
             cortexInfo.writeText(
-                """#!/system/bin/sh
-                echo "Cortex Rootless Terminal"
-                echo "Architecture: $(uname -m)"
-                echo "Kernel: $(uname -r)"
-                echo "Cortex Root: $CORTEX_ROOT"
-                echo "Prefix: $PREFIX"
-                """.trimIndent()
+                "#!/system/bin/sh\n" +
+                "echo \"Cortex Rootless Terminal\"\n" +
+                "echo \"Architecture: " + d + "(uname -m)\"\n" +
+                "echo \"Kernel: " + d + "(uname -r)\"\n" +
+                "echo \"Cortex Root: " + d + "CORTEX_ROOT\"\n" +
+                "echo \"Prefix: " + d + "PREFIX\"\n"
             )
             cortexInfo.setExecutable(true, false)
         }

@@ -174,12 +174,12 @@ class TerminalBuffer(var rows: Int, var cols: Int, private val maxHistory: Int =
     fun getSelectedText(startRow: Int, startCol: Int, endRow: Int, endCol: Int): String {
         val sb = StringBuilder()
         for (r in startRow..endRow) {
-            val row = if (r < 0) {
+            val row = (if (r < 0) {
                 val hIdx = history.size + r
                 if (hIdx in 0 until history.size) history[hIdx] else null
             } else if (r in 0 until rows) {
                 screen[r]
-            } else null ?: continue
+            } else null) ?: continue
 
             val cStart = if (r == startRow) startCol.coerceIn(0, cols - 1) else 0
             val cEnd = if (r == endRow) endCol.coerceIn(0, cols - 1) else cols - 1
