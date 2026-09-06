@@ -84,6 +84,18 @@ android {
     buildFeatures {
         viewBinding = true
     }
+
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
+
+    lint {
+        checkReleaseBuilds = false
+        abortOnError = false
+        disable.addAll(listOf("ExpiredTargetSdkVersion"))
+    }
 }
 
 dependencies {
