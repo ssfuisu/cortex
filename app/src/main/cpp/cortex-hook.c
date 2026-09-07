@@ -99,25 +99,6 @@ int open(const char *pathname, int flags, ...) {
     return orig_open(target, flags);
 }
 
-// Hook open64
-int open64(const char *pathname, int flags, ...) {
-    static int (*orig_open64)(const char *, int, ...) = NULL;
-    if (!orig_open64) {
-        orig_open64 = (int (*)(const char *, int, ...))dlsym(RTLD_NEXT, "open64");
-        if (!orig_open64) orig_open64 = (int (*)(const char *, int, ...))dlsym(RTLD_NEXT, "open");
-    }
-    char buf[PATH_MAX];
-    const char *target = rewrite_path(pathname, buf, sizeof(buf));
-    if (open_needs_mode(flags)) {
-        va_list args;
-        va_start(args, flags);
-        mode_t mode = va_arg(args, mode_t);
-        va_end(args);
-        return orig_open64(target, flags, mode);
-    }
-    return orig_open64(target, flags);
-}
-
 // Hook openat
 int openat(int dirfd, const char *pathname, int flags, ...) {
     static int (*orig_openat)(int, const char *, int, ...) = NULL;
@@ -134,35 +115,12 @@ int openat(int dirfd, const char *pathname, int flags, ...) {
     return orig_openat(dirfd, target, flags);
 }
 
-// Hook openat64
-int openat64(int dirfd, const char *pathname, int flags, ...) {
-    static int (*orig_openat64)(int, const char *, int, ...) = NULL;
-    if (!orig_openat64) {
-        orig_openat64 = (int (*)(int, const char *, int, ...))dlsym(RTLD_NEXT, "openat64");
-        if (!orig_openat64) orig_openat64 = (int (*)(int, const char *, int, ...))dlsym(RTLD_NEXT, "openat");
-    }
-    char buf[PATH_MAX];
-    const char *target = rewrite_path(pathname, buf, sizeof(buf));
-    if (open_needs_mode(flags)) {
-        va_list args;
-        va_start(args, flags);
-        mode_t mode = va_arg(args, mode_t);
-        va_end(args);
-        return orig_openat64(dirfd, target, flags, mode);
-    }
-    return orig_openat64(dirfd, target, flags);
-}
-
-// Hook creat & creat64
+// Hook creat
 int creat(const char *pathname, mode_t mode) {
     return open(pathname, O_CREAT | O_WRONLY | O_TRUNC, mode);
 }
 
-int creat64(const char *pathname, mode_t mode) {
-    return open64(pathname, O_CREAT | O_WRONLY | O_TRUNC, mode);
-}
-
-// Hook fopen & fopen64
+// Hook fopen
 FILE *fopen(const char *pathname, const char *mode) {
     static FILE *(*orig_fopen)(const char *, const char *) = NULL;
     if (!orig_fopen) orig_fopen = (FILE *(*)(const char *, const char *))dlsym(RTLD_NEXT, "fopen");
@@ -171,35 +129,13 @@ FILE *fopen(const char *pathname, const char *mode) {
     return orig_fopen(target, mode);
 }
 
-FILE *fopen64(const char *pathname, const char *mode) {
-    static FILE *(*orig_fopen64)(const char *, const char *) = NULL;
-    if (!orig_fopen64) {
-        orig_fopen64 = (FILE *(*)(const char *, const char *))dlsym(RTLD_NEXT, "fopen64");
-        if (!orig_fopen64) orig_fopen64 = (FILE *(*)(const char *, const char *))dlsym(RTLD_NEXT, "fopen");
-    }
-    char buf[PATH_MAX];
-    const char *target = rewrite_path(pathname, buf, sizeof(buf));
-    return orig_fopen64(target, mode);
-}
-
-// Hook freopen & freopen64
+// Hook freopen
 FILE *freopen(const char *pathname, const char *mode, FILE *stream) {
     static FILE *(*orig_freopen)(const char *, const char *, FILE *) = NULL;
     if (!orig_freopen) orig_freopen = (FILE *(*)(const char *, const char *, FILE *))dlsym(RTLD_NEXT, "freopen");
     char buf[PATH_MAX];
     const char *target = rewrite_path(pathname, buf, sizeof(buf));
     return orig_freopen(target, mode, stream);
-}
-
-FILE *freopen64(const char *pathname, const char *mode, FILE *stream) {
-    static FILE *(*orig_freopen64)(const char *, const char *, FILE *) = NULL;
-    if (!orig_freopen64) {
-        orig_freopen64 = (FILE *(*)(const char *, const char *, FILE *))dlsym(RTLD_NEXT, "freopen64");
-        if (!orig_freopen64) orig_freopen64 = (FILE *(*)(const char *, const char *, FILE *))dlsym(RTLD_NEXT, "freopen");
-    }
-    char buf[PATH_MAX];
-    const char *target = rewrite_path(pathname, buf, sizeof(buf));
-    return orig_freopen64(target, mode, stream);
 }
 
 // Hook opendir
@@ -211,7 +147,7 @@ DIR *opendir(const char *name) {
     return orig_opendir(target);
 }
 
-// Hook stat & stat64
+// Hook stat
 int stat(const char *pathname, struct stat *statbuf) {
     static int (*orig_stat)(const char *, struct stat *) = NULL;
     if (!orig_stat) orig_stat = (int (*)(const char *, struct stat *))dlsym(RTLD_NEXT, "stat");
@@ -220,18 +156,7 @@ int stat(const char *pathname, struct stat *statbuf) {
     return orig_stat(target, statbuf);
 }
 
-int stat64(const char *pathname, struct stat64 *statbuf) {
-    static int (*orig_stat64)(const char *, struct stat64 *) = NULL;
-    if (!orig_stat64) {
-        orig_stat64 = (int (*)(const char *, struct stat64 *))dlsym(RTLD_NEXT, "stat64");
-        if (!orig_stat64) orig_stat64 = (int (*)(const char *, struct stat64 *))dlsym(RTLD_NEXT, "stat");
-    }
-    char buf[PATH_MAX];
-    const char *target = rewrite_path(pathname, buf, sizeof(buf));
-    return orig_stat64(target, statbuf);
-}
-
-// Hook lstat & lstat64
+// Hook lstat
 int lstat(const char *pathname, struct stat *statbuf) {
     static int (*orig_lstat)(const char *, struct stat *) = NULL;
     if (!orig_lstat) orig_lstat = (int (*)(const char *, struct stat *))dlsym(RTLD_NEXT, "lstat");
@@ -240,18 +165,7 @@ int lstat(const char *pathname, struct stat *statbuf) {
     return orig_lstat(target, statbuf);
 }
 
-int lstat64(const char *pathname, struct stat64 *statbuf) {
-    static int (*orig_lstat64)(const char *, struct stat64 *) = NULL;
-    if (!orig_lstat64) {
-        orig_lstat64 = (int (*)(const char *, struct stat64 *))dlsym(RTLD_NEXT, "lstat64");
-        if (!orig_lstat64) orig_lstat64 = (int (*)(const char *, struct stat64 *))dlsym(RTLD_NEXT, "lstat");
-    }
-    char buf[PATH_MAX];
-    const char *target = rewrite_path(pathname, buf, sizeof(buf));
-    return orig_lstat64(target, statbuf);
-}
-
-// Hook fstatat & fstatat64
+// Hook fstatat
 int fstatat(int dirfd, const char *pathname, struct stat *statbuf, int flags) {
     static int (*orig_fstatat)(int, const char *, struct stat *, int) = NULL;
     if (!orig_fstatat) orig_fstatat = (int (*)(int, const char *, struct stat *, int))dlsym(RTLD_NEXT, "fstatat");
@@ -260,18 +174,7 @@ int fstatat(int dirfd, const char *pathname, struct stat *statbuf, int flags) {
     return orig_fstatat(dirfd, target, statbuf, flags);
 }
 
-int fstatat64(int dirfd, const char *pathname, struct stat64 *statbuf, int flags) {
-    static int (*orig_fstatat64)(int, const char *, struct stat64 *, int) = NULL;
-    if (!orig_fstatat64) {
-        orig_fstatat64 = (int (*)(int, const char *, struct stat64 *, int))dlsym(RTLD_NEXT, "fstatat64");
-        if (!orig_fstatat64) orig_fstatat64 = (int (*)(int, const char *, struct stat64 *, int))dlsym(RTLD_NEXT, "fstatat");
-    }
-    char buf[PATH_MAX];
-    const char *target = rewrite_path(pathname, buf, sizeof(buf));
-    return orig_fstatat64(dirfd, target, statbuf, flags);
-}
-
-// Hook access & faccessat
+// Hook access
 int access(const char *pathname, int mode) {
     static int (*orig_access)(const char *, int) = NULL;
     if (!orig_access) orig_access = (int (*)(const char *, int))dlsym(RTLD_NEXT, "access");
@@ -280,6 +183,7 @@ int access(const char *pathname, int mode) {
     return orig_access(target, mode);
 }
 
+// Hook faccessat
 int faccessat(int dirfd, const char *pathname, int mode, int flags) {
     static int (*orig_faccessat)(int, const char *, int, int) = NULL;
     if (!orig_faccessat) orig_faccessat = (int (*)(int, const char *, int, int))dlsym(RTLD_NEXT, "faccessat");
@@ -288,7 +192,7 @@ int faccessat(int dirfd, const char *pathname, int mode, int flags) {
     return orig_faccessat(dirfd, target, mode, flags);
 }
 
-// Hook chmod & fchmodat
+// Hook chmod
 int chmod(const char *pathname, mode_t mode) {
     static int (*orig_chmod)(const char *, mode_t) = NULL;
     if (!orig_chmod) orig_chmod = (int (*)(const char *, mode_t))dlsym(RTLD_NEXT, "chmod");
@@ -297,6 +201,7 @@ int chmod(const char *pathname, mode_t mode) {
     return orig_chmod(target, mode);
 }
 
+// Hook fchmodat
 int fchmodat(int dirfd, const char *pathname, mode_t mode, int flags) {
     static int (*orig_fchmodat)(int, const char *, mode_t, int) = NULL;
     if (!orig_fchmodat) orig_fchmodat = (int (*)(int, const char *, mode_t, int))dlsym(RTLD_NEXT, "fchmodat");
@@ -305,7 +210,7 @@ int fchmodat(int dirfd, const char *pathname, mode_t mode, int flags) {
     return orig_fchmodat(dirfd, target, mode, flags);
 }
 
-// Hook unlink & unlinkat
+// Hook unlink
 int unlink(const char *pathname) {
     static int (*orig_unlink)(const char *) = NULL;
     if (!orig_unlink) orig_unlink = (int (*)(const char *))dlsym(RTLD_NEXT, "unlink");
@@ -314,6 +219,7 @@ int unlink(const char *pathname) {
     return orig_unlink(target);
 }
 
+// Hook unlinkat
 int unlinkat(int dirfd, const char *pathname, int flags) {
     static int (*orig_unlinkat)(int, const char *, int) = NULL;
     if (!orig_unlinkat) orig_unlinkat = (int (*)(int, const char *, int))dlsym(RTLD_NEXT, "unlinkat");
@@ -331,7 +237,7 @@ int rmdir(const char *pathname) {
     return orig_rmdir(target);
 }
 
-// Hook mkdir & mkdirat
+// Hook mkdir
 int mkdir(const char *pathname, mode_t mode) {
     static int (*orig_mkdir)(const char *, mode_t) = NULL;
     if (!orig_mkdir) orig_mkdir = (int (*)(const char *, mode_t))dlsym(RTLD_NEXT, "mkdir");
@@ -340,6 +246,7 @@ int mkdir(const char *pathname, mode_t mode) {
     return orig_mkdir(target, mode);
 }
 
+// Hook mkdirat
 int mkdirat(int dirfd, const char *pathname, mode_t mode) {
     static int (*orig_mkdirat)(int, const char *, mode_t) = NULL;
     if (!orig_mkdirat) orig_mkdirat = (int (*)(int, const char *, mode_t))dlsym(RTLD_NEXT, "mkdirat");
@@ -348,7 +255,7 @@ int mkdirat(int dirfd, const char *pathname, mode_t mode) {
     return orig_mkdirat(dirfd, target, mode);
 }
 
-// Hook rename, renameat, renameat2
+// Hook rename
 int rename(const char *oldpath, const char *newpath) {
     static int (*orig_rename)(const char *, const char *) = NULL;
     if (!orig_rename) orig_rename = (int (*)(const char *, const char *))dlsym(RTLD_NEXT, "rename");
@@ -359,6 +266,7 @@ int rename(const char *oldpath, const char *newpath) {
     return orig_rename(target_old, target_new);
 }
 
+// Hook renameat
 int renameat(int olddirfd, const char *oldpath, int newdirfd, const char *newpath) {
     static int (*orig_renameat)(int, const char *, int, const char *) = NULL;
     if (!orig_renameat) orig_renameat = (int (*)(int, const char *, int, const char *))dlsym(RTLD_NEXT, "renameat");
@@ -369,6 +277,7 @@ int renameat(int olddirfd, const char *oldpath, int newdirfd, const char *newpat
     return orig_renameat(olddirfd, target_old, newdirfd, target_new);
 }
 
+// Hook renameat2
 int renameat2(int olddirfd, const char *oldpath, int newdirfd, const char *newpath, unsigned int flags) {
     static int (*orig_renameat2)(int, const char *, int, const char *, unsigned int) = NULL;
     if (!orig_renameat2) {
@@ -382,7 +291,7 @@ int renameat2(int olddirfd, const char *oldpath, int newdirfd, const char *newpa
     return orig_renameat2(olddirfd, target_old, newdirfd, target_new, flags);
 }
 
-// Hook readlink & readlinkat
+// Hook readlink
 ssize_t readlink(const char *pathname, char *buf, size_t bufsiz) {
     static ssize_t (*orig_readlink)(const char *, char *, size_t) = NULL;
     if (!orig_readlink) orig_readlink = (ssize_t (*)(const char *, char *, size_t))dlsym(RTLD_NEXT, "readlink");
@@ -391,6 +300,7 @@ ssize_t readlink(const char *pathname, char *buf, size_t bufsiz) {
     return orig_readlink(target, buf, bufsiz);
 }
 
+// Hook readlinkat
 ssize_t readlinkat(int dirfd, const char *pathname, char *buf, size_t bufsiz) {
     static ssize_t (*orig_readlinkat)(int, const char *, char *, size_t) = NULL;
     if (!orig_readlinkat) orig_readlinkat = (ssize_t (*)(int, const char *, char *, size_t))dlsym(RTLD_NEXT, "readlinkat");
@@ -399,7 +309,7 @@ ssize_t readlinkat(int dirfd, const char *pathname, char *buf, size_t bufsiz) {
     return orig_readlinkat(dirfd, target, buf, bufsiz);
 }
 
-// Hook symlink & symlinkat
+// Hook symlink
 int symlink(const char *target, const char *linkpath) {
     static int (*orig_symlink)(const char *, const char *) = NULL;
     if (!orig_symlink) orig_symlink = (int (*)(const char *, const char *))dlsym(RTLD_NEXT, "symlink");
@@ -408,6 +318,7 @@ int symlink(const char *target, const char *linkpath) {
     return orig_symlink(target, newlink);
 }
 
+// Hook symlinkat
 int symlinkat(const char *target, int newdirfd, const char *linkpath) {
     static int (*orig_symlinkat)(const char *, int, const char *) = NULL;
     if (!orig_symlinkat) orig_symlinkat = (int (*)(const char *, int, const char *))dlsym(RTLD_NEXT, "symlinkat");
@@ -416,24 +327,13 @@ int symlinkat(const char *target, int newdirfd, const char *linkpath) {
     return orig_symlinkat(target, newdirfd, newlink);
 }
 
-// Hook truncate & truncate64
+// Hook truncate
 int truncate(const char *path, off_t length) {
     static int (*orig_truncate)(const char *, off_t) = NULL;
     if (!orig_truncate) orig_truncate = (int (*)(const char *, off_t))dlsym(RTLD_NEXT, "truncate");
     char buf[PATH_MAX];
     const char *target = rewrite_path(path, buf, sizeof(buf));
     return orig_truncate(target, length);
-}
-
-int truncate64(const char *path, off64_t length) {
-    static int (*orig_truncate64)(const char *, off64_t) = NULL;
-    if (!orig_truncate64) {
-        orig_truncate64 = (int (*)(const char *, off64_t))dlsym(RTLD_NEXT, "truncate64");
-        if (!orig_truncate64) orig_truncate64 = (int (*)(const char *, off64_t))dlsym(RTLD_NEXT, "truncate");
-    }
-    char buf[PATH_MAX];
-    const char *target = rewrite_path(path, buf, sizeof(buf));
-    return orig_truncate64(target, length);
 }
 
 // Fakeroot identity hooks for APT and DPKG to operate without superuser restrictions
@@ -530,7 +430,7 @@ int execve(const char *filename, char *const argv[], char *const envp[]) {
                     chmod(target, 0755);
 
                     int argc = 0;
-                    while (argv && argv[argc]) argc++;
+                    while (argv[argc]) argc++;
 
                     const char *prog_name = strrchr(target, '/');
                     prog_name = (prog_name != NULL) ? prog_name + 1 : target;
@@ -538,7 +438,7 @@ int execve(const char *filename, char *const argv[], char *const envp[]) {
                     char **new_argv = (char **)calloc(argc + 5, sizeof(char *));
                     new_argv[0] = ld_so;
                     new_argv[1] = (char *)"--argv0";
-                    new_argv[2] = (char *)((argv && argv[0]) ? argv[0] : prog_name);
+                    new_argv[2] = (char *)(argv[0] ? argv[0] : prog_name);
                     new_argv[3] = (char *)target;
                     for (int i = 1; i < argc; i++) {
                         new_argv[i + 3] = argv[i];
@@ -572,7 +472,7 @@ int execve(const char *filename, char *const argv[], char *const envp[]) {
                 }
 
                 int orig_argc = 0;
-                while (argv && argv[orig_argc]) orig_argc++;
+                while (argv[orig_argc]) orig_argc++;
 
                 int has_arg = (interp_arg && *interp_arg) ? 1 : 0;
                 char **new_argv = (char **)calloc(orig_argc + has_arg + 3, sizeof(char *));
