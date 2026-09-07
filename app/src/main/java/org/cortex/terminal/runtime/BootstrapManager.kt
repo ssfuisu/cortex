@@ -57,11 +57,25 @@ object BootstrapManager {
             }
         }
 
+        val aptConfDir = File(root, "etc/apt/apt.conf.d")
+        if (aptConfDir.exists()) {
+            val sbFile = File(aptConfDir, "01sandbox")
+            if (!sbFile.exists() || !sbFile.readText().contains("cputable")) {
+                sbFile.writeText(
+                    "APT::Sandbox::User \"root\";\n" +
+                    "Acquire::Languages \"none\";\n" +
+                    "Acquire::GzipIndexes \"true\";\n" +
+                    "Dir::dpkg::cputable \"/usr/share/dpkg/cputable\";\n" +
+                    "Dir::dpkg::tupletable \"/usr/share/dpkg/tupletable\";\n"
+                )
+            }
+        }
+
         // File system structure initialized
         patchAllDynamicLinkers(root)
     }
 
-    private const val CURRENT_BOOTSTRAP_VERSION = 19
+    private const val CURRENT_BOOTSTRAP_VERSION = 20
 
     fun isBootstrapInstalled(context: Context): Boolean {
         val root = Environment.getCortexRoot(context)
@@ -212,7 +226,13 @@ object BootstrapManager {
             // Configure APT sandbox so APT operates without superuser privilege drop
             val aptConfDir = File(root, "etc/apt/apt.conf.d")
             aptConfDir.mkdirs()
-            File(aptConfDir, "01sandbox").writeText("APT::Sandbox::User \"root\";\n")
+            File(aptConfDir, "01sandbox").writeText(
+                "APT::Sandbox::User \"root\";\n" +
+                "Acquire::Languages \"none\";\n" +
+                "Acquire::GzipIndexes \"true\";\n" +
+                "Dir::dpkg::cputable \"/usr/share/dpkg/cputable\";\n" +
+                "Dir::dpkg::tupletable \"/usr/share/dpkg/tupletable\";\n"
+            )
 
             // Ensure sources.list exists
             val sourcesList = File(root, "etc/apt/sources.list")

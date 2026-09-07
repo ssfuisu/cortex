@@ -71,6 +71,7 @@ object Environment {
             "GLIBC_TUNABLES=glibc.pthread.rseq=0",
             "LANG=C.UTF-8",
             "LC_ALL=C.UTF-8",
+            "LOCPATH=$root/usr/lib/locale",
             "USER=cortex",
             "LOGNAME=cortex",
             "HOSTNAME=cortex-android",
