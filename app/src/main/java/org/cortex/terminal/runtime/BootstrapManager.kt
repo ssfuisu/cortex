@@ -50,9 +50,10 @@ object BootstrapManager {
         }
 
         // File system structure initialized
+        patchAllDynamicLinkers(root)
     }
 
-    private const val CURRENT_BOOTSTRAP_VERSION = 16
+    private const val CURRENT_BOOTSTRAP_VERSION = 18
 
     fun isBootstrapInstalled(context: Context): Boolean {
         val root = Environment.getCortexRoot(context)
@@ -144,6 +145,8 @@ object BootstrapManager {
                     }
                 }
             }
+
+            patchAllDynamicLinkers(root)
 
             // Ensure Glibc cortex-hook library is present and executable
             val hookAssetName = if (CortexRuntime.is64Bit) "libcortex-hook-arm64.so" else "libcortex-hook-arm.so"
@@ -248,4 +251,70 @@ object BootstrapManager {
         }
         return if (File("/system/bin/sh").exists()) "/system/bin/sh" else "/bin/sh"
     }
+
+    fun patchAllDynamicLinkers(root: File) {
+        if (!root.exists() || !root.isDirectory) return
+        try {
+            root.walkTopDown().forEach { file ->
+                if (file.isFile && file.name.startsWith("ld-linux") && !java.nio.file.Files.isSymbolicLink(file.toPath())) {
+                    patchDynamicLinker(file)
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("BootstrapManager", "Error walking root to patch dynamic linkers", e)
+        }
+    }
+
+    fun patchDynamicLinker(file: File) {
+        if (!file.exists() || !file.isFile || java.nio.file.Files.isSymbolicLink(file.toPath())) {
+            return
+        }
+        try {
+            val bytes = file.readBytes()
+            var modified = false
+
+            // AArch64: mov x8, #0x63 (syscall 99 set_robust_list)
+            // Little-endian bytes: 68 0c 80 d2
+            val movX8Syscall99 = byteArrayOf(0x68.toByte(), 0x0c.toByte(), 0x80.toByte(), 0xd2.toByte())
+            // svc #0 in AArch64: 01 00 00 d4
+            val svcAarch64 = byteArrayOf(0x01.toByte(), 0x00.toByte(), 0x00.toByte(), 0xd4.toByte())
+            // nop in AArch64: 1f 20 03 d5
+            val nopAarch64 = byteArrayOf(0x1f.toByte(), 0x20.toByte(), 0x03.toByte(), 0xd5.toByte())
+
+            var pos = 0
+            while (pos <= bytes.size - 4) {
+                if (bytes[pos] == movX8Syscall99[0] &&
+                    bytes[pos + 1] == movX8Syscall99[1] &&
+                    bytes[pos + 2] == movX8Syscall99[2] &&
+                    bytes[pos + 3] == movX8Syscall99[3]) {
+
+                    val searchEnd = minOf(bytes.size - 4, pos + 64)
+                    for (i in (pos + 4)..searchEnd step 4) {
+                        if (bytes[i] == svcAarch64[0] &&
+                            bytes[i + 1] == svcAarch64[1] &&
+                            bytes[i + 2] == svcAarch64[2] &&
+                            bytes[i + 3] == svcAarch64[3]) {
+
+                            nopAarch64.copyInto(bytes, destinationOffset = i)
+                            modified = true
+                            android.util.Log.i("BootstrapManager", "Patched syscall 99 svc #0 at 0x${Integer.toHexString(i)} in ${file.name}")
+                            break
+                        }
+                    }
+                }
+                pos += 4
+            }
+
+            if (modified) {
+                file.setWritable(true, true)
+                file.writeBytes(bytes)
+                file.setExecutable(true, false)
+                file.setReadable(true, false)
+                android.util.Log.i("BootstrapManager", "Successfully wrote patched linker: ${file.absolutePath}")
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("BootstrapManager", "Failed to patch dynamic linker: ${file.absolutePath}", e)
+        }
+    }
 }
+

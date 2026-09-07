@@ -68,6 +68,7 @@ object Environment {
             "TMPDIR=$tmp",
             "PATH=$pathStr",
             "LD_LIBRARY_PATH=$ldPathStr",
+            "GLIBC_TUNABLES=glibc.pthread.rseq=0",
             "LANG=en_US.UTF-8",
             "LC_ALL=en_US.UTF-8",
             "USER=cortex",

@@ -89,6 +89,48 @@ jobs:
           docker export "$CID_32" > app/src/main/assets/bootstrap-arm.tar
           docker rm "$CID_32"
 
+          echo "Patching dynamic linkers in bootstrap archives for Android seccomp compliance..."
+          python3 - << 'EOF'
+          import tarfile, io, os
+
+          def patch_tar_ld(tar_path):
+              print(f"Checking and patching dynamic linkers in {tar_path}...")
+              pattern = b"\x68\x0c\x80\xd2" # mov x8, #0x63
+              svc = b"\x01\x00\x00\xd4"     # svc #0
+              nop = b"\x1f\x20\x03\xd5"     # nop
+
+              count = 0
+              with tarfile.open(tar_path, "r") as tin:
+                  members = tin.getmembers()
+                  with tarfile.open(tar_path + ".tmp", "w") as tout:
+                      for m in members:
+                          f = tin.extractfile(m) if m.isreg() else None
+                          if f and "ld-linux" in m.name:
+                              data = bytearray(f.read())
+                              idx = data.find(pattern)
+                              if idx != -1:
+                                  sub = data[idx:idx+64]
+                                  s_idx = sub.find(svc)
+                                  if s_idx != -1:
+                                      target = idx + s_idx
+                                      data[target:target+4] = nop
+                                      print(f"Patched {m.name} at 0x{target:x}!")
+                                      count += 1
+                              m.size = len(data)
+                              tout.addfile(m, io.BytesIO(data))
+                          elif f:
+                              tout.addfile(m, f)
+                          else:
+                              tout.addfile(m)
+              os.replace(tar_path + ".tmp", tar_path)
+              print(f"Finished patching {tar_path}: {count} occurrences patched.")
+
+          if os.path.exists("app/src/main/assets/bootstrap-arm64.tar"):
+              patch_tar_ld("app/src/main/assets/bootstrap-arm64.tar")
+          if os.path.exists("app/src/main/assets/bootstrap-arm.tar"):
+              patch_tar_ld("app/src/main/assets/bootstrap-arm.tar")
+          EOF
+
           ls -lh app/src/main/assets/
 
       - name: Build Release APKs
