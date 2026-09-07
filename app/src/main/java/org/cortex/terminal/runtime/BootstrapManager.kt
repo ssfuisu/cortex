@@ -58,6 +58,8 @@ object BootstrapManager {
         }
 
         ensureHookLibrary(context, root)
+        updateDnsConfiguration(context, root)
+        cleanupAptArtifacts(root)
         ensureAptSandbox(root)
         ensureDpkgTables(root)
         ensureLocale(root)
@@ -66,7 +68,7 @@ object BootstrapManager {
         patchAllDynamicLinkers(root)
     }
 
-    private const val CURRENT_BOOTSTRAP_VERSION = 23
+    private const val CURRENT_BOOTSTRAP_VERSION = 25
 
     fun isBootstrapInstalled(context: Context): Boolean {
         val root = Environment.getCortexRoot(context)
@@ -165,9 +167,7 @@ object BootstrapManager {
             ensureHookLibrary(context, root)
 
             // Configure DNS
-            val etcDir = File(root, "etc")
-            etcDir.mkdirs()
-            File(etcDir, "resolv.conf").writeText("nameserver 8.8.8.8\nnameserver 1.1.1.1\n")
+            updateDnsConfiguration(context, root)
 
             val etcProfile = File(etcDir, "profile")
             if (etcProfile.exists()) {
@@ -200,19 +200,14 @@ object BootstrapManager {
             File(root, "home").mkdirs()
 
             // Configure APT sandbox so APT operates without superuser privilege drop
-            val aptConfDir = File(root, "etc/apt/apt.conf.d")
-            aptConfDir.mkdirs()
-            File(aptConfDir, "01sandbox").writeText(
-                "APT::Sandbox::User \"root\";\n" +
-                "Acquire::Languages \"none\";\n" +
-                "Acquire::GzipIndexes \"true\";\n" +
-                "Dir::dpkg::cputable \"/usr/share/dpkg/cputable\";\n" +
-                "Dir::dpkg::tupletable \"/usr/share/dpkg/tupletable\";\n"
-            )
+            ensureAptSandbox(root)
 
-            // Ensure sources.list exists
+            // Ensure sources.list exists without duplicating debian.sources
+            val debianSources = File(root, "etc/apt/sources.list.d/debian.sources")
             val sourcesList = File(root, "etc/apt/sources.list")
-            if (!sourcesList.exists() || sourcesList.length() == 0L) {
+            if (debianSources.exists()) {
+                if (sourcesList.exists()) sourcesList.delete()
+            } else if (!sourcesList.exists() || sourcesList.length() == 0L) {
                 sourcesList.writeText(
                     "deb http://deb.debian.org/debian bookworm main contrib non-free non-free-firmware\n" +
                     "deb http://deb.debian.org/debian-security bookworm-security main contrib non-free non-free-firmware\n" +
@@ -231,6 +226,7 @@ object BootstrapManager {
             ensureAptSandbox(root)
             ensureDpkgTables(root)
             ensureLocale(root)
+            cleanupAptArtifacts(root)
 
             File(root, "var/lib/apt/lists/partial").mkdirs()
             File(root, "var/cache/apt/archives/partial").mkdirs()
@@ -549,6 +545,54 @@ object BootstrapManager {
             }
         } catch (e: Exception) {
             android.util.Log.e("BootstrapManager", "Failed to copy hook library from assets", e)
+        }
+    }
+
+    private fun updateDnsConfiguration(context: Context, root: File) {
+        try {
+            val dnsServers = mutableListOf<String>()
+            val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
+            val activeNet = cm?.activeNetwork
+            if (activeNet != null) {
+                val lp = cm.getLinkProperties(activeNet)
+                lp?.dnsServers?.forEach { addr ->
+                    val host = addr.hostAddress
+                    if (!host.isNullOrBlank() && !host.contains("%")) {
+                        dnsServers.add(host)
+                    }
+                }
+            }
+            if (dnsServers.isEmpty()) {
+                dnsServers.add("8.8.8.8")
+                dnsServers.add("1.1.1.1")
+            } else {
+                if (!dnsServers.contains("8.8.8.8")) dnsServers.add("8.8.8.8")
+                if (!dnsServers.contains("1.1.1.1")) dnsServers.add("1.1.1.1")
+            }
+
+            val etcDir = File(root, "etc")
+            etcDir.mkdirs()
+            val resolvConf = dnsServers.joinToString("\n") { "nameserver $it" } + "\noptions timeout:2 attempts:3\n"
+            File(etcDir, "resolv.conf").writeText(resolvConf)
+        } catch (e: Exception) {
+            android.util.Log.e("BootstrapManager", "Failed to update resolv.conf", e)
+        }
+    }
+
+    private fun cleanupAptArtifacts(root: File) {
+        try {
+            val debianSources = File(root, "etc/apt/sources.list.d/debian.sources")
+            val sourcesList = File(root, "etc/apt/sources.list")
+            if (debianSources.exists() && sourcesList.exists()) {
+                sourcesList.delete()
+            }
+
+            val dockerClean = File(root, "etc/apt/apt.conf.d/docker-clean")
+            if (dockerClean.exists()) {
+                dockerClean.delete()
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("BootstrapManager", "Failed to cleanup apt artifacts", e)
         }
     }
 }

@@ -15,6 +15,11 @@
 #include <ucontext.h>
 #include <sys/statfs.h>
 #include <sys/statvfs.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <netdb.h>
+#include <resolv.h>
 
 // Intercept SECCOMP blocked syscalls (SIGSYS) and return -ENOSYS so glibc falls back gracefully
 static void cortex_sigsys_handler(int sig, siginfo_t *info, void *ctx) {
@@ -670,24 +675,69 @@ static char **clean_env_for_system(char *const envp[]) {
     return new_env;
 }
 
-static char **ensure_glibc_tunables(char *const envp[]) {
+static char **prepare_cortex_env(char *const envp[]) {
+    init_cortex_hook();
     int count = 0;
+    int has_preload = 0;
+    int has_root = 0;
     int has_tunables = 0;
+    int has_path = 0;
+    int has_tmp = 0;
+
+    char hook_path[PATH_MAX] = {0};
+    if (g_cortex_root[0] != '\0') {
+        snprintf(hook_path, sizeof(hook_path), "%s/usr/lib/libcortex-hook.so", g_cortex_root);
+    }
+
     while (envp && envp[count]) {
-        if (strncmp(envp[count], "GLIBC_TUNABLES=", 15) == 0) {
+        if (strncmp(envp[count], "LD_PRELOAD=", 11) == 0) {
+            has_preload = 1;
+        } else if (strncmp(envp[count], "CORTEX_ROOT=", 12) == 0) {
+            has_root = 1;
+        } else if (strncmp(envp[count], "GLIBC_TUNABLES=", 15) == 0) {
             has_tunables = 1;
+        } else if (strncmp(envp[count], "PATH=", 5) == 0) {
+            has_path = 1;
+        } else if (strncmp(envp[count], "TMPDIR=", 7) == 0) {
+            has_tmp = 1;
         }
         count++;
     }
-    if (has_tunables) {
-        return (char **)envp;
-    }
-    char **new_env = calloc(count + 2, sizeof(char *));
+
+    char **new_env = calloc(count + 6, sizeof(char *));
+    int dst = 0;
     for (int i = 0; i < count; i++) {
-        new_env[i] = envp[i];
+        new_env[dst++] = envp[i];
     }
-    new_env[count] = "GLIBC_TUNABLES=glibc.pthread.rseq=0";
-    new_env[count + 1] = NULL;
+
+    if (!has_preload && hook_path[0] != '\0') {
+        char *str = malloc(PATH_MAX + 16);
+        if (str) {
+            snprintf(str, PATH_MAX + 16, "LD_PRELOAD=%s", hook_path);
+            new_env[dst++] = str;
+        }
+    }
+    if (!has_root && g_cortex_root[0] != '\0') {
+        char *str = malloc(PATH_MAX + 16);
+        if (str) {
+            snprintf(str, PATH_MAX + 16, "CORTEX_ROOT=%s", g_cortex_root);
+            new_env[dst++] = str;
+        }
+    }
+    if (!has_tunables) {
+        new_env[dst++] = "GLIBC_TUNABLES=glibc.pthread.rseq=0";
+    }
+    if (!has_path) {
+        new_env[dst++] = "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
+    }
+    if (!has_tmp && g_cortex_root[0] != '\0') {
+        char *str = malloc(PATH_MAX + 16);
+        if (str) {
+            snprintf(str, PATH_MAX + 16, "TMPDIR=%s/tmp", g_cortex_root);
+            new_env[dst++] = str;
+        }
+    }
+    new_env[dst] = NULL;
     return new_env;
 }
 
@@ -752,7 +802,7 @@ int execve(const char *filename, char *const argv[], char *const envp[]) {
                         new_argv[i + 3] = argv[i];
                     }
                     new_argv[argc + 3] = NULL;
-                    return orig_execve(ld_so, new_argv, ensure_glibc_tunables(envp));
+                    return orig_execve(ld_so, new_argv, prepare_cortex_env(envp));
                 }
             }
 
@@ -799,7 +849,7 @@ int execve(const char *filename, char *const argv[], char *const envp[]) {
                     char **sys_env = clean_env_for_system(envp);
                     return orig_execve(rewritten_interp, new_argv, sys_env);
                 }
-                return execve(rewritten_interp, new_argv, envp);
+                return execve(rewritten_interp, new_argv, prepare_cortex_env(envp));
             }
         }
     } else {
@@ -809,7 +859,7 @@ int execve(const char *filename, char *const argv[], char *const envp[]) {
         }
     }
 
-    return orig_execve(target, argv, envp);
+    return orig_execve(target, argv, prepare_cortex_env(envp));
 }
 
 extern char **environ;
@@ -861,3 +911,190 @@ int execvpe(const char *file, char *const argv[], char *const envp[]) {
     }
     return execve(file, argv, envp);
 }
+
+// DNS resolution hooking and localhost DNS redirect
+static in_addr_t get_primary_dns(void) {
+    static in_addr_t primary_dns = 0;
+    if (primary_dns != 0) return primary_dns;
+
+    init_cortex_hook();
+    char resolv_path[PATH_MAX];
+    if (g_cortex_root[0] != '\0') {
+        snprintf(resolv_path, sizeof(resolv_path), "%s/etc/resolv.conf", g_cortex_root);
+    } else {
+        snprintf(resolv_path, sizeof(resolv_path), "/etc/resolv.conf");
+    }
+
+    FILE *f = fopen(resolv_path, "r");
+    if (f) {
+        char line[256];
+        while (fgets(line, sizeof(line), f)) {
+            char *p = line;
+            while (*p == ' ' || *p == '\t') p++;
+            if (strncmp(p, "nameserver", 10) == 0) {
+                p += 10;
+                while (*p == ' ' || *p == '\t') p++;
+                char *end = p;
+                while (*end && *end != ' ' && *end != '\t' && *end != '\r' && *end != '\n') end++;
+                *end = '\0';
+                struct in_addr a;
+                if (inet_aton(p, &a)) {
+                    primary_dns = a.s_addr;
+                    break;
+                }
+            }
+        }
+        fclose(f);
+    }
+    if (primary_dns == 0) {
+        primary_dns = inet_addr("8.8.8.8");
+    }
+    return primary_dns;
+}
+
+static void configure_dns_state(void) {
+    struct __res_state *statp = __res_state();
+    if (!statp) return;
+
+    char resolv_path[PATH_MAX];
+    init_cortex_hook();
+    if (g_cortex_root[0] != '\0') {
+        snprintf(resolv_path, sizeof(resolv_path), "%s/etc/resolv.conf", g_cortex_root);
+    } else {
+        snprintf(resolv_path, sizeof(resolv_path), "/etc/resolv.conf");
+    }
+
+    FILE *f = fopen(resolv_path, "r");
+    int count = 0;
+    if (f) {
+        char line[256];
+        while (fgets(line, sizeof(line), f) && count < MAXNS) {
+            char *p = line;
+            while (*p == ' ' || *p == '\t') p++;
+            if (strncmp(p, "nameserver", 10) == 0) {
+                p += 10;
+                while (*p == ' ' || *p == '\t') p++;
+                char *end = p;
+                while (*end && *end != ' ' && *end != '\t' && *end != '\r' && *end != '\n') end++;
+                *end = '\0';
+                struct in_addr a;
+                if (inet_aton(p, &a)) {
+                    statp->nsaddr_list[count].sin_family = AF_INET;
+                    statp->nsaddr_list[count].sin_port = htons(53);
+                    statp->nsaddr_list[count].sin_addr = a;
+                    memset(statp->nsaddr_list[count].sin_zero, 0, sizeof(statp->nsaddr_list[count].sin_zero));
+                    count++;
+                }
+            }
+        }
+        fclose(f);
+    }
+
+    if (count == 0) {
+        statp->nsaddr_list[0].sin_family = AF_INET;
+        statp->nsaddr_list[0].sin_port = htons(53);
+        inet_aton("8.8.8.8", &statp->nsaddr_list[0].sin_addr);
+        memset(statp->nsaddr_list[0].sin_zero, 0, sizeof(statp->nsaddr_list[0].sin_zero));
+
+        statp->nsaddr_list[1].sin_family = AF_INET;
+        statp->nsaddr_list[1].sin_port = htons(53);
+        inet_aton("1.1.1.1", &statp->nsaddr_list[1].sin_addr);
+        memset(statp->nsaddr_list[1].sin_zero, 0, sizeof(statp->nsaddr_list[1].sin_zero));
+        count = 2;
+    }
+
+    statp->nscount = count;
+    statp->options |= RES_INIT;
+}
+
+int getaddrinfo(const char *node, const char *service,
+                const struct addrinfo *hints,
+                struct addrinfo **res) {
+    static int (*orig_getaddrinfo)(const char *, const char *, const struct addrinfo *, struct addrinfo **) = NULL;
+    if (!orig_getaddrinfo) orig_getaddrinfo = (int (*)(const char *, const char *, const struct addrinfo *, struct addrinfo **))dlsym(RTLD_NEXT, "getaddrinfo");
+    configure_dns_state();
+    return orig_getaddrinfo ? orig_getaddrinfo(node, service, hints, res) : EAI_FAIL;
+}
+
+int res_init(void) {
+    static int (*orig_res_init)(void) = NULL;
+    if (!orig_res_init) orig_res_init = (int (*)(void))dlsym(RTLD_NEXT, "res_init");
+    if (orig_res_init) orig_res_init();
+    configure_dns_state();
+    return 0;
+}
+
+int res_ninit(res_state statp) {
+    static int (*orig_res_ninit)(res_state) = NULL;
+    if (!orig_res_ninit) orig_res_ninit = (int (*)(res_state))dlsym(RTLD_NEXT, "res_ninit");
+    if (orig_res_ninit) orig_res_ninit(statp);
+    configure_dns_state();
+    return 0;
+}
+
+struct hostent *gethostbyname(const char *name) {
+    static struct hostent *(*orig_gethostbyname)(const char *) = NULL;
+    if (!orig_gethostbyname) orig_gethostbyname = (struct hostent *(*)(const char *))dlsym(RTLD_NEXT, "gethostbyname");
+    configure_dns_state();
+    return orig_gethostbyname ? orig_gethostbyname(name) : NULL;
+}
+
+struct hostent *gethostbyname2(const char *name, int af) {
+    static struct hostent *(*orig_gethostbyname2)(const char *, int) = NULL;
+    if (!orig_gethostbyname2) orig_gethostbyname2 = (struct hostent *(*)(const char *, int))dlsym(RTLD_NEXT, "gethostbyname2");
+    configure_dns_state();
+    return orig_gethostbyname2 ? orig_gethostbyname2(name, af) : NULL;
+}
+
+int connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen) {
+    static int (*orig_connect)(int, const struct sockaddr *, socklen_t) = NULL;
+    if (!orig_connect) orig_connect = (int (*)(int, const struct sockaddr *, socklen_t))dlsym(RTLD_NEXT, "connect");
+
+    if (addr && addr->sa_family == AF_INET && addrlen >= sizeof(struct sockaddr_in)) {
+        struct sockaddr_in *sin = (struct sockaddr_in *)addr;
+        if (sin->sin_port == htons(53) && sin->sin_addr.s_addr == htonl(INADDR_LOOPBACK)) {
+            struct sockaddr_in redirected;
+            memcpy(&redirected, sin, sizeof(redirected));
+            redirected.sin_addr.s_addr = get_primary_dns();
+            return orig_connect ? orig_connect(sockfd, (struct sockaddr *)&redirected, sizeof(redirected)) : -1;
+        }
+    }
+    return orig_connect ? orig_connect(sockfd, addr, addrlen) : -1;
+}
+
+ssize_t sendto(int sockfd, const void *buf, size_t len, int flags,
+               const struct sockaddr *dest_addr, socklen_t addrlen) {
+    static ssize_t (*orig_sendto)(int, const void *, size_t, int, const struct sockaddr *, socklen_t) = NULL;
+    if (!orig_sendto) orig_sendto = (ssize_t (*)(int, const void *, size_t, int, const struct sockaddr *, socklen_t))dlsym(RTLD_NEXT, "sendto");
+
+    if (dest_addr && dest_addr->sa_family == AF_INET && addrlen >= sizeof(struct sockaddr_in)) {
+        struct sockaddr_in *sin = (struct sockaddr_in *)dest_addr;
+        if (sin->sin_port == htons(53) && sin->sin_addr.s_addr == htonl(INADDR_LOOPBACK)) {
+            struct sockaddr_in redirected;
+            memcpy(&redirected, sin, sizeof(redirected));
+            redirected.sin_addr.s_addr = get_primary_dns();
+            return orig_sendto ? orig_sendto(sockfd, buf, len, flags, (struct sockaddr *)&redirected, sizeof(redirected)) : -1;
+        }
+    }
+    return orig_sendto ? orig_sendto(sockfd, buf, len, flags, dest_addr, addrlen) : -1;
+}
+
+ssize_t sendmsg(int sockfd, const struct msghdr *msg, int flags) {
+    static ssize_t (*orig_sendmsg)(int, const struct msghdr *, int) = NULL;
+    if (!orig_sendmsg) orig_sendmsg = (ssize_t (*)(int, const struct msghdr *, int))dlsym(RTLD_NEXT, "sendmsg");
+
+    if (msg && msg->msg_name && msg->msg_namelen >= sizeof(struct sockaddr_in)) {
+        struct sockaddr_in *sin = (struct sockaddr_in *)msg->msg_name;
+        if (sin->sin_family == AF_INET && sin->sin_port == htons(53) && sin->sin_addr.s_addr == htonl(INADDR_LOOPBACK)) {
+            struct sockaddr_in redirected;
+            memcpy(&redirected, sin, sizeof(redirected));
+            redirected.sin_addr.s_addr = get_primary_dns();
+            struct msghdr mod_msg;
+            memcpy(&mod_msg, msg, sizeof(mod_msg));
+            mod_msg.msg_name = &redirected;
+            return orig_sendmsg ? orig_sendmsg(sockfd, &mod_msg, flags) : -1;
+        }
+    }
+    return orig_sendmsg ? orig_sendmsg(sockfd, msg, flags) : -1;
+}
+
