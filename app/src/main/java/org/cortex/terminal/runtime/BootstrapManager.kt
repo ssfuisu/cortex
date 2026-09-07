@@ -169,6 +169,7 @@ object BootstrapManager {
             // Configure DNS
             updateDnsConfiguration(context, root)
 
+            val etcDir = File(root, "etc")
             val etcProfile = File(etcDir, "profile")
             if (etcProfile.exists()) {
                 val pText = etcProfile.readText()
