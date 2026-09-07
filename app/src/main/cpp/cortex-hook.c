@@ -604,6 +604,25 @@ int scandir(const char *dirp, struct dirent ***namelist,
     return orig_scandir ? orig_scandir(target, namelist, filter, compar) : -1;
 }
 
+#if defined(__LP64__)
+// Export 64-bit Large File Support (LFS) symbol aliases on 64-bit platforms so that
+// calls from libraries compiled with LFS (such as libstdc++ calling fopen64) are intercepted.
+__asm__(
+    ".globl open64\n"      ".set open64, open\n"
+    ".globl openat64\n"    ".set openat64, openat\n"
+    ".globl creat64\n"     ".set creat64, creat\n"
+    ".globl fopen64\n"     ".set fopen64, fopen\n"
+    ".globl freopen64\n"   ".set freopen64, freopen\n"
+    ".globl stat64\n"      ".set stat64, stat\n"
+    ".globl lstat64\n"     ".set lstat64, lstat\n"
+    ".globl fstatat64\n"   ".set fstatat64, fstatat\n"
+    ".globl truncate64\n"  ".set truncate64, truncate\n"
+    ".globl statfs64\n"    ".set statfs64, statfs\n"
+    ".globl statvfs64\n"   ".set statvfs64, statvfs\n"
+    ".globl scandir64\n"   ".set scandir64, scandir\n"
+);
+#endif
+
 // Fakeroot identity hooks for APT and DPKG to operate without superuser restrictions
 uid_t getuid(void) { return 0; }
 uid_t geteuid(void) { return 0; }

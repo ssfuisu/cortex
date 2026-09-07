@@ -63,7 +63,7 @@ jobs:
       - name: Build Glibc cortex-hook Libraries
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu gcc-arm-linux-gnueabihf
+          sudo apt-get install -y gcc-aarch64-linux-gnu gcc-arm-linux-gnueabihf dpkg-dev
           mkdir -p hook-libs
           aarch64-linux-gnu-gcc -shared -fPIC -O3 -Wall -o hook-libs/libcortex-hook-arm64.so app/src/main/cpp/cortex-hook.c -ldl
           arm-linux-gnueabihf-gcc -shared -fPIC -O3 -Wall -o hook-libs/libcortex-hook-arm.so app/src/main/cpp/cortex-hook.c -ldl
@@ -75,10 +75,28 @@ jobs:
           cp hook-libs/libcortex-hook-arm64.so app/src/main/assets/libcortex-hook-arm64.so
           cp hook-libs/libcortex-hook-arm.so app/src/main/assets/libcortex-hook-arm.so
 
+          echo "Preparing dpkg tables and APT sandbox config for bootstrap..."
+          mkdir -p extra-rootfs/usr/share/dpkg extra-rootfs/etc/apt/apt.conf.d
+          if [ -d /usr/share/dpkg ]; then
+            cp -r /usr/share/dpkg/* extra-rootfs/usr/share/dpkg/
+          fi
+          if [ -f extra-rootfs/usr/share/dpkg/tupletable ]; then
+            cp extra-rootfs/usr/share/dpkg/tupletable extra-rootfs/usr/share/dpkg/triplettable
+          fi
+          cat << 'EOF' > extra-rootfs/etc/apt/apt.conf.d/01sandbox
+APT::Sandbox::User "root";
+Acquire::Languages "none";
+Acquire::GzipIndexes "true";
+Dir::dpkg::cputable "/usr/share/dpkg/cputable";
+Dir::dpkg::tupletable "/usr/share/dpkg/tupletable";
+Dir::dpkg::triplettable "/usr/share/dpkg/triplettable";
+EOF
+
           echo "Preparing 64-bit Debian Glibc minimal bootstrap..."
           docker pull --platform linux/arm64 debian:bookworm-slim
           CID_64=$(docker create --platform linux/arm64 debian:bookworm-slim)
           docker cp hook-libs/libcortex-hook-arm64.so "$CID_64":/usr/lib/libcortex-hook.so
+          docker cp extra-rootfs/. "$CID_64":/
           docker export "$CID_64" > app/src/main/assets/bootstrap-arm64.tar
           docker rm "$CID_64"
 
@@ -86,6 +104,7 @@ jobs:
           docker pull --platform linux/arm/v7 debian:bookworm-slim
           CID_32=$(docker create --platform linux/arm/v7 debian:bookworm-slim)
           docker cp hook-libs/libcortex-hook-arm.so "$CID_32":/usr/lib/libcortex-hook.so
+          docker cp extra-rootfs/. "$CID_32":/
           docker export "$CID_32" > app/src/main/assets/bootstrap-arm.tar
           docker rm "$CID_32"
 

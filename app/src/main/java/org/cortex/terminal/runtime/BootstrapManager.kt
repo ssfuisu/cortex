@@ -57,20 +57,8 @@ object BootstrapManager {
             }
         }
 
-        val aptConfDir = File(root, "etc/apt/apt.conf.d")
-        if (aptConfDir.exists()) {
-            val sbFile = File(aptConfDir, "01sandbox")
-            if (!sbFile.exists() || !sbFile.readText().contains("cputable")) {
-                sbFile.writeText(
-                    "APT::Sandbox::User \"root\";\n" +
-                    "Acquire::Languages \"none\";\n" +
-                    "Acquire::GzipIndexes \"true\";\n" +
-                    "Dir::dpkg::cputable \"/usr/share/dpkg/cputable\";\n" +
-                    "Dir::dpkg::tupletable \"/usr/share/dpkg/tupletable\";\n"
-                )
-            }
-        }
-
+        ensureHookLibrary(context, root)
+        ensureAptSandbox(root)
         ensureDpkgTables(root)
         ensureLocale(root)
 
@@ -78,7 +66,7 @@ object BootstrapManager {
         patchAllDynamicLinkers(root)
     }
 
-    private const val CURRENT_BOOTSTRAP_VERSION = 21
+    private const val CURRENT_BOOTSTRAP_VERSION = 23
 
     fun isBootstrapInstalled(context: Context): Boolean {
         val root = Environment.getCortexRoot(context)
@@ -174,22 +162,7 @@ object BootstrapManager {
             patchAllDynamicLinkers(root)
 
             // Ensure Glibc cortex-hook library is present and executable
-            val hookAssetName = if (CortexRuntime.is64Bit) "libcortex-hook-arm64.so" else "libcortex-hook-arm.so"
-            val targetHook = File(root, "usr/lib/libcortex-hook.so")
-            try {
-                targetHook.parentFile?.mkdirs()
-                context.assets.open(hookAssetName).use { inStream ->
-                    targetHook.outputStream().use { outStream ->
-                        inStream.copyTo(outStream)
-                    }
-                }
-            } catch (e: Exception) {
-                // Handled if already inside tar
-            }
-            if (targetHook.exists()) {
-                targetHook.setExecutable(true, false)
-                targetHook.setReadable(true, false)
-            }
+            ensureHookLibrary(context, root)
 
             // Configure DNS
             val etcDir = File(root, "etc")
@@ -255,6 +228,7 @@ object BootstrapManager {
                 statusFile.createNewFile()
             }
 
+            ensureAptSandbox(root)
             ensureDpkgTables(root)
             ensureLocale(root)
 
@@ -406,56 +380,61 @@ object BootstrapManager {
             }
 
             val tupleTable = File(dpkgShare, "tupletable")
+            val tupleContent =
+                "# Version=1.0\n" +
+                "eabi-uclibc-linux-arm\tuclibc-linux-armel\n" +
+                "base-uclibc-linux-<cpu>\tuclibc-linux-<cpu>\n" +
+                "eabihf-musl-linux-arm\tmusl-linux-armhf\n" +
+                "base-musl-linux-<cpu>\tmusl-linux-<cpu>\n" +
+                "eabihf-gnu-linux-arm\tarmhf\n" +
+                "eabi-gnu-linux-arm\tarmel\n" +
+                "abin32-gnu-linux-mips64r6el\tmipsn32r6el\n" +
+                "abin32-gnu-linux-mips64r6\tmipsn32r6\n" +
+                "abin32-gnu-linux-mips64el\tmipsn32el\n" +
+                "abin32-gnu-linux-mips64\tmipsn32\n" +
+                "abi64-gnu-linux-mips64r6el\tmips64r6el\n" +
+                "abi64-gnu-linux-mips64r6\tmips64r6\n" +
+                "abi64-gnu-linux-mips64el\tmips64el\n" +
+                "abi64-gnu-linux-mips64\tmips64\n" +
+                "spe-gnu-linux-powerpc\tpowerpcspe\n" +
+                "x32-gnu-linux-amd64\tx32\n" +
+                "base-gnu-linux-<cpu>\t<cpu>\n" +
+                "base-gnu-kfreebsd-amd64\tkfreebsd-amd64\n" +
+                "base-gnu-kfreebsd-i386\tkfreebsd-i386\n" +
+                "base-gnu-kopensolaris-amd64\tkopensolaris-amd64\n" +
+                "base-gnu-kopensolaris-i386\tkopensolaris-i386\n" +
+                "base-gnu-hurd-amd64\thurd-amd64\n" +
+                "base-gnu-hurd-i386\thurd-i386\n" +
+                "base-bsd-dragonflybsd-amd64\tdragonflybsd-amd64\n" +
+                "base-bsd-freebsd-amd64\tfreebsd-amd64\n" +
+                "base-bsd-freebsd-arm\tfreebsd-arm\n" +
+                "base-bsd-freebsd-arm64\tfreebsd-arm64\n" +
+                "base-bsd-freebsd-i386\tfreebsd-i386\n" +
+                "base-bsd-freebsd-powerpc\tfreebsd-powerpc\n" +
+                "base-bsd-freebsd-ppc64\tfreebsd-ppc64\n" +
+                "base-bsd-freebsd-riscv\tfreebsd-riscv\n" +
+                "base-bsd-openbsd-<cpu>\topenbsd-<cpu>\n" +
+                "base-bsd-netbsd-<cpu>\tnetbsd-<cpu>\n" +
+                "base-bsd-darwin-amd64\tdarwin-amd64\n" +
+                "base-bsd-darwin-arm\tdarwin-arm\n" +
+                "base-bsd-darwin-arm64\tdarwin-arm64\n" +
+                "base-bsd-darwin-i386\tdarwin-i386\n" +
+                "base-bsd-darwin-powerpc\tdarwin-powerpc\n" +
+                "base-bsd-darwin-ppc64\tdarwin-ppc64\n" +
+                "base-sysv-aix-powerpc\taix-powerpc\n" +
+                "base-sysv-aix-ppc64\taix-ppc64\n" +
+                "base-sysv-solaris-amd64\tsolaris-amd64\n" +
+                "base-sysv-solaris-i386\tsolaris-i386\n" +
+                "base-sysv-solaris-sparc\tsolaris-sparc\n" +
+                "base-sysv-solaris-sparc64\tsolaris-sparc64\n" +
+                "base-tos-mint-m68k\tmint-m68k\n"
+
             if (!tupleTable.exists() || tupleTable.length() == 0L) {
-                tupleTable.writeText(
-                    "# Version=1.0\n" +
-                    "eabi-uclibc-linux-arm\tuclibc-linux-armel\n" +
-                    "base-uclibc-linux-<cpu>\tuclibc-linux-<cpu>\n" +
-                    "eabihf-musl-linux-arm\tmusl-linux-armhf\n" +
-                    "base-musl-linux-<cpu>\tmusl-linux-<cpu>\n" +
-                    "eabihf-gnu-linux-arm\tarmhf\n" +
-                    "eabi-gnu-linux-arm\tarmel\n" +
-                    "abin32-gnu-linux-mips64r6el\tmipsn32r6el\n" +
-                    "abin32-gnu-linux-mips64r6\tmipsn32r6\n" +
-                    "abin32-gnu-linux-mips64el\tmipsn32el\n" +
-                    "abin32-gnu-linux-mips64\tmipsn32\n" +
-                    "abi64-gnu-linux-mips64r6el\tmips64r6el\n" +
-                    "abi64-gnu-linux-mips64r6\tmips64r6\n" +
-                    "abi64-gnu-linux-mips64el\tmips64el\n" +
-                    "abi64-gnu-linux-mips64\tmips64\n" +
-                    "spe-gnu-linux-powerpc\tpowerpcspe\n" +
-                    "x32-gnu-linux-amd64\tx32\n" +
-                    "base-gnu-linux-<cpu>\t<cpu>\n" +
-                    "base-gnu-kfreebsd-amd64\tkfreebsd-amd64\n" +
-                    "base-gnu-kfreebsd-i386\tkfreebsd-i386\n" +
-                    "base-gnu-kopensolaris-amd64\tkopensolaris-amd64\n" +
-                    "base-gnu-kopensolaris-i386\tkopensolaris-i386\n" +
-                    "base-gnu-hurd-amd64\thurd-amd64\n" +
-                    "base-gnu-hurd-i386\thurd-i386\n" +
-                    "base-bsd-dragonflybsd-amd64\tdragonflybsd-amd64\n" +
-                    "base-bsd-freebsd-amd64\tfreebsd-amd64\n" +
-                    "base-bsd-freebsd-arm\tfreebsd-arm\n" +
-                    "base-bsd-freebsd-arm64\tfreebsd-arm64\n" +
-                    "base-bsd-freebsd-i386\tfreebsd-i386\n" +
-                    "base-bsd-freebsd-powerpc\tfreebsd-powerpc\n" +
-                    "base-bsd-freebsd-ppc64\tfreebsd-ppc64\n" +
-                    "base-bsd-freebsd-riscv\tfreebsd-riscv\n" +
-                    "base-bsd-openbsd-<cpu>\topenbsd-<cpu>\n" +
-                    "base-bsd-netbsd-<cpu>\tnetbsd-<cpu>\n" +
-                    "base-bsd-darwin-amd64\tdarwin-amd64\n" +
-                    "base-bsd-darwin-arm\tdarwin-arm\n" +
-                    "base-bsd-darwin-arm64\tdarwin-arm64\n" +
-                    "base-bsd-darwin-i386\tdarwin-i386\n" +
-                    "base-bsd-darwin-powerpc\tdarwin-powerpc\n" +
-                    "base-bsd-darwin-ppc64\tdarwin-ppc64\n" +
-                    "base-sysv-aix-powerpc\taix-powerpc\n" +
-                    "base-sysv-aix-ppc64\taix-ppc64\n" +
-                    "base-sysv-solaris-amd64\tsolaris-amd64\n" +
-                    "base-sysv-solaris-i386\tsolaris-i386\n" +
-                    "base-sysv-solaris-sparc\tsolaris-sparc\n" +
-                    "base-sysv-solaris-sparc64\tsolaris-sparc64\n" +
-                    "base-tos-mint-m68k\tmint-m68k\n"
-                )
+                tupleTable.writeText(tupleContent)
+            }
+            val tripletTable = File(dpkgShare, "triplettable")
+            if (!tripletTable.exists() || tripletTable.length() == 0L) {
+                tripletTable.writeText(tupleContent)
             }
 
             val ostable = File(dpkgShare, "ostable")
@@ -533,6 +512,43 @@ object BootstrapManager {
             }
         } catch (e: Exception) {
             android.util.Log.e("BootstrapManager", "Failed to ensure locale", e)
+        }
+    }
+
+    private fun ensureAptSandbox(root: File) {
+        try {
+            val aptConfDir = File(root, "etc/apt/apt.conf.d")
+            aptConfDir.mkdirs()
+            val sbFile = File(aptConfDir, "01sandbox")
+            sbFile.writeText(
+                "APT::Sandbox::User \"root\";\n" +
+                "Acquire::Languages \"none\";\n" +
+                "Acquire::GzipIndexes \"true\";\n" +
+                "Dir::dpkg::cputable \"/usr/share/dpkg/cputable\";\n" +
+                "Dir::dpkg::tupletable \"/usr/share/dpkg/tupletable\";\n" +
+                "Dir::dpkg::triplettable \"/usr/share/dpkg/triplettable\";\n"
+            )
+        } catch (e: Exception) {
+            android.util.Log.e("BootstrapManager", "Failed to ensure apt sandbox config", e)
+        }
+    }
+
+    private fun ensureHookLibrary(context: Context, root: File) {
+        try {
+            val hookAssetName = if (CortexRuntime.is64Bit) "libcortex-hook-arm64.so" else "libcortex-hook-arm.so"
+            val targetHook = File(root, "usr/lib/libcortex-hook.so")
+            targetHook.parentFile?.mkdirs()
+            context.assets.open(hookAssetName).use { inStream ->
+                targetHook.outputStream().use { outStream ->
+                    inStream.copyTo(outStream)
+                }
+            }
+            if (targetHook.exists()) {
+                targetHook.setExecutable(true, false)
+                targetHook.setReadable(true, false)
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("BootstrapManager", "Failed to copy hook library from assets", e)
         }
     }
 }
