@@ -83,14 +83,7 @@ jobs:
           if [ -f extra-rootfs/usr/share/dpkg/tupletable ]; then
             cp extra-rootfs/usr/share/dpkg/tupletable extra-rootfs/usr/share/dpkg/triplettable
           fi
-          cat << 'EOF' > extra-rootfs/etc/apt/apt.conf.d/01sandbox
-APT::Sandbox::User "root";
-Acquire::Languages "none";
-Acquire::GzipIndexes "true";
-Dir::dpkg::cputable "/usr/share/dpkg/cputable";
-Dir::dpkg::tupletable "/usr/share/dpkg/tupletable";
-Dir::dpkg::triplettable "/usr/share/dpkg/triplettable";
-EOF
+          printf 'APT::Sandbox::User "root";\nAcquire::Languages "none";\nAcquire::GzipIndexes "true";\nDir::dpkg::cputable "/usr/share/dpkg/cputable";\nDir::dpkg::tupletable "/usr/share/dpkg/tupletable";\nDir::dpkg::triplettable "/usr/share/dpkg/triplettable";\n' > extra-rootfs/etc/apt/apt.conf.d/01sandbox
 
           echo "Preparing 64-bit Debian Glibc minimal bootstrap..."
           docker pull --platform linux/arm64 debian:bookworm-slim
