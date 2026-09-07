@@ -18,8 +18,10 @@ class SessionManager(private val context: Context) {
 
     fun newSession(rows: Int = 24, cols: Int = 80, widthPx: Int = 0, heightPx: Int = 0, onRedraw: () -> Unit): TerminalSession {
         val session = TerminalSession(context, rows, cols, widthPx, heightPx, onRedraw)
+        val startTime = System.currentTimeMillis()
         session.onSessionFinished = { exitCode ->
-            if (exitCode == 0) {
+            val duration = System.currentTimeMillis() - startTime
+            if (exitCode == 0 && duration > 2000) {
                 removeSession(session)
             }
         }

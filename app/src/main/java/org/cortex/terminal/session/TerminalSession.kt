@@ -36,7 +36,7 @@ class TerminalSession(
         val homeDir = Environment.getHomeDir(context).absolutePath
 
         val args = if (shell.endsWith("sh") || shell.endsWith("bash")) {
-            arrayOf("-l") // Login shell
+            arrayOf("-l", "-i") // Interactive login shell
         } else {
             emptyArray()
         }
@@ -59,6 +59,7 @@ class TerminalSession(
             }
 
             isRunning = true
+            val startTime = System.currentTimeMillis()
 
             // Read output from PTY and feed into emulator
             readerThread = thread(start = true, name = "Cortex-PtyReader") {
@@ -68,6 +69,8 @@ class TerminalSession(
                     while (isRunning) {
                         val read = stream.read(buffer)
                         if (read <= 0) break
+                        val snippet = String(buffer, 0, minOf(read, 256), Charsets.UTF_8)
+                        Log.i(tag, "PTY read $read bytes: $snippet")
                         emulator.processInput(buffer, 0, read)
                     }
                 } catch (e: IOException) {
@@ -76,6 +79,8 @@ class TerminalSession(
                     }
                 } finally {
                     val exitCode = ptyProcess?.waitFor() ?: 0
+                    val duration = System.currentTimeMillis() - startTime
+                    Log.i(tag, "Process exited with code $exitCode after ${duration}ms")
                     isRunning = false
                     if (exitCode != 0) {
                         val msg = "\r\n[Process exited with code $exitCode]\r\n"

@@ -174,15 +174,24 @@ Java_org_cortex_terminal_pty_PtyNative_createPty(
             if (access(ld_so, F_OK) == 0) {
                 chmod(ld_so, 0755);
                 chmod(cmd, 0755);
-                char **new_argv = malloc(sizeof(char *) * (argCount + 5));
+
+                const char *prog_name = strrchr(cmd, '/');
+                prog_name = (prog_name != NULL) ? prog_name + 1 : cmd;
+
+                char **new_argv = calloc(argCount + 5, sizeof(char *));
                 new_argv[0] = ld_so;
                 new_argv[1] = "--argv0";
-                new_argv[2] = argv[0];
+                new_argv[2] = (char *)prog_name;
                 new_argv[3] = (char *)cmd;
                 for (int i = 1; i <= argCount; i++) {
                     new_argv[i + 3] = argv[i];
                 }
+                new_argv[argCount + 4] = NULL;
                 execve(ld_so, new_argv, envp);
+
+                char err_buf[256];
+                snprintf(err_buf, sizeof(err_buf), "Cortex: failed to exec ld.so (%s): %s\n", ld_so, strerror(errno));
+                write(STDERR_FILENO, err_buf, strlen(err_buf));
             }
         }
 
@@ -190,7 +199,8 @@ Java_org_cortex_terminal_pty_PtyNative_createPty(
         execve(cmd, argv, envp);
 
         // If execve fails, print diagnostic and exit
-        const char *errMsg = "Cortex: failed to execute process.\n";
+        char errMsg[256];
+        snprintf(errMsg, sizeof(errMsg), "Cortex: failed to execute %s: %s\n", cmd, strerror(errno));
         write(STDERR_FILENO, errMsg, strlen(errMsg));
         _exit(127);
     }

@@ -52,11 +52,20 @@ object BootstrapManager {
         // File system structure initialized
     }
 
+    private const val CURRENT_BOOTSTRAP_VERSION = 16
+
     fun isBootstrapInstalled(context: Context): Boolean {
         val root = Environment.getCortexRoot(context)
         val apt = File(root, "usr/bin/apt")
         val bash = File(root, "usr/bin/bash")
-        return apt.exists() && bash.exists()
+        val hook = File(root, "usr/lib/libcortex-hook.so")
+        val versionFile = File(root, ".cortex_version")
+
+        if (!apt.exists() || !bash.exists() || !hook.exists() || !versionFile.exists()) {
+            return false
+        }
+        val ver = versionFile.readText().trim().toIntOrNull() ?: 0
+        return ver >= CURRENT_BOOTSTRAP_VERSION
     }
 
     fun findBootstrapAsset(context: Context): String? {
@@ -139,17 +148,15 @@ object BootstrapManager {
             // Ensure Glibc cortex-hook library is present and executable
             val hookAssetName = if (CortexRuntime.is64Bit) "libcortex-hook-arm64.so" else "libcortex-hook-arm.so"
             val targetHook = File(root, "usr/lib/libcortex-hook.so")
-            if (!targetHook.exists()) {
-                try {
-                    targetHook.parentFile?.mkdirs()
-                    context.assets.open(hookAssetName).use { inStream ->
-                        targetHook.outputStream().use { outStream ->
-                            inStream.copyTo(outStream)
-                        }
+            try {
+                targetHook.parentFile?.mkdirs()
+                context.assets.open(hookAssetName).use { inStream ->
+                    targetHook.outputStream().use { outStream ->
+                        inStream.copyTo(outStream)
                     }
-                } catch (e: Exception) {
-                    // Handled if already inside tar
                 }
+            } catch (e: Exception) {
+                // Handled if already inside tar
             }
             if (targetHook.exists()) {
                 targetHook.setExecutable(true, false)
@@ -160,6 +167,28 @@ object BootstrapManager {
             val etcDir = File(root, "etc")
             etcDir.mkdirs()
             File(etcDir, "resolv.conf").writeText("nameserver 8.8.8.8\nnameserver 1.1.1.1\n")
+
+            // Ensure /etc/passwd and /etc/group exist with root and cortex user definitions
+            val passwdFile = File(etcDir, "passwd")
+            var passwdText = if (passwdFile.exists()) passwdFile.readText() else ""
+            if (!passwdText.contains("root:x:0:0")) {
+                passwdText = "root:x:0:0:root:/root:/bin/bash\n" + passwdText
+            }
+            if (!passwdText.contains("cortex:")) {
+                passwdText += "cortex:x:0:0:Cortex:/home:/bin/bash\n"
+            }
+            passwdFile.writeText(passwdText)
+
+            val groupFile = File(etcDir, "group")
+            var groupText = if (groupFile.exists()) groupFile.readText() else ""
+            if (!groupText.contains("root:x:0:")) {
+                groupText = "root:x:0:\n" + groupText
+            }
+            groupFile.writeText(groupText)
+
+            // Ensure user homes exist
+            File(root, "root").mkdirs()
+            File(root, "home").mkdirs()
 
             // Configure APT sandbox so APT operates without superuser privilege drop
             val aptConfDir = File(root, "etc/apt/apt.conf.d")
@@ -186,6 +215,9 @@ object BootstrapManager {
 
             File(root, "var/lib/apt/lists/partial").mkdirs()
             File(root, "var/cache/apt/archives/partial").mkdirs()
+
+            // Mark bootstrap version
+            File(root, ".cortex_version").writeText(CURRENT_BOOTSTRAP_VERSION.toString())
             true
         } catch (e: Exception) {
             android.util.Log.e("BootstrapManager", "Error extracting bootstrap from APK", e)
