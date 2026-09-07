@@ -77,6 +77,10 @@ class TerminalSession(
                 } finally {
                     val exitCode = ptyProcess?.waitFor() ?: 0
                     isRunning = false
+                    if (exitCode != 0) {
+                        val msg = "\r\n[Process exited with code $exitCode]\r\n"
+                        emulator.processInput(msg.toByteArray(), 0, msg.length)
+                    }
                     onSessionFinished?.invoke(exitCode)
                 }
             }

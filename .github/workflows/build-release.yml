@@ -60,20 +60,33 @@ jobs:
             -keypass cortexpassword \
             -dname "CN=Cortex, OU=Terminal, O=Cortex, C=US"
 
+      - name: Build Glibc cortex-hook Libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu gcc-arm-linux-gnueabihf
+          mkdir -p hook-libs
+          aarch64-linux-gnu-gcc -shared -fPIC -O3 -Wall -o hook-libs/libcortex-hook-arm64.so app/src/main/cpp/cortex-hook.c -ldl
+          arm-linux-gnueabihf-gcc -shared -fPIC -O3 -Wall -o hook-libs/libcortex-hook-arm.so app/src/main/cpp/cortex-hook.c -ldl
+
       - name: Bundle Debian Glibc Minimal Bootstrap into APK
         run: |
           mkdir -p app/src/main/assets
 
+          cp hook-libs/libcortex-hook-arm64.so app/src/main/assets/libcortex-hook-arm64.so
+          cp hook-libs/libcortex-hook-arm.so app/src/main/assets/libcortex-hook-arm.so
+
           echo "Preparing 64-bit Debian Glibc minimal bootstrap..."
           docker pull --platform linux/arm64 debian:bookworm-slim
           CID_64=$(docker create --platform linux/arm64 debian:bookworm-slim)
-          docker export "$CID_64" | gzip -9 > app/src/main/assets/bootstrap-arm64.tar.gz
+          docker cp hook-libs/libcortex-hook-arm64.so "$CID_64":/usr/lib/libcortex-hook.so
+          docker export "$CID_64" > app/src/main/assets/bootstrap-arm64.tar
           docker rm "$CID_64"
 
           echo "Preparing 32-bit Debian Glibc minimal bootstrap..."
           docker pull --platform linux/arm/v7 debian:bookworm-slim
           CID_32=$(docker create --platform linux/arm/v7 debian:bookworm-slim)
-          docker export "$CID_32" | gzip -9 > app/src/main/assets/bootstrap-arm.tar.gz
+          docker cp hook-libs/libcortex-hook-arm.so "$CID_32":/usr/lib/libcortex-hook.so
+          docker export "$CID_32" > app/src/main/assets/bootstrap-arm.tar
           docker rm "$CID_32"
 
           ls -lh app/src/main/assets/

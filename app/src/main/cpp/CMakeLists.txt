@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.22.1)
 
 project("cortex")
 
-# Main PTY JNI bridge
+# Main PTY JNI bridge & native tar extractor
 add_library(
     cortex-pty
     SHARED
@@ -17,17 +17,4 @@ find_library(
 target_link_libraries(
     cortex-pty
     ${log-lib}
-)
-
-# Rootless Zero-Overhead LD_PRELOAD path redirection hook
-add_library(
-    cortex-hook
-    SHARED
-    cortex-hook.c
-)
-
-target_link_libraries(
-    cortex-hook
-    ${log-lib}
-    dl
 )

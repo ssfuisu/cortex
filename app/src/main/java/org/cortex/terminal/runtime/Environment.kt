@@ -48,14 +48,16 @@ object Environment {
             "$root/usr/lib/aarch64-linux-gnu",
             "$root/lib/arm-linux-gnueabihf",
             "$root/usr/lib/arm-linux-gnueabihf",
-            nativeLibs,
-            "/system/lib64",
-            "/system/lib"
+            "$root/usr/local/lib"
         )
         val ldPathStr = ldLibraryPathList.joinToString(":")
 
-        val hookLib = File(nativeLibs, "libcortex-hook.so")
-        val preloadStr = if (hookLib.exists()) hookLib.absolutePath else ""
+        val glibcHooks = listOf(
+            File(root, "usr/lib/libcortex-hook.so"),
+            File(root, "lib/libcortex-hook.so")
+        )
+        val hookLib = glibcHooks.firstOrNull { it.exists() }
+        val preloadStr = hookLib?.absolutePath ?: ""
 
         val envList = mutableListOf(
             "TERM=xterm-256color",

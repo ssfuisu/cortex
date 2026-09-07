@@ -136,6 +136,26 @@ object BootstrapManager {
                 }
             }
 
+            // Ensure Glibc cortex-hook library is present and executable
+            val hookAssetName = if (CortexRuntime.is64Bit) "libcortex-hook-arm64.so" else "libcortex-hook-arm.so"
+            val targetHook = File(root, "usr/lib/libcortex-hook.so")
+            if (!targetHook.exists()) {
+                try {
+                    targetHook.parentFile?.mkdirs()
+                    context.assets.open(hookAssetName).use { inStream ->
+                        targetHook.outputStream().use { outStream ->
+                            inStream.copyTo(outStream)
+                        }
+                    }
+                } catch (e: Exception) {
+                    // Handled if already inside tar
+                }
+            }
+            if (targetHook.exists()) {
+                targetHook.setExecutable(true, false)
+                targetHook.setReadable(true, false)
+            }
+
             // Configure DNS
             val etcDir = File(root, "etc")
             etcDir.mkdirs()

@@ -398,7 +398,9 @@ static int extract_tar_archive(const char *tar_path, const char *dest_dir) {
             while (*lrel == '.' || *lrel == '/') lrel++;
             snprintf(target_path, sizeof(target_path), "%s/%s", dest_dir, lrel);
             unlink(dest_path);
-            link(target_path, dest_path);
+            if (link(target_path, dest_path) != 0) {
+                symlink(target_path, dest_path);
+            }
         } else {
             unlink(dest_path);
             int out_fd = open(dest_path, O_WRONLY | O_CREAT | O_TRUNC, (mode & 0777) | 0600);

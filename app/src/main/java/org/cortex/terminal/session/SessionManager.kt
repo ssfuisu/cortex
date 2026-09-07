@@ -18,8 +18,10 @@ class SessionManager(private val context: Context) {
 
     fun newSession(rows: Int = 24, cols: Int = 80, widthPx: Int = 0, heightPx: Int = 0, onRedraw: () -> Unit): TerminalSession {
         val session = TerminalSession(context, rows, cols, widthPx, heightPx, onRedraw)
-        session.onSessionFinished = {
-            removeSession(session)
+        session.onSessionFinished = { exitCode ->
+            if (exitCode == 0) {
+                removeSession(session)
+            }
         }
         sessions.add(session)
         currentSessionIndex = sessions.size - 1

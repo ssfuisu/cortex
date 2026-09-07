@@ -106,7 +106,19 @@ class MainActivity : AppCompatActivity() {
         sessionManager.onSessionChanged = { session ->
             runOnUiThread {
                 if (session == null) {
-                    finish()
+                    if (!isFinishing && !isDestroyed) {
+                        AlertDialog.Builder(this)
+                            .setTitle("Session Ended")
+                            .setMessage("Terminal session has ended. Would you like to restart?")
+                            .setCancelable(false)
+                            .setPositiveButton("Restart") { _, _ ->
+                                createNewSession()
+                            }
+                            .setNegativeButton("Exit") { _, _ ->
+                                finish()
+                            }
+                            .show()
+                    }
                 } else {
                     terminalView.session = session
                     val tabNum = sessionManager.currentSessionIndex + 1
