@@ -71,11 +71,14 @@ object BootstrapManager {
             }
         }
 
+        ensureDpkgTables(root)
+        ensureLocale(root)
+
         // File system structure initialized
         patchAllDynamicLinkers(root)
     }
 
-    private const val CURRENT_BOOTSTRAP_VERSION = 20
+    private const val CURRENT_BOOTSTRAP_VERSION = 21
 
     fun isBootstrapInstalled(context: Context): Boolean {
         val root = Environment.getCortexRoot(context)
@@ -252,6 +255,9 @@ object BootstrapManager {
                 statusFile.createNewFile()
             }
 
+            ensureDpkgTables(root)
+            ensureLocale(root)
+
             File(root, "var/lib/apt/lists/partial").mkdirs()
             File(root, "var/cache/apt/archives/partial").mkdirs()
 
@@ -350,6 +356,183 @@ object BootstrapManager {
             }
         } catch (e: Exception) {
             android.util.Log.e("BootstrapManager", "Failed to patch dynamic linker: ${file.absolutePath}", e)
+        }
+    }
+
+    private fun ensureDpkgTables(root: File) {
+        try {
+            val dpkgShare = File(root, "usr/share/dpkg")
+            dpkgShare.mkdirs()
+
+            val cpuTable = File(dpkgShare, "cputable")
+            if (!cpuTable.exists() || cpuTable.length() == 0L) {
+                cpuTable.writeText(
+                    "# Version=1.0\n" +
+                    "alpha\talpha\talpha.*\t64\tlittle\n" +
+                    "amd64\tx86_64\t(amd64|x86_64)\t64\tlittle\n" +
+                    "arc\tarc\tarc\t32\tlittle\n" +
+                    "armeb\tarmeb\tarm.*b\t32\tbig\n" +
+                    "arm\tarm\tarm.*\t32\tlittle\n" +
+                    "arm64\taarch64\taarch64\t64\tlittle\n" +
+                    "hppa\thppa\thppa.*\t32\tbig\n" +
+                    "loong64\tloongarch64\tloongarch64\t64\tlittle\n" +
+                    "i386\ti686\t(i[34567]86|pentium)\t32\tlittle\n" +
+                    "ia64\tia64\tia64\t64\tlittle\n" +
+                    "m68k\tm68k\tm68k\t32\tbig\n" +
+                    "mips\tmips\tmips(eb)?\t32\tbig\n" +
+                    "mipsel\tmipsel\tmipsel\t32\tlittle\n" +
+                    "mipsr6\tmipsisa32r6\tmipsisa32r6\t32\tbig\n" +
+                    "mipsr6el\tmipsisa32r6el\tmipsisa32r6el\t32\tlittle\n" +
+                    "mips64\tmips64\tmips64\t64\tbig\n" +
+                    "mips64el\tmips64el\tmips64el\t64\tlittle\n" +
+                    "mips64r6\tmipsisa64r6\tmipsisa64r6\t64\tbig\n" +
+                    "mips64r6el\tmipsisa64r6el\tmipsisa64r6el\t64\tlittle\n" +
+                    "nios2\tnios2\tnios2\t32\tlittle\n" +
+                    "or1k\tor1k\tor1k\t32\tbig\n" +
+                    "powerpc\tpowerpc\t(powerpc|ppc)\t32\tbig\n" +
+                    "powerpcel\tpowerpcle\tpowerpcle\t32\tlittle\n" +
+                    "ppc64\tpowerpc64\t(powerpc|ppc)64\t64\tbig\n" +
+                    "ppc64el\tpowerpc64le\tpowerpc64le\t64\tlittle\n" +
+                    "riscv64\triscv64\triscv64\t64\tlittle\n" +
+                    "s390\ts390\ts390\t32\tbig\n" +
+                    "s390x\ts390x\ts390x\t64\tbig\n" +
+                    "sh3\tsh3\tsh3\t32\tlittle\n" +
+                    "sh3eb\tsh3eb\tsh3eb\t32\tbig\n" +
+                    "sh4\tsh4\tsh4\t32\tlittle\n" +
+                    "sh4eb\tsh4eb\tsh4eb\t32\tbig\n" +
+                    "sparc\tsparc\tsparc\t32\tbig\n" +
+                    "sparc64\tsparc64\tsparc64\t64\tbig\n"
+                )
+            }
+
+            val tupleTable = File(dpkgShare, "tupletable")
+            if (!tupleTable.exists() || tupleTable.length() == 0L) {
+                tupleTable.writeText(
+                    "# Version=1.0\n" +
+                    "eabi-uclibc-linux-arm\tuclibc-linux-armel\n" +
+                    "base-uclibc-linux-<cpu>\tuclibc-linux-<cpu>\n" +
+                    "eabihf-musl-linux-arm\tmusl-linux-armhf\n" +
+                    "base-musl-linux-<cpu>\tmusl-linux-<cpu>\n" +
+                    "eabihf-gnu-linux-arm\tarmhf\n" +
+                    "eabi-gnu-linux-arm\tarmel\n" +
+                    "abin32-gnu-linux-mips64r6el\tmipsn32r6el\n" +
+                    "abin32-gnu-linux-mips64r6\tmipsn32r6\n" +
+                    "abin32-gnu-linux-mips64el\tmipsn32el\n" +
+                    "abin32-gnu-linux-mips64\tmipsn32\n" +
+                    "abi64-gnu-linux-mips64r6el\tmips64r6el\n" +
+                    "abi64-gnu-linux-mips64r6\tmips64r6\n" +
+                    "abi64-gnu-linux-mips64el\tmips64el\n" +
+                    "abi64-gnu-linux-mips64\tmips64\n" +
+                    "spe-gnu-linux-powerpc\tpowerpcspe\n" +
+                    "x32-gnu-linux-amd64\tx32\n" +
+                    "base-gnu-linux-<cpu>\t<cpu>\n" +
+                    "base-gnu-kfreebsd-amd64\tkfreebsd-amd64\n" +
+                    "base-gnu-kfreebsd-i386\tkfreebsd-i386\n" +
+                    "base-gnu-kopensolaris-amd64\tkopensolaris-amd64\n" +
+                    "base-gnu-kopensolaris-i386\tkopensolaris-i386\n" +
+                    "base-gnu-hurd-amd64\thurd-amd64\n" +
+                    "base-gnu-hurd-i386\thurd-i386\n" +
+                    "base-bsd-dragonflybsd-amd64\tdragonflybsd-amd64\n" +
+                    "base-bsd-freebsd-amd64\tfreebsd-amd64\n" +
+                    "base-bsd-freebsd-arm\tfreebsd-arm\n" +
+                    "base-bsd-freebsd-arm64\tfreebsd-arm64\n" +
+                    "base-bsd-freebsd-i386\tfreebsd-i386\n" +
+                    "base-bsd-freebsd-powerpc\tfreebsd-powerpc\n" +
+                    "base-bsd-freebsd-ppc64\tfreebsd-ppc64\n" +
+                    "base-bsd-freebsd-riscv\tfreebsd-riscv\n" +
+                    "base-bsd-openbsd-<cpu>\topenbsd-<cpu>\n" +
+                    "base-bsd-netbsd-<cpu>\tnetbsd-<cpu>\n" +
+                    "base-bsd-darwin-amd64\tdarwin-amd64\n" +
+                    "base-bsd-darwin-arm\tdarwin-arm\n" +
+                    "base-bsd-darwin-arm64\tdarwin-arm64\n" +
+                    "base-bsd-darwin-i386\tdarwin-i386\n" +
+                    "base-bsd-darwin-powerpc\tdarwin-powerpc\n" +
+                    "base-bsd-darwin-ppc64\tdarwin-ppc64\n" +
+                    "base-sysv-aix-powerpc\taix-powerpc\n" +
+                    "base-sysv-aix-ppc64\taix-ppc64\n" +
+                    "base-sysv-solaris-amd64\tsolaris-amd64\n" +
+                    "base-sysv-solaris-i386\tsolaris-i386\n" +
+                    "base-sysv-solaris-sparc\tsolaris-sparc\n" +
+                    "base-sysv-solaris-sparc64\tsolaris-sparc64\n" +
+                    "base-tos-mint-m68k\tmint-m68k\n"
+                )
+            }
+
+            val ostable = File(dpkgShare, "ostable")
+            if (!ostable.exists() || ostable.length() == 0L) {
+                ostable.writeText(
+                    "# Version=2.0\n" +
+                    "eabi-uclibc-linux\tlinux-uclibceabi\tlinux[^-]*-uclibceabi\n" +
+                    "base-uclibc-linux\tlinux-uclibc\tlinux[^-]*-uclibc\n" +
+                    "eabihf-musl-linux\tlinux-musleabihf\tlinux[^-]*-musleabihf\n" +
+                    "base-musl-linux\tlinux-musl\tlinux[^-]*-musl\n" +
+                    "eabihf-gnu-linux\tlinux-gnueabihf\tlinux[^-]*-gnueabihf\n" +
+                    "eabi-gnu-linux\tlinux-gnueabi\tlinux[^-]*-gnueabi\n" +
+                    "abin32-gnu-linux\tlinux-gnuabin32\tlinux[^-]*-gnuabin32\n" +
+                    "abi64-gnu-linux\tlinux-gnuabi64\tlinux[^-]*-gnuabi64\n" +
+                    "spe-gnu-linux\tlinux-gnuspe\tlinux[^-]*-gnuspe\n" +
+                    "x32-gnu-linux\tlinux-gnux32\tlinux[^-]*-gnux32\n" +
+                    "base-gnu-linux\tlinux-gnu\tlinux[^-]*(-gnu.*)?\n" +
+                    "eabihf-gnu-kfreebsd\tkfreebsd-gnueabihf\tkfreebsd[^-]*-gnueabihf\n" +
+                    "base-gnu-kfreebsd\tkfreebsd-gnu\tkfreebsd[^-]*(-gnu.*)?\n" +
+                    "base-gnu-kopensolaris\tkopensolaris-gnu\tkopensolaris[^-]*(-gnu.*)?\n" +
+                    "base-gnu-hurd\tgnu\tgnu[^-]*\n" +
+                    "base-bsd-darwin\tdarwin\tdarwin[^-]*\n" +
+                    "base-bsd-dragonflybsd\tdragonflybsd\tdragonfly[^-]*\n" +
+                    "base-bsd-freebsd\tfreebsd\tfreebsd[^-]*\n" +
+                    "base-bsd-netbsd\tnetbsd\tnetbsd[^-]*\n" +
+                    "base-bsd-openbsd\topenbsd\topenbsd[^-]*\n" +
+                    "base-sysv-aix\taix\taix[^-]*\n" +
+                    "base-sysv-solaris\tsolaris\tsolaris[^-]*\n" +
+                    "base-tos-mint\tmint\tmint[^-]*\n"
+                )
+            }
+
+            val abitable = File(dpkgShare, "abitable")
+            if (!abitable.exists() || abitable.length() == 0L) {
+                abitable.writeText(
+                    "# Version=2.0\n" +
+                    "abin32\t32\n" +
+                    "x32\t32\n"
+                )
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("BootstrapManager", "Failed to ensure dpkg tables", e)
+        }
+    }
+
+    private fun ensureLocale(root: File) {
+        try {
+            val localeDir = File(root, "usr/lib/locale")
+            localeDir.mkdirs()
+            val cUtf8 = File(localeDir, "C.utf8")
+            val cUTF8 = File(localeDir, "C.UTF-8")
+            val enUtf8 = File(localeDir, "en_US.UTF-8")
+
+            if (cUtf8.exists() && !cUTF8.exists()) {
+                try {
+                    android.system.Os.symlink("C.utf8", cUTF8.absolutePath)
+                } catch (e: Exception) {
+                    // Ignore symlink failure
+                }
+            } else if (!cUtf8.exists() && cUTF8.exists()) {
+                try {
+                    android.system.Os.symlink("C.UTF-8", cUtf8.absolutePath)
+                } catch (e: Exception) {
+                    // Ignore symlink failure
+                }
+            }
+
+            val baseLocale = if (cUtf8.exists()) "C.utf8" else if (cUTF8.exists()) "C.UTF-8" else null
+            if (baseLocale != null && !enUtf8.exists()) {
+                try {
+                    android.system.Os.symlink(baseLocale, enUtf8.absolutePath)
+                } catch (e: Exception) {
+                    // Ignore symlink failure
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("BootstrapManager", "Failed to ensure locale", e)
         }
     }
 }
