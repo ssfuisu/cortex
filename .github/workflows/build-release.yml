@@ -76,14 +76,14 @@ jobs:
           cp hook-libs/libcortex-hook-arm.so app/src/main/assets/libcortex-hook-arm.so
 
           echo "Preparing dpkg tables and APT sandbox config for bootstrap..."
-          mkdir -p extra-rootfs/usr/share/dpkg extra-rootfs/etc/apt/apt.conf.d
+          mkdir -p extra-rootfs/usr/share/dpkg extra-rootfs/etc/apt/apt.conf.d extra-rootfs/var/cache/apt/archives/partial extra-rootfs/var/lib/apt/lists/partial extra-rootfs/tmp
           if [ -d /usr/share/dpkg ]; then
             cp -r /usr/share/dpkg/* extra-rootfs/usr/share/dpkg/
           fi
           if [ -f extra-rootfs/usr/share/dpkg/tupletable ]; then
             cp extra-rootfs/usr/share/dpkg/tupletable extra-rootfs/usr/share/dpkg/triplettable
           fi
-          printf 'APT::Sandbox::User "root";\nAcquire::Languages "none";\nAcquire::GzipIndexes "true";\nDir::dpkg::cputable "/usr/share/dpkg/cputable";\nDir::dpkg::tupletable "/usr/share/dpkg/tupletable";\nDir::dpkg::triplettable "/usr/share/dpkg/triplettable";\n' > extra-rootfs/etc/apt/apt.conf.d/01sandbox
+          printf 'APT::Sandbox::User "root";\nAPT::Sandbox::Seccomp "false";\nAcquire::ForceIPv4 "true";\nAcquire::Connect::AddrConfig "false";\nAcquire::Languages "none";\nAcquire::GzipIndexes "true";\nDir::dpkg::cputable "/usr/share/dpkg/cputable";\nDir::dpkg::tupletable "/usr/share/dpkg/tupletable";\nDir::dpkg::triplettable "/usr/share/dpkg/triplettable";\n' > extra-rootfs/etc/apt/apt.conf.d/01sandbox
           echo "# Disabled for Cortex" > extra-rootfs/etc/apt/apt.conf.d/docker-clean
 
           echo "Preparing 64-bit Debian Glibc minimal bootstrap..."
@@ -203,7 +203,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          OFFSET=$(( ${{ github.run_number }} - 28 ))
+          OFFSET=$(( ${{ github.run_number }} - 27 ))
           if [ "$OFFSET" -lt 0 ]; then OFFSET=0; fi
           VERSION="v1.24.${OFFSET}"
           if [[ "${{ github.ref }}" == refs/tags/* ]]; then
@@ -212,13 +212,12 @@ jobs:
 
           NOTES="Cortex Release $VERSION
 
-          What's New:
-          - Intercept mkstemp, mkostemp, mkstemps, and tmpfile for APT cache and temporary files
-          - Fix APT 'Could not create temporary file for srcpkgcache.bin' and 'Method http has died unexpectedly'
-          - Implement dynamic DNS resolver state and automatic active network DNS discovery
-          - Forward LD_PRELOAD, CORTEX_ROOT, and environment across all child processes (execve)
-          - Remove duplicate sources.list and disable docker-clean invocation
-          - Upgraded versioning to v1.24.x series"
+          Yenilikler / What's New:
+          - APT http yontemi cokmesi duzeltildi (ForceIPv4 ve seccomp sandbox devre disi birakildi)
+          - Android ag kisitlamalari icin AI_ADDRCONFIG temizlendi ve AF_UNIX soket yonlendirmeleri eklendi
+          - prctl ve seccomp sistem cagrilari guvenli sekilde izole edildi
+          - 32-bit ve 64-bit dosya islemleri (LFS) genisletildi
+          - Gerekli APT gecici dizinleri ve onbellek yollari guvenceye alindi"
 
           gh release create "$VERSION" \
             release-apks/Cortex-arm64-v8a-signed.apk \

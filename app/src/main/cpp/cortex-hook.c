@@ -16,6 +16,8 @@
 #include <sys/statfs.h>
 #include <sys/statvfs.h>
 #include <sys/socket.h>
+#include <sys/un.h>
+#include <sys/prctl.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <netdb.h>
@@ -190,7 +192,7 @@ int openat(int dirfd, const char *pathname, int flags, ...) {
     static int (*orig_openat)(int, const char *, int, ...) = NULL;
     if (!orig_openat) orig_openat = (int (*)(int, const char *, int, ...))dlsym(RTLD_NEXT, "openat");
     char buf[PATH_MAX];
-    const char *target = (pathname[0] == '/') ? rewrite_path(pathname, buf, sizeof(buf)) : pathname;
+    const char *target = (pathname && pathname[0] == '/') ? rewrite_path(pathname, buf, sizeof(buf)) : pathname;
     if (open_needs_mode(flags)) {
         va_list args;
         va_start(args, flags);
@@ -407,7 +409,7 @@ int fstatat(int dirfd, const char *pathname, struct stat *statbuf, int flags) {
     static int (*orig_fstatat)(int, const char *, struct stat *, int) = NULL;
     if (!orig_fstatat) orig_fstatat = (int (*)(int, const char *, struct stat *, int))dlsym(RTLD_NEXT, "fstatat");
     char buf[PATH_MAX];
-    const char *target = (pathname[0] == '/') ? rewrite_path(pathname, buf, sizeof(buf)) : pathname;
+    const char *target = (pathname && pathname[0] == '/') ? rewrite_path(pathname, buf, sizeof(buf)) : pathname;
     return orig_fstatat(dirfd, target, statbuf, flags);
 }
 
@@ -448,7 +450,7 @@ int __fxstatat(int ver, int dirfd, const char *pathname, struct stat *statbuf, i
     static int (*orig___fxstatat)(int, int, const char *, struct stat *, int) = NULL;
     if (!orig___fxstatat) orig___fxstatat = (int (*)(int, int, const char *, struct stat *, int))dlsym(RTLD_NEXT, "__fxstatat");
     char buf[PATH_MAX];
-    const char *target = (pathname[0] == '/') ? rewrite_path(pathname, buf, sizeof(buf)) : pathname;
+    const char *target = (pathname && pathname[0] == '/') ? rewrite_path(pathname, buf, sizeof(buf)) : pathname;
     return orig___fxstatat ? orig___fxstatat(ver, dirfd, target, statbuf, flags) : fstatat(dirfd, target, statbuf, flags);
 }
 
@@ -456,7 +458,7 @@ int __fxstatat64(int ver, int dirfd, const char *pathname, struct stat64 *statbu
     static int (*orig___fxstatat64)(int, int, const char *, struct stat64 *, int) = NULL;
     if (!orig___fxstatat64) orig___fxstatat64 = (int (*)(int, int, const char *, struct stat64 *, int))dlsym(RTLD_NEXT, "__fxstatat64");
     char buf[PATH_MAX];
-    const char *target = (pathname[0] == '/') ? rewrite_path(pathname, buf, sizeof(buf)) : pathname;
+    const char *target = (pathname && pathname[0] == '/') ? rewrite_path(pathname, buf, sizeof(buf)) : pathname;
     return orig___fxstatat64 ? orig___fxstatat64(ver, dirfd, target, statbuf, flags) : fstatat(dirfd, target, (struct stat *)statbuf, flags);
 }
 
@@ -466,7 +468,7 @@ int statx(int dirfd, const char *pathname, int flags, unsigned int mask, struct 
     static int (*orig_statx)(int, const char *, int, unsigned int, struct statx *) = NULL;
     if (!orig_statx) orig_statx = (int (*)(int, const char *, int, unsigned int, struct statx *))dlsym(RTLD_NEXT, "statx");
     char buf[PATH_MAX];
-    const char *target = (pathname[0] == '/') ? rewrite_path(pathname, buf, sizeof(buf)) : pathname;
+    const char *target = (pathname && pathname[0] == '/') ? rewrite_path(pathname, buf, sizeof(buf)) : pathname;
     return orig_statx ? orig_statx(dirfd, target, flags, mask, statxbuf) : -1;
 }
 
@@ -484,7 +486,7 @@ int faccessat(int dirfd, const char *pathname, int mode, int flags) {
     static int (*orig_faccessat)(int, const char *, int, int) = NULL;
     if (!orig_faccessat) orig_faccessat = (int (*)(int, const char *, int, int))dlsym(RTLD_NEXT, "faccessat");
     char buf[PATH_MAX];
-    const char *target = (pathname[0] == '/') ? rewrite_path(pathname, buf, sizeof(buf)) : pathname;
+    const char *target = (pathname && pathname[0] == '/') ? rewrite_path(pathname, buf, sizeof(buf)) : pathname;
     return orig_faccessat ? orig_faccessat(dirfd, target, mode, flags) : -1;
 }
 
@@ -506,7 +508,7 @@ int fchmodat(int dirfd, const char *pathname, mode_t mode, int flags) {
     static int (*orig_fchmodat)(int, const char *, mode_t, int) = NULL;
     if (!orig_fchmodat) orig_fchmodat = (int (*)(int, const char *, mode_t, int))dlsym(RTLD_NEXT, "fchmodat");
     char buf[PATH_MAX];
-    const char *target = (pathname[0] == '/') ? rewrite_path(pathname, buf, sizeof(buf)) : pathname;
+    const char *target = (pathname && pathname[0] == '/') ? rewrite_path(pathname, buf, sizeof(buf)) : pathname;
     return orig_fchmodat(dirfd, target, mode, flags);
 }
 
@@ -524,7 +526,7 @@ int unlinkat(int dirfd, const char *pathname, int flags) {
     static int (*orig_unlinkat)(int, const char *, int) = NULL;
     if (!orig_unlinkat) orig_unlinkat = (int (*)(int, const char *, int))dlsym(RTLD_NEXT, "unlinkat");
     char buf[PATH_MAX];
-    const char *target = (pathname[0] == '/') ? rewrite_path(pathname, buf, sizeof(buf)) : pathname;
+    const char *target = (pathname && pathname[0] == '/') ? rewrite_path(pathname, buf, sizeof(buf)) : pathname;
     return orig_unlinkat(dirfd, target, flags);
 }
 
@@ -551,7 +553,7 @@ int mkdirat(int dirfd, const char *pathname, mode_t mode) {
     static int (*orig_mkdirat)(int, const char *, mode_t) = NULL;
     if (!orig_mkdirat) orig_mkdirat = (int (*)(int, const char *, mode_t))dlsym(RTLD_NEXT, "mkdirat");
     char buf[PATH_MAX];
-    const char *target = (pathname[0] == '/') ? rewrite_path(pathname, buf, sizeof(buf)) : pathname;
+    const char *target = (pathname && pathname[0] == '/') ? rewrite_path(pathname, buf, sizeof(buf)) : pathname;
     return orig_mkdirat(dirfd, target, mode);
 }
 
@@ -605,7 +607,7 @@ ssize_t readlinkat(int dirfd, const char *pathname, char *buf, size_t bufsiz) {
     static ssize_t (*orig_readlinkat)(int, const char *, char *, size_t) = NULL;
     if (!orig_readlinkat) orig_readlinkat = (ssize_t (*)(int, const char *, char *, size_t))dlsym(RTLD_NEXT, "readlinkat");
     char pbuf[PATH_MAX];
-    const char *target = (pathname[0] == '/') ? rewrite_path(pathname, pbuf, sizeof(pbuf)) : pathname;
+    const char *target = (pathname && pathname[0] == '/') ? rewrite_path(pathname, pbuf, sizeof(pbuf)) : pathname;
     return orig_readlinkat(dirfd, target, buf, bufsiz);
 }
 
@@ -782,6 +784,35 @@ __asm__(
     ".globl mkostemps64\n" ".set mkostemps64, mkostemps\n"
     ".globl tmpfile64\n"   ".set tmpfile64, tmpfile\n"
 );
+#else
+int open64(const char *pathname, int flags, ...) {
+    if (open_needs_mode(flags)) {
+        va_list args;
+        va_start(args, flags);
+        mode_t mode = va_arg(args, mode_t);
+        va_end(args);
+        return open(pathname, flags, mode);
+    }
+    return open(pathname, flags);
+}
+int openat64(int dirfd, const char *pathname, int flags, ...) {
+    if (open_needs_mode(flags)) {
+        va_list args;
+        va_start(args, flags);
+        mode_t mode = va_arg(args, mode_t);
+        va_end(args);
+        return openat(dirfd, pathname, flags, mode);
+    }
+    return openat(dirfd, pathname, flags);
+}
+int creat64(const char *pathname, mode_t mode) { return creat(pathname, mode); }
+FILE *fopen64(const char *pathname, const char *mode) { return fopen(pathname, mode); }
+FILE *freopen64(const char *pathname, const char *mode, FILE *stream) { return freopen(pathname, mode, stream); }
+int mkstemp64(char *template) { return mkstemp(template); }
+int mkostemp64(char *template, int flags) { return mkostemp(template, flags); }
+int mkstemps64(char *template, int suffixlen) { return mkstemps(template, suffixlen); }
+int mkostemps64(char *template, int suffixlen, int flags) { return mkostemps(template, suffixlen, flags); }
+FILE *tmpfile64(void) { return tmpfile(); }
 #endif
 
 // Fakeroot identity hooks for APT and DPKG to operate without superuser restrictions
@@ -815,6 +846,33 @@ int fchownat(int dirfd, const char *pathname, uid_t owner, gid_t group, int flag
 int chroot(const char *path) { (void)path; return 0; }
 int capget(void *hdrp, void *datap) { (void)hdrp; (void)datap; return 0; }
 int capset(void *hdrp, const void *datap) { (void)hdrp; (void)datap; return 0; }
+int prctl(int option, ...) {
+    va_list ap;
+    va_start(ap, option);
+    unsigned long arg2 = va_arg(ap, unsigned long);
+    unsigned long arg3 = va_arg(ap, unsigned long);
+    unsigned long arg4 = va_arg(ap, unsigned long);
+    unsigned long arg5 = va_arg(ap, unsigned long);
+    va_end(ap);
+
+    if (option == PR_SET_NO_NEW_PRIVS) {
+        return 0;
+    }
+#ifdef PR_SET_SECCOMP
+    if (option == PR_SET_SECCOMP) {
+        return 0;
+    }
+#endif
+    static int (*orig_prctl)(int, unsigned long, unsigned long, unsigned long, unsigned long) = NULL;
+    if (!orig_prctl) orig_prctl = (int (*)(int, unsigned long, unsigned long, unsigned long, unsigned long))dlsym(RTLD_NEXT, "prctl");
+    return orig_prctl ? orig_prctl(option, arg2, arg3, arg4, arg5) : 0;
+}
+int seccomp(unsigned int operation, unsigned int flags, void *args) {
+    (void)operation;
+    (void)flags;
+    (void)args;
+    return 0;
+}
 
 static char **clean_env_for_system(char *const envp[]) {
     int count = 0;
@@ -943,8 +1001,12 @@ int execve(const char *filename, char *const argv[], char *const envp[]) {
                     chmod(ld_so, 0755);
                     chmod(target, 0755);
 
+                    char *const *arg_ptr = argv;
                     int argc = 0;
-                    while (argv[argc]) argc++;
+                    while (arg_ptr && *arg_ptr) {
+                        argc++;
+                        arg_ptr++;
+                    }
 
                     const char *prog_name = strrchr(target, '/');
                     prog_name = (prog_name != NULL) ? prog_name + 1 : target;
@@ -952,7 +1014,7 @@ int execve(const char *filename, char *const argv[], char *const envp[]) {
                     char **new_argv = (char **)calloc(argc + 5, sizeof(char *));
                     new_argv[0] = ld_so;
                     new_argv[1] = (char *)"--argv0";
-                    new_argv[2] = (char *)(argv[0] ? argv[0] : prog_name);
+                    new_argv[2] = (char *)((argc > 0 && argv[0]) ? argv[0] : prog_name);
                     new_argv[3] = (char *)target;
                     for (int i = 1; i < argc; i++) {
                         new_argv[i + 3] = argv[i];
@@ -985,8 +1047,12 @@ int execve(const char *filename, char *const argv[], char *const envp[]) {
                     }
                 }
 
+                char *const *arg_ptr = argv;
                 int orig_argc = 0;
-                while (argv[orig_argc]) orig_argc++;
+                while (arg_ptr && *arg_ptr) {
+                    orig_argc++;
+                    arg_ptr++;
+                }
 
                 int has_arg = (interp_arg && *interp_arg) ? 1 : 0;
                 char **new_argv = (char **)calloc(orig_argc + has_arg + 3, sizeof(char *));
@@ -1169,6 +1235,17 @@ int getaddrinfo(const char *node, const char *service,
     static int (*orig_getaddrinfo)(const char *, const char *, const struct addrinfo *, struct addrinfo **) = NULL;
     if (!orig_getaddrinfo) orig_getaddrinfo = (int (*)(const char *, const char *, const struct addrinfo *, struct addrinfo **))dlsym(RTLD_NEXT, "getaddrinfo");
     configure_dns_state();
+
+    struct addrinfo mod_hints;
+    if (hints) {
+        mod_hints = *hints;
+        // On Android, unprivileged apps are blocked by SELinux from querying netlink routing interfaces.
+        // Glibc's AI_ADDRCONFIG flag causes getaddrinfo to fail or return no addresses when netlink fails.
+        // Clearing AI_ADDRCONFIG ensures normal, robust DNS resolution.
+        mod_hints.ai_flags &= ~AI_ADDRCONFIG;
+        hints = &mod_hints;
+    }
+
     return orig_getaddrinfo ? orig_getaddrinfo(node, service, hints, res) : EAI_FAIL;
 }
 
@@ -1202,9 +1279,37 @@ struct hostent *gethostbyname2(const char *name, int af) {
     return orig_gethostbyname2 ? orig_gethostbyname2(name, af) : NULL;
 }
 
+int bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen) {
+    static int (*orig_bind)(int, const struct sockaddr *, socklen_t) = NULL;
+    if (!orig_bind) orig_bind = (int (*)(int, const struct sockaddr *, socklen_t))dlsym(RTLD_NEXT, "bind");
+
+    if (addr && addrlen >= sizeof(sa_family_t) && addr->sa_family == AF_UNIX) {
+        const struct sockaddr_un *sun = (const struct sockaddr_un *)addr;
+        if (sun->sun_path[0] == '/') {
+            struct sockaddr_un mod_sun;
+            memset(&mod_sun, 0, sizeof(mod_sun));
+            mod_sun.sun_family = AF_UNIX;
+            rewrite_path(sun->sun_path, mod_sun.sun_path, sizeof(mod_sun.sun_path));
+            return orig_bind ? orig_bind(sockfd, (struct sockaddr *)&mod_sun, sizeof(mod_sun)) : -1;
+        }
+    }
+    return orig_bind ? orig_bind(sockfd, addr, addrlen) : -1;
+}
+
 int connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen) {
     static int (*orig_connect)(int, const struct sockaddr *, socklen_t) = NULL;
     if (!orig_connect) orig_connect = (int (*)(int, const struct sockaddr *, socklen_t))dlsym(RTLD_NEXT, "connect");
+
+    if (addr && addrlen >= sizeof(sa_family_t) && addr->sa_family == AF_UNIX) {
+        const struct sockaddr_un *sun = (const struct sockaddr_un *)addr;
+        if (sun->sun_path[0] == '/') {
+            struct sockaddr_un mod_sun;
+            memset(&mod_sun, 0, sizeof(mod_sun));
+            mod_sun.sun_family = AF_UNIX;
+            rewrite_path(sun->sun_path, mod_sun.sun_path, sizeof(mod_sun.sun_path));
+            return orig_connect ? orig_connect(sockfd, (struct sockaddr *)&mod_sun, sizeof(mod_sun)) : -1;
+        }
+    }
 
     if (addr && addr->sa_family == AF_INET && addrlen >= sizeof(struct sockaddr_in)) {
         struct sockaddr_in *sin = (struct sockaddr_in *)addr;

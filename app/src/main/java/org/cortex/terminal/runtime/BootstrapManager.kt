@@ -72,7 +72,7 @@ object BootstrapManager {
         patchAllDynamicLinkers(root)
     }
 
-    private const val CURRENT_BOOTSTRAP_VERSION = 12400
+    private const val CURRENT_BOOTSTRAP_VERSION = 12401
 
     fun isBootstrapInstalled(context: Context): Boolean {
         val root = Environment.getCortexRoot(context)
@@ -523,12 +523,21 @@ object BootstrapManager {
             val sbFile = File(aptConfDir, "01sandbox")
             sbFile.writeText(
                 "APT::Sandbox::User \"root\";\n" +
+                "APT::Sandbox::Seccomp \"false\";\n" +
+                "Acquire::ForceIPv4 \"true\";\n" +
+                "Acquire::Connect::AddrConfig \"false\";\n" +
                 "Acquire::Languages \"none\";\n" +
                 "Acquire::GzipIndexes \"true\";\n" +
                 "Dir::dpkg::cputable \"/usr/share/dpkg/cputable\";\n" +
                 "Dir::dpkg::tupletable \"/usr/share/dpkg/tupletable\";\n" +
                 "Dir::dpkg::triplettable \"/usr/share/dpkg/triplettable\";\n"
             )
+            val dockerClean = File(aptConfDir, "docker-clean")
+            dockerClean.writeText("# Disabled for Cortex\n")
+
+            File(root, "var/cache/apt/archives/partial").mkdirs()
+            File(root, "var/lib/apt/lists/partial").mkdirs()
+            File(root, "tmp").mkdirs()
         } catch (e: Exception) {
             android.util.Log.e("BootstrapManager", "Failed to ensure apt sandbox config", e)
         }
