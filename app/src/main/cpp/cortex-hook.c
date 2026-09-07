@@ -224,6 +224,157 @@ FILE *freopen(const char *pathname, const char *mode, FILE *stream) {
     return orig_freopen(target, mode, stream);
 }
 
+// Hook mkstemp
+int mkstemp(char *template) {
+    static int (*orig_mkstemp)(char *) = NULL;
+    if (!orig_mkstemp) orig_mkstemp = (int (*)(char *))dlsym(RTLD_NEXT, "mkstemp");
+    if (!template) { errno = EINVAL; return -1; }
+
+    char buf[PATH_MAX];
+    const char *target = rewrite_path(template, buf, sizeof(buf));
+    if (target == template) {
+        return orig_mkstemp ? orig_mkstemp(template) : -1;
+    }
+
+    char tmp_buf[PATH_MAX];
+    strncpy(tmp_buf, target, sizeof(tmp_buf) - 1);
+    tmp_buf[sizeof(tmp_buf) - 1] = '\0';
+
+    int fd = orig_mkstemp ? orig_mkstemp(tmp_buf) : -1;
+    if (fd >= 0) {
+        size_t orig_len = strlen(template);
+        size_t tmp_len = strlen(tmp_buf);
+        if (orig_len >= 6 && tmp_len >= 6) {
+            memcpy(template + orig_len - 6, tmp_buf + tmp_len - 6, 6);
+        }
+    }
+    return fd;
+}
+
+// Hook mkostemp
+int mkostemp(char *template, int flags) {
+    static int (*orig_mkostemp)(char *, int) = NULL;
+    if (!orig_mkostemp) orig_mkostemp = (int (*)(char *, int))dlsym(RTLD_NEXT, "mkostemp");
+    if (!template) { errno = EINVAL; return -1; }
+
+    char buf[PATH_MAX];
+    const char *target = rewrite_path(template, buf, sizeof(buf));
+    if (target == template) {
+        return orig_mkostemp ? orig_mkostemp(template, flags) : -1;
+    }
+
+    char tmp_buf[PATH_MAX];
+    strncpy(tmp_buf, target, sizeof(tmp_buf) - 1);
+    tmp_buf[sizeof(tmp_buf) - 1] = '\0';
+
+    int fd = orig_mkostemp ? orig_mkostemp(tmp_buf, flags) : -1;
+    if (fd >= 0) {
+        size_t orig_len = strlen(template);
+        size_t tmp_len = strlen(tmp_buf);
+        if (orig_len >= 6 && tmp_len >= 6) {
+            memcpy(template + orig_len - 6, tmp_buf + tmp_len - 6, 6);
+        }
+    }
+    return fd;
+}
+
+// Hook mkstemps
+int mkstemps(char *template, int suffixlen) {
+    static int (*orig_mkstemps)(char *, int) = NULL;
+    if (!orig_mkstemps) orig_mkstemps = (int (*)(char *, int))dlsym(RTLD_NEXT, "mkstemps");
+    if (!template) { errno = EINVAL; return -1; }
+
+    char buf[PATH_MAX];
+    const char *target = rewrite_path(template, buf, sizeof(buf));
+    if (target == template) {
+        return orig_mkstemps ? orig_mkstemps(template, suffixlen) : -1;
+    }
+
+    char tmp_buf[PATH_MAX];
+    strncpy(tmp_buf, target, sizeof(tmp_buf) - 1);
+    tmp_buf[sizeof(tmp_buf) - 1] = '\0';
+
+    int fd = orig_mkstemps ? orig_mkstemps(tmp_buf, suffixlen) : -1;
+    if (fd >= 0) {
+        size_t orig_len = strlen(template);
+        size_t tmp_len = strlen(tmp_buf);
+        if (orig_len >= (size_t)(suffixlen + 6) && tmp_len >= (size_t)(suffixlen + 6)) {
+            memcpy(template + orig_len - suffixlen - 6, tmp_buf + tmp_len - suffixlen - 6, 6);
+        }
+    }
+    return fd;
+}
+
+// Hook mkostemps
+int mkostemps(char *template, int suffixlen, int flags) {
+    static int (*orig_mkostemps)(char *, int, int) = NULL;
+    if (!orig_mkostemps) orig_mkostemps = (int (*)(char *, int, int))dlsym(RTLD_NEXT, "mkostemps");
+    if (!template) { errno = EINVAL; return -1; }
+
+    char buf[PATH_MAX];
+    const char *target = rewrite_path(template, buf, sizeof(buf));
+    if (target == template) {
+        return orig_mkostemps ? orig_mkostemps(template, suffixlen, flags) : -1;
+    }
+
+    char tmp_buf[PATH_MAX];
+    strncpy(tmp_buf, target, sizeof(tmp_buf) - 1);
+    tmp_buf[sizeof(tmp_buf) - 1] = '\0';
+
+    int fd = orig_mkostemps ? orig_mkostemps(tmp_buf, suffixlen, flags) : -1;
+    if (fd >= 0) {
+        size_t orig_len = strlen(template);
+        size_t tmp_len = strlen(tmp_buf);
+        if (orig_len >= (size_t)(suffixlen + 6) && tmp_len >= (size_t)(suffixlen + 6)) {
+            memcpy(template + orig_len - suffixlen - 6, tmp_buf + tmp_len - suffixlen - 6, 6);
+        }
+    }
+    return fd;
+}
+
+// Hook mkdtemp
+char *mkdtemp(char *template) {
+    static char *(*orig_mkdtemp)(char *) = NULL;
+    if (!orig_mkdtemp) orig_mkdtemp = (char *(*)(char *))dlsym(RTLD_NEXT, "mkdtemp");
+    if (!template) { errno = EINVAL; return NULL; }
+
+    char buf[PATH_MAX];
+    const char *target = rewrite_path(template, buf, sizeof(buf));
+    if (target == template) {
+        return orig_mkdtemp ? orig_mkdtemp(template) : NULL;
+    }
+
+    char tmp_buf[PATH_MAX];
+    strncpy(tmp_buf, target, sizeof(tmp_buf) - 1);
+    tmp_buf[sizeof(tmp_buf) - 1] = '\0';
+
+    char *res = orig_mkdtemp ? orig_mkdtemp(tmp_buf) : NULL;
+    if (res) {
+        size_t orig_len = strlen(template);
+        size_t tmp_len = strlen(tmp_buf);
+        if (orig_len >= 6 && tmp_len >= 6) {
+            memcpy(template + orig_len - 6, tmp_buf + tmp_len - 6, 6);
+        }
+        return template;
+    }
+    return NULL;
+}
+
+// Hook tmpfile
+FILE *tmpfile(void) {
+    init_cortex_hook();
+    char template_buf[PATH_MAX];
+    if (g_cortex_root[0] != '\0') {
+        snprintf(template_buf, sizeof(template_buf), "%s/tmp/tmpfile.XXXXXX", g_cortex_root);
+    } else {
+        snprintf(template_buf, sizeof(template_buf), "/tmp/tmpfile.XXXXXX");
+    }
+    int fd = mkstemp(template_buf);
+    if (fd < 0) return NULL;
+    unlink(template_buf);
+    return fdopen(fd, "w+b");
+}
+
 // Hook opendir
 DIR *opendir(const char *name) {
     static DIR *(*orig_opendir)(const char *) = NULL;
@@ -625,6 +776,11 @@ __asm__(
     ".globl statfs64\n"    ".set statfs64, statfs\n"
     ".globl statvfs64\n"   ".set statvfs64, statvfs\n"
     ".globl scandir64\n"   ".set scandir64, scandir\n"
+    ".globl mkstemp64\n"   ".set mkstemp64, mkstemp\n"
+    ".globl mkostemp64\n"  ".set mkostemp64, mkostemp\n"
+    ".globl mkstemps64\n"  ".set mkstemps64, mkstemps\n"
+    ".globl mkostemps64\n" ".set mkostemps64, mkostemps\n"
+    ".globl tmpfile64\n"   ".set tmpfile64, tmpfile\n"
 );
 #endif
 

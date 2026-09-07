@@ -203,22 +203,22 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          VERSION="v1.0.${{ github.run_number }}"
+          OFFSET=$(( ${{ github.run_number }} - 28 ))
+          if [ "$OFFSET" -lt 0 ]; then OFFSET=0; fi
+          VERSION="v1.24.${OFFSET}"
           if [[ "${{ github.ref }}" == refs/tags/* ]]; then
             VERSION="${{ github.ref_name }}"
           fi
 
           NOTES="Cortex Release $VERSION
 
-          Signed Android Release Packages:
-          - Cortex-arm64-v8a-signed.apk (64-bit ARM devices)
-          - Cortex-armeabi-v7a-signed.apk (32-bit ARM devices)
-
-          Features:
-          - Native Linux PTY execution without root
-          - Zero-overhead LD_PRELOAD path redirection (no PRoot ptrace penalty)
-          - Full ANSI/256-color terminal support
-          - Extra keys toolbar and multi-tab session management"
+          What's New:
+          - Intercept mkstemp, mkostemp, mkstemps, and tmpfile for APT cache and temporary files
+          - Fix APT 'Could not create temporary file for srcpkgcache.bin' and 'Method http has died unexpectedly'
+          - Implement dynamic DNS resolver state and automatic active network DNS discovery
+          - Forward LD_PRELOAD, CORTEX_ROOT, and environment across all child processes (execve)
+          - Remove duplicate sources.list and disable docker-clean invocation
+          - Upgraded versioning to v1.24.x series"
 
           gh release create "$VERSION" \
             release-apks/Cortex-arm64-v8a-signed.apk \

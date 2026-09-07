@@ -64,11 +64,15 @@ object BootstrapManager {
         ensureDpkgTables(root)
         ensureLocale(root)
 
+        File(root, "var/cache/apt/archives/partial").mkdirs()
+        File(root, "var/lib/apt/lists/partial").mkdirs()
+        File(root, "tmp").mkdirs()
+
         // File system structure initialized
         patchAllDynamicLinkers(root)
     }
 
-    private const val CURRENT_BOOTSTRAP_VERSION = 25
+    private const val CURRENT_BOOTSTRAP_VERSION = 12400
 
     fun isBootstrapInstalled(context: Context): Boolean {
         val root = Environment.getCortexRoot(context)
