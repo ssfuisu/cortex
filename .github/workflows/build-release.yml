@@ -65,8 +65,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gcc-aarch64-linux-gnu gcc-arm-linux-gnueabihf dpkg-dev
           mkdir -p hook-libs
-          aarch64-linux-gnu-gcc -shared -fPIC -O3 -Wall -o hook-libs/libcortex-hook-arm64.so app/src/main/cpp/cortex-hook.c -ldl
-          arm-linux-gnueabihf-gcc -shared -fPIC -O3 -Wall -o hook-libs/libcortex-hook-arm.so app/src/main/cpp/cortex-hook.c -ldl
+          aarch64-linux-gnu-gcc -shared -fPIC -O3 -Wall -Wno-nonnull-compare -o hook-libs/libcortex-hook-arm64.so app/src/main/cpp/cortex-hook.c -ldl
+          arm-linux-gnueabihf-gcc -shared -fPIC -O3 -Wall -Wno-nonnull-compare -o hook-libs/libcortex-hook-arm.so app/src/main/cpp/cortex-hook.c -ldl
 
       - name: Bundle Debian Glibc Minimal Bootstrap into APK
         run: |
@@ -203,7 +203,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          OFFSET=$(( ${{ github.run_number }} - 27 ))
+          OFFSET=$(( ${{ github.run_number }} - 28 ))
           if [ "$OFFSET" -lt 0 ]; then OFFSET=0; fi
           VERSION="v1.24.${OFFSET}"
           if [[ "${{ github.ref }}" == refs/tags/* ]]; then

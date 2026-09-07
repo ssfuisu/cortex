@@ -784,35 +784,6 @@ __asm__(
     ".globl mkostemps64\n" ".set mkostemps64, mkostemps\n"
     ".globl tmpfile64\n"   ".set tmpfile64, tmpfile\n"
 );
-#else
-int open64(const char *pathname, int flags, ...) {
-    if (open_needs_mode(flags)) {
-        va_list args;
-        va_start(args, flags);
-        mode_t mode = va_arg(args, mode_t);
-        va_end(args);
-        return open(pathname, flags, mode);
-    }
-    return open(pathname, flags);
-}
-int openat64(int dirfd, const char *pathname, int flags, ...) {
-    if (open_needs_mode(flags)) {
-        va_list args;
-        va_start(args, flags);
-        mode_t mode = va_arg(args, mode_t);
-        va_end(args);
-        return openat(dirfd, pathname, flags, mode);
-    }
-    return openat(dirfd, pathname, flags);
-}
-int creat64(const char *pathname, mode_t mode) { return creat(pathname, mode); }
-FILE *fopen64(const char *pathname, const char *mode) { return fopen(pathname, mode); }
-FILE *freopen64(const char *pathname, const char *mode, FILE *stream) { return freopen(pathname, mode, stream); }
-int mkstemp64(char *template) { return mkstemp(template); }
-int mkostemp64(char *template, int flags) { return mkostemp(template, flags); }
-int mkstemps64(char *template, int suffixlen) { return mkstemps(template, suffixlen); }
-int mkostemps64(char *template, int suffixlen, int flags) { return mkostemps(template, suffixlen, flags); }
-FILE *tmpfile64(void) { return tmpfile(); }
 #endif
 
 // Fakeroot identity hooks for APT and DPKG to operate without superuser restrictions
