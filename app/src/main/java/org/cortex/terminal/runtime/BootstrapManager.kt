@@ -49,11 +49,19 @@ object BootstrapManager {
             profile.writeText(profileContent)
         }
 
+        val etcProfile = File(root, "etc/profile")
+        if (etcProfile.exists()) {
+            val pText = etcProfile.readText()
+            if (pText.contains("`id -u`") || pText.contains("$(id -u)")) {
+                etcProfile.writeText(pText.replace("`id -u`", "\${EUID:-0}").replace("$(id -u)", "\${EUID:-0}"))
+            }
+        }
+
         // File system structure initialized
         patchAllDynamicLinkers(root)
     }
 
-    private const val CURRENT_BOOTSTRAP_VERSION = 18
+    private const val CURRENT_BOOTSTRAP_VERSION = 19
 
     fun isBootstrapInstalled(context: Context): Boolean {
         val root = Environment.getCortexRoot(context)
@@ -170,6 +178,14 @@ object BootstrapManager {
             val etcDir = File(root, "etc")
             etcDir.mkdirs()
             File(etcDir, "resolv.conf").writeText("nameserver 8.8.8.8\nnameserver 1.1.1.1\n")
+
+            val etcProfile = File(etcDir, "profile")
+            if (etcProfile.exists()) {
+                val pText = etcProfile.readText()
+                if (pText.contains("`id -u`") || pText.contains("$(id -u)")) {
+                    etcProfile.writeText(pText.replace("`id -u`", "\${EUID:-0}").replace("$(id -u)", "\${EUID:-0}"))
+                }
+            }
 
             // Ensure /etc/passwd and /etc/group exist with root and cortex user definitions
             val passwdFile = File(etcDir, "passwd")

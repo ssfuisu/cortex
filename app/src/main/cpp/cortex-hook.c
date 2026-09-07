@@ -22,36 +22,43 @@ static void cortex_sigsys_handler(int sig, siginfo_t *info, void *ctx) {
     ucontext_t *uctx = (ucontext_t *)ctx;
 #if defined(__aarch64__)
     uctx->uc_mcontext.regs[0] = -ENOSYS;
-    uctx->uc_mcontext.pc += 4;
 #elif defined(__arm__)
     uctx->uc_mcontext.arm_r0 = -ENOSYS;
-    if (uctx->uc_mcontext.arm_cpsr & 0x20) {
-        uctx->uc_mcontext.arm_pc += 2;
-    } else {
-        uctx->uc_mcontext.arm_pc += 4;
-    }
-#elif defined(__x86_64__) && defined(REG_RAX) && defined(REG_RIP)
+#elif defined(__x86_64__) && defined(REG_RAX)
     uctx->uc_mcontext.gregs[REG_RAX] = -ENOSYS;
-    uctx->uc_mcontext.gregs[REG_RIP] += 2;
-#elif defined(__i386__) && defined(REG_EAX) && defined(REG_EIP)
+#elif defined(__i386__) && defined(REG_EAX)
     uctx->uc_mcontext.gregs[REG_EAX] = -ENOSYS;
-    uctx->uc_mcontext.gregs[REG_EIP] += 2;
 #endif
 }
 
+static int (*get_real_sigaction(void))(int, const struct sigaction *, struct sigaction *) {
+    static int (*real_sigaction)(int, const struct sigaction *, struct sigaction *) = NULL;
+    if (!real_sigaction) {
+        real_sigaction = (int (*)(int, const struct sigaction *, struct sigaction *))dlsym(RTLD_NEXT, "sigaction");
+    }
+    return real_sigaction;
+}
+
 __attribute__((constructor(101))) static void install_sigsys_handler(void) {
+    int (*real_sig)(int, const struct sigaction *, struct sigaction *) = get_real_sigaction();
+    if (!real_sig) return;
+
     struct sigaction sa;
     memset(&sa, 0, sizeof(sa));
     sa.sa_sigaction = cortex_sigsys_handler;
     sa.sa_flags = SA_SIGINFO | SA_NODEFER | SA_RESTART;
     sigemptyset(&sa.sa_mask);
-    sigaction(SIGSYS, &sa, NULL);
+    real_sig(SIGSYS, &sa, NULL);
 }
 
 int sigaction(int signum, const struct sigaction *act, struct sigaction *oldact) {
-    static int (*orig_sigaction)(int, const struct sigaction *, struct sigaction *) = NULL;
-    if (!orig_sigaction) orig_sigaction = (int (*)(int, const struct sigaction *, struct sigaction *))dlsym(RTLD_NEXT, "sigaction");
+    int (*real_sig)(int, const struct sigaction *, struct sigaction *) = get_real_sigaction();
+    if (!real_sig) return -1;
+
     if (signum == SIGSYS) {
+        if (act && act->sa_sigaction == cortex_sigsys_handler) {
+            return real_sig(signum, act, oldact);
+        }
         if (oldact) {
             memset(oldact, 0, sizeof(*oldact));
             oldact->sa_sigaction = cortex_sigsys_handler;
@@ -59,7 +66,17 @@ int sigaction(int signum, const struct sigaction *act, struct sigaction *oldact)
         }
         return 0;
     }
-    return orig_sigaction ? orig_sigaction(signum, act, oldact) : 0;
+    return real_sig(signum, act, oldact);
+}
+
+typedef void (*sighandler_t)(int);
+sighandler_t signal(int signum, sighandler_t handler) {
+    static sighandler_t (*orig_signal)(int, sighandler_t) = NULL;
+    if (!orig_signal) orig_signal = (sighandler_t (*)(int, sighandler_t))dlsym(RTLD_NEXT, "signal");
+    if (signum == SIGSYS) {
+        return (sighandler_t)cortex_sigsys_handler;
+    }
+    return orig_signal ? orig_signal(signum, handler) : NULL;
 }
 
 static char g_cortex_root[PATH_MAX] = {0};
