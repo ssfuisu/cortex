@@ -258,12 +258,12 @@ jobs:
           NOTES="Cortex Release $VERSION
 
           Features and Improvements:
-          - Background Package and Certificate Initialization: Initial setup (apt update, apt upgrade, ca-certificates, tzdata, and update-ca-certificates) now executes silently in the background while the setup progress dialog is displayed, completely eliminating intrusive terminal text typing on launch.
-          - Automatic Local Timezone Synchronization: Synchronized Linux /etc/timezone, /etc/localtime, and TZ environment variable with the device's exact local timezone, fixing incorrect UTC hour offsets in date and timedate tools.
-          - Permanent Keystore Signature: Built with permanent committed release keystore to allow smooth in-place updates.
-          - OpenCode & Modern CLI Runtime Compatibility: Resolved working directory resolution so Bun, Node, Zig, Go, and Rust CLI tools operate reliably without /home errors.
-          - Enhanced reload and source Commands: Built-in reload function and executable scripts (/usr/bin/reload, ~/.local/bin/reload) allow instantly reloading ~/.bashrc and ~/.profile.
-          - Relative Symlink Resolution: Preserved relative symlinks for awk, which, and all Debian alternatives.
+          - Accurate Local Timezone Clock: Auto-detects device timezone offset and sets both POSIX TZ and binary /etc/localtime TZif so date command and timedate tools display the exact local phone time.
+          - AWK and Which Direct Binary Guarantee: Directly copies mawk and which into /usr/bin, /bin, and ~/.local/bin as real executable ELF binaries, resolving awk command not found errors during nvm install --lts.
+          - Native source and reload Support: Sourcing ~/.bashrc or bashrc now executes bash native source with zero positional arguments, immediately loading newly installed tools into the current session.
+          - Status Bar Notification Icon: Restructured notification icon silhouette with evenOdd fillType to ensure the Cortex terminal icon displays clearly on the Android notification bar and lock screen.
+          - OpenCode and Modern CLI Support: Seamless rootfs working directory mapping for Node, Bun, Zig, Python, and Go developer tools.
+          - Permanent Keystore Signature: Uses permanent release key for seamless application updates.
           - Retained All Previous Releases: Older releases remain available alongside new releases."
 
           gh release create "$VERSION" \

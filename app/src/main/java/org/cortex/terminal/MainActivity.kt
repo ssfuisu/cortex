@@ -180,6 +180,8 @@ class MainActivity : AppCompatActivity() {
                         android.util.Log.e("MainActivity", "Initial background package setup failed", e)
                     }
                     BootstrapManager.updateTimezone(this, root)
+                    BootstrapManager.ensureEssentialBinaries(root, Environment.getHomeDir(this))
+                    BootstrapManager.initializeFileSystem(this)
                 }
 
                 runOnUiThread {

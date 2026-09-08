@@ -60,10 +60,29 @@ object Environment {
         val hookLib = glibcHooks.firstOrNull { it.exists() }
         val preloadStr = hookLib?.absolutePath ?: ""
 
-        val tzId = try {
-            java.util.TimeZone.getDefault().id ?: "UTC"
+        val tz = try {
+            java.util.TimeZone.getDefault()
         } catch (e: Exception) {
-            "UTC"
+            null
+        }
+        val tzId = try { tz?.id ?: "UTC" } catch (e: Exception) { "UTC" }
+        val effectiveTz = if (File(root, "usr/share/zoneinfo/$tzId").exists()) {
+            tzId
+        } else {
+            val now = System.currentTimeMillis()
+            val offsetMillis = tz?.getOffset(now) ?: 0
+            val totalMinutes = offsetMillis / 60000
+            val posixSign = if (totalMinutes >= 0) "-" else "+"
+            val absMinutes = Math.abs(totalMinutes)
+            val hours = absMinutes / 60
+            val mins = absMinutes % 60
+            val shortName = try {
+                val name = tz?.getDisplayName(tz.inDaylightTime(java.util.Date(now)), java.util.TimeZone.SHORT, java.util.Locale.US)
+                if (!name.isNullOrEmpty() && name.all { it.isLetter() }) name else "GMT"
+            } catch (e: Exception) {
+                "GMT"
+            }
+            if (mins != 0) "%s%s%d:%02d".format(shortName, posixSign, hours, mins) else "%s%s%d".format(shortName, posixSign, hours)
         }
 
         val envList = mutableListOf(
@@ -92,7 +111,7 @@ object Environment {
             "DEBCONF_NONINTERACTIVE_SEEN=true",
             "SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt",
             "CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt",
-            "TZ=$tzId"
+            "TZ=$effectiveTz"
         )
 
         if (preloadStr.isNotEmpty()) {

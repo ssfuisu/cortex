@@ -28,6 +28,13 @@ object BootstrapManager {
                 try { bashrc.readText() } catch (e: Exception) { "" }
             } else ""
             var changed = false
+
+            // Strip legacy source() override if present
+            if (bashrcText.contains("source()")) {
+                bashrcText = bashrcText.replace(Regex("source\\s*\\(\\)\\s*\\{[\\s\\S]*?\\n\\}"), "")
+                changed = true
+            }
+
             if (!bashrcText.contains("PS1=")) {
                 bashrcText += "# Cortex Terminal Environment\n" +
                     "if [ -n \"" + d + "BASH_VERSION\" ]; then\n" +
@@ -54,31 +61,37 @@ object BootstrapManager {
                 bashrcText += "if [ -f /etc/timezone ]; then export TZ=\"$(cat /etc/timezone 2>/dev/null)\"; fi\n"
                 changed = true
             }
-            if (!bashrcText.contains("reload()")) {
-                if (bashrcText.contains("alias reload=")) {
-                    bashrcText = bashrcText.lines().filter { !it.startsWith("alias reload=") }.joinToString("\n")
-                }
-                bashrcText += "\nreload() {\n" +
-                    "    if [ -f \"" + d + "HOME/.bashrc\" ]; then . \"" + d + "HOME/.bashrc\"; fi\n" +
-                    "    if [ -f \"" + d + "HOME/.profile\" ]; then . \"" + d + "HOME/.profile\"; fi\n" +
-                    "    echo \"Configuration reloaded successfully.\"\n" +
-                    "}\n" +
-                    "alias reload='reload'\n" +
-                    "source() {\n" +
-                    "    if [ \"" + d + "1\" = \"bashrc\" ] || [ \"" + d + "1\" = \".bashrc\" ] || [ \"" + d + "1\" = \"~/.bashrc\" ] || [ \"" + d + "1\" = \"" + d + "HOME/.bashrc\" ]; then\n" +
-                    "        builtin . \"" + d + "HOME/.bashrc\"\n" +
-                    "        echo \"Reloaded " + d + "HOME/.bashrc\"\n" +
-                    "    elif [ \"" + d + "1\" = \"profile\" ] || [ \"" + d + "1\" = \".profile\" ] || [ \"" + d + "1\" = \"~/.profile\" ] || [ \"" + d + "1\" = \"" + d + "HOME/.profile\" ]; then\n" +
-                    "        builtin . \"" + d + "HOME/.profile\"\n" +
-                    "        echo \"Reloaded " + d + "HOME/.profile\"\n" +
-                    "    else\n" +
-                    "        builtin source \"" + d + "@\"\n" +
-                    "    fi\n" +
-                    "}\n"
+
+            val reloadFn = "reload() {\n" +
+                "    set --\n" +
+                "    if [ -f \"" + d + "HOME/.bashrc\" ]; then . \"" + d + "HOME/.bashrc\"; fi\n" +
+                "    if [ -f \"" + d + "HOME/.profile\" ]; then . \"" + d + "HOME/.profile\"; fi\n" +
+                "    if [ -f \"" + d + "HOME/.bash_profile\" ]; then . \"" + d + "HOME/.bash_profile\"; fi\n" +
+                "    echo \"Configuration reloaded successfully.\"\n" +
+                "}\n" +
+                "alias reload='reload'\n"
+
+            if (bashrcText.contains("reload()")) {
+                bashrcText = bashrcText.replace(Regex("reload\\s*\\(\\)\\s*\\{[\\s\\S]*?\\n\\}"), "")
+                bashrcText = bashrcText.lines().filter { !it.startsWith("alias reload=") }.joinToString("\n").trimEnd()
+                bashrcText += "\n\n" + reloadFn
+                changed = true
+            } else {
+                bashrcText = bashrcText.trimEnd() + "\n\n" + reloadFn
                 changed = true
             }
+
+            if (!bashrcText.contains("_CORTEX_PROF_GUARD")) {
+                bashrcText += "\nif [ -f \"" + d + "HOME/.profile\" ] && [ -z \"" + d + "_CORTEX_PROF_GUARD\" ]; then\n" +
+                    "    _CORTEX_PROF_GUARD=1\n" +
+                    "    . \"" + d + "HOME/.profile\"\n" +
+                    "    unset _CORTEX_PROF_GUARD\n" +
+                    "fi\n"
+                changed = true
+            }
+
             if (changed) {
-                bashrc.writeText(bashrcText)
+                bashrc.writeText(bashrcText.trim() + "\n")
                 bashrc.setReadable(true, false)
                 bashrc.setWritable(true, false)
             }
@@ -93,14 +106,18 @@ object BootstrapManager {
                 try { profile.readText() } catch (e: Exception) { "" }
             } else ""
             var changed = false
+
+            // Strip legacy source() override if present
+            if (profileText.contains("source()")) {
+                profileText = profileText.replace(Regex("source\\s*\\(\\)\\s*\\{[\\s\\S]*?\\n\\}"), "")
+                changed = true
+            }
+
             if (!profileText.contains("PS1=")) {
                 profileText += "if [ -n \"" + d + "BASH_VERSION\" ]; then\n" +
                     "    export PS1='\\w " + d + " '\n" +
                     "else\n" +
                     "    export PS1='~ " + d + " '\n" +
-                    "fi\n" +
-                    "if [ -f \"" + d + "HOME/.bashrc\" ]; then\n" +
-                    "    . \"" + d + "HOME/.bashrc\"\n" +
                     "fi\n"
                 changed = true
             }
@@ -117,23 +134,66 @@ object BootstrapManager {
                 profileText += "if [ -f /etc/timezone ]; then export TZ=\"$(cat /etc/timezone 2>/dev/null)\"; fi\n"
                 changed = true
             }
-            if (!profileText.contains("reload()")) {
-                if (profileText.contains("alias reload=")) {
-                    profileText = profileText.lines().filter { !it.startsWith("alias reload=") }.joinToString("\n")
-                }
-                profileText += "\nreload() {\n" +
-                    "    if [ -f \"" + d + "HOME/.bashrc\" ]; then . \"" + d + "HOME/.bashrc\"; fi\n" +
-                    "    if [ -f \"" + d + "HOME/.profile\" ]; then . \"" + d + "HOME/.profile\"; fi\n" +
-                    "    echo \"Configuration reloaded successfully.\"\n" +
-                    "}\n" +
-                    "alias reload='reload'\n"
+
+            val reloadFn = "reload() {\n" +
+                "    set --\n" +
+                "    if [ -f \"" + d + "HOME/.bashrc\" ]; then . \"" + d + "HOME/.bashrc\"; fi\n" +
+                "    if [ -f \"" + d + "HOME/.profile\" ]; then . \"" + d + "HOME/.profile\"; fi\n" +
+                "    if [ -f \"" + d + "HOME/.bash_profile\" ]; then . \"" + d + "HOME/.bash_profile\"; fi\n" +
+                "    echo \"Configuration reloaded successfully.\"\n" +
+                "}\n" +
+                "alias reload='reload'\n"
+
+            if (profileText.contains("reload()")) {
+                profileText = profileText.replace(Regex("reload\\s*\\(\\)\\s*\\{[\\s\\S]*?\\n\\}"), "")
+                profileText = profileText.lines().filter { !it.startsWith("alias reload=") }.joinToString("\n").trimEnd()
+                profileText += "\n\n" + reloadFn
+                changed = true
+            } else {
+                profileText = profileText.trimEnd() + "\n\n" + reloadFn
                 changed = true
             }
+
+            if (!profileText.contains("_CORTEX_RC_GUARD")) {
+                profileText += "\nif [ -f \"" + d + "HOME/.bashrc\" ] && [ -z \"" + d + "_CORTEX_RC_GUARD\" ]; then\n" +
+                    "    _CORTEX_RC_GUARD=1\n" +
+                    "    . \"" + d + "HOME/.bashrc\"\n" +
+                    "    unset _CORTEX_RC_GUARD\n" +
+                    "fi\n"
+                changed = true
+            }
+
             if (changed) {
-                profile.writeText(profileText)
+                profile.writeText(profileText.trim() + "\n")
                 profile.setReadable(true, false)
                 profile.setWritable(true, false)
             }
+
+            // Create bashrc and profile helper scripts so 'source bashrc' works natively from anywhere
+            val homeBashrc = File(home, "bashrc")
+            if (!homeBashrc.exists() || homeBashrc.length() == 0L) {
+                homeBashrc.writeText(". \"" + d + "HOME/.bashrc\"\n")
+                homeBashrc.setReadable(true, false)
+            }
+            val homeProfile = File(home, "profile")
+            if (!homeProfile.exists() || homeProfile.length() == 0L) {
+                homeProfile.writeText(". \"" + d + "HOME/.profile\"\n")
+                homeProfile.setReadable(true, false)
+            }
+
+            val localBin = File(home, ".local/bin")
+            localBin.mkdirs()
+            val localBinBashrc = File(localBin, "bashrc")
+            localBinBashrc.writeText("#!/bin/bash\n. \"" + d + "HOME/.bashrc\"\n")
+            localBinBashrc.setExecutable(true, false)
+            localBinBashrc.setReadable(true, false)
+            try { android.system.Os.chmod(localBinBashrc.absolutePath, 493) } catch (e: Exception) {}
+
+            val localBinProfile = File(localBin, "profile")
+            localBinProfile.writeText("#!/bin/bash\n. \"" + d + "HOME/.profile\"\n")
+            localBinProfile.setExecutable(true, false)
+            localBinProfile.setReadable(true, false)
+            try { android.system.Os.chmod(localBinProfile.absolutePath, 493) } catch (e: Exception) {}
         } catch (e: Exception) {
             android.util.Log.e("BootstrapManager", "Failed to ensure .profile", e)
         }
@@ -168,6 +228,7 @@ object BootstrapManager {
         // File system structure initialized
         patchAllDynamicLinkers(root)
         fixAbsoluteSymlinks(root)
+        ensureEssentialBinaries(root, home)
     }
 
     private const val CURRENT_BOOTSTRAP_VERSION = 12414
@@ -412,51 +473,7 @@ object BootstrapManager {
                 }
             }
 
-            // Direct guarantee for awk -> mawk
-            val awk = File(root, "usr/bin/awk")
-            val mawk = File(root, "usr/bin/mawk")
-            if (mawk.exists()) {
-                var needsAwkRelink = false
-                try {
-                    if (!awk.exists()) {
-                        needsAwkRelink = true
-                    } else if (java.nio.file.Files.isSymbolicLink(awk.toPath())) {
-                        val linkTarget = java.nio.file.Files.readSymbolicLink(awk.toPath()).toString()
-                        if (linkTarget.startsWith("/") || !File(awk.parentFile, linkTarget).exists()) {
-                            needsAwkRelink = true
-                        }
-                    }
-                } catch (e: Exception) {
-                    needsAwkRelink = true
-                }
-                if (needsAwkRelink) {
-                    try { java.nio.file.Files.deleteIfExists(awk.toPath()) } catch (e: Exception) {}
-                    try { java.nio.file.Files.createSymbolicLink(awk.toPath(), java.nio.file.Paths.get("mawk")) } catch (e: Exception) {}
-                }
-            }
-
-            // Direct guarantee for which -> which.debianutils
-            val which = File(root, "usr/bin/which")
-            val whichDebian = File(root, "usr/bin/which.debianutils")
-            if (whichDebian.exists()) {
-                var needsWhichRelink = false
-                try {
-                    if (!which.exists()) {
-                        needsWhichRelink = true
-                    } else if (java.nio.file.Files.isSymbolicLink(which.toPath())) {
-                        val linkTarget = java.nio.file.Files.readSymbolicLink(which.toPath()).toString()
-                        if (linkTarget.startsWith("/") || !File(which.parentFile, linkTarget).exists()) {
-                            needsWhichRelink = true
-                        }
-                    }
-                } catch (e: Exception) {
-                    needsWhichRelink = true
-                }
-                if (needsWhichRelink) {
-                    try { java.nio.file.Files.deleteIfExists(which.toPath()) } catch (e: Exception) {}
-                    try { java.nio.file.Files.createSymbolicLink(which.toPath(), java.nio.file.Paths.get("which.debianutils")) } catch (e: Exception) {}
-                }
-            }
+            ensureEssentialBinaries(root, File(root, "home"))
         } catch (e: Exception) {
             android.util.Log.e("BootstrapManager", "Error in fixAbsoluteSymlinks", e)
         }
@@ -983,8 +1000,10 @@ object BootstrapManager {
     private fun ensureReloadScripts(root: File, home: File) {
         try {
             val reloadScript = "#!/bin/bash\n" +
+                "set --\n" +
                 "if [ -f \"\$HOME/.bashrc\" ]; then . \"\$HOME/.bashrc\"; fi\n" +
                 "if [ -f \"\$HOME/.profile\" ]; then . \"\$HOME/.profile\"; fi\n" +
+                "if [ -f \"\$HOME/.bash_profile\" ]; then . \"\$HOME/.bash_profile\"; fi\n" +
                 "echo \"Environment reloaded.\"\n"
             val reloadDirs = listOf(File(root, "usr/bin"), File(root, "bin"), File(home, ".local/bin"))
             reloadDirs.forEach { dir ->
@@ -993,6 +1012,7 @@ object BootstrapManager {
                     rFile.writeText(reloadScript)
                     rFile.setExecutable(true, false)
                     rFile.setReadable(true, false)
+                    try { android.system.Os.chmod(rFile.absolutePath, 493) } catch (e: Exception) {}
                 }
             }
         } catch (e: Exception) {
@@ -1000,24 +1020,100 @@ object BootstrapManager {
         }
     }
 
+    fun ensureEssentialBinaries(root: File, home: File) {
+        try {
+            val localBin = File(home, ".local/bin")
+            localBin.mkdirs()
+
+            // 1. awk guarantee: find mawk or gawk and copy as real ELF executable
+            val mawkCandidates = listOf(
+                File(root, "usr/bin/mawk"),
+                File(root, "bin/mawk"),
+                File(root, "usr/bin/gawk"),
+                File(root, "bin/gawk")
+            )
+            val realAwk = mawkCandidates.firstOrNull { it.exists() && it.isFile }
+            val awkTargets = listOf(
+                File(root, "usr/bin/awk"),
+                File(root, "bin/awk"),
+                File(localBin, "awk")
+            )
+            if (realAwk != null) {
+                for (target in awkTargets) {
+                    try {
+                        if (target.exists()) {
+                            if (java.nio.file.Files.isSymbolicLink(target.toPath())) {
+                                java.nio.file.Files.deleteIfExists(target.toPath())
+                            } else if (target.length() == realAwk.length()) {
+                                continue
+                            } else {
+                                target.delete()
+                            }
+                        }
+                        realAwk.copyTo(target, overwrite = true)
+                        target.setReadable(true, false)
+                        target.setExecutable(true, false)
+                        try { android.system.Os.chmod(target.absolutePath, 493) } catch (e: Exception) {}
+                    } catch (e: Exception) {
+                        android.util.Log.e("BootstrapManager", "Failed to copy awk to ${target.absolutePath}", e)
+                    }
+                }
+            }
+
+            // 2. which guarantee: find which.debianutils or write native command -v wrapper
+            val whichDebianCandidates = listOf(
+                File(root, "usr/bin/which.debianutils"),
+                File(root, "bin/which.debianutils")
+            )
+            val realWhich = whichDebianCandidates.firstOrNull { it.exists() && it.isFile }
+            val whichTargets = listOf(
+                File(root, "usr/bin/which"),
+                File(root, "bin/which"),
+                File(localBin, "which")
+            )
+            for (target in whichTargets) {
+                try {
+                    if (realWhich != null) {
+                        if (target.exists()) {
+                            if (java.nio.file.Files.isSymbolicLink(target.toPath())) {
+                                java.nio.file.Files.deleteIfExists(target.toPath())
+                            } else if (target.length() == realWhich.length()) {
+                                continue
+                            } else {
+                                target.delete()
+                            }
+                        }
+                        realWhich.copyTo(target, overwrite = true)
+                    } else if (!target.exists() || target.length() == 0L) {
+                        target.writeText("#!/bin/sh\ncommand -v \"\$@\"\n")
+                    }
+                    target.setReadable(true, false)
+                    target.setExecutable(true, false)
+                    try { android.system.Os.chmod(target.absolutePath, 493) } catch (e: Exception) {}
+                } catch (e: Exception) {
+                    android.util.Log.e("BootstrapManager", "Failed to setup which at ${target.absolutePath}", e)
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("BootstrapManager", "Failed in ensureEssentialBinaries", e)
+        }
+    }
+
     fun updateTimezone(context: Context, root: File) {
         try {
-            val tzId = try {
-                java.util.TimeZone.getDefault().id ?: "UTC"
+            val tz = try {
+                java.util.TimeZone.getDefault()
             } catch (e: Exception) {
-                "UTC"
+                null
             }
+            val tzId = try { tz?.id ?: "UTC" } catch (e: Exception) { "UTC" }
             val etcDir = File(root, "etc")
             if (!etcDir.exists()) etcDir.mkdirs()
 
-            // 1. Write /etc/timezone
-            val tzFile = File(etcDir, "timezone")
-            tzFile.writeText(tzId + "\n")
-            tzFile.setReadable(true, false)
-
-            // 2. Setup /etc/localtime from zoneinfo
             val zoneinfoFile = File(root, "usr/share/zoneinfo/$tzId")
             val localTimeFile = File(etcDir, "localtime")
+            val tzFile = File(etcDir, "timezone")
+
             if (zoneinfoFile.exists() && zoneinfoFile.isFile) {
                 try {
                     if (localTimeFile.exists()) {
@@ -1025,13 +1121,106 @@ object BootstrapManager {
                     }
                     zoneinfoFile.copyTo(localTimeFile, overwrite = true)
                     localTimeFile.setReadable(true, false)
+                    tzFile.writeText(tzId + "\n")
+                    tzFile.setReadable(true, false)
+                    return
                 } catch (e: Exception) {
                     android.util.Log.e("BootstrapManager", "Failed to copy zoneinfo to localtime", e)
                 }
             }
+
+            // Fallback when usr/share/zoneinfo does not exist yet (e.g. tzdata not installed)
+            val now = System.currentTimeMillis()
+            val offsetMillis = tz?.getOffset(now) ?: 0
+            val offsetSeconds = (offsetMillis / 1000).toInt()
+            val totalMinutes = offsetMillis / 60000
+            val posixSign = if (totalMinutes >= 0) "-" else "+"
+            val absMinutes = Math.abs(totalMinutes)
+            val hours = (absMinutes / 60).toInt()
+            val mins = (absMinutes % 60).toInt()
+
+            val shortName = try {
+                val name = tz?.getDisplayName(tz.inDaylightTime(java.util.Date(now)), java.util.TimeZone.SHORT, java.util.Locale.US)
+                if (!name.isNullOrEmpty() && name.all { it.isLetter() }) name else "GMT"
+            } catch (e: Exception) {
+                "GMT"
+            }
+
+            val posixTz = if (mins != 0) {
+                "%s%s%d:%02d".format(shortName, posixSign, hours, mins)
+            } else {
+                "%s%s%d".format(shortName, posixSign, hours)
+            }
+
+            val abbr = if (totalMinutes >= 0) {
+                "+%02d".format(hours)
+            } else {
+                "-%02d".format(hours)
+            }
+
+            val tzifBytes = createTzifBytes(offsetSeconds, abbr, posixTz)
+            try {
+                if (localTimeFile.exists()) {
+                    localTimeFile.delete()
+                }
+                localTimeFile.writeBytes(tzifBytes)
+                localTimeFile.setReadable(true, false)
+            } catch (e: Exception) {
+                android.util.Log.e("BootstrapManager", "Failed to write generated localtime", e)
+            }
+
+            tzFile.writeText(posixTz + "\n")
+            tzFile.setReadable(true, false)
         } catch (e: Exception) {
             android.util.Log.e("BootstrapManager", "Failed to update timezone", e)
         }
+    }
+
+    private fun createTzifBytes(offsetSeconds: Int, tzAbbr: String, posixStr: String): ByteArray {
+        val abbrBytes = tzAbbr.toByteArray(Charsets.US_ASCII) + byteArrayOf(0)
+        val charcnt = abbrBytes.size
+
+        val bb = java.nio.ByteBuffer.allocate(256).order(java.nio.ByteOrder.BIG_ENDIAN)
+
+        // Header 1 (32-bit v1)
+        bb.put("TZif2".toByteArray(Charsets.US_ASCII))
+        bb.put(ByteArray(15))
+        bb.putInt(0) // ttisgmtcnt
+        bb.putInt(0) // ttisstdcnt
+        bb.putInt(0) // leapcnt
+        bb.putInt(0) // timecnt
+        bb.putInt(1) // typecnt
+        bb.putInt(charcnt) // charcnt
+
+        // ttinfo 1
+        bb.putInt(offsetSeconds)
+        bb.put(0.toByte()) // isdst
+        bb.put(0.toByte()) // abbridx
+        bb.put(abbrBytes)
+
+        // Header 2 (64-bit v2)
+        bb.put("TZif2".toByteArray(Charsets.US_ASCII))
+        bb.put(ByteArray(15))
+        bb.putInt(0)
+        bb.putInt(0)
+        bb.putInt(0)
+        bb.putInt(0)
+        bb.putInt(1)
+        bb.putInt(charcnt)
+
+        // ttinfo 2
+        bb.putInt(offsetSeconds)
+        bb.put(0.toByte())
+        bb.put(0.toByte())
+        bb.put(abbrBytes)
+
+        // Footer
+        bb.put("\n$posixStr\n".toByteArray(Charsets.US_ASCII))
+
+        bb.flip()
+        val out = ByteArray(bb.remaining())
+        bb.get(out)
+        return out
     }
 
     fun runBackgroundCommand(context: Context, command: String, onProgress: ((String) -> Unit)? = null): Int {
