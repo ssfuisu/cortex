@@ -231,7 +231,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          OFFSET=$(( ${{ github.run_number }} - 32 ))
+          OFFSET=$(( ${{ github.run_number }} - 33 ))
           if [ "$OFFSET" -lt 0 ]; then OFFSET=0; fi
           VERSION="v1.24.${OFFSET}"
           if [[ "${{ github.ref }}" == refs/tags/* ]]; then
@@ -240,12 +240,12 @@ jobs:
 
           NOTES="Cortex Release $VERSION
 
-Features and Fixes:
-- Prevent Auto-Execution on Paste: Stripped trailing newlines when pasting text into the terminal via context menu or soft keyboard suggestions, allowing commands to be reviewed and edited prior to execution.
-- Terminal Scroll Margins and Blank Lines Resolved: Fixed scroll margins (DECSTBM) and linefeed handling outside margins that previously generated large blank gaps and wiped package installation logs during APT operations.
-- Full VT100 / ANSI Cursor Save and Restore: Implemented support for ESC 7 / ESC 8 (DECSC/DECRC) and CSI s / CSI u, along with CHA (CSI G), VPA (CSI d), and ECH (CSI X) for accurate terminal cursor management.
-- Streamlined APT and Dpkg Console Output: Disabled fancy progress bar (Dpkg::Progress-Fancy) to provide clean, reliable line-by-line console logs on mobile screens.
-- Robust Package Management: Full support for apt update, apt upgrade, and installing packages such as Python, NodeJS, and Micro."
+          Features and Fixes:
+          - Prevent Auto-Execution on Paste: Stripped trailing newlines when pasting text into the terminal via context menu or soft keyboard suggestions, allowing commands to be reviewed and edited prior to execution.
+          - Terminal Scroll Margins and Blank Lines Resolved: Fixed scroll margins (DECSTBM) and linefeed handling outside margins that previously generated large blank gaps and wiped package installation logs during APT operations.
+          - Full VT100 / ANSI Cursor Save and Restore: Implemented support for ESC 7 / ESC 8 (DECSC/DECRC) and CSI s / CSI u, along with CHA (CSI G), VPA (CSI d), and ECH (CSI X) for accurate terminal cursor management.
+          - Streamlined APT and Dpkg Console Output: Disabled fancy progress bar (Dpkg::Progress-Fancy) to provide clean, reliable line-by-line console logs on mobile screens.
+          - Robust Package Management: Full support for apt update, apt upgrade, and installing packages such as Python, NodeJS, and Micro."
 
           gh release create "$VERSION" \
             release-apks/Cortex-arm64-v8a-signed.apk \
