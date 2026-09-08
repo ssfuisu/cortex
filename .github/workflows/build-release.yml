@@ -75,8 +75,8 @@ jobs:
           cp hook-libs/libcortex-hook-arm64.so app/src/main/assets/libcortex-hook-arm64.so
           cp hook-libs/libcortex-hook-arm.so app/src/main/assets/libcortex-hook-arm.so
 
-          echo "Preparing dpkg tables and APT sandbox config for bootstrap..."
-          mkdir -p extra-rootfs/usr/share/dpkg extra-rootfs/etc/apt/apt.conf.d extra-rootfs/var/cache/apt/archives/partial extra-rootfs/var/lib/apt/lists/partial extra-rootfs/tmp
+          echo "Preparing dpkg tables, APT sandbox, hosts, and DNS config for bootstrap..."
+          mkdir -p extra-rootfs/usr/share/dpkg extra-rootfs/etc/apt/apt.conf.d extra-rootfs/var/cache/apt/archives/partial extra-rootfs/var/lib/apt/lists/partial extra-rootfs/tmp extra-rootfs/etc
           if [ -d /usr/share/dpkg ]; then
             cp -r /usr/share/dpkg/* extra-rootfs/usr/share/dpkg/
           fi
@@ -85,6 +85,42 @@ jobs:
           fi
           printf 'APT::Sandbox::User "root";\nAPT::Sandbox::Seccomp "false";\nAcquire::ForceIPv4 "true";\nAcquire::Connect::AddrConfig "false";\nAcquire::SRV "false";\nAcquire::Languages "none";\nAcquire::GzipIndexes "true";\nDir::dpkg::cputable "/usr/share/dpkg/cputable";\nDir::dpkg::tupletable "/usr/share/dpkg/tupletable";\nDir::dpkg::triplettable "/usr/share/dpkg/triplettable";\n' > extra-rootfs/etc/apt/apt.conf.d/01sandbox
           echo "# Disabled for Cortex" > extra-rootfs/etc/apt/apt.conf.d/docker-clean
+
+          cat << 'EOF' > extra-rootfs/etc/hosts
+127.0.0.1 localhost localhost.localdomain
+::1 localhost ip6-localhost ip6-loopback
+151.101.130.132 deb.debian.org
+151.101.2.132 deb.debian.org
+151.101.66.132 deb.debian.org
+151.101.194.132 deb.debian.org
+151.101.130.132 security.debian.org
+151.101.2.132 security.debian.org
+151.101.66.132 security.debian.org
+151.101.194.132 security.debian.org
+151.101.130.132 cdn-fastly.deb.debian.org
+151.101.2.132 cdn-fastly.deb.debian.org
+EOF
+
+          cat << 'EOF' > extra-rootfs/etc/resolv.conf
+nameserver 8.8.8.8
+nameserver 1.1.1.1
+options timeout:1 attempts:2 rotate
+EOF
+
+          cat << 'EOF' > extra-rootfs/etc/nsswitch.conf
+passwd:         files
+group:          files
+shadow:         files
+gshadow:        files
+
+hosts:          files dns
+networks:       files
+
+protocols:      db files
+services:       db files
+ethers:         db files
+rpc:            db files
+EOF
 
           echo "Preparing 64-bit Debian Glibc minimal bootstrap..."
           docker pull --platform linux/arm64 debian:bookworm-slim
@@ -213,9 +249,10 @@ jobs:
           NOTES="Cortex Release $VERSION
 
           Neler Duzeltildi / What's Fixed:
-          - APT http yontemi cokmesi (GetSrvRecords / DNS resolver) tamamen duzeltildi
-          - File timestamp (utimes, utimensat) kancalari eklenerek paket listesi indirmeleri tamamlandi
-          - DNS SRV sorgulari bypass edildi ve fd 0 (stdin) izolasyonu saglandi"
+          - DNS ve Debian ayna sunuculari (/etc/hosts, resolv.conf IPv4 optimizasyonu) yapilandirildi
+          - deb.debian.org ve security.debian.org icin Fastly CDN Anycast statik IP eslemesi eklendi
+          - getaddrinfo icin libcortex-hook icinde otomatik kurtarma mekanizmasi saglandi
+          - glibc MAXNS=3 siniri icin 8.8.8.8 ve 1.1.1.1 DNS onceliklendirildi"
 
           gh release create "$VERSION" \
             release-apks/Cortex-arm64-v8a-signed.apk \

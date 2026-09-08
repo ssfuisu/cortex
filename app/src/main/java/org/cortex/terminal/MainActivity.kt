@@ -13,6 +13,7 @@ import androidx.preference.PreferenceManager
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import org.cortex.terminal.runtime.BootstrapManager
+import org.cortex.terminal.runtime.Environment
 import org.cortex.terminal.session.SessionAdapter
 import org.cortex.terminal.session.SessionManager
 import org.cortex.terminal.view.ExtraKeysView
@@ -141,6 +142,8 @@ class MainActivity : AppCompatActivity() {
         }
 
         applyPreferences()
+        val root = Environment.getCortexRoot(this)
+        BootstrapManager.updateDnsConfiguration(this, root)
         if (!BootstrapManager.isBootstrapInstalled(this)) {
             val progress = android.app.ProgressDialog(this).apply {
                 setMessage("Setting up Cortex Glibc environment...")
@@ -171,6 +174,8 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         applyPreferences()
+        val root = Environment.getCortexRoot(this)
+        BootstrapManager.updateDnsConfiguration(this, root)
     }
 
     private fun applyPreferences() {
@@ -188,6 +193,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun createNewSession() {
+        val root = Environment.getCortexRoot(this)
+        BootstrapManager.updateDnsConfiguration(this, root)
         val session = sessionManager.newSession(
             rows = terminalView.rows,
             cols = terminalView.cols,

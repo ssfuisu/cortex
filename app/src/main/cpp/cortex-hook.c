@@ -102,6 +102,18 @@ static void init_cortex_hook(void) {
         if (len > 0 && g_cortex_root[len - 1] == '/') {
             g_cortex_root[len - 1] = '\0';
         }
+    } else {
+        Dl_info info;
+        if (dladdr((void *)init_cortex_hook, &info) && info.dli_fname) {
+            const char *p = strstr(info.dli_fname, "/usr/lib/libcortex-hook");
+            if (p && p > info.dli_fname) {
+                size_t len = p - info.dli_fname;
+                if (len < sizeof(g_cortex_root)) {
+                    strncpy(g_cortex_root, info.dli_fname, len);
+                    g_cortex_root[len] = '\0';
+                }
+            }
+        }
     }
     g_initialized = 1;
 }
@@ -1198,6 +1210,61 @@ int close(int fd) {
     return orig_close ? orig_close(fd) : -1;
 }
 
+static struct addrinfo *alloc_one_addrinfo(const char *node, const char *ip_str, int port, int socktype, int protocol) {
+    struct addrinfo *ai = (struct addrinfo *)calloc(1, sizeof(struct addrinfo));
+    if (!ai) return NULL;
+    struct sockaddr_in *sa = (struct sockaddr_in *)calloc(1, sizeof(struct sockaddr_in));
+    if (!sa) {
+        free(ai);
+        return NULL;
+    }
+    sa->sin_family = AF_INET;
+    sa->sin_port = htons((uint16_t)port);
+    inet_pton(AF_INET, ip_str, &sa->sin_addr);
+
+    ai->ai_family = AF_INET;
+    ai->ai_socktype = socktype ? socktype : SOCK_STREAM;
+    ai->ai_protocol = protocol ? protocol : IPPROTO_TCP;
+    ai->ai_addrlen = sizeof(struct sockaddr_in);
+    ai->ai_addr = (struct sockaddr *)sa;
+    ai->ai_canonname = node ? strdup(node) : NULL;
+    ai->ai_next = NULL;
+    return ai;
+}
+
+static int synthesize_fallback_addrinfo(const char *node, const char *service,
+                                        const struct addrinfo *hints,
+                                        struct addrinfo **res) {
+    if (!node || !res) return EAI_NONAME;
+
+    int is_debian = (strstr(node, "debian.org") != NULL);
+    if (!is_debian) return EAI_NONAME;
+
+    int port = 80;
+    if (service) {
+        if (strcmp(service, "https") == 0 || strcmp(service, "443") == 0) {
+            port = 443;
+        } else if (strcmp(service, "http") == 0 || strcmp(service, "80") == 0) {
+            port = 80;
+        } else {
+            int p = atoi(service);
+            if (p > 0 && p < 65536) port = p;
+        }
+    }
+
+    int socktype = (hints && hints->ai_socktype) ? hints->ai_socktype : SOCK_STREAM;
+    int protocol = (hints && hints->ai_protocol) ? hints->ai_protocol : IPPROTO_TCP;
+
+    struct addrinfo *ai1 = alloc_one_addrinfo(node, "151.101.130.132", port, socktype, protocol);
+    if (!ai1) return EAI_MEMORY;
+    struct addrinfo *ai2 = alloc_one_addrinfo(node, "151.101.2.132", port, socktype, protocol);
+    if (ai2) {
+        ai1->ai_next = ai2;
+    }
+    *res = ai1;
+    return 0;
+}
+
 int getaddrinfo(const char *node, const char *service,
                 const struct addrinfo *hints,
                 struct addrinfo **res) {
@@ -1211,16 +1278,40 @@ int getaddrinfo(const char *node, const char *service,
         // Glibc's AI_ADDRCONFIG flag causes getaddrinfo to fail or return no addresses when netlink fails.
         // Clearing AI_ADDRCONFIG ensures normal, robust DNS resolution.
         mod_hints.ai_flags &= ~AI_ADDRCONFIG;
-        hints = &mod_hints;
+    } else {
+        memset(&mod_hints, 0, sizeof(mod_hints));
+        mod_hints.ai_family = AF_UNSPEC;
+        mod_hints.ai_flags = 0;
     }
 
-    return orig_getaddrinfo ? orig_getaddrinfo(node, service, hints, res) : EAI_FAIL;
+    int ret = orig_getaddrinfo ? orig_getaddrinfo(node, service, &mod_hints, res) : EAI_FAIL;
+    if (ret != 0 || !res || !*res) {
+        if (node && strstr(node, "debian.org")) {
+            ret = synthesize_fallback_addrinfo(node, service, hints, res);
+        }
+    }
+    return ret;
 }
 
 int res_init(void) {
     static int (*orig_res_init)(void) = NULL;
     if (!orig_res_init) orig_res_init = (int (*)(void))dlsym(RTLD_NEXT, "res_init");
-    return orig_res_init ? orig_res_init() : 0;
+    int ret = orig_res_init ? orig_res_init() : 0;
+    res_state statp = __res_state();
+    if (statp) {
+        if (statp->nscount <= 0 || (statp->nscount == 1 && statp->nsaddr_list[0].sin_addr.s_addr == htonl(INADDR_LOOPBACK))) {
+            statp->nscount = 2;
+            statp->nsaddr_list[0].sin_family = AF_INET;
+            statp->nsaddr_list[0].sin_port = htons(53);
+            inet_pton(AF_INET, "8.8.8.8", &statp->nsaddr_list[0].sin_addr);
+            statp->nsaddr_list[1].sin_family = AF_INET;
+            statp->nsaddr_list[1].sin_port = htons(53);
+            inet_pton(AF_INET, "1.1.1.1", &statp->nsaddr_list[1].sin_addr);
+        }
+        statp->retrans = 1;
+        statp->retry = 2;
+    }
+    return ret;
 }
 
 int res_ninit(res_state statp) {
@@ -1233,7 +1324,21 @@ int res_ninit(res_state statp) {
             statp->_u._ext.nssocks[i] = -1;
         }
     }
-    return orig_res_ninit ? orig_res_ninit(statp) : 0;
+    int ret = orig_res_ninit ? orig_res_ninit(statp) : 0;
+    if (statp) {
+        if (statp->nscount <= 0 || (statp->nscount == 1 && statp->nsaddr_list[0].sin_addr.s_addr == htonl(INADDR_LOOPBACK))) {
+            statp->nscount = 2;
+            statp->nsaddr_list[0].sin_family = AF_INET;
+            statp->nsaddr_list[0].sin_port = htons(53);
+            inet_pton(AF_INET, "8.8.8.8", &statp->nsaddr_list[0].sin_addr);
+            statp->nsaddr_list[1].sin_family = AF_INET;
+            statp->nsaddr_list[1].sin_port = htons(53);
+            inet_pton(AF_INET, "1.1.1.1", &statp->nsaddr_list[1].sin_addr);
+        }
+        statp->retrans = 1;
+        statp->retry = 2;
+    }
+    return ret;
 }
 
 int res_nquery(res_state statp, const char *dname, int class, int type,
@@ -1259,16 +1364,68 @@ int res_query(const char *dname, int class, int type,
     return orig_res_query ? orig_res_query(dname, class, type, answer, anslen) : -1;
 }
 
+int res_nsearch(res_state statp, const char *dname, int class, int type,
+                unsigned char *answer, int anslen) {
+    static int (*orig_res_nsearch)(res_state, const char *, int, int, unsigned char *, int) = NULL;
+    if (!orig_res_nsearch) orig_res_nsearch = (int (*)(res_state, const char *, int, int, unsigned char *, int))dlsym(RTLD_NEXT, "res_nsearch");
+    if (type == 33 /* T_SRV */) {
+        h_errno = NO_DATA;
+        return -1;
+    }
+    return orig_res_nsearch ? orig_res_nsearch(statp, dname, class, type, answer, anslen) : -1;
+}
+
+int res_search(const char *dname, int class, int type,
+               unsigned char *answer, int anslen) {
+    static int (*orig_res_search)(const char *, int, int, unsigned char *, int) = NULL;
+    if (!orig_res_search) orig_res_search = (int (*)(const char *, int, int, unsigned char *, int))dlsym(RTLD_NEXT, "res_search");
+    if (type == 33 /* T_SRV */) {
+        h_errno = NO_DATA;
+        return -1;
+    }
+    return orig_res_search ? orig_res_search(dname, class, type, answer, anslen) : -1;
+}
+
+static struct hostent s_fallback_hostent;
+static char *s_fallback_aliases[1] = { NULL };
+static in_addr_t s_fallback_addr1;
+static in_addr_t s_fallback_addr2;
+static char *s_fallback_addr_list[3] = { NULL, NULL, NULL };
+
+static struct hostent *get_fallback_hostent(const char *name) {
+    if (!name || strstr(name, "debian.org") == NULL) return NULL;
+    inet_pton(AF_INET, "151.101.130.132", &s_fallback_addr1);
+    inet_pton(AF_INET, "151.101.2.132", &s_fallback_addr2);
+    s_fallback_addr_list[0] = (char *)&s_fallback_addr1;
+    s_fallback_addr_list[1] = (char *)&s_fallback_addr2;
+    s_fallback_addr_list[2] = NULL;
+
+    s_fallback_hostent.h_name = (char *)name;
+    s_fallback_hostent.h_aliases = s_fallback_aliases;
+    s_fallback_hostent.h_addrtype = AF_INET;
+    s_fallback_hostent.h_length = sizeof(in_addr_t);
+    s_fallback_hostent.h_addr_list = s_fallback_addr_list;
+    return &s_fallback_hostent;
+}
+
 struct hostent *gethostbyname(const char *name) {
     static struct hostent *(*orig_gethostbyname)(const char *) = NULL;
     if (!orig_gethostbyname) orig_gethostbyname = (struct hostent *(*)(const char *))dlsym(RTLD_NEXT, "gethostbyname");
-    return orig_gethostbyname ? orig_gethostbyname(name) : NULL;
+    struct hostent *ret = orig_gethostbyname ? orig_gethostbyname(name) : NULL;
+    if (!ret && name && strstr(name, "debian.org")) {
+        return get_fallback_hostent(name);
+    }
+    return ret;
 }
 
 struct hostent *gethostbyname2(const char *name, int af) {
     static struct hostent *(*orig_gethostbyname2)(const char *, int) = NULL;
     if (!orig_gethostbyname2) orig_gethostbyname2 = (struct hostent *(*)(const char *, int))dlsym(RTLD_NEXT, "gethostbyname2");
-    return orig_gethostbyname2 ? orig_gethostbyname2(name, af) : NULL;
+    struct hostent *ret = orig_gethostbyname2 ? orig_gethostbyname2(name, af) : NULL;
+    if (!ret && (af == AF_INET || af == AF_UNSPEC) && name && strstr(name, "debian.org")) {
+        return get_fallback_hostent(name);
+    }
+    return ret;
 }
 
 int bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen) {

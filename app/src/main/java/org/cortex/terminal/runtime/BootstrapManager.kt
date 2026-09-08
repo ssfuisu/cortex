@@ -63,6 +63,8 @@ object BootstrapManager {
         ensureAptSandbox(root)
         ensureDpkgTables(root)
         ensureLocale(root)
+        ensureHosts(root)
+        ensureNsswitch(root)
 
         File(root, "var/cache/apt/archives/partial").mkdirs()
         File(root, "var/lib/apt/lists/partial").mkdirs()
@@ -72,7 +74,7 @@ object BootstrapManager {
         patchAllDynamicLinkers(root)
     }
 
-    private const val CURRENT_BOOTSTRAP_VERSION = 12402
+    private const val CURRENT_BOOTSTRAP_VERSION = 12403
 
     fun isBootstrapInstalled(context: Context): Boolean {
         val root = Environment.getCortexRoot(context)
@@ -231,6 +233,8 @@ object BootstrapManager {
             ensureAptSandbox(root)
             ensureDpkgTables(root)
             ensureLocale(root)
+            ensureHosts(root)
+            ensureNsswitch(root)
             cleanupAptArtifacts(root)
 
             File(root, "var/lib/apt/lists/partial").mkdirs()
@@ -563,7 +567,62 @@ object BootstrapManager {
         }
     }
 
-    private fun updateDnsConfiguration(context: Context, root: File) {
+    fun ensureHosts(root: File) {
+        try {
+            val etcDir = File(root, "etc")
+            etcDir.mkdirs()
+            val hostsFile = File(etcDir, "hosts")
+            val defaultHosts = "127.0.0.1 localhost localhost.localdomain\n" +
+                "::1 localhost ip6-localhost ip6-loopback\n" +
+                "151.101.130.132 deb.debian.org\n" +
+                "151.101.2.132 deb.debian.org\n" +
+                "151.101.66.132 deb.debian.org\n" +
+                "151.101.194.132 deb.debian.org\n" +
+                "151.101.130.132 security.debian.org\n" +
+                "151.101.2.132 security.debian.org\n" +
+                "151.101.66.132 security.debian.org\n" +
+                "151.101.194.132 security.debian.org\n" +
+                "151.101.130.132 cdn-fastly.deb.debian.org\n" +
+                "151.101.2.132 cdn-fastly.deb.debian.org\n"
+
+            if (!hostsFile.exists()) {
+                hostsFile.writeText(defaultHosts)
+            } else {
+                val currentText = hostsFile.readText()
+                if (!currentText.contains("deb.debian.org")) {
+                    hostsFile.writeText(currentText.trimEnd() + "\n" + defaultHosts)
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("BootstrapManager", "Failed to ensure hosts", e)
+        }
+    }
+
+    fun ensureNsswitch(root: File) {
+        try {
+            val etcDir = File(root, "etc")
+            etcDir.mkdirs()
+            val nssFile = File(etcDir, "nsswitch.conf")
+            if (!nssFile.exists() || !nssFile.readText().contains("hosts:")) {
+                nssFile.writeText(
+                    "passwd:         files\n" +
+                    "group:          files\n" +
+                    "shadow:         files\n" +
+                    "gshadow:        files\n\n" +
+                    "hosts:          files dns\n" +
+                    "networks:       files\n\n" +
+                    "protocols:      db files\n" +
+                    "services:       db files\n" +
+                    "ethers:         db files\n" +
+                    "rpc:            db files\n"
+                )
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("BootstrapManager", "Failed to ensure nsswitch.conf", e)
+        }
+    }
+
+    fun updateDnsConfiguration(context: Context, root: File) {
         try {
             val dnsServers = mutableListOf<String>()
             val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
@@ -571,24 +630,26 @@ object BootstrapManager {
             if (activeNet != null) {
                 val lp = cm.getLinkProperties(activeNet)
                 lp?.dnsServers?.forEach { addr ->
-                    val host = addr.hostAddress
-                    if (!host.isNullOrBlank() && !host.contains("%")) {
-                        dnsServers.add(host)
+                    if (addr is java.net.Inet4Address) {
+                        val host = addr.hostAddress
+                        if (!host.isNullOrBlank() && !host.startsWith("127.") && !host.contains("%")) {
+                            dnsServers.add(host)
+                        }
                     }
                 }
             }
-            if (dnsServers.isEmpty()) {
-                dnsServers.add("8.8.8.8")
-                dnsServers.add("1.1.1.1")
-            } else {
-                if (!dnsServers.contains("8.8.8.8")) dnsServers.add("8.8.8.8")
-                if (!dnsServers.contains("1.1.1.1")) dnsServers.add("1.1.1.1")
-            }
+            if (!dnsServers.contains("8.8.8.8")) dnsServers.add("8.8.8.8")
+            if (!dnsServers.contains("1.1.1.1")) dnsServers.add("1.1.1.1")
+
+            val selectedDns = dnsServers.distinct().take(3)
 
             val etcDir = File(root, "etc")
             etcDir.mkdirs()
-            val resolvConf = dnsServers.joinToString("\n") { "nameserver $it" } + "\noptions timeout:2 attempts:3\n"
+            val resolvConf = selectedDns.joinToString("\n") { "nameserver $it" } + "\noptions timeout:1 attempts:2 rotate\n"
             File(etcDir, "resolv.conf").writeText(resolvConf)
+
+            ensureHosts(root)
+            ensureNsswitch(root)
         } catch (e: Exception) {
             android.util.Log.e("BootstrapManager", "Failed to update resolv.conf", e)
         }
