@@ -1,11 +1,14 @@
 package org.cortex.terminal.view
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Color
 import android.graphics.Typeface
 import android.util.AttributeSet
 import android.view.Gravity
+import android.view.HapticFeedbackConstants
 import android.view.KeyEvent
+import android.view.MotionEvent
 import android.widget.Button
 import android.widget.LinearLayout
 import org.cortex.terminal.R
@@ -17,6 +20,14 @@ class ExtraKeysView @JvmOverloads constructor(
 ) : LinearLayout(context, attrs, defStyleAttr) {
 
     var terminalView: TerminalView? = null
+        set(value) {
+            field = value
+            value?.onModifiersChanged = {
+                post { updateModifierStyles() }
+            }
+            updateModifierStyles()
+        }
+
     var onMenuClick: (() -> Unit)? = null
 
     private var ctrlButton: Button? = null
@@ -53,6 +64,7 @@ class ExtraKeysView @JvmOverloads constructor(
         addView(createRow(row2Keys))
     }
 
+    @SuppressLint("ClickableViewAccessibility")
     private fun createRow(keys: List<Pair<String, () -> Any?>>): LinearLayout {
         val rowLayout = LinearLayout(context).apply {
             orientation = HORIZONTAL
@@ -75,14 +87,27 @@ class ExtraKeysView @JvmOverloads constructor(
                 isAllCaps = false
                 gravity = Gravity.CENTER
                 setPadding(0, 0, 0, 0)
+                stateListAnimator = null
 
                 val params = LayoutParams(0, LayoutParams.MATCH_PARENT, 1f).apply {
                     setMargins(marginPx, marginPx, marginPx, marginPx)
                 }
                 layoutParams = params
 
-                setOnClickListener {
-                    action()
+                setOnTouchListener { v, event ->
+                    when (event.action) {
+                        MotionEvent.ACTION_DOWN -> {
+                            v.isPressed = true
+                            v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                            action()
+                            true
+                        }
+                        MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                            v.isPressed = false
+                            true
+                        }
+                        else -> false
+                    }
                 }
             }
 

@@ -247,12 +247,12 @@ jobs:
 
           NOTES="Cortex Release $VERSION
 
-          Features and Fixes:
-          - Resolve Bad System Call (SIGSYS 159) Crash: Fixed the critical crash where glibc pthread thread initialization (e.g. in curl, node, python) called set_robust_list (syscall 99) with signals blocked, causing Android seccomp to trap and terminate the process.
-          - Complete Glibc System Call Patching: Both ld-linux dynamic linkers and libc.so shared libraries are now systematically patched to replace set_robust_list syscall instructions with nop, preventing seccomp traps across all threads.
-          - Robust Signal Masking and Memory Safety: Preload hook intercepts sigprocmask and pthread_sigmask to prevent SIGSYS from ever being blocked, and implements dedicated memory management for synthesized addrinfo structures.
-          - Automatic In-Place Linker and Libc Patching: BootstrapManager automatically inspects and patches any updated libc or linker binaries following apt upgrades or package installations.
-          - Persistent Foreground Service and WakeLock: Termux-style notification displaying active session count, instant WakeLock toggle, and safe Exit control."
+          Features and Improvements:
+          - Instant Virtual Keys Touch Response: Switched virtual extra keys from standard click listeners to direct ACTION_DOWN touch events, eliminating the 100ms Android tap timeout and finger-lift latency.
+          - Crisp Touch Feedback: Replaced translucent ripple wave animations with zero-latency solid color state selectors (#313244 pressed, #89b4fa active) and removed button elevation animators.
+          - Single-Use Modifier Auto-Unlatching: Fixed the sticky CTRL and ALT visual indicators. Modifier states now immediately notify the virtual keys toolbar on consumption or character dispatch, cleanly unlatching active buttons.
+          - Shell Configuration Reload Helper: Added automatic 'reload' alias and 'source bashrc' convenience function in .bashrc, allowing seamless environment reloads.
+          - Retained All Previous Releases: Older releases are preserved on GitHub alongside new releases."
 
           gh release create "$VERSION" \
             release-apks/Cortex-arm64-v8a-signed.apk \

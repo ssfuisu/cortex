@@ -49,6 +49,17 @@ object BootstrapManager {
                     "export CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt\n"
                 changed = true
             }
+            if (!bashrcText.contains("alias reload=")) {
+                bashrcText += "alias reload='source " + d + "HOME/.bashrc'\n" +
+                    "source() {\n" +
+                    "    if [ \"" + d + "1\" = \"bashrc\" ] || [ \"" + d + "1\" = \".bashrc\" ]; then\n" +
+                    "        builtin source \"" + d + "HOME/.bashrc\"\n" +
+                    "    else\n" +
+                    "        builtin source \"" + d + "@\"\n" +
+                    "    fi\n" +
+                    "}\n"
+                changed = true
+            }
             if (changed) {
                 bashrc.writeText(bashrcText)
                 bashrc.setReadable(true, false)
@@ -83,6 +94,10 @@ object BootstrapManager {
             if (!profileText.contains("SSL_CERT_FILE")) {
                 profileText += "export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt\n" +
                     "export CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt\n"
+                changed = true
+            }
+            if (!profileText.contains("alias reload=")) {
+                profileText += "alias reload='source " + d + "HOME/.bashrc'\n"
                 changed = true
             }
             if (changed) {

@@ -41,6 +41,8 @@ class TerminalView @JvmOverloads constructor(
     var session: TerminalSession? = null
         set(value) {
             field = value
+            isCtrlPressed = false
+            isAltPressed = false
             updateTerminalDimensions()
             invalidate()
         }
@@ -98,8 +100,23 @@ class TerminalView @JvmOverloads constructor(
     var scrollOffset = 0
         private set
 
+    var onModifiersChanged: (() -> Unit)? = null
+
     var isCtrlPressed = false
+        set(value) {
+            if (field != value) {
+                field = value
+                onModifiersChanged?.invoke()
+            }
+        }
+
     var isAltPressed = false
+        set(value) {
+            if (field != value) {
+                field = value
+                onModifiersChanged?.invoke()
+            }
+        }
 
     private val textBounds = Rect()
     private val gestureDetector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
