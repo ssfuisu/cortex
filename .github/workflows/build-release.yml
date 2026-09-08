@@ -248,11 +248,11 @@ jobs:
           NOTES="Cortex Release $VERSION
 
           Features and Improvements:
-          - Instant Virtual Keys Touch Response: Switched virtual extra keys from standard click listeners to direct ACTION_DOWN touch events, eliminating the 100ms Android tap timeout and finger-lift latency.
-          - Crisp Touch Feedback: Replaced translucent ripple wave animations with zero-latency solid color state selectors (#313244 pressed, #89b4fa active) and removed button elevation animators.
-          - Single-Use Modifier Auto-Unlatching: Fixed the sticky CTRL and ALT visual indicators. Modifier states now immediately notify the virtual keys toolbar on consumption or character dispatch, cleanly unlatching active buttons.
-          - Shell Configuration Reload Helper: Added automatic 'reload' alias and 'source bashrc' convenience function in .bashrc, allowing seamless environment reloads.
-          - Retained All Previous Releases: Older releases are preserved on GitHub alongside new releases."
+          - Fix First-Launch Crash / Exit: Eliminated premature activity finish during initial Glibc bootstrap environment extraction by safeguarding session lifecycle handlers and removing unintended session destruction triggers.
+          - Automatic First-Run Package Initialization: Newly installed environments automatically run 'apt update && apt upgrade -y && apt install -y mawk' on initial setup, ensuring users start with up-to-date package indexes and essential tools (including awk).
+          - Post-Extraction Environment Initialization: File system configuration, shell profiles, and DNS settings are now guaranteed to be written immediately following bootstrap archive extraction.
+          - Memory Leaked Dialog Safeguards: Added lifecycle-aware dismissal for bootstrap progress dialogs to prevent window token leaks on configuration changes.
+          - Retained All Previous Releases: Older releases remain available alongside new releases."
 
           gh release create "$VERSION" \
             release-apks/Cortex-arm64-v8a-signed.apk \

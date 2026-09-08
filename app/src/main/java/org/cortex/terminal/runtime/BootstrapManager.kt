@@ -300,6 +300,7 @@ object BootstrapManager {
             ensureNsswitch(root)
             ensureCaCertificates(root)
             cleanupAptArtifacts(root)
+            initializeFileSystem(context)
 
             File(root, "var/lib/apt/lists/partial").mkdirs()
             File(root, "var/cache/apt/archives/partial").mkdirs()

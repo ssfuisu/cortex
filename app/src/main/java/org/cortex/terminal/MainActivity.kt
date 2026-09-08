@@ -40,6 +40,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnDrawerNewSession: TextView
 
     private lateinit var sessionManager: SessionManager
+    private var isBootstrapping = false
+    private var bootstrapDialog: android.app.Dialog? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -118,8 +120,8 @@ class MainActivity : AppCompatActivity() {
         sessionManager.onSessionChanged = { session ->
             runOnUiThread {
                 if (session == null) {
-                    CortexService.stop(this)
-                    if (!isFinishing && !isDestroyed) {
+                    if (!isBootstrapping && !isFinishing && !isDestroyed) {
+                        CortexService.stop(this)
                         finish()
                     }
                 } else {
@@ -148,22 +150,48 @@ class MainActivity : AppCompatActivity() {
         val root = Environment.getCortexRoot(this)
         BootstrapManager.updateDnsConfiguration(this, root)
         if (!BootstrapManager.isBootstrapInstalled(this)) {
+            isBootstrapping = true
             val progress = android.app.ProgressDialog(this).apply {
                 setMessage("Setting up Cortex Glibc environment...")
                 setCancelable(false)
-                show()
+                setCanceledOnTouchOutside(false)
+            }
+            bootstrapDialog = progress
+            try {
+                progress.show()
+            } catch (e: Exception) {
+                android.util.Log.e("MainActivity", "Failed to show progress dialog", e)
             }
             kotlin.concurrent.thread {
-                BootstrapManager.installBootstrapFromAssets(this)
+                val success = BootstrapManager.installBootstrapFromAssets(this)
                 runOnUiThread {
-                    try {
-                        progress.dismiss()
-                    } catch (e: Exception) {
+                    if (!isFinishing && !isDestroyed) {
+                        try {
+                            if (progress.isShowing) {
+                                progress.dismiss()
+                            }
+                        } catch (e: Exception) {}
                     }
-                    sessionManager.destroyAll()
-                    createNewSession()
-                    terminalView.post {
-                        terminalView.showKeyboard()
+                    bootstrapDialog = null
+                    isBootstrapping = false
+                    if (success) {
+                        val session = createNewSession()
+                        terminalView.post {
+                            terminalView.showKeyboard()
+                        }
+                        terminalView.postDelayed({
+                            try {
+                                session.write("apt update && apt upgrade -y && apt install -y mawk\n".toByteArray(Charsets.UTF_8))
+                            } catch (e: Exception) {
+                                android.util.Log.e("MainActivity", "Failed to run initial apt setup", e)
+                            }
+                        }, 800)
+                    } else {
+                        android.widget.Toast.makeText(
+                            this,
+                            "Failed to initialize environment. Please restart the app.",
+                            android.widget.Toast.LENGTH_LONG
+                        ).show()
                     }
                 }
             }
@@ -206,7 +234,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun createNewSession() {
+    private fun createNewSession(): TerminalSession {
         val root = Environment.getCortexRoot(this)
         BootstrapManager.updateDnsConfiguration(this, root)
         val session = sessionManager.newSession(
@@ -224,6 +252,7 @@ class MainActivity : AppCompatActivity() {
         val totalTabs = sessionManager.sessions.size
         appTitle.text = "Cortex [$tabNum/$totalTabs]"
         sessionAdapter.notifyDataSetChanged()
+        return session
     }
 
     override fun onBackPressed() {
@@ -255,6 +284,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        try {
+            if (bootstrapDialog?.isShowing == true) {
+                bootstrapDialog?.dismiss()
+            }
+        } catch (e: Exception) {}
+        bootstrapDialog = null
         if (instance == this) instance = null
         if (sessionManager.sessions.isEmpty()) {
             CortexService.stop(this)
