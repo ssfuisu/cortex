@@ -17,6 +17,7 @@ import org.cortex.terminal.runtime.Environment
 import org.cortex.terminal.service.CortexService
 import org.cortex.terminal.session.SessionAdapter
 import org.cortex.terminal.session.SessionManager
+import org.cortex.terminal.session.TerminalSession
 import org.cortex.terminal.view.ExtraKeysView
 import org.cortex.terminal.view.TerminalView
 
