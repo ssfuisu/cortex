@@ -566,14 +566,23 @@ object BootstrapManager {
                 "export DEBCONF_NONINTERACTIVE_SEEN=true\n"
             )
 
-            val sbinDir = File(root, "sbin")
             val usrSbinDir = File(root, "usr/sbin")
-            sbinDir.mkdirs()
             usrSbinDir.mkdirs()
 
             val policyScript = "#!/bin/sh\nexit 101\n"
-            listOf(File(sbinDir, "policy-rc.d"), File(usrSbinDir, "policy-rc.d")).forEach { f ->
-                f.writeText(policyScript)
+            val dummyExitZero = "#!/bin/sh\nexit 0\n"
+
+            val policyFile = File(usrSbinDir, "policy-rc.d")
+            policyFile.writeText(policyScript)
+            policyFile.setReadable(true, false)
+            policyFile.setExecutable(true, false)
+            try {
+                android.system.Os.chmod(policyFile.absolutePath, 493)
+            } catch (e: Exception) {}
+
+            listOf("ldconfig", "start-stop-daemon").forEach { name ->
+                val f = File(usrSbinDir, name)
+                f.writeText(dummyExitZero)
                 f.setReadable(true, false)
                 f.setExecutable(true, false)
                 try {
@@ -581,19 +590,18 @@ object BootstrapManager {
                 } catch (e: Exception) {}
             }
 
-            val dummyExitZero = "#!/bin/sh\nexit 0\n"
-            listOf(
-                File(sbinDir, "ldconfig"),
-                File(usrSbinDir, "ldconfig"),
-                File(sbinDir, "start-stop-daemon"),
-                File(usrSbinDir, "start-stop-daemon")
-            ).forEach { f ->
-                f.writeText(dummyExitZero)
-                f.setReadable(true, false)
-                f.setExecutable(true, false)
-                try {
-                    android.system.Os.chmod(f.absolutePath, 493)
-                } catch (e: Exception) {}
+            val sbinDir = File(root, "sbin")
+            if (sbinDir.exists() && !java.nio.file.Files.isSymbolicLink(sbinDir.toPath())) {
+                listOf("policy-rc.d", "ldconfig", "start-stop-daemon").forEach { name ->
+                    try {
+                        val src = File(usrSbinDir, name)
+                        val dst = File(sbinDir, name)
+                        src.copyTo(dst, overwrite = true)
+                        dst.setReadable(true, false)
+                        dst.setExecutable(true, false)
+                        android.system.Os.chmod(dst.absolutePath, 493)
+                    } catch (e: Exception) {}
+                }
             }
 
             File(root, "var/cache/apt/archives/partial").mkdirs()
