@@ -86,41 +86,9 @@ jobs:
           printf 'APT::Sandbox::User "root";\nAPT::Sandbox::Seccomp "false";\nAcquire::ForceIPv4 "true";\nAcquire::Connect::AddrConfig "false";\nAcquire::SRV "false";\nAcquire::Languages "none";\nAcquire::GzipIndexes "true";\nDir::dpkg::cputable "/usr/share/dpkg/cputable";\nDir::dpkg::tupletable "/usr/share/dpkg/tupletable";\nDir::dpkg::triplettable "/usr/share/dpkg/triplettable";\n' > extra-rootfs/etc/apt/apt.conf.d/01sandbox
           echo "# Disabled for Cortex" > extra-rootfs/etc/apt/apt.conf.d/docker-clean
 
-          cat << 'EOF' > extra-rootfs/etc/hosts
-127.0.0.1 localhost localhost.localdomain
-::1 localhost ip6-localhost ip6-loopback
-151.101.130.132 deb.debian.org
-151.101.2.132 deb.debian.org
-151.101.66.132 deb.debian.org
-151.101.194.132 deb.debian.org
-151.101.130.132 security.debian.org
-151.101.2.132 security.debian.org
-151.101.66.132 security.debian.org
-151.101.194.132 security.debian.org
-151.101.130.132 cdn-fastly.deb.debian.org
-151.101.2.132 cdn-fastly.deb.debian.org
-EOF
-
-          cat << 'EOF' > extra-rootfs/etc/resolv.conf
-nameserver 8.8.8.8
-nameserver 1.1.1.1
-options timeout:1 attempts:2 rotate
-EOF
-
-          cat << 'EOF' > extra-rootfs/etc/nsswitch.conf
-passwd:         files
-group:          files
-shadow:         files
-gshadow:        files
-
-hosts:          files dns
-networks:       files
-
-protocols:      db files
-services:       db files
-ethers:         db files
-rpc:            db files
-EOF
+          printf '127.0.0.1 localhost localhost.localdomain\n::1 localhost ip6-localhost ip6-loopback\n151.101.130.132 deb.debian.org\n151.101.2.132 deb.debian.org\n151.101.66.132 deb.debian.org\n151.101.194.132 deb.debian.org\n151.101.130.132 security.debian.org\n151.101.2.132 security.debian.org\n151.101.66.132 security.debian.org\n151.101.194.132 security.debian.org\n151.101.130.132 cdn-fastly.deb.debian.org\n151.101.2.132 cdn-fastly.deb.debian.org\n' > extra-rootfs/etc/hosts
+          printf 'nameserver 8.8.8.8\nnameserver 1.1.1.1\noptions timeout:1 attempts:2 rotate\n' > extra-rootfs/etc/resolv.conf
+          printf 'passwd:         files\ngroup:          files\nshadow:         files\ngshadow:        files\n\nhosts:          files dns\nnetworks:       files\n\nprotocols:      db files\nservices:       db files\nethers:         db files\nrpc:            db files\n' > extra-rootfs/etc/nsswitch.conf
 
           echo "Preparing 64-bit Debian Glibc minimal bootstrap..."
           docker pull --platform linux/arm64 debian:bookworm-slim
