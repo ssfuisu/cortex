@@ -83,7 +83,7 @@ jobs:
           if [ -f extra-rootfs/usr/share/dpkg/tupletable ]; then
             cp extra-rootfs/usr/share/dpkg/tupletable extra-rootfs/usr/share/dpkg/triplettable
           fi
-          printf 'APT::Sandbox::User "root";\nAPT::Sandbox::Seccomp "false";\nAcquire::ForceIPv4 "true";\nAcquire::Connect::AddrConfig "false";\nAcquire::Languages "none";\nAcquire::GzipIndexes "true";\nDir::dpkg::cputable "/usr/share/dpkg/cputable";\nDir::dpkg::tupletable "/usr/share/dpkg/tupletable";\nDir::dpkg::triplettable "/usr/share/dpkg/triplettable";\n' > extra-rootfs/etc/apt/apt.conf.d/01sandbox
+          printf 'APT::Sandbox::User "root";\nAPT::Sandbox::Seccomp "false";\nAcquire::ForceIPv4 "true";\nAcquire::Connect::AddrConfig "false";\nAcquire::SRV "false";\nAcquire::Languages "none";\nAcquire::GzipIndexes "true";\nDir::dpkg::cputable "/usr/share/dpkg/cputable";\nDir::dpkg::tupletable "/usr/share/dpkg/tupletable";\nDir::dpkg::triplettable "/usr/share/dpkg/triplettable";\n' > extra-rootfs/etc/apt/apt.conf.d/01sandbox
           echo "# Disabled for Cortex" > extra-rootfs/etc/apt/apt.conf.d/docker-clean
 
           echo "Preparing 64-bit Debian Glibc minimal bootstrap..."
@@ -212,12 +212,10 @@ jobs:
 
           NOTES="Cortex Release $VERSION
 
-          Yenilikler / What's New:
-          - APT http yontemi cokmesi duzeltildi (ForceIPv4 ve seccomp sandbox devre disi birakildi)
-          - Android ag kisitlamalari icin AI_ADDRCONFIG temizlendi ve AF_UNIX soket yonlendirmeleri eklendi
-          - prctl ve seccomp sistem cagrilari guvenli sekilde izole edildi
-          - 32-bit ve 64-bit dosya islemleri (LFS) genisletildi
-          - Gerekli APT gecici dizinleri ve onbellek yollari guvenceye alindi"
+          Neler Duzeltildi / What's Fixed:
+          - APT http yontemi cokmesi (GetSrvRecords / DNS resolver) tamamen duzeltildi
+          - File timestamp (utimes, utimensat) kancalari eklenerek paket listesi indirmeleri tamamlandi
+          - DNS SRV sorgulari bypass edildi ve fd 0 (stdin) izolasyonu saglandi"
 
           gh release create "$VERSION" \
             release-apks/Cortex-arm64-v8a-signed.apk \

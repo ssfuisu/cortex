@@ -72,7 +72,7 @@ object BootstrapManager {
         patchAllDynamicLinkers(root)
     }
 
-    private const val CURRENT_BOOTSTRAP_VERSION = 12401
+    private const val CURRENT_BOOTSTRAP_VERSION = 12402
 
     fun isBootstrapInstalled(context: Context): Boolean {
         val root = Environment.getCortexRoot(context)
@@ -215,7 +215,7 @@ object BootstrapManager {
             } else if (!sourcesList.exists() || sourcesList.length() == 0L) {
                 sourcesList.writeText(
                     "deb http://deb.debian.org/debian bookworm main contrib non-free non-free-firmware\n" +
-                    "deb http://deb.debian.org/debian-security bookworm-security main contrib non-free non-free-firmware\n" +
+                    "deb http://security.debian.org/debian-security bookworm-security main contrib non-free non-free-firmware\n" +
                     "deb http://deb.debian.org/debian bookworm-updates main contrib non-free non-free-firmware\n"
                 )
             }
@@ -526,6 +526,7 @@ object BootstrapManager {
                 "APT::Sandbox::Seccomp \"false\";\n" +
                 "Acquire::ForceIPv4 \"true\";\n" +
                 "Acquire::Connect::AddrConfig \"false\";\n" +
+                "Acquire::SRV \"false\";\n" +
                 "Acquire::Languages \"none\";\n" +
                 "Acquire::GzipIndexes \"true\";\n" +
                 "Dir::dpkg::cputable \"/usr/share/dpkg/cputable\";\n" +

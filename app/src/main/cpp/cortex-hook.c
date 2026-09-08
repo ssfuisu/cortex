@@ -22,6 +22,8 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <resolv.h>
+#include <utime.h>
+#include <sys/time.h>
 
 // Intercept SECCOMP blocked syscalls (SIGSYS) and return -ENOSYS so glibc falls back gracefully
 static void cortex_sigsys_handler(int sig, siginfo_t *info, void *ctx) {
@@ -629,6 +631,47 @@ int symlinkat(const char *target, int newdirfd, const char *linkpath) {
     return orig_symlinkat(target, newdirfd, newlink);
 }
 
+// Hook utime / utimes / lutimes / futimesat / utimensat
+int utime(const char *filename, const struct utimbuf *times) {
+    static int (*orig_utime)(const char *, const struct utimbuf *) = NULL;
+    if (!orig_utime) orig_utime = (int (*)(const char *, const struct utimbuf *))dlsym(RTLD_NEXT, "utime");
+    char buf[PATH_MAX];
+    const char *target = rewrite_path(filename, buf, sizeof(buf));
+    return orig_utime ? orig_utime(target, times) : -1;
+}
+
+int utimes(const char *filename, const struct timeval times[2]) {
+    static int (*orig_utimes)(const char *, const struct timeval[2]) = NULL;
+    if (!orig_utimes) orig_utimes = (int (*)(const char *, const struct timeval[2]))dlsym(RTLD_NEXT, "utimes");
+    char buf[PATH_MAX];
+    const char *target = rewrite_path(filename, buf, sizeof(buf));
+    return orig_utimes ? orig_utimes(target, times) : -1;
+}
+
+int lutimes(const char *filename, const struct timeval times[2]) {
+    static int (*orig_lutimes)(const char *, const struct timeval[2]) = NULL;
+    if (!orig_lutimes) orig_lutimes = (int (*)(const char *, const struct timeval[2]))dlsym(RTLD_NEXT, "lutimes");
+    char buf[PATH_MAX];
+    const char *target = rewrite_path(filename, buf, sizeof(buf));
+    return orig_lutimes ? orig_lutimes(target, times) : -1;
+}
+
+int futimesat(int dirfd, const char *pathname, const struct timeval times[2]) {
+    static int (*orig_futimesat)(int, const char *, const struct timeval[2]) = NULL;
+    if (!orig_futimesat) orig_futimesat = (int (*)(int, const char *, const struct timeval[2]))dlsym(RTLD_NEXT, "futimesat");
+    char buf[PATH_MAX];
+    const char *target = (pathname && pathname[0] == '/') ? rewrite_path(pathname, buf, sizeof(buf)) : pathname;
+    return orig_futimesat ? orig_futimesat(dirfd, target, times) : -1;
+}
+
+int utimensat(int dirfd, const char *pathname, const struct timespec times[2], int flags) {
+    static int (*orig_utimensat)(int, const char *, const struct timespec[2], int) = NULL;
+    if (!orig_utimensat) orig_utimensat = (int (*)(int, const char *, const struct timespec[2], int))dlsym(RTLD_NEXT, "utimensat");
+    char buf[PATH_MAX];
+    const char *target = (pathname && pathname[0] == '/') ? rewrite_path(pathname, buf, sizeof(buf)) : pathname;
+    return orig_utimensat ? orig_utimensat(dirfd, target, times, flags) : -1;
+}
+
 // Hook truncate
 int truncate(const char *path, off_t length) {
     static int (*orig_truncate)(const char *, off_t) = NULL;
@@ -1145,59 +1188,14 @@ static in_addr_t get_primary_dns(void) {
     return primary_dns;
 }
 
-static void configure_dns_state(void) {
-    struct __res_state *statp = __res_state();
-    if (!statp) return;
-
-    char resolv_path[PATH_MAX];
-    init_cortex_hook();
-    if (g_cortex_root[0] != '\0') {
-        snprintf(resolv_path, sizeof(resolv_path), "%s/etc/resolv.conf", g_cortex_root);
-    } else {
-        snprintf(resolv_path, sizeof(resolv_path), "/etc/resolv.conf");
+int close(int fd) {
+    static int (*orig_close)(int) = NULL;
+    if (!orig_close) orig_close = (int (*)(int))dlsym(RTLD_NEXT, "close");
+    // In terminal/worker environments, never close fd 0 (stdin) as it corrupts child IPC
+    if (fd == 0) {
+        return 0;
     }
-
-    FILE *f = fopen(resolv_path, "r");
-    int count = 0;
-    if (f) {
-        char line[256];
-        while (fgets(line, sizeof(line), f) && count < MAXNS) {
-            char *p = line;
-            while (*p == ' ' || *p == '\t') p++;
-            if (strncmp(p, "nameserver", 10) == 0) {
-                p += 10;
-                while (*p == ' ' || *p == '\t') p++;
-                char *end = p;
-                while (*end && *end != ' ' && *end != '\t' && *end != '\r' && *end != '\n') end++;
-                *end = '\0';
-                struct in_addr a;
-                if (inet_aton(p, &a)) {
-                    statp->nsaddr_list[count].sin_family = AF_INET;
-                    statp->nsaddr_list[count].sin_port = htons(53);
-                    statp->nsaddr_list[count].sin_addr = a;
-                    memset(statp->nsaddr_list[count].sin_zero, 0, sizeof(statp->nsaddr_list[count].sin_zero));
-                    count++;
-                }
-            }
-        }
-        fclose(f);
-    }
-
-    if (count == 0) {
-        statp->nsaddr_list[0].sin_family = AF_INET;
-        statp->nsaddr_list[0].sin_port = htons(53);
-        inet_aton("8.8.8.8", &statp->nsaddr_list[0].sin_addr);
-        memset(statp->nsaddr_list[0].sin_zero, 0, sizeof(statp->nsaddr_list[0].sin_zero));
-
-        statp->nsaddr_list[1].sin_family = AF_INET;
-        statp->nsaddr_list[1].sin_port = htons(53);
-        inet_aton("1.1.1.1", &statp->nsaddr_list[1].sin_addr);
-        memset(statp->nsaddr_list[1].sin_zero, 0, sizeof(statp->nsaddr_list[1].sin_zero));
-        count = 2;
-    }
-
-    statp->nscount = count;
-    statp->options |= RES_INIT;
+    return orig_close ? orig_close(fd) : -1;
 }
 
 int getaddrinfo(const char *node, const char *service,
@@ -1205,7 +1203,6 @@ int getaddrinfo(const char *node, const char *service,
                 struct addrinfo **res) {
     static int (*orig_getaddrinfo)(const char *, const char *, const struct addrinfo *, struct addrinfo **) = NULL;
     if (!orig_getaddrinfo) orig_getaddrinfo = (int (*)(const char *, const char *, const struct addrinfo *, struct addrinfo **))dlsym(RTLD_NEXT, "getaddrinfo");
-    configure_dns_state();
 
     struct addrinfo mod_hints;
     if (hints) {
@@ -1223,30 +1220,54 @@ int getaddrinfo(const char *node, const char *service,
 int res_init(void) {
     static int (*orig_res_init)(void) = NULL;
     if (!orig_res_init) orig_res_init = (int (*)(void))dlsym(RTLD_NEXT, "res_init");
-    if (orig_res_init) orig_res_init();
-    configure_dns_state();
-    return 0;
+    return orig_res_init ? orig_res_init() : 0;
 }
 
 int res_ninit(res_state statp) {
     static int (*orig_res_ninit)(res_state) = NULL;
     if (!orig_res_ninit) orig_res_ninit = (int (*)(res_state))dlsym(RTLD_NEXT, "res_ninit");
-    if (orig_res_ninit) orig_res_ninit(statp);
-    configure_dns_state();
-    return 0;
+    if (statp) {
+        memset(statp, 0, sizeof(*statp));
+        statp->_vcsock = -1;
+        for (int i = 0; i < MAXNS; i++) {
+            statp->_u._ext.nssocks[i] = -1;
+        }
+    }
+    return orig_res_ninit ? orig_res_ninit(statp) : 0;
+}
+
+int res_nquery(res_state statp, const char *dname, int class, int type,
+               unsigned char *answer, int anslen) {
+    static int (*orig_res_nquery)(res_state, const char *, int, int, unsigned char *, int) = NULL;
+    if (!orig_res_nquery) orig_res_nquery = (int (*)(res_state, const char *, int, int, unsigned char *, int))dlsym(RTLD_NEXT, "res_nquery");
+    // DNS SRV queries are optional for APT mirrors and frequently cause delays or issues
+    if (type == 33 /* T_SRV */) {
+        h_errno = NO_DATA;
+        return -1;
+    }
+    return orig_res_nquery ? orig_res_nquery(statp, dname, class, type, answer, anslen) : -1;
+}
+
+int res_query(const char *dname, int class, int type,
+              unsigned char *answer, int anslen) {
+    static int (*orig_res_query)(const char *, int, int, unsigned char *, int) = NULL;
+    if (!orig_res_query) orig_res_query = (int (*)(const char *, int, int, unsigned char *, int))dlsym(RTLD_NEXT, "res_query");
+    if (type == 33 /* T_SRV */) {
+        h_errno = NO_DATA;
+        return -1;
+    }
+    return orig_res_query ? orig_res_query(dname, class, type, answer, anslen) : -1;
 }
 
 struct hostent *gethostbyname(const char *name) {
     static struct hostent *(*orig_gethostbyname)(const char *) = NULL;
     if (!orig_gethostbyname) orig_gethostbyname = (struct hostent *(*)(const char *))dlsym(RTLD_NEXT, "gethostbyname");
-    configure_dns_state();
     return orig_gethostbyname ? orig_gethostbyname(name) : NULL;
 }
 
 struct hostent *gethostbyname2(const char *name, int af) {
     static struct hostent *(*orig_gethostbyname2)(const char *, int) = NULL;
     if (!orig_gethostbyname2) orig_gethostbyname2 = (struct hostent *(*)(const char *, int))dlsym(RTLD_NEXT, "gethostbyname2");
-    configure_dns_state();
     return orig_gethostbyname2 ? orig_gethostbyname2(name, af) : NULL;
 }
 
