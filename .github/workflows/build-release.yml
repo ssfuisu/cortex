@@ -207,7 +207,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          OFFSET=$(( ${{ github.run_number }} - 28 ))
+          OFFSET=$(( ${{ github.run_number }} - 30 ))
           if [ "$OFFSET" -lt 0 ]; then OFFSET=0; fi
           VERSION="v1.24.${OFFSET}"
           if [[ "${{ github.ref }}" == refs/tags/* ]]; then
