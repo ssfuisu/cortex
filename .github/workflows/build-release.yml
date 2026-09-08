@@ -34,7 +34,17 @@ jobs:
         run: |
           yes | sdkmanager --licenses || true
 
+      - name: Cache Android NDK and CMake
+        uses: actions/cache@v4
+        id: cache-ndk
+        with:
+          path: |
+            /usr/local/lib/android/sdk/ndk/26.1.10909125
+            /usr/local/lib/android/sdk/cmake/3.22.1
+          key: ndk-26.1.10909125-cmake-3.22.1
+
       - name: Install Android NDK and CMake
+        if: steps.cache-ndk.outputs.cache-hit != 'true'
         run: |
           sdkmanager --install "ndk;26.1.10909125" "cmake;3.22.1"
 
@@ -62,8 +72,8 @@ jobs:
 
       - name: Build Glibc cortex-hook Libraries
         run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu gcc-arm-linux-gnueabihf dpkg-dev
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends gcc-aarch64-linux-gnu gcc-arm-linux-gnueabihf dpkg-dev
           mkdir -p hook-libs
           aarch64-linux-gnu-gcc -std=gnu11 -shared -fPIC -O3 -Wall -Wno-nonnull-compare -o hook-libs/libcortex-hook-arm64.so app/src/main/cpp/cortex-hook.c -ldl
           arm-linux-gnueabihf-gcc -std=gnu11 -shared -fPIC -O3 -Wall -Wno-nonnull-compare -o hook-libs/libcortex-hook-arm.so app/src/main/cpp/cortex-hook.c -ldl
@@ -159,7 +169,7 @@ jobs:
 
       - name: Build Release APKs
         run: |
-          ./gradlew assembleRelease --stacktrace
+          ./gradlew assembleRelease --build-cache --parallel --stacktrace
 
       - name: Prepare and Verify Signed APKs
         run: |
