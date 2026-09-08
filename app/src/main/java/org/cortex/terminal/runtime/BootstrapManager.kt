@@ -74,7 +74,7 @@ object BootstrapManager {
         patchAllDynamicLinkers(root)
     }
 
-    private const val CURRENT_BOOTSTRAP_VERSION = 12407
+    private const val CURRENT_BOOTSTRAP_VERSION = 12408
 
     fun isBootstrapInstalled(context: Context): Boolean {
         val root = Environment.getCortexRoot(context)
@@ -562,6 +562,7 @@ object BootstrapManager {
                 "export XZ_OPT=-T1\n" +
                 "export XZ_DEFAULTS=-T1\n" +
                 "export DEBIAN_FRONTEND=noninteractive\n" +
+                "export DEBCONF_FRONTEND=noninteractive\n" +
                 "export DEBCONF_NONINTERACTIVE_SEEN=true\n"
             )
 

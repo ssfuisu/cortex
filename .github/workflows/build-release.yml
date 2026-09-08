@@ -235,13 +235,13 @@ jobs:
 
           NOTES="Cortex Release $VERSION
 
-          Neler Duzeltildi / What's Fixed:
-          - symlink ve symlinkat kancalarinda mutlak hedef yollari CORTEX_ROOT altina yeniden yonlendirildi
-          - readlink ve readlinkat kancalarinda CORTEX_ROOT on eki ayiklanarak standart Debian dosya yolu gorunumu saglandi
-          - dpkg ve tar boru hattini bozan close kanca engeli tamamen kaldirilarak standart POSIX akisi saglandi
-          - APT icin DPkg::Install::Recursive devre disi birakilarak gecici sembolik baglanti kaynakli hatalar onlendi
-          - debconf uyarilarini engellemek uzere DEBIAN_FRONTEND=noninteractive ve DEBCONF_NONINTERACTIVE_SEEN=true tanimlandi
-          - apt upgrade ve apt install sureclerindeki dpkg stat ve tar cikis hatalari tamamen cozuldu"
+          Yenilikler ve Duzeltmeler:
+          - Yeni Ozel Uygulama Ikonu: Kullanici tarafindan saglanan yeni gorsel tum cozunurluklerde (mdpi, hdpi, xhdpi, xxhdpi, xxxhdpi ve adaptive icon) uygulama ikonu olarak entegre edildi.
+          - Gelismis Oturum Yonetimi: Terminal oturumunda exit komutu yazildiginda baska aktif oturum yoksa uygulama onay sormadan dogrudan kapatilir.
+          - Dinamik Oturum Numaralandirma: Coklu oturum acikken bir oturum kapatildiginda kalan oturuma gecis yapilir ve oturum siralamasi (Session 1, Session 2...) dinamik olarak guncellenir.
+          - Glibc Hook lzma ve zstd Entegrasyonu: dpkg-deb tarafindan calistirilan lzma_stream_decoder_mt, lzma_stream_encoder_mt ve lzma_cputhreads kancalanarak forked cocuk sureclerde coklu is parcacigi (clone/pthread_create) olusumu engellendi, tek is parcacikli senkron calisma saglandi.
+          - apt upgrade ve dpkg-deb Tar Hatasi Cozuldu: lzma decompressor boru hattinin sifir bayt vermesine ve tar: This does not look like a tar archive hatasina yol acan is parcacigi cakismasi tamamen cozuldu.
+          - debconf Yapilandirmasi: DEBCONF_FRONTEND=noninteractive degiskeni eklenerek Perl debconf baslatma uyarilari giderildi."
 
           gh release create "$VERSION" \
             release-apks/Cortex-arm64-v8a-signed.apk \

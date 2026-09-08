@@ -81,6 +81,7 @@ object Environment {
             "XZ_OPT=-T1",
             "XZ_DEFAULTS=-T1",
             "DEBIAN_FRONTEND=noninteractive",
+            "DEBCONF_FRONTEND=noninteractive",
             "DEBCONF_NONINTERACTIVE_SEEN=true"
         )
 

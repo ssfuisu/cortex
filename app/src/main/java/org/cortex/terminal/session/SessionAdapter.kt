@@ -28,7 +28,7 @@ class SessionAdapter(
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         val isActive = position == sessionManager.currentSessionIndex
 
-        holder.labelText.text = "[${position + 1}]"
+        holder.labelText.text = "Session ${position + 1}"
 
         if (isActive) {
             holder.root.setBackgroundColor(Color.parseColor("#313244"))
