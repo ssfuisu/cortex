@@ -146,6 +146,11 @@ jobs:
                   members = tin.getmembers()
                   with tarfile.open(tar_path + ".tmp", "w") as tout:
                       for m in members:
+                          if m.issym() and m.linkname.startswith("/"):
+                              parent = os.path.dirname(m.name)
+                              target = m.linkname.lstrip("/")
+                              rel = os.path.relpath(target, parent)
+                              m.linkname = rel
                           f = tin.extractfile(m) if m.isreg() else None
                           if f and ("ld-linux" in m.name or "libc.so" in m.name or "libc-" in m.name):
                               data = bytearray(f.read())
@@ -248,10 +253,10 @@ jobs:
           NOTES="Cortex Release $VERSION
 
           Features and Improvements:
-          - Fix First-Launch Crash / Exit: Eliminated premature activity finish during initial Glibc bootstrap environment extraction by safeguarding session lifecycle handlers and removing unintended session destruction triggers.
-          - Automatic First-Run Package Initialization: Newly installed environments automatically run 'apt update && apt upgrade -y && apt install -y mawk' on initial setup, ensuring users start with up-to-date package indexes and essential tools (including awk).
-          - Post-Extraction Environment Initialization: File system configuration, shell profiles, and DNS settings are now guaranteed to be written immediately following bootstrap archive extraction.
-          - Memory Leaked Dialog Safeguards: Added lifecycle-aware dismissal for bootstrap progress dialogs to prevent window token leaks on configuration changes.
+          - Resolve Broken Absolute Symlinks (awk / which fix): Debian alternatives created absolute symlinks (e.g. /usr/bin/awk -> /etc/alternatives/awk) that failed on rootless Android because Android /etc is read-only /system/etc. Converted all absolute symlinks into relative symlinks so awk, which, and other alternatives resolve properly inside the Glibc rootfs.
+          - Visible Notification Bar Icon: Created pure white monochrome vector terminal icon (ic_notification) for Android status bar notifications, replacing the blank/invisible notification icon.
+          - Smooth Terminal Scrolling with Inertia Physics: Re-engineered gesture scrolling with natural touch direction (drag down to reveal history, drag up to scroll to bottom), fractional scroll accumulation, and OverScroller fling inertia with instant touch cancellation.
+          - Streamlined Initial Setup: Initial clean install runs 'apt update && apt upgrade -y' automatically.
           - Retained All Previous Releases: Older releases remain available alongside new releases."
 
           gh release create "$VERSION" \

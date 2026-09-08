@@ -182,7 +182,7 @@ class MainActivity : AppCompatActivity() {
                         }
                         terminalView.postDelayed({
                             try {
-                                session.write("apt update && apt upgrade -y && apt install -y mawk\n".toByteArray(Charsets.UTF_8))
+                                session.write("apt update && apt upgrade -y\n".toByteArray(Charsets.UTF_8))
                             } catch (e: Exception) {
                                 android.util.Log.e("MainActivity", "Failed to run initial apt setup", e)
                             }
@@ -238,6 +238,7 @@ class MainActivity : AppCompatActivity() {
     private fun createNewSession(): TerminalSession {
         val root = Environment.getCortexRoot(this)
         BootstrapManager.updateDnsConfiguration(this, root)
+        BootstrapManager.fixAbsoluteSymlinks(root)
         val session = sessionManager.newSession(
             rows = terminalView.rows,
             cols = terminalView.cols,

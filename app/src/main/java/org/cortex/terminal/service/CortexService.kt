@@ -244,7 +244,7 @@ class CortexService : Service() {
 
         builder.setContentTitle("Cortex")
             .setContentText(contentText)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_notification)
             .setContentIntent(openPendingIntent)
             .setOngoing(true)
             .addAction(

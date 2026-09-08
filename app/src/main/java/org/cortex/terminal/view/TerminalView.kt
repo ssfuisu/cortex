@@ -22,6 +22,7 @@ import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
 import android.view.inputmethod.InputMethodManager
 import android.widget.LinearLayout
+import android.widget.OverScroller
 import android.widget.PopupWindow
 import android.widget.TextView
 import android.widget.Toast
@@ -119,7 +120,47 @@ class TerminalView @JvmOverloads constructor(
         }
 
     private val textBounds = Rect()
+    private val scroller = OverScroller(context)
+    private var scrollRemainder = 0f
+    private var lastFlingY = 0
+
+    private val flingRunnable = object : Runnable {
+        override fun run() {
+            if (scroller.computeScrollOffset()) {
+                val currentY = scroller.currY
+                val historySize = session?.emulator?.buffer?.history?.size ?: 0
+                val deltaY = currentY - lastFlingY
+                lastFlingY = currentY
+
+                val totalDelta = deltaY + scrollRemainder
+                val lines = (totalDelta / charHeight).toInt()
+                scrollRemainder = totalDelta - (lines * charHeight)
+
+                if (lines != 0) {
+                    val newOffset = (scrollOffset + lines).coerceIn(0, historySize)
+                    if (newOffset != scrollOffset) {
+                        scrollOffset = newOffset
+                        invalidate()
+                    } else {
+                        scroller.abortAnimation()
+                        return
+                    }
+                }
+
+                if (!scroller.isFinished) {
+                    postOnAnimation(this)
+                }
+            }
+        }
+    }
+
     private val gestureDetector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
+        override fun onDown(e: MotionEvent): Boolean {
+            scroller.abortAnimation()
+            removeCallbacks(flingRunnable)
+            return true
+        }
+
         override fun onScroll(
             e1: MotionEvent?,
             e2: MotionEvent,
@@ -127,14 +168,57 @@ class TerminalView @JvmOverloads constructor(
             distanceY: Float
         ): Boolean {
             if (isSelecting) return false
+            scroller.abortAnimation()
+            removeCallbacks(flingRunnable)
+
             val historySize = session?.emulator?.buffer?.history?.size ?: 0
-            val lineDelta = (distanceY / charHeight).toInt()
-            if (lineDelta != 0) {
-                scrollOffset = (scrollOffset + lineDelta).coerceIn(0, historySize)
-                invalidate()
-                return true
+            if (historySize == 0 && scrollOffset == 0) return false
+
+            // distanceY > 0 when dragging UP (scroll down towards newest lines)
+            // distanceY < 0 when dragging DOWN (scroll up into earlier history)
+            // Inverting distanceY makes dragging down scroll UP into history
+            val totalDelta = -distanceY + scrollRemainder
+            val lines = (totalDelta / charHeight).toInt()
+            scrollRemainder = totalDelta - (lines * charHeight)
+
+            if (lines != 0) {
+                val newOffset = (scrollOffset + lines).coerceIn(0, historySize)
+                if (newOffset != scrollOffset) {
+                    scrollOffset = newOffset
+                    invalidate()
+                    return true
+                }
             }
             return false
+        }
+
+        override fun onFling(
+            e1: MotionEvent?,
+            e2: MotionEvent,
+            velocityX: Float,
+            velocityY: Float
+        ): Boolean {
+            if (isSelecting) return false
+            val historySize = session?.emulator?.buffer?.history?.size ?: 0
+            if (historySize == 0 && scrollOffset == 0) return false
+
+            scroller.abortAnimation()
+            removeCallbacks(flingRunnable)
+
+            // velocityY > 0: flinging down (scroll up into history, positive delta)
+            // velocityY < 0: flinging up (scroll down towards bottom, negative delta)
+            val scaledVelocity = (velocityY * 0.55f).toInt()
+            lastFlingY = 0
+            scrollRemainder = 0f
+
+            scroller.fling(
+                0, 0,
+                0, scaledVelocity,
+                0, 0,
+                -Int.MAX_VALUE, Int.MAX_VALUE
+            )
+            postOnAnimation(flingRunnable)
+            return true
         }
 
         override fun onSingleTapUp(e: MotionEvent): Boolean {
@@ -324,6 +408,8 @@ class TerminalView @JvmOverloads constructor(
         gestureDetector.onTouchEvent(event)
         when (event.action) {
             MotionEvent.ACTION_DOWN -> {
+                scroller.abortAnimation()
+                removeCallbacks(flingRunnable)
                 downX = event.x
                 downY = event.y
             }

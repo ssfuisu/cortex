@@ -135,6 +135,7 @@ object BootstrapManager {
 
         // File system structure initialized
         patchAllDynamicLinkers(root)
+        fixAbsoluteSymlinks(root)
     }
 
     private const val CURRENT_BOOTSTRAP_VERSION = 12414
@@ -231,6 +232,7 @@ object BootstrapManager {
             }
 
             patchAllDynamicLinkers(root)
+            fixAbsoluteSymlinks(root)
 
             // Ensure Glibc cortex-hook library is present and executable
             ensureHookLibrary(context, root)
@@ -356,6 +358,89 @@ object BootstrapManager {
             }
         } catch (e: Exception) {
             android.util.Log.e("BootstrapManager", "Error walking root to patch dynamic linkers and libc", e)
+        }
+    }
+
+    fun fixAbsoluteSymlinks(root: File) {
+        if (!root.exists() || !root.isDirectory) return
+        try {
+            val candidateDirs = listOf(
+                File(root, "etc/alternatives"),
+                File(root, "usr/bin"),
+                File(root, "usr/sbin"),
+                File(root, "bin"),
+                File(root, "sbin")
+            )
+            for (dir in candidateDirs) {
+                if (!dir.exists() || !dir.isDirectory) continue
+                dir.listFiles()?.forEach { file ->
+                    try {
+                        val path = file.toPath()
+                        if (java.nio.file.Files.isSymbolicLink(path)) {
+                            val target = java.nio.file.Files.readSymbolicLink(path).toString()
+                            if (target.startsWith("/")) {
+                                val targetClean = target.trimStart('/')
+                                val targetInRoot = File(root, targetClean)
+                                val relTarget = file.parentFile?.toPath()?.relativize(targetInRoot.toPath())?.toString()
+                                if (relTarget != null) {
+                                    java.nio.file.Files.delete(path)
+                                    java.nio.file.Files.createSymbolicLink(path, java.nio.file.Paths.get(relTarget))
+                                }
+                            }
+                        }
+                    } catch (e: Exception) {
+                        // ignore individual link error
+                    }
+                }
+            }
+
+            // Direct guarantee for awk -> mawk
+            val awk = File(root, "usr/bin/awk")
+            val mawk = File(root, "usr/bin/mawk")
+            if (mawk.exists()) {
+                var needsAwkRelink = false
+                try {
+                    if (!awk.exists()) {
+                        needsAwkRelink = true
+                    } else if (java.nio.file.Files.isSymbolicLink(awk.toPath())) {
+                        val linkTarget = java.nio.file.Files.readSymbolicLink(awk.toPath()).toString()
+                        if (linkTarget.startsWith("/") || !File(awk.parentFile, linkTarget).exists()) {
+                            needsAwkRelink = true
+                        }
+                    }
+                } catch (e: Exception) {
+                    needsAwkRelink = true
+                }
+                if (needsAwkRelink) {
+                    try { java.nio.file.Files.deleteIfExists(awk.toPath()) } catch (e: Exception) {}
+                    try { java.nio.file.Files.createSymbolicLink(awk.toPath(), java.nio.file.Paths.get("mawk")) } catch (e: Exception) {}
+                }
+            }
+
+            // Direct guarantee for which -> which.debianutils
+            val which = File(root, "usr/bin/which")
+            val whichDebian = File(root, "usr/bin/which.debianutils")
+            if (whichDebian.exists()) {
+                var needsWhichRelink = false
+                try {
+                    if (!which.exists()) {
+                        needsWhichRelink = true
+                    } else if (java.nio.file.Files.isSymbolicLink(which.toPath())) {
+                        val linkTarget = java.nio.file.Files.readSymbolicLink(which.toPath()).toString()
+                        if (linkTarget.startsWith("/") || !File(which.parentFile, linkTarget).exists()) {
+                            needsWhichRelink = true
+                        }
+                    }
+                } catch (e: Exception) {
+                    needsWhichRelink = true
+                }
+                if (needsWhichRelink) {
+                    try { java.nio.file.Files.deleteIfExists(which.toPath()) } catch (e: Exception) {}
+                    try { java.nio.file.Files.createSymbolicLink(which.toPath(), java.nio.file.Paths.get("which.debianutils")) } catch (e: Exception) {}
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("BootstrapManager", "Error in fixAbsoluteSymlinks", e)
         }
     }
 
