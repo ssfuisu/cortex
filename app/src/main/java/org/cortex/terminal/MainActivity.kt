@@ -150,6 +150,9 @@ class MainActivity : AppCompatActivity() {
         applyPreferences()
         val root = Environment.getCortexRoot(this)
         BootstrapManager.updateDnsConfiguration(this, root)
+        BootstrapManager.updateTimezone(this, root)
+        BootstrapManager.ensureEssentialBinaries(root, Environment.getHomeDir(this))
+        BootstrapManager.initializeFileSystem(this)
         if (!BootstrapManager.isBootstrapInstalled(this)) {
             isBootstrapping = true
             val progress = android.app.ProgressDialog(this).apply {

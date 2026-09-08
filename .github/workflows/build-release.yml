@@ -103,13 +103,17 @@ jobs:
           if [ -d /usr/share/dpkg ]; then
             cp -r /usr/share/dpkg/* extra-rootfs/usr/share/dpkg/
           fi
+          if [ -d /usr/share/zoneinfo ]; then
+            mkdir -p extra-rootfs/usr/share
+            cp -r /usr/share/zoneinfo extra-rootfs/usr/share/
+          fi
           if [ -f extra-rootfs/usr/share/dpkg/tupletable ]; then
             cp extra-rootfs/usr/share/dpkg/tupletable extra-rootfs/usr/share/dpkg/triplettable
           fi
           printf 'APT::Sandbox::User "root";\nAPT::Sandbox::Seccomp "false";\nAcquire::ForceIPv4 "true";\nAcquire::Connect::AddrConfig "false";\nAcquire::SRV "false";\nAcquire::Languages "none";\nAcquire::GzipIndexes "true";\nDir::dpkg::cputable "/usr/share/dpkg/cputable";\nDir::dpkg::tupletable "/usr/share/dpkg/tupletable";\nDir::dpkg::triplettable "/usr/share/dpkg/triplettable";\nDPkg::Install::Recursive "false";\nDpkg::Progress-Fancy "false";\nAPT::Color "false";\nDPkg::Options {\n   "--force-confdef";\n   "--force-confold";\n   "--force-unsafe-io";\n};\n' > extra-rootfs/etc/apt/apt.conf.d/01sandbox
           echo "# Disabled for Cortex" > extra-rootfs/etc/apt/apt.conf.d/docker-clean
           printf 'force-confdef\nforce-confold\nforce-unsafe-io\nno-debsig\n' > extra-rootfs/etc/dpkg/dpkg.cfg.d/01cortex
-          printf 'export DPKG_DEB_THREADS_MAX=1\nexport XZ_OPT=-T1\nexport XZ_DEFAULTS=-T1\nexport TAR_OPTIONS=--no-same-owner\nexport DEBIAN_FRONTEND=noninteractive\nexport DEBCONF_FRONTEND=noninteractive\nexport DEBCONF_NONINTERACTIVE_SEEN=true\nexport SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt\nexport CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt\n' > extra-rootfs/etc/profile.d/01cortex.sh
+          printf 'export DPKG_DEB_THREADS_MAX=1\nexport XZ_OPT=-T1\nexport XZ_DEFAULTS=-T1\nexport TAR_OPTIONS=--no-same-owner\nexport DEBIAN_FRONTEND=noninteractive\nexport DEBCONF_FRONTEND=noninteractive\nexport DEBCONF_NONINTERACTIVE_SEEN=true\nexport SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt\nexport CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt\nexport TZDIR=/usr/share/zoneinfo\n' > extra-rootfs/etc/profile.d/01cortex.sh
 
           printf '#!/bin/sh\nexit 101\n' > extra-rootfs/usr/sbin/policy-rc.d
           printf '#!/bin/sh\nexit 0\n' > extra-rootfs/usr/sbin/ldconfig
@@ -258,7 +262,7 @@ jobs:
           NOTES="Cortex Release $VERSION
 
           Features and Improvements:
-          - Accurate Local Timezone Clock: Auto-detects device timezone offset and sets both POSIX TZ and binary /etc/localtime TZif so date command and timedate tools display the exact local phone time.
+          - Accurate Local Timezone Clock & TZDIR: Bundled full /usr/share/zoneinfo database into bootstrap archives, exported TZDIR across environment and libcortex-hook, and write POSIX offset to /etc/timezone so date command and timedate tools always match device local time exactly.
           - AWK and Which Direct Binary Guarantee: Directly copies mawk and which into /usr/bin, /bin, and ~/.local/bin as real executable ELF binaries, resolving awk command not found errors during nvm install --lts.
           - Native source and reload Support: Sourcing ~/.bashrc or bashrc now executes bash native source with zero positional arguments, immediately loading newly installed tools into the current session.
           - Status Bar Notification Icon: Restructured notification icon silhouette with evenOdd fillType to ensure the Cortex terminal icon displays clearly on the Android notification bar and lock screen.

@@ -57,6 +57,14 @@ object BootstrapManager {
                     "export CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt\n"
                 changed = true
             }
+            if (!bashrcText.contains("TZDIR")) {
+                bashrcText += "if [ -d \"" + d + "HOME/../usr/share/zoneinfo\" ]; then\n" +
+                    "    export TZDIR=\"" + d + "HOME/../usr/share/zoneinfo\"\n" +
+                    "elif [ -d \"/usr/share/zoneinfo\" ]; then\n" +
+                    "    export TZDIR=\"/usr/share/zoneinfo\"\n" +
+                    "fi\n"
+                changed = true
+            }
             if (!bashrcText.contains("export TZ=")) {
                 bashrcText += "if [ -f /etc/timezone ]; then export TZ=\"$(cat /etc/timezone 2>/dev/null)\"; fi\n"
                 changed = true
@@ -128,6 +136,14 @@ object BootstrapManager {
             if (!profileText.contains("SSL_CERT_FILE")) {
                 profileText += "export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt\n" +
                     "export CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt\n"
+                changed = true
+            }
+            if (!profileText.contains("TZDIR")) {
+                profileText += "if [ -d \"" + d + "HOME/../usr/share/zoneinfo\" ]; then\n" +
+                    "    export TZDIR=\"" + d + "HOME/../usr/share/zoneinfo\"\n" +
+                    "elif [ -d \"/usr/share/zoneinfo\" ]; then\n" +
+                    "    export TZDIR=\"/usr/share/zoneinfo\"\n" +
+                    "fi\n"
                 changed = true
             }
             if (!profileText.contains("export TZ=")) {
@@ -1110,26 +1126,6 @@ object BootstrapManager {
             val etcDir = File(root, "etc")
             if (!etcDir.exists()) etcDir.mkdirs()
 
-            val zoneinfoFile = File(root, "usr/share/zoneinfo/$tzId")
-            val localTimeFile = File(etcDir, "localtime")
-            val tzFile = File(etcDir, "timezone")
-
-            if (zoneinfoFile.exists() && zoneinfoFile.isFile) {
-                try {
-                    if (localTimeFile.exists()) {
-                        localTimeFile.delete()
-                    }
-                    zoneinfoFile.copyTo(localTimeFile, overwrite = true)
-                    localTimeFile.setReadable(true, false)
-                    tzFile.writeText(tzId + "\n")
-                    tzFile.setReadable(true, false)
-                    return
-                } catch (e: Exception) {
-                    android.util.Log.e("BootstrapManager", "Failed to copy zoneinfo to localtime", e)
-                }
-            }
-
-            // Fallback when usr/share/zoneinfo does not exist yet (e.g. tzdata not installed)
             val now = System.currentTimeMillis()
             val offsetMillis = tz?.getOffset(now) ?: 0
             val offsetSeconds = (offsetMillis / 1000).toInt()
@@ -1146,10 +1142,16 @@ object BootstrapManager {
                 "GMT"
             }
 
+            val stdName = when {
+                shortName.length >= 3 && shortName.all { it.isLetter() } -> shortName
+                totalMinutes >= 0 -> "<+%02d>".format(hours)
+                else -> "<-%02d>".format(hours)
+            }
+
             val posixTz = if (mins != 0) {
-                "%s%s%d:%02d".format(shortName, posixSign, hours, mins)
+                "%s%s%d:%02d".format(stdName, posixSign, hours, mins)
             } else {
-                "%s%s%d".format(shortName, posixSign, hours)
+                "%s%s%d".format(stdName, posixSign, hours)
             }
 
             val abbr = if (totalMinutes >= 0) {
@@ -1158,17 +1160,35 @@ object BootstrapManager {
                 "-%02d".format(hours)
             }
 
-            val tzifBytes = createTzifBytes(offsetSeconds, abbr, posixTz)
-            try {
-                if (localTimeFile.exists()) {
-                    localTimeFile.delete()
+            val zoneinfoFile = File(root, "usr/share/zoneinfo/$tzId")
+            val localTimeFile = File(etcDir, "localtime")
+            val tzFile = File(etcDir, "timezone")
+
+            if (zoneinfoFile.exists() && zoneinfoFile.isFile) {
+                try {
+                    if (localTimeFile.exists()) {
+                        localTimeFile.delete()
+                    }
+                    zoneinfoFile.copyTo(localTimeFile, overwrite = true)
+                    localTimeFile.setReadable(true, false)
+                } catch (e: Exception) {
+                    android.util.Log.e("BootstrapManager", "Failed to copy zoneinfo to localtime", e)
                 }
-                localTimeFile.writeBytes(tzifBytes)
-                localTimeFile.setReadable(true, false)
-            } catch (e: Exception) {
-                android.util.Log.e("BootstrapManager", "Failed to write generated localtime", e)
+            } else {
+                val tzifBytes = createTzifBytes(offsetSeconds, abbr, posixTz)
+                try {
+                    if (localTimeFile.exists()) {
+                        localTimeFile.delete()
+                    }
+                    localTimeFile.writeBytes(tzifBytes)
+                    localTimeFile.setReadable(true, false)
+                } catch (e: Exception) {
+                    android.util.Log.e("BootstrapManager", "Failed to write generated localtime", e)
+                }
             }
 
+            // Always write POSIX TZ format to /etc/timezone so that bash 'export TZ="$(cat /etc/timezone)"'
+            // computes exact local time directly in memory without needing host rootfs zoneinfo files.
             tzFile.writeText(posixTz + "\n")
             tzFile.setReadable(true, false)
         } catch (e: Exception) {

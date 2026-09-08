@@ -139,7 +139,30 @@ static void init_cortex_hook(void) {
             }
         }
     }
+    if (g_cortex_root[0] != '\0') {
+        const char *curr_tzdir = getenv("TZDIR");
+        if (!curr_tzdir || curr_tzdir[0] == '\0') {
+            char tzdir_buf[PATH_MAX];
+            snprintf(tzdir_buf, sizeof(tzdir_buf), "%s/usr/share/zoneinfo", g_cortex_root);
+            setenv("TZDIR", tzdir_buf, 0);
+        }
+    }
     g_initialized = 1;
+}
+
+void tzset(void) {
+    static void (*orig_tzset)(void) = NULL;
+    if (!orig_tzset) orig_tzset = (void (*)(void))dlsym(RTLD_NEXT, "tzset");
+    init_cortex_hook();
+    if (g_cortex_root[0] != '\0') {
+        const char *curr_tzdir = getenv("TZDIR");
+        if (!curr_tzdir || curr_tzdir[0] == '\0') {
+            char tzdir_buf[PATH_MAX];
+            snprintf(tzdir_buf, sizeof(tzdir_buf), "%s/usr/share/zoneinfo", g_cortex_root);
+            setenv("TZDIR", tzdir_buf, 0);
+        }
+    }
+    if (orig_tzset) orig_tzset();
 }
 
 static inline int is_path_prefix(const char *path, const char *prefix, size_t prefix_len) {
