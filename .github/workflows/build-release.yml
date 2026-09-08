@@ -65,8 +65,15 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gcc-aarch64-linux-gnu gcc-arm-linux-gnueabihf dpkg-dev
           mkdir -p hook-libs
-          aarch64-linux-gnu-gcc -shared -fPIC -O3 -Wall -Wno-nonnull-compare -o hook-libs/libcortex-hook-arm64.so app/src/main/cpp/cortex-hook.c -ldl
-          arm-linux-gnueabihf-gcc -shared -fPIC -O3 -Wall -Wno-nonnull-compare -o hook-libs/libcortex-hook-arm.so app/src/main/cpp/cortex-hook.c -ldl
+          aarch64-linux-gnu-gcc -std=gnu11 -shared -fPIC -O3 -Wall -Wno-nonnull-compare -o hook-libs/libcortex-hook-arm64.so app/src/main/cpp/cortex-hook.c -ldl
+          arm-linux-gnueabihf-gcc -std=gnu11 -shared -fPIC -O3 -Wall -Wno-nonnull-compare -o hook-libs/libcortex-hook-arm.so app/src/main/cpp/cortex-hook.c -ldl
+
+          echo "Verifying Glibc version requirements in hook libraries..."
+          if readelf -V hook-libs/*.so | grep -E "GLIBC_2\.(3[7-9]|[4-9][0-9])"; then
+            echo "ERROR: libcortex-hook.so requires GLIBC version higher than 2.36!"
+            exit 1
+          fi
+          echo "All hook libraries verified: fully compatible with Debian 12 Bookworm (glibc <= 2.36)."
 
       - name: Bundle Debian Glibc Minimal Bootstrap into APK
         run: |
@@ -217,10 +224,9 @@ jobs:
           NOTES="Cortex Release $VERSION
 
           Neler Duzeltildi / What's Fixed:
-          - DNS ve Debian ayna sunuculari (/etc/hosts, resolv.conf IPv4 optimizasyonu) yapilandirildi
-          - deb.debian.org ve security.debian.org icin Fastly CDN Anycast statik IP eslemesi eklendi
-          - getaddrinfo icin libcortex-hook icinde otomatik kurtarma mekanizmasi saglandi
-          - glibc MAXNS=3 siniri icin 8.8.8.8 ve 1.1.1.1 DNS onceliklendirildi"
+          - Debian Bookworm glibc 2.36 uyumlulugu saglandi (GLIBC_2.38 sembol bagliligi kaldirildi)
+          - atoi bagliligi yerine yerel port ayristirici kullanilarak ABI geriye donuk uyumlu hale getirildi
+          - DNS ve /etc/hosts Anycast eslemeleri Debian ortamina entegre edildi"
 
           gh release create "$VERSION" \
             release-apks/Cortex-arm64-v8a-signed.apk \

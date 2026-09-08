@@ -1247,7 +1247,12 @@ static int synthesize_fallback_addrinfo(const char *node, const char *service,
         } else if (strcmp(service, "http") == 0 || strcmp(service, "80") == 0) {
             port = 80;
         } else {
-            int p = atoi(service);
+            int p = 0;
+            const char *sp = service;
+            while (*sp >= '0' && *sp <= '9') {
+                p = p * 10 + (*sp - '0');
+                sp++;
+            }
             if (p > 0 && p < 65536) port = p;
         }
     }
