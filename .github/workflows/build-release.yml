@@ -73,7 +73,7 @@ jobs:
       - name: Build Glibc cortex-hook Libraries
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends gcc-aarch64-linux-gnu gcc-arm-linux-gnueabihf dpkg-dev
+          sudo apt-get install -y gcc-aarch64-linux-gnu gcc-arm-linux-gnueabihf libc6-dev-arm64-cross libc6-dev-armhf-cross dpkg-dev
           mkdir -p hook-libs
           aarch64-linux-gnu-gcc -std=gnu11 -shared -fPIC -O3 -Wall -Wno-nonnull-compare -o hook-libs/libcortex-hook-arm64.so app/src/main/cpp/cortex-hook.c -ldl
           arm-linux-gnueabihf-gcc -std=gnu11 -shared -fPIC -O3 -Wall -Wno-nonnull-compare -o hook-libs/libcortex-hook-arm.so app/src/main/cpp/cortex-hook.c -ldl
@@ -100,7 +100,7 @@ jobs:
           if [ -f extra-rootfs/usr/share/dpkg/tupletable ]; then
             cp extra-rootfs/usr/share/dpkg/tupletable extra-rootfs/usr/share/dpkg/triplettable
           fi
-          printf 'APT::Sandbox::User "root";\nAPT::Sandbox::Seccomp "false";\nAcquire::ForceIPv4 "true";\nAcquire::Connect::AddrConfig "false";\nAcquire::SRV "false";\nAcquire::Languages "none";\nAcquire::GzipIndexes "true";\nDir::dpkg::cputable "/usr/share/dpkg/cputable";\nDir::dpkg::tupletable "/usr/share/dpkg/tupletable";\nDir::dpkg::triplettable "/usr/share/dpkg/triplettable";\n' > extra-rootfs/etc/apt/apt.conf.d/01sandbox
+          printf 'APT::Sandbox::User "root";\nAPT::Sandbox::Seccomp "false";\nAcquire::ForceIPv4 "true";\nAcquire::Connect::AddrConfig "false";\nAcquire::SRV "false";\nAcquire::Languages "none";\nAcquire::GzipIndexes "true";\nDir::dpkg::cputable "/usr/share/dpkg/cputable";\nDir::dpkg::tupletable "/usr/share/dpkg/tupletable";\nDir::dpkg::triplettable "/usr/share/dpkg/triplettable";\nDPkg::Options {\n   "--force-confdef";\n   "--force-confold";\n   "--force-unsafe-io";\n};\n' > extra-rootfs/etc/apt/apt.conf.d/01sandbox
           echo "# Disabled for Cortex" > extra-rootfs/etc/apt/apt.conf.d/docker-clean
 
           printf '127.0.0.1 localhost localhost.localdomain\n::1 localhost ip6-localhost ip6-loopback\n151.101.130.132 deb.debian.org\n151.101.2.132 deb.debian.org\n151.101.66.132 deb.debian.org\n151.101.194.132 deb.debian.org\n151.101.130.132 security.debian.org\n151.101.2.132 security.debian.org\n151.101.66.132 security.debian.org\n151.101.194.132 security.debian.org\n151.101.130.132 cdn-fastly.deb.debian.org\n151.101.2.132 cdn-fastly.deb.debian.org\n' > extra-rootfs/etc/hosts
@@ -224,7 +224,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          OFFSET=$(( ${{ github.run_number }} - 30 ))
+          OFFSET=$(( ${{ github.run_number }} - 31 ))
           if [ "$OFFSET" -lt 0 ]; then OFFSET=0; fi
           VERSION="v1.24.${OFFSET}"
           if [[ "${{ github.ref }}" == refs/tags/* ]]; then
@@ -234,9 +234,11 @@ jobs:
           NOTES="Cortex Release $VERSION
 
           Neler Duzeltildi / What's Fixed:
-          - Debian Bookworm glibc 2.36 uyumlulugu saglandi (GLIBC_2.38 sembol bagliligi kaldirildi)
-          - atoi bagliligi yerine yerel port ayristirici kullanilarak ABI geriye donuk uyumlu hale getirildi
-          - DNS ve /etc/hosts Anycast eslemeleri Debian ortamina entegre edildi"
+          - Perl XSLoader C modulleri icin dlopen ve dlmopen kanca destegi eklendi (Cwd.so hatasi giderildi)
+          - dpkg alt surecleri icin execl, execlp, execle, posix_spawn ve posix_spawnp kancalari eklendi (dpkg-split hatasi giderildi)
+          - APT gecici dizinleri icin link ve linkat kancalari symlink geri donus destegiyle eklendi (deb dosyalari eksiksiz iletiliyor)
+          - Android flash depolama gecikmelerini onlemek icin sync / syncfs kancalari ve --force-unsafe-io dpkg yapilandirmasi eklendi
+          - mknod ve mknodat cagrilarinda yetkisiz dugum olusturma engeli asildi"
 
           gh release create "$VERSION" \
             release-apks/Cortex-arm64-v8a-signed.apk \

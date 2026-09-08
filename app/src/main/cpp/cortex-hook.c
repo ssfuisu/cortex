@@ -6,6 +6,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <stdarg.h>
+#include <spawn.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <dirent.h>
@@ -183,6 +184,27 @@ static inline int open_needs_mode(int flags) {
 #else
     return (flags & O_CREAT) != 0;
 #endif
+}
+
+// Hook dlopen and dlmopen
+void *dlopen(const char *filename, int flags) {
+    static void *(*orig_dlopen)(const char *, int) = NULL;
+    if (!orig_dlopen) orig_dlopen = (void *(*)(const char *, int))dlsym(RTLD_NEXT, "dlopen");
+    if (!filename) return orig_dlopen ? orig_dlopen(NULL, flags) : NULL;
+
+    char buf[PATH_MAX];
+    const char *target = rewrite_path(filename, buf, sizeof(buf));
+    return orig_dlopen ? orig_dlopen(target, flags) : NULL;
+}
+
+void *dlmopen(Lmid_t lmid, const char *filename, int flags) {
+    static void *(*orig_dlmopen)(Lmid_t, const char *, int) = NULL;
+    if (!orig_dlmopen) orig_dlmopen = (void *(*)(Lmid_t, const char *, int))dlsym(RTLD_NEXT, "dlmopen");
+    if (!filename) return orig_dlmopen ? orig_dlmopen(lmid, NULL, flags) : NULL;
+
+    char buf[PATH_MAX];
+    const char *target = rewrite_path(filename, buf, sizeof(buf));
+    return orig_dlmopen ? orig_dlmopen(lmid, target, flags) : NULL;
 }
 
 // Hook open
@@ -643,6 +665,42 @@ int symlinkat(const char *target, int newdirfd, const char *linkpath) {
     return orig_symlinkat(target, newdirfd, newlink);
 }
 
+// Hook link
+int link(const char *oldpath, const char *newpath) {
+    static int (*orig_link)(const char *, const char *) = NULL;
+    if (!orig_link) orig_link = (int (*)(const char *, const char *))dlsym(RTLD_NEXT, "link");
+    char obuf[PATH_MAX], nbuf[PATH_MAX];
+    const char *rold = rewrite_path(oldpath, obuf, sizeof(obuf));
+    const char *rnew = rewrite_path(newpath, nbuf, sizeof(nbuf));
+    int ret = orig_link ? orig_link(rold, rnew) : -1;
+    if (ret != 0 && (errno == EXDEV || errno == EPERM || errno == EACCES || errno == ENOTSUP || errno == ENOSYS)) {
+        static int (*orig_symlink)(const char *, const char *) = NULL;
+        if (!orig_symlink) orig_symlink = (int (*)(const char *, const char *))dlsym(RTLD_NEXT, "symlink");
+        if (orig_symlink) {
+            ret = orig_symlink(rold, rnew);
+        }
+    }
+    return ret;
+}
+
+// Hook linkat
+int linkat(int olddirfd, const char *oldpath, int newdirfd, const char *newpath, int flags) {
+    static int (*orig_linkat)(int, const char *, int, const char *, int) = NULL;
+    if (!orig_linkat) orig_linkat = (int (*)(int, const char *, int, const char *, int))dlsym(RTLD_NEXT, "linkat");
+    char obuf[PATH_MAX], nbuf[PATH_MAX];
+    const char *rold = (oldpath && oldpath[0] == '/') ? rewrite_path(oldpath, obuf, sizeof(obuf)) : oldpath;
+    const char *rnew = (newpath && newpath[0] == '/') ? rewrite_path(newpath, nbuf, sizeof(nbuf)) : newpath;
+    int ret = orig_linkat ? orig_linkat(olddirfd, rold, newdirfd, rnew, flags) : -1;
+    if (ret != 0 && (errno == EXDEV || errno == EPERM || errno == EACCES || errno == ENOTSUP || errno == ENOSYS)) {
+        static int (*orig_symlinkat)(const char *, int, const char *) = NULL;
+        if (!orig_symlinkat) orig_symlinkat = (int (*)(const char *, int, const char *))dlsym(RTLD_NEXT, "symlinkat");
+        if (orig_symlinkat) {
+            ret = orig_symlinkat(rold, newdirfd, rnew);
+        }
+    }
+    return ret;
+}
+
 // Hook utime / utimes / lutimes / futimesat / utimensat
 int utime(const char *filename, const struct utimbuf *times) {
     static int (*orig_utime)(const char *, const struct utimbuf *) = NULL;
@@ -870,6 +928,40 @@ int fchownat(int dirfd, const char *pathname, uid_t owner, gid_t group, int flag
     (void)dirfd; (void)pathname; (void)owner; (void)group; (void)flags; return 0;
 }
 int chroot(const char *path) { (void)path; return 0; }
+
+// Hook mknod / mknodat
+int mknod(const char *pathname, mode_t mode, dev_t dev) {
+    (void)dev;
+    if (S_ISREG(mode)) {
+        return creat(pathname, mode);
+    }
+    if (S_ISFIFO(mode)) {
+        static int (*orig_mkfifo)(const char *, mode_t) = NULL;
+        if (!orig_mkfifo) orig_mkfifo = (int (*)(const char *, mode_t))dlsym(RTLD_NEXT, "mkfifo");
+        char buf[PATH_MAX];
+        const char *target = rewrite_path(pathname, buf, sizeof(buf));
+        return orig_mkfifo ? orig_mkfifo(target, mode) : 0;
+    }
+    return 0;
+}
+
+int mknodat(int dirfd, const char *pathname, mode_t mode, dev_t dev) {
+    (void)dev;
+    if (S_ISREG(mode)) {
+        return openat(dirfd, pathname, O_CREAT | O_WRONLY | O_TRUNC, mode);
+    }
+    return 0;
+}
+
+// Hook sync / syncfs to prevent Android flash storage stalls during dpkg operations
+void sync(void) {
+    // No-op
+}
+
+int syncfs(int fd) {
+    (void)fd;
+    return 0;
+}
 int capget(void *hdrp, void *datap) { (void)hdrp; (void)datap; return 0; }
 int capset(void *hdrp, const void *datap) { (void)hdrp; (void)datap; return 0; }
 int prctl(int option, ...) {
@@ -1116,7 +1208,102 @@ int execv(const char *path, char *const argv[]) {
     return execve(path, argv, environ);
 }
 
+int execl(const char *path, const char *arg0, ...) {
+    va_list args;
+    va_start(args, arg0);
+    int count = (arg0 != NULL) ? 1 : 0;
+    if (arg0 != NULL) {
+        while (va_arg(args, const char *) != NULL) {
+            count++;
+        }
+    }
+    va_end(args);
+
+    char **argv = (char **)calloc(count + 1, sizeof(char *));
+    if (!argv) {
+        errno = ENOMEM;
+        return -1;
+    }
+    if (count > 0) {
+        argv[0] = (char *)arg0;
+        va_start(args, arg0);
+        for (int i = 1; i < count; i++) {
+            argv[i] = va_arg(args, char *);
+        }
+        va_end(args);
+    }
+    argv[count] = NULL;
+    int ret = execv(path, argv);
+    free(argv);
+    return ret;
+}
+
+int execlp(const char *file, const char *arg0, ...) {
+    va_list args;
+    va_start(args, arg0);
+    int count = (arg0 != NULL) ? 1 : 0;
+    if (arg0 != NULL) {
+        while (va_arg(args, const char *) != NULL) {
+            count++;
+        }
+    }
+    va_end(args);
+
+    char **argv = (char **)calloc(count + 1, sizeof(char *));
+    if (!argv) {
+        errno = ENOMEM;
+        return -1;
+    }
+    if (count > 0) {
+        argv[0] = (char *)arg0;
+        va_start(args, arg0);
+        for (int i = 1; i < count; i++) {
+            argv[i] = va_arg(args, char *);
+        }
+        va_end(args);
+    }
+    argv[count] = NULL;
+    int ret = execvp(file, argv);
+    free(argv);
+    return ret;
+}
+
+int execle(const char *path, const char *arg0, ...) {
+    va_list args;
+    va_start(args, arg0);
+    int count = (arg0 != NULL) ? 1 : 0;
+    if (arg0 != NULL) {
+        while (va_arg(args, const char *) != NULL) {
+            count++;
+        }
+    }
+    char *const *envp = va_arg(args, char *const *);
+    va_end(args);
+
+    char **argv = (char **)calloc(count + 1, sizeof(char *));
+    if (!argv) {
+        errno = ENOMEM;
+        return -1;
+    }
+    if (count > 0) {
+        argv[0] = (char *)arg0;
+        va_start(args, arg0);
+        for (int i = 1; i < count; i++) {
+            argv[i] = va_arg(args, char *);
+        }
+        va_end(args);
+    }
+    argv[count] = NULL;
+    int ret = execve(path, argv, (char *const *)envp);
+    free(argv);
+    return ret;
+}
+
 int execvp(const char *file, char *const argv[]) {
+    if (!file || !*file) {
+        errno = ENOENT;
+        return -1;
+    }
     if (strchr(file, '/')) {
         return execve(file, argv, environ);
     }
@@ -1130,19 +1317,40 @@ int execvp(const char *file, char *const argv[]) {
     while (token) {
         char candidate[PATH_MAX];
         snprintf(candidate, sizeof(candidate), "%s/%s", token, file);
-        if (access(candidate, X_OK) == 0) {
+        if (access(candidate, F_OK) == 0) {
             return execve(candidate, argv, environ);
         }
         token = strtok_r(NULL, ":", &saveptr);
+    }
+    const char *standard_paths[] = {"/usr/bin", "/bin", "/usr/sbin", "/sbin", "/usr/local/bin", NULL};
+    for (int i = 0; standard_paths[i] != NULL; i++) {
+        char candidate[PATH_MAX];
+        snprintf(candidate, sizeof(candidate), "%s/%s", standard_paths[i], file);
+        if (access(candidate, F_OK) == 0) {
+            return execve(candidate, argv, environ);
+        }
     }
     return execve(file, argv, environ);
 }
 
 int execvpe(const char *file, char *const argv[], char *const envp[]) {
+    if (!file || !*file) {
+        errno = ENOENT;
+        return -1;
+    }
     if (strchr(file, '/')) {
         return execve(file, argv, envp);
     }
-    const char *path_env = getenv("PATH");
+    const char *path_env = NULL;
+    if (envp) {
+        for (char *const *ep = envp; *ep; ep++) {
+            if (strncmp(*ep, "PATH=", 5) == 0) {
+                path_env = *ep + 5;
+                break;
+            }
+        }
+    }
+    if (!path_env) path_env = getenv("PATH");
     if (!path_env) path_env = "/usr/bin:/bin";
     char path_copy[4096];
     strncpy(path_copy, path_env, sizeof(path_copy) - 1);
@@ -1152,12 +1360,155 @@ int execvpe(const char *file, char *const argv[], char *const envp[]) {
     while (token) {
         char candidate[PATH_MAX];
         snprintf(candidate, sizeof(candidate), "%s/%s", token, file);
-        if (access(candidate, X_OK) == 0) {
+        if (access(candidate, F_OK) == 0) {
             return execve(candidate, argv, envp);
         }
         token = strtok_r(NULL, ":", &saveptr);
     }
+    const char *standard_paths[] = {"/usr/bin", "/bin", "/usr/sbin", "/sbin", "/usr/local/bin", NULL};
+    for (int i = 0; standard_paths[i] != NULL; i++) {
+        char candidate[PATH_MAX];
+        snprintf(candidate, sizeof(candidate), "%s/%s", standard_paths[i], file);
+        if (access(candidate, F_OK) == 0) {
+            return execve(candidate, argv, envp);
+        }
+    }
     return execve(file, argv, envp);
+}
+
+int posix_spawn(pid_t *pid, const char *path,
+                const posix_spawn_file_actions_t *file_actions,
+                const posix_spawnattr_t *attrp,
+                char *const argv[], char *const envp[]) {
+    static int (*orig_posix_spawn)(pid_t *, const char *, const posix_spawn_file_actions_t *,
+                                  const posix_spawnattr_t *, char *const [], char *const []) = NULL;
+    if (!orig_posix_spawn) orig_posix_spawn = (int (*)(pid_t *, const char *, const posix_spawn_file_actions_t *,
+                                                      const posix_spawnattr_t *, char *const [], char *const []))
+                                             dlsym(RTLD_NEXT, "posix_spawn");
+
+    char buf[PATH_MAX];
+    const char *target = rewrite_path(path, buf, sizeof(buf));
+
+    init_cortex_hook();
+    char ld_so[PATH_MAX] = {0};
+#if defined(__aarch64__)
+    snprintf(ld_so, sizeof(ld_so), "%s/usr/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1", g_cortex_root);
+    if (access(ld_so, F_OK) != 0) snprintf(ld_so, sizeof(ld_so), "%s/lib/ld-linux-aarch64.so.1", g_cortex_root);
+    if (access(ld_so, F_OK) != 0) snprintf(ld_so, sizeof(ld_so), "%s/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1", g_cortex_root);
+#elif defined(__arm__)
+    snprintf(ld_so, sizeof(ld_so), "%s/usr/lib/arm-linux-gnueabihf/ld-linux-armhf.so.3", g_cortex_root);
+    if (access(ld_so, F_OK) != 0) snprintf(ld_so, sizeof(ld_so), "%s/lib/ld-linux-armhf.so.3", g_cortex_root);
+    if (access(ld_so, F_OK) != 0) snprintf(ld_so, sizeof(ld_so), "%s/lib/arm-linux-gnueabihf/ld-linux-armhf.so.3", g_cortex_root);
+#else
+    snprintf(ld_so, sizeof(ld_so), "%s/lib64/ld-linux-x86-64.so.2", g_cortex_root);
+#endif
+
+    char **new_envp = prepare_cortex_env(envp ? envp : environ);
+
+    int is_elf = 0;
+    if (g_cortex_root[0] != '\0' && strncmp(target, g_cortex_root, strlen(g_cortex_root)) == 0) {
+        int fd = open(target, O_RDONLY);
+        if (fd >= 0) {
+            char hdr[4];
+            ssize_t n = read(fd, hdr, sizeof(hdr));
+            close(fd);
+            if (n >= 4 && (unsigned char)hdr[0] == 0x7f && hdr[1] == 'E' && hdr[2] == 'L' && hdr[3] == 'F') {
+                is_elf = 1;
+            }
+        }
+    }
+
+    int ret = -1;
+    if (is_elf && access(ld_so, F_OK) == 0 && strcmp(target, ld_so) != 0) {
+        chmod(ld_so, 0755);
+        chmod(target, 0755);
+
+        int argc = 0;
+        while (argv && argv[argc]) argc++;
+
+        const char *prog_name = strrchr(target, '/');
+        prog_name = (prog_name != NULL) ? prog_name + 1 : target;
+
+        char **new_argv = (char **)calloc(argc + 5, sizeof(char *));
+        if (new_argv) {
+            new_argv[0] = ld_so;
+            new_argv[1] = (char *)"--argv0";
+            new_argv[2] = (char *)((argc > 0 && argv && argv[0]) ? argv[0] : prog_name);
+            new_argv[3] = (char *)target;
+            for (int i = 1; i < argc; i++) {
+                new_argv[i + 3] = argv[i];
+            }
+            new_argv[argc + 3] = NULL;
+
+            if (orig_posix_spawn) {
+                ret = orig_posix_spawn(pid, ld_so, file_actions, attrp, new_argv, new_envp);
+            }
+            free(new_argv);
+        }
+    } else {
+        if (orig_posix_spawn) {
+            ret = orig_posix_spawn(pid, target, file_actions, attrp, argv, new_envp);
+        }
+    }
+
+    if (ret != 0) {
+        pid_t child = fork();
+        if (child < 0) {
+            return errno;
+        } else if (child == 0) {
+            execve(target, argv, new_envp);
+            _exit(127);
+        } else {
+            if (pid) *pid = child;
+            return 0;
+        }
+    }
+    return ret;
+}
+
+int posix_spawnp(pid_t *pid, const char *file,
+                 const posix_spawn_file_actions_t *file_actions,
+                 const posix_spawnattr_t *attrp,
+                 char *const argv[], char *const envp[]) {
+    if (!file || !*file) {
+        return ENOENT;
+    }
+    if (strchr(file, '/')) {
+        return posix_spawn(pid, file, file_actions, attrp, argv, envp);
+    }
+    const char *path_env = NULL;
+    if (envp) {
+        for (char *const *ep = envp; *ep; ep++) {
+            if (strncmp(*ep, "PATH=", 5) == 0) {
+                path_env = *ep + 5;
+                break;
+            }
+        }
+    }
+    if (!path_env) path_env = getenv("PATH");
+    if (!path_env) path_env = "/usr/bin:/bin";
+    char path_copy[4096];
+    strncpy(path_copy, path_env, sizeof(path_copy) - 1);
+    path_copy[sizeof(path_copy) - 1] = '\0';
+    char *saveptr = NULL;
+    char *token = strtok_r(path_copy, ":", &saveptr);
+    while (token) {
+        char candidate[PATH_MAX];
+        snprintf(candidate, sizeof(candidate), "%s/%s", token, file);
+        if (access(candidate, F_OK) == 0) {
+            return posix_spawn(pid, candidate, file_actions, attrp, argv, envp);
+        }
+        token = strtok_r(NULL, ":", &saveptr);
+    }
+    const char *standard_paths[] = {"/usr/bin", "/bin", "/usr/sbin", "/sbin", "/usr/local/bin", NULL};
+    for (int i = 0; standard_paths[i] != NULL; i++) {
+        char candidate[PATH_MAX];
+        snprintf(candidate, sizeof(candidate), "%s/%s", standard_paths[i], file);
+        if (access(candidate, F_OK) == 0) {
+            return posix_spawn(pid, candidate, file_actions, attrp, argv, envp);
+        }
+    }
+    return posix_spawn(pid, file, file_actions, attrp, argv, envp);
 }
 
 // DNS resolution hooking and localhost DNS redirect

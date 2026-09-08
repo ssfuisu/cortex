@@ -74,7 +74,7 @@ object BootstrapManager {
         patchAllDynamicLinkers(root)
     }
 
-    private const val CURRENT_BOOTSTRAP_VERSION = 12404
+    private const val CURRENT_BOOTSTRAP_VERSION = 12405
 
     fun isBootstrapInstalled(context: Context): Boolean {
         val root = Environment.getCortexRoot(context)
@@ -535,7 +535,12 @@ object BootstrapManager {
                 "Acquire::GzipIndexes \"true\";\n" +
                 "Dir::dpkg::cputable \"/usr/share/dpkg/cputable\";\n" +
                 "Dir::dpkg::tupletable \"/usr/share/dpkg/tupletable\";\n" +
-                "Dir::dpkg::triplettable \"/usr/share/dpkg/triplettable\";\n"
+                "Dir::dpkg::triplettable \"/usr/share/dpkg/triplettable\";\n" +
+                "DPkg::Options {\n" +
+                "   \"--force-confdef\";\n" +
+                "   \"--force-confold\";\n" +
+                "   \"--force-unsafe-io\";\n" +
+                "};\n"
             )
             val dockerClean = File(aptConfDir, "docker-clean")
             dockerClean.writeText("# Disabled for Cortex\n")
