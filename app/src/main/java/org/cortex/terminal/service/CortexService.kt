@@ -30,8 +30,27 @@ class CortexService : Service() {
             private set
 
         private var _sessionManager: SessionManager? = null
+        private var lastVersionCode: Int = 0
 
         fun getOrCreateSessionManager(context: Context): SessionManager {
+            val appVersion = try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    context.packageManager.getPackageInfo(context.packageName, 0).longVersionCode.toInt()
+                } else {
+                    @Suppress("DEPRECATION")
+                    context.packageManager.getPackageInfo(context.packageName, 0).versionCode
+                }
+            } catch (e: Exception) { 0 }
+
+            if (lastVersionCode != 0 && lastVersionCode < appVersion && _sessionManager != null) {
+                android.util.Log.i("CortexService", "App version updated from $lastVersionCode to $appVersion. Resetting sessions.")
+                try {
+                    _sessionManager?.destroyAll()
+                } catch (e: Exception) {}
+                _sessionManager = null
+            }
+            lastVersionCode = appVersion
+
             if (_sessionManager == null) {
                 _sessionManager = SessionManager(context.applicationContext)
             }

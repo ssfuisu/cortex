@@ -20,41 +20,88 @@ object BootstrapManager {
             }
         }
 
-        val d = "$"
-        val bashrc = File(home, ".bashrc")
-        if (!bashrc.exists() || !bashrc.readText().contains("PS1=")) {
-            val bashrcContent = "# Cortex Terminal Environment\n" +
-                "if [ -n \"" + d + "BASH_VERSION\" ]; then\n" +
-                "    export PS1='\\w " + d + " '\n" +
-                "else\n" +
-                "    export PS1='~ " + d + " '\n" +
-                "fi\n" +
-                "alias ll='ls -la'\n" +
-                "alias la='ls -A'\n" +
-                "alias l='ls -CF'\n" +
-                "alias cls='clear'\n"
-            bashrc.writeText(bashrcContent)
+        try {
+            val d = "$"
+            val bashrc = File(home, ".bashrc")
+            var bashrcText = if (bashrc.exists()) {
+                try { bashrc.readText() } catch (e: Exception) { "" }
+            } else ""
+            var changed = false
+            if (!bashrcText.contains("PS1=")) {
+                bashrcText += "# Cortex Terminal Environment\n" +
+                    "if [ -n \"" + d + "BASH_VERSION\" ]; then\n" +
+                    "    export PS1='\\w " + d + " '\n" +
+                    "else\n" +
+                    "    export PS1='~ " + d + " '\n" +
+                    "fi\n" +
+                    "alias ll='ls -la'\n" +
+                    "alias la='ls -A'\n" +
+                    "alias l='ls -CF'\n" +
+                    "alias cls='clear'\n"
+                changed = true
+            }
+            if (!bashrcText.contains(".local/bin")) {
+                bashrcText += "export PATH=\"" + d + "HOME/.local/bin:" + d + "PATH\"\n"
+                changed = true
+            }
+            if (!bashrcText.contains("SSL_CERT_FILE")) {
+                bashrcText += "export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt\n" +
+                    "export CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt\n"
+                changed = true
+            }
+            if (changed) {
+                bashrc.writeText(bashrcText)
+                bashrc.setReadable(true, false)
+                bashrc.setWritable(true, false)
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("BootstrapManager", "Failed to ensure .bashrc", e)
         }
 
-        val profile = File(home, ".profile")
-        if (!profile.exists() || !profile.readText().contains("PS1=")) {
-            val profileContent = "if [ -n \"" + d + "BASH_VERSION\" ]; then\n" +
-                "    export PS1='\\w " + d + " '\n" +
-                "else\n" +
-                "    export PS1='~ " + d + " '\n" +
-                "fi\n" +
-                "if [ -f \"" + d + "HOME/.bashrc\" ]; then\n" +
-                "    . \"" + d + "HOME/.bashrc\"\n" +
-                "fi\n"
-            profile.writeText(profileContent)
+        try {
+            val d = "$"
+            val profile = File(home, ".profile")
+            var profileText = if (profile.exists()) {
+                try { profile.readText() } catch (e: Exception) { "" }
+            } else ""
+            var changed = false
+            if (!profileText.contains("PS1=")) {
+                profileText += "if [ -n \"" + d + "BASH_VERSION\" ]; then\n" +
+                    "    export PS1='\\w " + d + " '\n" +
+                    "else\n" +
+                    "    export PS1='~ " + d + " '\n" +
+                    "fi\n" +
+                    "if [ -f \"" + d + "HOME/.bashrc\" ]; then\n" +
+                    "    . \"" + d + "HOME/.bashrc\"\n" +
+                    "fi\n"
+                changed = true
+            }
+            if (!profileText.contains(".local/bin")) {
+                profileText += "export PATH=\"" + d + "HOME/.local/bin:" + d + "PATH\"\n"
+                changed = true
+            }
+            if (!profileText.contains("SSL_CERT_FILE")) {
+                profileText += "export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt\n" +
+                    "export CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt\n"
+                changed = true
+            }
+            if (changed) {
+                profile.writeText(profileText)
+                profile.setReadable(true, false)
+                profile.setWritable(true, false)
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("BootstrapManager", "Failed to ensure .profile", e)
         }
 
         val etcProfile = File(root, "etc/profile")
         if (etcProfile.exists()) {
-            val pText = etcProfile.readText()
-            if (pText.contains("`id -u`") || pText.contains("$(id -u)")) {
-                etcProfile.writeText(pText.replace("`id -u`", "\${EUID:-0}").replace("$(id -u)", "\${EUID:-0}"))
-            }
+            try {
+                val pText = etcProfile.readText()
+                if (pText.contains("`id -u`") || pText.contains("$(id -u)")) {
+                    etcProfile.writeText(pText.replace("`id -u`", "\${EUID:-0}").replace("$(id -u)", "\${EUID:-0}"))
+                }
+            } catch (e: Exception) {}
         }
 
         ensureHookLibrary(context, root)
@@ -75,7 +122,7 @@ object BootstrapManager {
         patchAllDynamicLinkers(root)
     }
 
-    private const val CURRENT_BOOTSTRAP_VERSION = 12412
+    private const val CURRENT_BOOTSTRAP_VERSION = 12413
 
     fun isBootstrapInstalled(context: Context): Boolean {
         val root = Environment.getCortexRoot(context)

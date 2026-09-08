@@ -160,17 +160,8 @@ class MainActivity : AppCompatActivity() {
                         progress.dismiss()
                     } catch (e: Exception) {
                     }
-                    if (sessionManager.sessions.isEmpty()) {
-                        createNewSession()
-                    } else {
-                        val current = sessionManager.currentSession ?: sessionManager.sessions[0]
-                        terminalView.session = current
-                        val tabNum = sessionManager.currentSessionIndex + 1
-                        val totalTabs = sessionManager.sessions.size
-                        appTitle.text = "Cortex [$tabNum/$totalTabs]"
-                        sessionAdapter.notifyDataSetChanged()
-                        terminalView.invalidate()
-                    }
+                    sessionManager.destroyAll()
+                    createNewSession()
                     terminalView.post {
                         terminalView.showKeyboard()
                     }
