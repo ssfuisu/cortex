@@ -74,7 +74,7 @@ object BootstrapManager {
         patchAllDynamicLinkers(root)
     }
 
-    private const val CURRENT_BOOTSTRAP_VERSION = 12406
+    private const val CURRENT_BOOTSTRAP_VERSION = 12407
 
     fun isBootstrapInstalled(context: Context): Boolean {
         val root = Environment.getCortexRoot(context)
@@ -536,6 +536,7 @@ object BootstrapManager {
                 "Dir::dpkg::cputable \"/usr/share/dpkg/cputable\";\n" +
                 "Dir::dpkg::tupletable \"/usr/share/dpkg/tupletable\";\n" +
                 "Dir::dpkg::triplettable \"/usr/share/dpkg/triplettable\";\n" +
+                "DPkg::Install::Recursive \"false\";\n" +
                 "DPkg::Options {\n" +
                 "   \"--force-confdef\";\n" +
                 "   \"--force-confold\";\n" +
@@ -560,7 +561,8 @@ object BootstrapManager {
                 "export DPKG_DEB_THREADS_MAX=1\n" +
                 "export XZ_OPT=-T1\n" +
                 "export XZ_DEFAULTS=-T1\n" +
-                "export TAR_OPTIONS=--no-same-owner\n"
+                "export DEBIAN_FRONTEND=noninteractive\n" +
+                "export DEBCONF_NONINTERACTIVE_SEEN=true\n"
             )
 
             File(root, "var/cache/apt/archives/partial").mkdirs()

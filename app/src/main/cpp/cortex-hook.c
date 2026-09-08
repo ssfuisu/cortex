@@ -645,7 +645,22 @@ ssize_t readlink(const char *pathname, char *buf, size_t bufsiz) {
     if (!orig_readlink) orig_readlink = (ssize_t (*)(const char *, char *, size_t))dlsym(RTLD_NEXT, "readlink");
     char pbuf[PATH_MAX];
     const char *target = rewrite_path(pathname, pbuf, sizeof(pbuf));
-    return orig_readlink(target, buf, bufsiz);
+    ssize_t n = orig_readlink ? orig_readlink(target, buf, bufsiz) : -1;
+    if (n > 0 && g_cortex_root[0] != '\0') {
+        size_t root_len = strlen(g_cortex_root);
+        if ((size_t)n >= root_len && strncmp(buf, g_cortex_root, root_len) == 0 &&
+            ((size_t)n == root_len || buf[root_len] == '/')) {
+            size_t new_len = (size_t)n - root_len;
+            if (new_len == 0) {
+                buf[0] = '/';
+                new_len = 1;
+            } else {
+                memmove(buf, buf + root_len, new_len);
+            }
+            n = (ssize_t)new_len;
+        }
+    }
+    return n;
 }
 
 // Hook readlinkat
@@ -654,25 +669,42 @@ ssize_t readlinkat(int dirfd, const char *pathname, char *buf, size_t bufsiz) {
     if (!orig_readlinkat) orig_readlinkat = (ssize_t (*)(int, const char *, char *, size_t))dlsym(RTLD_NEXT, "readlinkat");
     char pbuf[PATH_MAX];
     const char *target = (pathname && pathname[0] == '/') ? rewrite_path(pathname, pbuf, sizeof(pbuf)) : pathname;
-    return orig_readlinkat(dirfd, target, buf, bufsiz);
+    ssize_t n = orig_readlinkat ? orig_readlinkat(dirfd, target, buf, bufsiz) : -1;
+    if (n > 0 && g_cortex_root[0] != '\0') {
+        size_t root_len = strlen(g_cortex_root);
+        if ((size_t)n >= root_len && strncmp(buf, g_cortex_root, root_len) == 0 &&
+            ((size_t)n == root_len || buf[root_len] == '/')) {
+            size_t new_len = (size_t)n - root_len;
+            if (new_len == 0) {
+                buf[0] = '/';
+                new_len = 1;
+            } else {
+                memmove(buf, buf + root_len, new_len);
+            }
+            n = (ssize_t)new_len;
+        }
+    }
+    return n;
 }
 
 // Hook symlink
 int symlink(const char *target, const char *linkpath) {
     static int (*orig_symlink)(const char *, const char *) = NULL;
     if (!orig_symlink) orig_symlink = (int (*)(const char *, const char *))dlsym(RTLD_NEXT, "symlink");
-    char pbuf[PATH_MAX];
+    char pbuf[PATH_MAX], tbuf[PATH_MAX];
     const char *newlink = rewrite_path(linkpath, pbuf, sizeof(pbuf));
-    return orig_symlink(target, newlink);
+    const char *newtarget = (target && target[0] == '/') ? rewrite_path(target, tbuf, sizeof(tbuf)) : target;
+    return orig_symlink ? orig_symlink(newtarget, newlink) : -1;
 }
 
 // Hook symlinkat
 int symlinkat(const char *target, int newdirfd, const char *linkpath) {
     static int (*orig_symlinkat)(const char *, int, const char *) = NULL;
     if (!orig_symlinkat) orig_symlinkat = (int (*)(const char *, int, const char *))dlsym(RTLD_NEXT, "symlinkat");
-    char pbuf[PATH_MAX];
-    const char *newlink = (linkpath[0] == '/') ? rewrite_path(linkpath, pbuf, sizeof(pbuf)) : linkpath;
-    return orig_symlinkat(target, newdirfd, newlink);
+    char pbuf[PATH_MAX], tbuf[PATH_MAX];
+    const char *newlink = (linkpath && linkpath[0] == '/') ? rewrite_path(linkpath, pbuf, sizeof(pbuf)) : linkpath;
+    const char *newtarget = (target && target[0] == '/') ? rewrite_path(target, tbuf, sizeof(tbuf)) : target;
+    return orig_symlinkat ? orig_symlinkat(newtarget, newdirfd, newlink) : -1;
 }
 
 // Hook link
@@ -1039,7 +1071,8 @@ static char **prepare_cortex_env(char *const envp[]) {
     int has_threads_max = 0;
     int has_xz_opt = 0;
     int has_xz_defaults = 0;
-    int has_tar_options = 0;
+    int has_frontend = 0;
+    int has_debconf_seen = 0;
 
     char hook_path[PATH_MAX] = {0};
     if (g_cortex_root[0] != '\0') {
@@ -1063,13 +1096,15 @@ static char **prepare_cortex_env(char *const envp[]) {
             has_xz_opt = 1;
         } else if (strncmp(envp[count], "XZ_DEFAULTS=", 12) == 0) {
             has_xz_defaults = 1;
-        } else if (strncmp(envp[count], "TAR_OPTIONS=", 12) == 0) {
-            has_tar_options = 1;
+        } else if (strncmp(envp[count], "DEBIAN_FRONTEND=", 16) == 0) {
+            has_frontend = 1;
+        } else if (strncmp(envp[count], "DEBCONF_NONINTERACTIVE_SEEN=", 28) == 0) {
+            has_debconf_seen = 1;
         }
         count++;
     }
 
-    char **new_env = calloc(count + 12, sizeof(char *));
+    char **new_env = calloc(count + 14, sizeof(char *));
     int dst = 0;
     for (int i = 0; i < count; i++) {
         new_env[dst++] = envp[i];
@@ -1111,8 +1146,11 @@ static char **prepare_cortex_env(char *const envp[]) {
     if (!has_xz_defaults) {
         new_env[dst++] = "XZ_DEFAULTS=-T1";
     }
-    if (!has_tar_options) {
-        new_env[dst++] = "TAR_OPTIONS=--no-same-owner";
+    if (!has_frontend) {
+        new_env[dst++] = "DEBIAN_FRONTEND=noninteractive";
+    }
+    if (!has_debconf_seen) {
+        new_env[dst++] = "DEBCONF_NONINTERACTIVE_SEEN=true";
     }
     new_env[dst] = NULL;
     return new_env;
@@ -1596,15 +1634,6 @@ static in_addr_t get_primary_dns(void) {
     return primary_dns;
 }
 
-int close(int fd) {
-    static int (*orig_close)(int) = NULL;
-    if (!orig_close) orig_close = (int (*)(int))dlsym(RTLD_NEXT, "close");
-    // In terminal/worker environments, never close fd 0 (stdin) as it corrupts child IPC
-    if (fd == 0) {
-        return 0;
-    }
-    return orig_close ? orig_close(fd) : -1;
-}
 
 static struct addrinfo *alloc_one_addrinfo(const char *node, const char *ip_str, int port, int socktype, int protocol) {
     struct addrinfo *ai = (struct addrinfo *)calloc(1, sizeof(struct addrinfo));

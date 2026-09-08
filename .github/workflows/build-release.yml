@@ -236,11 +236,12 @@ jobs:
           NOTES="Cortex Release $VERSION
 
           Neler Duzeltildi / What's Fixed:
-          - GNU tar ve coreutils icin __open_2, __openat_2, __open64_2 ve __openat64_2 fortified kancalari eklendi
-          - dpkg-deb paket acma ve kontrol surecleri icin tek izlekli xz yapilandirmasi saglandi (DPKG_DEB_THREADS_MAX=1, XZ_OPT=-T1)
-          - mkfifoat kancasi ve mknodat FIFO destegi eklendi
-          - dpkg varsayilan yapilandirmasi (/etc/dpkg/dpkg.cfg.d/01cortex) olusturuldu
-          - Debian 12 Bookworm paket guncellemeleri (apt upgrade / apt install) sirasindaki tar ve dpkg-deb alt surec hatalari cozuldu"
+          - symlink ve symlinkat kancalarinda mutlak hedef yollari CORTEX_ROOT altina yeniden yonlendirildi
+          - readlink ve readlinkat kancalarinda CORTEX_ROOT on eki ayiklanarak standart Debian dosya yolu gorunumu saglandi
+          - dpkg ve tar boru hattini bozan close kanca engeli tamamen kaldirilarak standart POSIX akisi saglandi
+          - APT icin DPkg::Install::Recursive devre disi birakilarak gecici sembolik baglanti kaynakli hatalar onlendi
+          - debconf uyarilarini engellemek uzere DEBIAN_FRONTEND=noninteractive ve DEBCONF_NONINTERACTIVE_SEEN=true tanimlandi
+          - apt upgrade ve apt install sureclerindeki dpkg stat ve tar cikis hatalari tamamen cozuldu"
 
           gh release create "$VERSION" \
             release-apks/Cortex-arm64-v8a-signed.apk \

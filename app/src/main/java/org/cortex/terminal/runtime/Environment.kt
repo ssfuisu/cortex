@@ -80,7 +80,8 @@ object Environment {
             "DPKG_DEB_THREADS_MAX=1",
             "XZ_OPT=-T1",
             "XZ_DEFAULTS=-T1",
-            "TAR_OPTIONS=--no-same-owner"
+            "DEBIAN_FRONTEND=noninteractive",
+            "DEBCONF_NONINTERACTIVE_SEEN=true"
         )
 
         if (preloadStr.isNotEmpty()) {
