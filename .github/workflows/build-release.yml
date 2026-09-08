@@ -93,7 +93,8 @@ jobs:
           cp hook-libs/libcortex-hook-arm.so app/src/main/assets/libcortex-hook-arm.so
 
           echo "Preparing dpkg tables, APT sandbox, hosts, and DNS config for bootstrap..."
-          mkdir -p extra-rootfs/usr/share/dpkg extra-rootfs/etc/apt/apt.conf.d extra-rootfs/var/cache/apt/archives/partial extra-rootfs/var/lib/apt/lists/partial extra-rootfs/tmp extra-rootfs/etc extra-rootfs/etc/dpkg/dpkg.cfg.d extra-rootfs/etc/profile.d extra-rootfs/usr/sbin
+          mkdir -p extra-rootfs/usr/share/dpkg extra-rootfs/etc/apt/apt.conf.d extra-rootfs/var/cache/apt/archives/partial extra-rootfs/var/lib/apt/lists/partial extra-rootfs/tmp extra-rootfs/etc extra-rootfs/etc/dpkg/dpkg.cfg.d extra-rootfs/etc/profile.d extra-rootfs/usr/sbin extra-rootfs/etc/ssl/certs
+          curl -sLo extra-rootfs/etc/ssl/certs/ca-certificates.crt https://curl.se/ca/cacert.pem || true
           if [ -d /usr/share/dpkg ]; then
             cp -r /usr/share/dpkg/* extra-rootfs/usr/share/dpkg/
           fi
@@ -103,7 +104,7 @@ jobs:
           printf 'APT::Sandbox::User "root";\nAPT::Sandbox::Seccomp "false";\nAcquire::ForceIPv4 "true";\nAcquire::Connect::AddrConfig "false";\nAcquire::SRV "false";\nAcquire::Languages "none";\nAcquire::GzipIndexes "true";\nDir::dpkg::cputable "/usr/share/dpkg/cputable";\nDir::dpkg::tupletable "/usr/share/dpkg/tupletable";\nDir::dpkg::triplettable "/usr/share/dpkg/triplettable";\nDPkg::Install::Recursive "false";\nDpkg::Progress-Fancy "false";\nAPT::Color "false";\nDPkg::Options {\n   "--force-confdef";\n   "--force-confold";\n   "--force-unsafe-io";\n};\n' > extra-rootfs/etc/apt/apt.conf.d/01sandbox
           echo "# Disabled for Cortex" > extra-rootfs/etc/apt/apt.conf.d/docker-clean
           printf 'force-confdef\nforce-confold\nforce-unsafe-io\nno-debsig\n' > extra-rootfs/etc/dpkg/dpkg.cfg.d/01cortex
-          printf 'export DPKG_DEB_THREADS_MAX=1\nexport XZ_OPT=-T1\nexport XZ_DEFAULTS=-T1\nexport TAR_OPTIONS=--no-same-owner\nexport DEBIAN_FRONTEND=noninteractive\nexport DEBCONF_FRONTEND=noninteractive\nexport DEBCONF_NONINTERACTIVE_SEEN=true\n' > extra-rootfs/etc/profile.d/01cortex.sh
+          printf 'export DPKG_DEB_THREADS_MAX=1\nexport XZ_OPT=-T1\nexport XZ_DEFAULTS=-T1\nexport TAR_OPTIONS=--no-same-owner\nexport DEBIAN_FRONTEND=noninteractive\nexport DEBCONF_FRONTEND=noninteractive\nexport DEBCONF_NONINTERACTIVE_SEEN=true\nexport SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt\nexport CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt\n' > extra-rootfs/etc/profile.d/01cortex.sh
 
           printf '#!/bin/sh\nexit 101\n' > extra-rootfs/usr/sbin/policy-rc.d
           printf '#!/bin/sh\nexit 0\n' > extra-rootfs/usr/sbin/ldconfig
@@ -240,12 +241,12 @@ jobs:
 
           NOTES="Cortex Release $VERSION
 
-          Features and Fixes:
-          - Prevent Auto-Execution on Paste: Stripped trailing newlines when pasting text into the terminal via context menu or soft keyboard suggestions, allowing commands to be reviewed and edited prior to execution.
-          - Terminal Scroll Margins and Blank Lines Resolved: Fixed scroll margins (DECSTBM) and linefeed handling outside margins that previously generated large blank gaps and wiped package installation logs during APT operations.
-          - Full VT100 / ANSI Cursor Save and Restore: Implemented support for ESC 7 / ESC 8 (DECSC/DECRC) and CSI s / CSI u, along with CHA (CSI G), VPA (CSI d), and ECH (CSI X) for accurate terminal cursor management.
-          - Streamlined APT and Dpkg Console Output: Disabled fancy progress bar (Dpkg::Progress-Fancy) to provide clean, reliable line-by-line console logs on mobile screens.
-          - Robust Package Management: Full support for apt update, apt upgrade, and installing packages such as Python, NodeJS, and Micro."
+Features and Fixes:
+- Termux-Style Persistent Foreground Notification: Added CortexService running in foreground with persistent system status notification showing active session count. Terminal sessions stay alive in the background even if the app is swiped away from Android Recent Apps.
+- WakeLock and Session Controls: Notification provides direct actions to Acquire or Release CPU WakeLock (preventing Android from sleeping terminal processes) and Exit to cleanly terminate all background sessions and processes.
+- Fixed Curl and HTTPS Network Operations: Bundled and dynamically extracted system CA certificates into /etc/ssl/certs/ca-certificates.crt. Pre-configured SSL_CERT_FILE and CURL_CA_BUNDLE environment variables so curl, git, python, and node work with HTTPS out of the box.
+- Dynamic DNS Fallback in Hook: Implemented UDP DNS resolver fallback in libcortex-hook to resolve hostnames directly via primary DNS and public resolvers (8.8.8.8, 1.1.1.1) when glibc's resolver encounters restrictions on Android.
+- Safe Exit Confirmation: Back press prompt cleanly integrates with CortexService to terminate sessions on user request."
 
           gh release create "$VERSION" \
             release-apks/Cortex-arm64-v8a-signed.apk \

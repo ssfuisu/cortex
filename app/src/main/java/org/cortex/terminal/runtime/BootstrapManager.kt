@@ -65,6 +65,7 @@ object BootstrapManager {
         ensureLocale(root)
         ensureHosts(root)
         ensureNsswitch(root)
+        ensureCaCertificates(root)
 
         File(root, "var/cache/apt/archives/partial").mkdirs()
         File(root, "var/lib/apt/lists/partial").mkdirs()
@@ -74,7 +75,7 @@ object BootstrapManager {
         patchAllDynamicLinkers(root)
     }
 
-    private const val CURRENT_BOOTSTRAP_VERSION = 12411
+    private const val CURRENT_BOOTSTRAP_VERSION = 12412
 
     fun isBootstrapInstalled(context: Context): Boolean {
         val root = Environment.getCortexRoot(context)
@@ -235,6 +236,7 @@ object BootstrapManager {
             ensureLocale(root)
             ensureHosts(root)
             ensureNsswitch(root)
+            ensureCaCertificates(root)
             cleanupAptArtifacts(root)
 
             File(root, "var/lib/apt/lists/partial").mkdirs()
@@ -565,7 +567,9 @@ object BootstrapManager {
                 "export XZ_DEFAULTS=-T1\n" +
                 "export DEBIAN_FRONTEND=noninteractive\n" +
                 "export DEBCONF_FRONTEND=noninteractive\n" +
-                "export DEBCONF_NONINTERACTIVE_SEEN=true\n"
+                "export DEBCONF_NONINTERACTIVE_SEEN=true\n" +
+                "export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt\n" +
+                "export CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt\n"
             )
 
             val usrSbinDir = File(root, "usr/sbin")
@@ -609,6 +613,7 @@ object BootstrapManager {
             File(root, "var/cache/apt/archives/partial").mkdirs()
             File(root, "var/lib/apt/lists/partial").mkdirs()
             File(root, "tmp").mkdirs()
+            ensureCaCertificates(root)
         } catch (e: Exception) {
             android.util.Log.e("BootstrapManager", "Failed to ensure apt sandbox config", e)
         }
@@ -735,6 +740,39 @@ object BootstrapManager {
             }
         } catch (e: Exception) {
             android.util.Log.e("BootstrapManager", "Failed to cleanup apt artifacts", e)
+        }
+    }
+
+    fun ensureCaCertificates(root: File) {
+        try {
+            val certsDir = File(root, "etc/ssl/certs")
+            certsDir.mkdirs()
+            val caBundle = File(certsDir, "ca-certificates.crt")
+            if (!caBundle.exists() || caBundle.length() < 1000L) {
+                val androidCertsDir = File("/system/etc/security/cacerts")
+                val sb = StringBuilder()
+                if (androidCertsDir.exists() && androidCertsDir.isDirectory) {
+                    androidCertsDir.listFiles()?.forEach { f ->
+                        if (f.isFile && f.name.endsWith(".0")) {
+                            try {
+                                val content = f.readText()
+                                val start = content.indexOf("-----BEGIN CERTIFICATE-----")
+                                val end = content.indexOf("-----END CERTIFICATE-----")
+                                if (start != -1 && end != -1) {
+                                    sb.append(content.substring(start, end + "-----END CERTIFICATE-----".length)).append("\n")
+                                }
+                            } catch (e: Exception) {}
+                        }
+                    }
+                }
+                if (sb.isNotEmpty()) {
+                    caBundle.writeText(sb.toString())
+                    caBundle.setReadable(true, false)
+                    android.util.Log.i("BootstrapManager", "Generated ca-certificates.crt (${caBundle.length()} bytes)")
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("BootstrapManager", "Failed to ensure CA certificates", e)
         }
     }
 }

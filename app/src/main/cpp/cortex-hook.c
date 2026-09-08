@@ -1796,13 +1796,113 @@ static struct addrinfo *alloc_one_addrinfo(const char *node, const char *ip_str,
     return ai;
 }
 
+static int dns_lookup_ipv4(const char *hostname, struct in_addr *out_addr) {
+    if (!hostname || !out_addr) return -1;
+
+    if (inet_aton(hostname, out_addr)) {
+        return 0;
+    }
+
+    unsigned char packet[512];
+    memset(packet, 0, sizeof(packet));
+
+    packet[0] = 0x5a;
+    packet[1] = 0x6b;
+    packet[2] = 0x01;
+    packet[3] = 0x00;
+    packet[4] = 0x00;
+    packet[5] = 0x01;
+
+    int pos = 12;
+    const char *p = hostname;
+    while (*p) {
+        const char *dot = strchr(p, '.');
+        size_t len = dot ? (size_t)(dot - p) : strlen(p);
+        if (len > 63 || pos + len + 1 >= (int)sizeof(packet) - 10) return -1;
+        packet[pos++] = (unsigned char)len;
+        memcpy(&packet[pos], p, len);
+        pos += len;
+        if (!dot) break;
+        p = dot + 1;
+    }
+    packet[pos++] = 0;
+
+    packet[pos++] = 0x00;
+    packet[pos++] = 0x01; // QTYPE A
+    packet[pos++] = 0x00;
+    packet[pos++] = 0x01; // QCLASS IN
+    int packet_len = pos;
+
+    in_addr_t dns_servers[3];
+    dns_servers[0] = get_primary_dns();
+    dns_servers[1] = inet_addr("8.8.8.8");
+    dns_servers[2] = inet_addr("1.1.1.1");
+
+    for (int s = 0; s < 3; s++) {
+        if (dns_servers[s] == 0) continue;
+        if (s > 0 && dns_servers[s] == dns_servers[0]) continue;
+
+        int sock = socket(AF_INET, SOCK_DGRAM, 0);
+        if (sock < 0) continue;
+
+        struct timeval tv;
+        tv.tv_sec = 1;
+        tv.tv_usec = 500000;
+        setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+
+        struct sockaddr_in dest;
+        memset(&dest, 0, sizeof(dest));
+        dest.sin_family = AF_INET;
+        dest.sin_port = htons(53);
+        dest.sin_addr.s_addr = dns_servers[s];
+
+        sendto(sock, packet, packet_len, 0, (struct sockaddr *)&dest, sizeof(dest));
+
+        unsigned char resp[1024];
+        ssize_t n = recvfrom(sock, resp, sizeof(resp), 0, NULL, NULL);
+        close(sock);
+
+        if (n > 12 && resp[0] == packet[0] && resp[1] == packet[1]) {
+            int ancount = (resp[6] << 8) | resp[7];
+            if (ancount > 0) {
+                int offset = 12;
+                while (offset < n && resp[offset] != 0) {
+                    if ((resp[offset] & 0xc0) == 0xc0) {
+                        offset += 2;
+                        break;
+                    }
+                    offset += 1 + resp[offset];
+                }
+                if (offset < n && resp[offset] == 0) offset++;
+                offset += 4; // Skip QTYPE and QCLASS
+
+                for (int a = 0; a < ancount && offset + 10 <= n; a++) {
+                    if ((resp[offset] & 0xc0) == 0xc0) {
+                        offset += 2;
+                    } else {
+                        while (offset < n && resp[offset] != 0) offset++;
+                        if (offset < n) offset++;
+                    }
+                    if (offset + 10 > n) break;
+                    int rtype = (resp[offset] << 8) | resp[offset + 1];
+                    int rdlen = (resp[offset + 8] << 8) | resp[offset + 9];
+                    offset += 10;
+                    if (rtype == 1 && rdlen == 4 && offset + 4 <= n) {
+                        memcpy(&out_addr->s_addr, &resp[offset], 4);
+                        return 0;
+                    }
+                    offset += rdlen;
+                }
+            }
+        }
+    }
+    return -1;
+}
+
 static int synthesize_fallback_addrinfo(const char *node, const char *service,
                                         const struct addrinfo *hints,
                                         struct addrinfo **res) {
     if (!node || !res) return EAI_NONAME;
-
-    int is_debian = (strstr(node, "debian.org") != NULL);
-    if (!is_debian) return EAI_NONAME;
 
     int port = 80;
     if (service) {
@@ -1824,14 +1924,29 @@ static int synthesize_fallback_addrinfo(const char *node, const char *service,
     int socktype = (hints && hints->ai_socktype) ? hints->ai_socktype : SOCK_STREAM;
     int protocol = (hints && hints->ai_protocol) ? hints->ai_protocol : IPPROTO_TCP;
 
-    struct addrinfo *ai1 = alloc_one_addrinfo(node, "151.101.130.132", port, socktype, protocol);
-    if (!ai1) return EAI_MEMORY;
-    struct addrinfo *ai2 = alloc_one_addrinfo(node, "151.101.2.132", port, socktype, protocol);
-    if (ai2) {
-        ai1->ai_next = ai2;
+    struct in_addr resolved_addr;
+    if (dns_lookup_ipv4(node, &resolved_addr) == 0) {
+        char ip_str[INET_ADDRSTRLEN];
+        inet_ntop(AF_INET, &resolved_addr, ip_str, sizeof(ip_str));
+        struct addrinfo *ai = alloc_one_addrinfo(node, ip_str, port, socktype, protocol);
+        if (ai) {
+            *res = ai;
+            return 0;
+        }
     }
-    *res = ai1;
-    return 0;
+
+    if (strstr(node, "debian.org") != NULL) {
+        struct addrinfo *ai1 = alloc_one_addrinfo(node, "151.101.130.132", port, socktype, protocol);
+        if (!ai1) return EAI_MEMORY;
+        struct addrinfo *ai2 = alloc_one_addrinfo(node, "151.101.2.132", port, socktype, protocol);
+        if (ai2) {
+            ai1->ai_next = ai2;
+        }
+        *res = ai1;
+        return 0;
+    }
+
+    return EAI_NONAME;
 }
 
 int getaddrinfo(const char *node, const char *service,
@@ -1855,7 +1970,7 @@ int getaddrinfo(const char *node, const char *service,
 
     int ret = orig_getaddrinfo ? orig_getaddrinfo(node, service, &mod_hints, res) : EAI_FAIL;
     if (ret != 0 || !res || !*res) {
-        if (node && strstr(node, "debian.org")) {
+        if (node) {
             ret = synthesize_fallback_addrinfo(node, service, hints, res);
         }
     }

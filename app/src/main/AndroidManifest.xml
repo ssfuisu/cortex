@@ -35,6 +35,11 @@
             android:theme="@style/Theme.Cortex.Settings"
             android:label="@string/settings_title" />
 
+        <service
+            android:name=".service.CortexService"
+            android:enabled="true"
+            android:exported="false" />
+
     </application>
 
 </manifest>

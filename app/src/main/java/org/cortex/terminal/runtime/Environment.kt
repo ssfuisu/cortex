@@ -82,7 +82,9 @@ object Environment {
             "XZ_DEFAULTS=-T1",
             "DEBIAN_FRONTEND=noninteractive",
             "DEBCONF_FRONTEND=noninteractive",
-            "DEBCONF_NONINTERACTIVE_SEEN=true"
+            "DEBCONF_NONINTERACTIVE_SEEN=true",
+            "SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt",
+            "CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt"
         )
 
         if (preloadStr.isNotEmpty()) {

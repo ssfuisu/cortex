@@ -14,12 +14,18 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import org.cortex.terminal.runtime.BootstrapManager
 import org.cortex.terminal.runtime.Environment
+import org.cortex.terminal.service.CortexService
 import org.cortex.terminal.session.SessionAdapter
 import org.cortex.terminal.session.SessionManager
 import org.cortex.terminal.view.ExtraKeysView
 import org.cortex.terminal.view.TerminalView
 
 class MainActivity : AppCompatActivity() {
+
+    companion object {
+        var instance: MainActivity? = null
+            private set
+    }
 
     private lateinit var drawerLayout: DrawerLayout
     private lateinit var terminalView: TerminalView
@@ -72,7 +78,9 @@ class MainActivity : AppCompatActivity() {
             startActivity(Intent(this, SettingsActivity::class.java))
         }
 
-        sessionManager = SessionManager(this)
+        instance = this
+        CortexService.start(this)
+        sessionManager = CortexService.getOrCreateSessionManager(this)
 
         sessionAdapter = SessionAdapter(
             sessionManager = sessionManager,
@@ -86,13 +94,16 @@ class MainActivity : AppCompatActivity() {
                     if (sessionManager.sessions.size > 1) {
                         sessionManager.removeSession(session)
                         sessionAdapter.notifyDataSetChanged()
+                        CortexService.updateNotification(this)
                     } else {
                         AlertDialog.Builder(this)
                             .setTitle(R.string.exit_confirm_title)
                             .setMessage(R.string.exit_confirm_message)
                             .setPositiveButton(R.string.yes) { _, _ ->
-                                sessionManager.destroyAll()
-                                finish()
+                                CortexService.instance?.exitAll() ?: run {
+                                    sessionManager.destroyAll()
+                                    finish()
+                                }
                             }
                             .setNegativeButton(R.string.no, null)
                             .show()
@@ -107,10 +118,12 @@ class MainActivity : AppCompatActivity() {
         sessionManager.onSessionChanged = { session ->
             runOnUiThread {
                 if (session == null) {
+                    CortexService.stop(this)
                     if (!isFinishing && !isDestroyed) {
                         finish()
                     }
                 } else {
+                    CortexService.updateNotification(this)
                     terminalView.session = session
                     val tabNum = sessionManager.currentSessionIndex + 1
                     val totalTabs = sessionManager.sessions.size
@@ -147,14 +160,34 @@ class MainActivity : AppCompatActivity() {
                         progress.dismiss()
                     } catch (e: Exception) {
                     }
-                    createNewSession()
+                    if (sessionManager.sessions.isEmpty()) {
+                        createNewSession()
+                    } else {
+                        val current = sessionManager.currentSession ?: sessionManager.sessions[0]
+                        terminalView.session = current
+                        val tabNum = sessionManager.currentSessionIndex + 1
+                        val totalTabs = sessionManager.sessions.size
+                        appTitle.text = "Cortex [$tabNum/$totalTabs]"
+                        sessionAdapter.notifyDataSetChanged()
+                        terminalView.invalidate()
+                    }
                     terminalView.post {
                         terminalView.showKeyboard()
                     }
                 }
             }
         } else {
-            createNewSession()
+            if (sessionManager.sessions.isEmpty()) {
+                createNewSession()
+            } else {
+                val current = sessionManager.currentSession ?: sessionManager.sessions[0]
+                terminalView.session = current
+                val tabNum = sessionManager.currentSessionIndex + 1
+                val totalTabs = sessionManager.sessions.size
+                appTitle.text = "Cortex [$tabNum/$totalTabs]"
+                sessionAdapter.notifyDataSetChanged()
+                terminalView.invalidate()
+            }
             terminalView.post {
                 terminalView.showKeyboard()
             }
@@ -221,15 +254,20 @@ class MainActivity : AppCompatActivity() {
             .setTitle(R.string.exit_confirm_title)
             .setMessage(R.string.exit_confirm_message)
             .setPositiveButton(R.string.yes) { _, _ ->
-                sessionManager.destroyAll()
-                super.onBackPressed()
+                CortexService.instance?.exitAll() ?: run {
+                    sessionManager.destroyAll()
+                    super.onBackPressed()
+                }
             }
             .setNegativeButton(R.string.no, null)
             .show()
     }
 
     override fun onDestroy() {
-        sessionManager.destroyAll()
+        if (instance == this) instance = null
+        if (sessionManager.sessions.isEmpty()) {
+            CortexService.stop(this)
+        }
         super.onDestroy()
     }
 }
