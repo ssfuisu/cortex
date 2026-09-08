@@ -74,7 +74,7 @@ object BootstrapManager {
         patchAllDynamicLinkers(root)
     }
 
-    private const val CURRENT_BOOTSTRAP_VERSION = 12408
+    private const val CURRENT_BOOTSTRAP_VERSION = 12409
 
     fun isBootstrapInstalled(context: Context): Boolean {
         val root = Environment.getCortexRoot(context)
@@ -565,6 +565,36 @@ object BootstrapManager {
                 "export DEBCONF_FRONTEND=noninteractive\n" +
                 "export DEBCONF_NONINTERACTIVE_SEEN=true\n"
             )
+
+            val sbinDir = File(root, "sbin")
+            val usrSbinDir = File(root, "usr/sbin")
+            sbinDir.mkdirs()
+            usrSbinDir.mkdirs()
+
+            val policyScript = "#!/bin/sh\nexit 101\n"
+            listOf(File(sbinDir, "policy-rc.d"), File(usrSbinDir, "policy-rc.d")).forEach { f ->
+                f.writeText(policyScript)
+                f.setReadable(true, false)
+                f.setExecutable(true, false)
+                try {
+                    android.system.Os.chmod(f.absolutePath, 493)
+                } catch (e: Exception) {}
+            }
+
+            val dummyExitZero = "#!/bin/sh\nexit 0\n"
+            listOf(
+                File(sbinDir, "ldconfig"),
+                File(usrSbinDir, "ldconfig"),
+                File(sbinDir, "start-stop-daemon"),
+                File(usrSbinDir, "start-stop-daemon")
+            ).forEach { f ->
+                f.writeText(dummyExitZero)
+                f.setReadable(true, false)
+                f.setExecutable(true, false)
+                try {
+                    android.system.Os.chmod(f.absolutePath, 493)
+                } catch (e: Exception) {}
+            }
 
             File(root, "var/cache/apt/archives/partial").mkdirs()
             File(root, "var/lib/apt/lists/partial").mkdirs()

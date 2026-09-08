@@ -620,8 +620,8 @@ int renameat(int olddirfd, const char *oldpath, int newdirfd, const char *newpat
     if (!orig_renameat) orig_renameat = (int (*)(int, const char *, int, const char *))dlsym(RTLD_NEXT, "renameat");
     char buf1[PATH_MAX];
     char buf2[PATH_MAX];
-    const char *target_old = (oldpath[0] == '/') ? rewrite_path(oldpath, buf1, sizeof(buf1)) : oldpath;
-    const char *target_new = (newpath[0] == '/') ? rewrite_path(newpath, buf2, sizeof(buf2)) : newpath;
+    const char *target_old = (oldpath && oldpath[0] == '/') ? rewrite_path(oldpath, buf1, sizeof(buf1)) : oldpath;
+    const char *target_new = (newpath && newpath[0] == '/') ? rewrite_path(newpath, buf2, sizeof(buf2)) : newpath;
     return orig_renameat(olddirfd, target_old, newdirfd, target_new);
 }
 
@@ -634,8 +634,8 @@ int renameat2(int olddirfd, const char *oldpath, int newdirfd, const char *newpa
     }
     char buf1[PATH_MAX];
     char buf2[PATH_MAX];
-    const char *target_old = (oldpath[0] == '/') ? rewrite_path(oldpath, buf1, sizeof(buf1)) : oldpath;
-    const char *target_new = (newpath[0] == '/') ? rewrite_path(newpath, buf2, sizeof(buf2)) : newpath;
+    const char *target_old = (oldpath && oldpath[0] == '/') ? rewrite_path(oldpath, buf1, sizeof(buf1)) : oldpath;
+    const char *target_new = (newpath && newpath[0] == '/') ? rewrite_path(newpath, buf2, sizeof(buf2)) : newpath;
     return orig_renameat2(olddirfd, target_old, newdirfd, target_new, flags);
 }
 
@@ -1266,6 +1266,19 @@ int execve(const char *filename, char *const argv[], char *const envp[]) {
 
     init_cortex_hook();
 
+    const char *prog_name = strrchr(target, '/');
+    prog_name = (prog_name != NULL) ? prog_name + 1 : target;
+
+    // Intercept utilities that fail or cause issues in unprivileged Android environment
+    if (strcmp(prog_name, "ldconfig") == 0 ||
+        strcmp(prog_name, "ldconfig.real") == 0 ||
+        strcmp(prog_name, "start-stop-daemon") == 0) {
+        _exit(0);
+    }
+    if (strcmp(prog_name, "policy-rc.d") == 0) {
+        _exit(101);
+    }
+
     // Only intercept binaries/scripts within CORTEX_ROOT
     if (g_cortex_root[0] != '\0' && strncmp(target, g_cortex_root, strlen(g_cortex_root)) == 0) {
         int fd = open(target, O_RDONLY);
@@ -1572,6 +1585,33 @@ int posix_spawn(pid_t *pid, const char *path,
     const char *target = rewrite_path(path, buf, sizeof(buf));
 
     init_cortex_hook();
+
+    const char *prog_name = strrchr(target, '/');
+    prog_name = (prog_name != NULL) ? prog_name + 1 : target;
+
+    if (strcmp(prog_name, "ldconfig") == 0 ||
+        strcmp(prog_name, "ldconfig.real") == 0 ||
+        strcmp(prog_name, "start-stop-daemon") == 0) {
+        pid_t child = fork();
+        if (child == 0) {
+            _exit(0);
+        } else if (child > 0) {
+            if (pid) *pid = child;
+            return 0;
+        }
+        return errno;
+    }
+    if (strcmp(prog_name, "policy-rc.d") == 0) {
+        pid_t child = fork();
+        if (child == 0) {
+            _exit(101);
+        } else if (child > 0) {
+            if (pid) *pid = child;
+            return 0;
+        }
+        return errno;
+    }
+
     char ld_so[PATH_MAX] = {0};
 #if defined(__aarch64__)
     snprintf(ld_so, sizeof(ld_so), "%s/usr/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1", g_cortex_root);

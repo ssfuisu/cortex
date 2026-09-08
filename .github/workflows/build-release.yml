@@ -93,7 +93,7 @@ jobs:
           cp hook-libs/libcortex-hook-arm.so app/src/main/assets/libcortex-hook-arm.so
 
           echo "Preparing dpkg tables, APT sandbox, hosts, and DNS config for bootstrap..."
-          mkdir -p extra-rootfs/usr/share/dpkg extra-rootfs/etc/apt/apt.conf.d extra-rootfs/var/cache/apt/archives/partial extra-rootfs/var/lib/apt/lists/partial extra-rootfs/tmp extra-rootfs/etc extra-rootfs/etc/dpkg/dpkg.cfg.d extra-rootfs/etc/profile.d
+          mkdir -p extra-rootfs/usr/share/dpkg extra-rootfs/etc/apt/apt.conf.d extra-rootfs/var/cache/apt/archives/partial extra-rootfs/var/lib/apt/lists/partial extra-rootfs/tmp extra-rootfs/etc extra-rootfs/etc/dpkg/dpkg.cfg.d extra-rootfs/etc/profile.d extra-rootfs/sbin extra-rootfs/usr/sbin
           if [ -d /usr/share/dpkg ]; then
             cp -r /usr/share/dpkg/* extra-rootfs/usr/share/dpkg/
           fi
@@ -103,7 +103,15 @@ jobs:
           printf 'APT::Sandbox::User "root";\nAPT::Sandbox::Seccomp "false";\nAcquire::ForceIPv4 "true";\nAcquire::Connect::AddrConfig "false";\nAcquire::SRV "false";\nAcquire::Languages "none";\nAcquire::GzipIndexes "true";\nDir::dpkg::cputable "/usr/share/dpkg/cputable";\nDir::dpkg::tupletable "/usr/share/dpkg/tupletable";\nDir::dpkg::triplettable "/usr/share/dpkg/triplettable";\nDPkg::Options {\n   "--force-confdef";\n   "--force-confold";\n   "--force-unsafe-io";\n};\n' > extra-rootfs/etc/apt/apt.conf.d/01sandbox
           echo "# Disabled for Cortex" > extra-rootfs/etc/apt/apt.conf.d/docker-clean
           printf 'force-confdef\nforce-confold\nforce-unsafe-io\nno-debsig\n' > extra-rootfs/etc/dpkg/dpkg.cfg.d/01cortex
-          printf 'export DPKG_DEB_THREADS_MAX=1\nexport XZ_OPT=-T1\nexport XZ_DEFAULTS=-T1\nexport TAR_OPTIONS=--no-same-owner\n' > extra-rootfs/etc/profile.d/01cortex.sh
+          printf 'export DPKG_DEB_THREADS_MAX=1\nexport XZ_OPT=-T1\nexport XZ_DEFAULTS=-T1\nexport TAR_OPTIONS=--no-same-owner\nexport DEBIAN_FRONTEND=noninteractive\nexport DEBCONF_FRONTEND=noninteractive\nexport DEBCONF_NONINTERACTIVE_SEEN=true\n' > extra-rootfs/etc/profile.d/01cortex.sh
+
+          printf '#!/bin/sh\nexit 101\n' > extra-rootfs/sbin/policy-rc.d
+          printf '#!/bin/sh\nexit 101\n' > extra-rootfs/usr/sbin/policy-rc.d
+          printf '#!/bin/sh\nexit 0\n' > extra-rootfs/sbin/ldconfig
+          printf '#!/bin/sh\nexit 0\n' > extra-rootfs/usr/sbin/ldconfig
+          printf '#!/bin/sh\nexit 0\n' > extra-rootfs/sbin/start-stop-daemon
+          printf '#!/bin/sh\nexit 0\n' > extra-rootfs/usr/sbin/start-stop-daemon
+          chmod 0755 extra-rootfs/sbin/* extra-rootfs/usr/sbin/*
 
           printf '127.0.0.1 localhost localhost.localdomain\n::1 localhost ip6-localhost ip6-loopback\n151.101.130.132 deb.debian.org\n151.101.2.132 deb.debian.org\n151.101.66.132 deb.debian.org\n151.101.194.132 deb.debian.org\n151.101.130.132 security.debian.org\n151.101.2.132 security.debian.org\n151.101.66.132 security.debian.org\n151.101.194.132 security.debian.org\n151.101.130.132 cdn-fastly.deb.debian.org\n151.101.2.132 cdn-fastly.deb.debian.org\n' > extra-rootfs/etc/hosts
           printf 'nameserver 8.8.8.8\nnameserver 1.1.1.1\noptions timeout:1 attempts:2 rotate\n' > extra-rootfs/etc/resolv.conf
@@ -236,12 +244,11 @@ jobs:
           NOTES="Cortex Release $VERSION
 
           Yenilikler ve Duzeltmeler:
-          - Yeni Ozel Uygulama Ikonu: Kullanici tarafindan saglanan yeni gorsel tum cozunurluklerde (mdpi, hdpi, xhdpi, xxhdpi, xxxhdpi ve adaptive icon) uygulama ikonu olarak entegre edildi.
-          - Gelismis Oturum Yonetimi: Terminal oturumunda exit komutu yazildiginda baska aktif oturum yoksa uygulama onay sormadan dogrudan kapatilir.
-          - Dinamik Oturum Numaralandirma: Coklu oturum acikken bir oturum kapatildiginda kalan oturuma gecis yapilir ve oturum siralamasi (Session 1, Session 2...) dinamik olarak guncellenir.
-          - Glibc Hook lzma ve zstd Entegrasyonu: dpkg-deb tarafindan calistirilan lzma_stream_decoder_mt, lzma_stream_encoder_mt ve lzma_cputhreads kancalanarak forked cocuk sureclerde coklu is parcacigi (clone/pthread_create) olusumu engellendi, tek is parcacikli senkron calisma saglandi.
-          - apt upgrade ve dpkg-deb Tar Hatasi Cozuldu: lzma decompressor boru hattinin sifir bayt vermesine ve tar: This does not look like a tar archive hatasina yol acan is parcacigi cakismasi tamamen cozuldu.
-          - debconf Yapilandirmasi: DEBCONF_FRONTEND=noninteractive degiskeni eklenerek Perl debconf baslatma uyarilari giderildi."
+          - libc-bin ve ldconfig Chroot Hatasi Giderildi: Debian paketlerinin (libc-bin, libpcre2-8-0 vb.) tetikleyicilerinde calistirilan ve Android sandbox altinda EPERM veren statik ldconfig araci cortex-hook icerisinde (execve, posix_spawn) guvenli sekilde kancalanip basariyla sonlandirildi.
+          - policy-rc.d ve start-stop-daemon Entegrasyonu: Paket kurulumlarinda arka plan servislerinin baslatilmasini engelleyen /usr/sbin/policy-rc.d (kod 101) ve start-stop-daemon kukla betikleri eklenerek apt upgrade ve apt install islemlerinin kesintisiz tamamlanmasi saglandi.
+          - Dinamik Linker Seccomp Guvenligi: Android seccomp mimarisinde engellenen set_robust_list (syscall 99) cagrisi BootstrapManager tarafindan dinamik olarak tespit edilip temizlendi.
+          - Coklu Is Parcacigi Guvenligi: dpkg-deb tarafindan calistirilan lzma ve zstd tek is parcacikli calismaya zorlanarak tar archive hatasi tamamen onlendi.
+          - Hizli ve Kararli Paket Yonetimi: Micro, NodeJS, Python ve diger tum Debian paketleri apt ile sorunsuz sekilde kurulabilir hale getirildi."
 
           gh release create "$VERSION" \
             release-apks/Cortex-arm64-v8a-signed.apk \
