@@ -122,7 +122,7 @@ object BootstrapManager {
         patchAllDynamicLinkers(root)
     }
 
-    private const val CURRENT_BOOTSTRAP_VERSION = 12413
+    private const val CURRENT_BOOTSTRAP_VERSION = 12414
 
     fun isBootstrapInstalled(context: Context): Boolean {
         val root = Environment.getCortexRoot(context)
@@ -326,17 +326,25 @@ object BootstrapManager {
         if (!root.exists() || !root.isDirectory) return
         try {
             root.walkTopDown().forEach { file ->
-                if (file.isFile && file.name.startsWith("ld-linux") && !java.nio.file.Files.isSymbolicLink(file.toPath())) {
-                    patchDynamicLinker(file)
+                val name = file.name
+                if (file.isFile && (name.startsWith("ld-linux") || name.startsWith("libc.so") || name.startsWith("libc-"))) {
+                    val target = if (java.nio.file.Files.isSymbolicLink(file.toPath())) {
+                        try { file.canonicalFile } catch (e: Exception) { file }
+                    } else {
+                        file
+                    }
+                    if (target.exists() && target.isFile) {
+                        patchDynamicLinker(target)
+                    }
                 }
             }
         } catch (e: Exception) {
-            android.util.Log.e("BootstrapManager", "Error walking root to patch dynamic linkers", e)
+            android.util.Log.e("BootstrapManager", "Error walking root to patch dynamic linkers and libc", e)
         }
     }
 
     fun patchDynamicLinker(file: File) {
-        if (!file.exists() || !file.isFile || java.nio.file.Files.isSymbolicLink(file.toPath())) {
+        if (!file.exists() || !file.isFile) {
             return
         }
         try {

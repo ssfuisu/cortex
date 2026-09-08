@@ -136,7 +136,7 @@ jobs:
           import tarfile, io, os
 
           def patch_tar_ld(tar_path):
-              print(f"Checking and patching dynamic linkers in {tar_path}...")
+              print(f"Checking and patching dynamic linkers and libc in {tar_path}...")
               pattern = b"\x68\x0c\x80\xd2" # mov x8, #0x63
               svc = b"\x01\x00\x00\xd4"     # svc #0
               nop = b"\x1f\x20\x03\xd5"     # nop
@@ -147,17 +147,23 @@ jobs:
                   with tarfile.open(tar_path + ".tmp", "w") as tout:
                       for m in members:
                           f = tin.extractfile(m) if m.isreg() else None
-                          if f and "ld-linux" in m.name:
+                          if f and ("ld-linux" in m.name or "libc.so" in m.name or "libc-" in m.name):
                               data = bytearray(f.read())
-                              idx = data.find(pattern)
-                              if idx != -1:
+                              pos = 0
+                              file_patched = 0
+                              while True:
+                                  idx = data.find(pattern, pos)
+                                  if idx == -1: break
                                   sub = data[idx:idx+64]
                                   s_idx = sub.find(svc)
                                   if s_idx != -1:
                                       target = idx + s_idx
                                       data[target:target+4] = nop
-                                      print(f"Patched {m.name} at 0x{target:x}!")
+                                      file_patched += 1
                                       count += 1
+                                  pos = idx + 4
+                              if file_patched > 0:
+                                  print(f"Patched {m.name}: {file_patched} occurrence(s) replaced with nop!")
                               m.size = len(data)
                               tout.addfile(m, io.BytesIO(data))
                           elif f:
@@ -242,11 +248,11 @@ jobs:
           NOTES="Cortex Release $VERSION
 
           Features and Fixes:
-          - Stale Session and Process Lifecycle Root Fix: Resolved the issue where updating the app could keep old terminal processes and memory mappings alive from previous versions. CortexService and MainActivity now detect version upgrades, cleanly terminate obsolete background sessions, and spawn a fresh environment.
-          - Fresh Session on Bootstrap Upgrade: Bootstrap extraction and version bumps automatically clear previous sessions, ensuring all new environment variables, dynamic linker patches, and libcortex-hook.so updates take effect immediately.
-          - Out-of-the-Box User Bin Path: Added ~/.local/bin to the default PATH in Environment.kt and shell profiles, allowing installed CLI tools (including Antigravity agy, user scripts, and pip binaries) to be invoked directly without manual export.
-          - Resilient Shell Profile Setup: Hardened .bashrc and .profile generation with exception handling and persistent SSL_CERT_FILE / CURL_CA_BUNDLE exports.
-          - Persistent Foreground Service & WakeLock: Termux-style notification displaying active session count, instant WakeLock toggle, and safe Exit control."
+          - Resolve Bad System Call (SIGSYS 159) Crash: Fixed the critical crash where glibc pthread thread initialization (e.g. in curl, node, python) called set_robust_list (syscall 99) with signals blocked, causing Android seccomp to trap and terminate the process.
+          - Complete Glibc System Call Patching: Both ld-linux dynamic linkers and libc.so shared libraries are now systematically patched to replace set_robust_list syscall instructions with nop, preventing seccomp traps across all threads.
+          - Robust Signal Masking and Memory Safety: Preload hook intercepts sigprocmask and pthread_sigmask to prevent SIGSYS from ever being blocked, and implements dedicated memory management for synthesized addrinfo structures.
+          - Automatic In-Place Linker and Libc Patching: BootstrapManager automatically inspects and patches any updated libc or linker binaries following apt upgrades or package installations.
+          - Persistent Foreground Service and WakeLock: Termux-style notification displaying active session count, instant WakeLock toggle, and safe Exit control."
 
           gh release create "$VERSION" \
             release-apks/Cortex-arm64-v8a-signed.apk \

@@ -91,6 +91,29 @@ sighandler_t signal(int signum, sighandler_t handler) {
     return orig_signal ? orig_signal(signum, handler) : NULL;
 }
 
+int sigprocmask(int how, const sigset_t *set, sigset_t *oldset) {
+    static int (*orig_sigprocmask)(int, const sigset_t *, sigset_t *) = NULL;
+    if (!orig_sigprocmask) orig_sigprocmask = (int (*)(int, const sigset_t *, sigset_t *))dlsym(RTLD_NEXT, "sigprocmask");
+    if (set && (how == SIG_BLOCK || how == SIG_SETMASK)) {
+        sigset_t mod_set = *set;
+        sigdelset(&mod_set, SIGSYS);
+        return orig_sigprocmask ? orig_sigprocmask(how, &mod_set, oldset) : 0;
+    }
+    return orig_sigprocmask ? orig_sigprocmask(how, set, oldset) : 0;
+}
+
+int pthread_sigmask(int how, const sigset_t *set, sigset_t *oldset) {
+    static int (*orig_pthread_sigmask)(int, const sigset_t *, sigset_t *) = NULL;
+    if (!orig_pthread_sigmask) orig_pthread_sigmask = (int (*)(int, const sigset_t *, sigset_t *))dlsym(RTLD_NEXT, "pthread_sigmask");
+    if (set && (how == SIG_BLOCK || how == SIG_SETMASK)) {
+        sigset_t mod_set = *set;
+        sigdelset(&mod_set, SIGSYS);
+        return orig_pthread_sigmask ? orig_pthread_sigmask(how, &mod_set, oldset) : 0;
+    }
+    return orig_pthread_sigmask ? orig_pthread_sigmask(how, set, oldset) : 0;
+}
+
+
 static char g_cortex_root[PATH_MAX] = {0};
 static int g_initialized = 0;
 
@@ -1774,6 +1797,8 @@ static in_addr_t get_primary_dns(void) {
 }
 
 
+#define CORTEX_ADDRINFO_MAGIC 0x434f5254
+
 static struct addrinfo *alloc_one_addrinfo(const char *node, const char *ip_str, int port, int socktype, int protocol) {
     struct addrinfo *ai = (struct addrinfo *)calloc(1, sizeof(struct addrinfo));
     if (!ai) return NULL;
@@ -1786,6 +1811,7 @@ static struct addrinfo *alloc_one_addrinfo(const char *node, const char *ip_str,
     sa->sin_port = htons((uint16_t)port);
     inet_pton(AF_INET, ip_str, &sa->sin_addr);
 
+    ai->ai_flags = CORTEX_ADDRINFO_MAGIC;
     ai->ai_family = AF_INET;
     ai->ai_socktype = socktype ? socktype : SOCK_STREAM;
     ai->ai_protocol = protocol ? protocol : IPPROTO_TCP;
@@ -1975,6 +2001,25 @@ int getaddrinfo(const char *node, const char *service,
         }
     }
     return ret;
+}
+
+void freeaddrinfo(struct addrinfo *res) {
+    static void (*orig_freeaddrinfo)(struct addrinfo *) = NULL;
+    if (!orig_freeaddrinfo) orig_freeaddrinfo = (void (*)(struct addrinfo *))dlsym(RTLD_NEXT, "freeaddrinfo");
+
+    if (!res) return;
+    if (res->ai_flags == CORTEX_ADDRINFO_MAGIC) {
+        struct addrinfo *curr = res;
+        while (curr) {
+            struct addrinfo *next = curr->ai_next;
+            if (curr->ai_canonname) free(curr->ai_canonname);
+            if (curr->ai_addr) free(curr->ai_addr);
+            free(curr);
+            curr = next;
+        }
+        return;
+    }
+    if (orig_freeaddrinfo) orig_freeaddrinfo(res);
 }
 
 int res_init(void) {
