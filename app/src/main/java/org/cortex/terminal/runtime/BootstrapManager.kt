@@ -272,7 +272,8 @@ object BootstrapManager {
             }
 
             // Ensure /etc/passwd and /etc/group exist with root and cortex user definitions
-            ensurePasswd(root, home)
+            ensurePasswd(root, Environment.getHomeDir(context))
+            ensureReloadScripts(root, Environment.getHomeDir(context))
 
             // Ensure user homes exist
             File(root, "root").mkdirs()
