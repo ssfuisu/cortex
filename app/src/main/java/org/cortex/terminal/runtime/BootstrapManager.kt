@@ -592,6 +592,8 @@ object BootstrapManager {
         try {
             val dpkgShare = File(root, "usr/share/dpkg")
             dpkgShare.mkdirs()
+            File(root, "etc/alternatives").mkdirs()
+            File(root, "var/lib/dpkg/alternatives").mkdirs()
 
             val cpuTable = File(dpkgShare, "cputable")
             if (!cpuTable.exists() || cpuTable.length() == 0L) {

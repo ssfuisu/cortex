@@ -98,7 +98,7 @@ jobs:
           cp hook-libs/libcortex-hook-arm.so app/src/main/assets/libcortex-hook-arm.so
 
           echo "Preparing dpkg tables, APT sandbox, hosts, and DNS config for bootstrap..."
-          mkdir -p extra-rootfs/usr/share/dpkg extra-rootfs/etc/apt/apt.conf.d extra-rootfs/var/cache/apt/archives/partial extra-rootfs/var/lib/apt/lists/partial extra-rootfs/tmp extra-rootfs/etc extra-rootfs/etc/dpkg/dpkg.cfg.d extra-rootfs/etc/profile.d extra-rootfs/usr/sbin extra-rootfs/etc/ssl/certs
+          mkdir -p extra-rootfs/usr/share/dpkg extra-rootfs/etc/apt/apt.conf.d extra-rootfs/var/cache/apt/archives/partial extra-rootfs/var/lib/apt/lists/partial extra-rootfs/tmp extra-rootfs/etc extra-rootfs/etc/alternatives extra-rootfs/var/lib/dpkg/alternatives extra-rootfs/etc/dpkg/dpkg.cfg.d extra-rootfs/etc/profile.d extra-rootfs/usr/sbin extra-rootfs/etc/ssl/certs
           curl -sLo extra-rootfs/etc/ssl/certs/ca-certificates.crt https://curl.se/ca/cacert.pem || true
           mkdir -p extra-rootfs/usr/lib/ssl extra-rootfs/etc/pki/tls/certs
           cp extra-rootfs/etc/ssl/certs/ca-certificates.crt extra-rootfs/etc/ssl/cert.pem

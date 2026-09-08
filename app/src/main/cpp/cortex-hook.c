@@ -366,6 +366,14 @@ int __openat_2(int dirfd, const char *pathname, int flags) {
     return openat(dirfd, pathname, flags);
 }
 
+int __open64_2(const char *pathname, int flags) {
+    return open(pathname, flags);
+}
+
+int __openat64_2(int dirfd, const char *pathname, int flags) {
+    return openat(dirfd, pathname, flags);
+}
+
 
 // Hook fopen
 FILE *fopen(const char *pathname, const char *mode) {
@@ -545,13 +553,121 @@ DIR *opendir(const char *name) {
     return orig_opendir(target);
 }
 
+// Helper for path normalization
+static void normalize_path(char *path) {
+    if (!path || !*path) return;
+    int is_abs = (path[0] == '/');
+    char *stack[128];
+    int top = 0;
+
+    char tmp[4096];
+    strncpy(tmp, path, sizeof(tmp) - 1);
+    tmp[sizeof(tmp) - 1] = '\0';
+
+    char *saveptr = NULL;
+    char *tok = strtok_r(tmp, "/", &saveptr);
+    while (tok) {
+        if (strcmp(tok, ".") == 0) {
+            // ignore
+        } else if (strcmp(tok, "..") == 0) {
+            if (top > 0) top--;
+        } else {
+            if (top < 128) stack[top++] = tok;
+        }
+        tok = strtok_r(NULL, "/", &saveptr);
+    }
+
+    char *dst = path;
+    if (is_abs) *dst++ = '/';
+    for (int i = 0; i < top; i++) {
+        size_t len = strlen(stack[i]);
+        memcpy(dst, stack[i], len);
+        dst += len;
+        if (i + 1 < top) *dst++ = '/';
+    }
+    if (dst == path && is_abs) *dst++ = '/';
+    *dst = '\0';
+}
+
+static ssize_t postprocess_readlink(const char *linkpath, char *buf, ssize_t ret, size_t bufsiz) {
+    if (ret <= 0) return ret;
+
+    // 1. Strip g_cortex_root if target starts with it
+    if (g_cortex_root[0] != '\0') {
+        size_t rlen = strlen(g_cortex_root);
+        if ((size_t)ret >= rlen && memcmp(buf, g_cortex_root, rlen) == 0 &&
+            ((size_t)ret == rlen || buf[rlen] == '/')) {
+            size_t new_len = ret - rlen;
+            if (new_len == 0) {
+                buf[0] = '/';
+                return 1;
+            } else {
+                memmove(buf, buf + rlen, new_len);
+                return (ssize_t)new_len;
+            }
+        }
+    }
+
+    // 2. Normalize relative alternatives links
+    if (linkpath && linkpath[0] == '/' && (size_t)ret < PATH_MAX) {
+        char link_copy[PATH_MAX];
+        memcpy(link_copy, buf, ret);
+        link_copy[ret] = '\0';
+
+        if (strncmp(link_copy, "..", 2) == 0) {
+            char parent[PATH_MAX];
+            snprintf(parent, sizeof(parent), "%s", linkpath);
+            char *last_slash = strrchr(parent, '/');
+            if (last_slash) {
+                if (last_slash == parent) {
+                    *(last_slash + 1) = '\0';
+                } else {
+                    *last_slash = '\0';
+                }
+            }
+            char combined[PATH_MAX * 2];
+            snprintf(combined, sizeof(combined), "%s/%s", parent, link_copy);
+            normalize_path(combined);
+
+            if (strncmp(combined, "/etc/alternatives", 17) == 0 ||
+                strncmp(linkpath, "/etc/alternatives", 17) == 0) {
+                size_t clen = strlen(combined);
+                if (clen <= bufsiz) {
+                    memcpy(buf, combined, clen);
+                    return (ssize_t)clen;
+                }
+            }
+        }
+    }
+
+    return ret;
+}
+
 // Hook stat
 int stat(const char *pathname, struct stat *statbuf) {
     static int (*orig_stat)(const char *, struct stat *) = NULL;
     if (!orig_stat) orig_stat = (int (*)(const char *, struct stat *))dlsym(RTLD_NEXT, "stat");
     char buf[PATH_MAX];
     const char *target = rewrite_path(pathname, buf, sizeof(buf));
-    return orig_stat(target, statbuf);
+    int ret = orig_stat ? orig_stat(target, statbuf) : -1;
+    if (ret != 0 && errno == ENOENT && target && g_cortex_root[0] != '\0') {
+        char alt[PATH_MAX];
+        const char *sub = target + strlen(g_cortex_root);
+        if (strncmp(sub, "/usr/bin/", 9) == 0) {
+            snprintf(alt, sizeof(alt), "%s/bin/%s", g_cortex_root, sub + 9);
+            ret = orig_stat(alt, statbuf);
+        } else if (strncmp(sub, "/bin/", 5) == 0) {
+            snprintf(alt, sizeof(alt), "%s/usr/bin/%s", g_cortex_root, sub + 5);
+            ret = orig_stat(alt, statbuf);
+        } else if (strncmp(sub, "/usr/sbin/", 10) == 0) {
+            snprintf(alt, sizeof(alt), "%s/sbin/%s", g_cortex_root, sub + 10);
+            ret = orig_stat(alt, statbuf);
+        } else if (strncmp(sub, "/sbin/", 6) == 0) {
+            snprintf(alt, sizeof(alt), "%s/usr/sbin/%s", g_cortex_root, sub + 6);
+            ret = orig_stat(alt, statbuf);
+        }
+    }
+    return ret;
 }
 
 // Hook lstat
@@ -560,7 +676,41 @@ int lstat(const char *pathname, struct stat *statbuf) {
     if (!orig_lstat) orig_lstat = (int (*)(const char *, struct stat *))dlsym(RTLD_NEXT, "lstat");
     char buf[PATH_MAX];
     const char *target = rewrite_path(pathname, buf, sizeof(buf));
-    return orig_lstat(target, statbuf);
+    int ret = orig_lstat ? orig_lstat(target, statbuf) : -1;
+    if (ret != 0 && errno == ENOENT && target && g_cortex_root[0] != '\0') {
+        char alt[PATH_MAX];
+        const char *sub = target + strlen(g_cortex_root);
+        if (strncmp(sub, "/usr/bin/", 9) == 0) {
+            snprintf(alt, sizeof(alt), "%s/bin/%s", g_cortex_root, sub + 9);
+            ret = orig_lstat(alt, statbuf);
+            if (ret == 0) target = alt;
+        } else if (strncmp(sub, "/bin/", 5) == 0) {
+            snprintf(alt, sizeof(alt), "%s/usr/bin/%s", g_cortex_root, sub + 5);
+            ret = orig_lstat(alt, statbuf);
+            if (ret == 0) target = alt;
+        } else if (strncmp(sub, "/usr/sbin/", 10) == 0) {
+            snprintf(alt, sizeof(alt), "%s/sbin/%s", g_cortex_root, sub + 10);
+            ret = orig_lstat(alt, statbuf);
+            if (ret == 0) target = alt;
+        } else if (strncmp(sub, "/sbin/", 6) == 0) {
+            snprintf(alt, sizeof(alt), "%s/usr/sbin/%s", g_cortex_root, sub + 6);
+            ret = orig_lstat(alt, statbuf);
+            if (ret == 0) target = alt;
+        }
+    }
+    if (ret == 0 && statbuf && S_ISLNK(statbuf->st_mode) && g_cortex_root[0] != '\0') {
+        char link_buf[PATH_MAX];
+        static ssize_t (*orig_readlink)(const char *, char *, size_t) = NULL;
+        if (!orig_readlink) orig_readlink = (ssize_t (*)(const char *, char *, size_t))dlsym(RTLD_NEXT, "readlink");
+        ssize_t llen = orig_readlink ? orig_readlink(target, link_buf, sizeof(link_buf) - 1) : -1;
+        if (llen > 0) {
+            ssize_t post_len = postprocess_readlink(pathname, link_buf, llen, sizeof(link_buf));
+            if (post_len > 0) {
+                statbuf->st_size = post_len;
+            }
+        }
+    }
+    return ret;
 }
 
 // Hook fstatat
@@ -569,7 +719,41 @@ int fstatat(int dirfd, const char *pathname, struct stat *statbuf, int flags) {
     if (!orig_fstatat) orig_fstatat = (int (*)(int, const char *, struct stat *, int))dlsym(RTLD_NEXT, "fstatat");
     char buf[PATH_MAX];
     const char *target = (pathname && pathname[0] == '/') ? rewrite_path(pathname, buf, sizeof(buf)) : pathname;
-    return orig_fstatat(dirfd, target, statbuf, flags);
+    int ret = orig_fstatat ? orig_fstatat(dirfd, target, statbuf, flags) : -1;
+    if (ret != 0 && errno == ENOENT && target && pathname && pathname[0] == '/' && g_cortex_root[0] != '\0') {
+        char alt[PATH_MAX];
+        const char *sub = target + strlen(g_cortex_root);
+        if (strncmp(sub, "/usr/bin/", 9) == 0) {
+            snprintf(alt, sizeof(alt), "%s/bin/%s", g_cortex_root, sub + 9);
+            ret = orig_fstatat(dirfd, alt, statbuf, flags);
+            if (ret == 0) target = alt;
+        } else if (strncmp(sub, "/bin/", 5) == 0) {
+            snprintf(alt, sizeof(alt), "%s/usr/bin/%s", g_cortex_root, sub + 5);
+            ret = orig_fstatat(dirfd, alt, statbuf, flags);
+            if (ret == 0) target = alt;
+        } else if (strncmp(sub, "/usr/sbin/", 10) == 0) {
+            snprintf(alt, sizeof(alt), "%s/sbin/%s", g_cortex_root, sub + 10);
+            ret = orig_fstatat(dirfd, alt, statbuf, flags);
+            if (ret == 0) target = alt;
+        } else if (strncmp(sub, "/sbin/", 6) == 0) {
+            snprintf(alt, sizeof(alt), "%s/usr/sbin/%s", g_cortex_root, sub + 6);
+            ret = orig_fstatat(dirfd, alt, statbuf, flags);
+            if (ret == 0) target = alt;
+        }
+    }
+    if (ret == 0 && statbuf && (flags & AT_SYMLINK_NOFOLLOW) && S_ISLNK(statbuf->st_mode) && g_cortex_root[0] != '\0') {
+        char link_buf[PATH_MAX];
+        static ssize_t (*orig_readlinkat)(int, const char *, char *, size_t) = NULL;
+        if (!orig_readlinkat) orig_readlinkat = (ssize_t (*)(int, const char *, char *, size_t))dlsym(RTLD_NEXT, "readlinkat");
+        ssize_t llen = orig_readlinkat ? orig_readlinkat(dirfd, target, link_buf, sizeof(link_buf) - 1) : -1;
+        if (llen > 0) {
+            ssize_t post_len = postprocess_readlink(pathname, link_buf, llen, sizeof(link_buf));
+            if (post_len > 0) {
+                statbuf->st_size = post_len;
+            }
+        }
+    }
+    return ret;
 }
 
 // Glibc __xstat compatibility hooks
@@ -758,7 +942,25 @@ ssize_t readlink(const char *pathname, char *buf, size_t bufsiz) {
     if (!orig_readlink) orig_readlink = (ssize_t (*)(const char *, char *, size_t))dlsym(RTLD_NEXT, "readlink");
     char pbuf[PATH_MAX];
     const char *target = rewrite_path(pathname, pbuf, sizeof(pbuf));
-    return orig_readlink ? orig_readlink(target, buf, bufsiz) : -1;
+    ssize_t ret = orig_readlink ? orig_readlink(target, buf, bufsiz) : -1;
+    if (ret < 0 && errno == ENOENT && target && g_cortex_root[0] != '\0') {
+        char alt[PATH_MAX];
+        const char *sub = target + strlen(g_cortex_root);
+        if (strncmp(sub, "/usr/bin/", 9) == 0) {
+            snprintf(alt, sizeof(alt), "%s/bin/%s", g_cortex_root, sub + 9);
+            ret = orig_readlink(alt, buf, bufsiz);
+        } else if (strncmp(sub, "/bin/", 5) == 0) {
+            snprintf(alt, sizeof(alt), "%s/usr/bin/%s", g_cortex_root, sub + 5);
+            ret = orig_readlink(alt, buf, bufsiz);
+        } else if (strncmp(sub, "/usr/sbin/", 10) == 0) {
+            snprintf(alt, sizeof(alt), "%s/sbin/%s", g_cortex_root, sub + 10);
+            ret = orig_readlink(alt, buf, bufsiz);
+        } else if (strncmp(sub, "/sbin/", 6) == 0) {
+            snprintf(alt, sizeof(alt), "%s/usr/sbin/%s", g_cortex_root, sub + 6);
+            ret = orig_readlink(alt, buf, bufsiz);
+        }
+    }
+    return postprocess_readlink(pathname, buf, ret, bufsiz);
 }
 
 // Hook readlinkat
@@ -767,7 +969,34 @@ ssize_t readlinkat(int dirfd, const char *pathname, char *buf, size_t bufsiz) {
     if (!orig_readlinkat) orig_readlinkat = (ssize_t (*)(int, const char *, char *, size_t))dlsym(RTLD_NEXT, "readlinkat");
     char pbuf[PATH_MAX];
     const char *target = (pathname && pathname[0] == '/') ? rewrite_path(pathname, pbuf, sizeof(pbuf)) : pathname;
-    return orig_readlinkat ? orig_readlinkat(dirfd, target, buf, bufsiz) : -1;
+    ssize_t ret = orig_readlinkat ? orig_readlinkat(dirfd, target, buf, bufsiz) : -1;
+    if (ret < 0 && errno == ENOENT && target && pathname && pathname[0] == '/' && g_cortex_root[0] != '\0') {
+        char alt[PATH_MAX];
+        const char *sub = target + strlen(g_cortex_root);
+        if (strncmp(sub, "/usr/bin/", 9) == 0) {
+            snprintf(alt, sizeof(alt), "%s/bin/%s", g_cortex_root, sub + 9);
+            ret = orig_readlinkat(dirfd, alt, buf, bufsiz);
+        } else if (strncmp(sub, "/bin/", 5) == 0) {
+            snprintf(alt, sizeof(alt), "%s/usr/bin/%s", g_cortex_root, sub + 5);
+            ret = orig_readlinkat(dirfd, alt, buf, bufsiz);
+        } else if (strncmp(sub, "/usr/sbin/", 10) == 0) {
+            snprintf(alt, sizeof(alt), "%s/sbin/%s", g_cortex_root, sub + 10);
+            ret = orig_readlinkat(dirfd, alt, buf, bufsiz);
+        } else if (strncmp(sub, "/sbin/", 6) == 0) {
+            snprintf(alt, sizeof(alt), "%s/usr/sbin/%s", g_cortex_root, sub + 6);
+            ret = orig_readlinkat(dirfd, alt, buf, bufsiz);
+        }
+    }
+    return postprocess_readlink(pathname, buf, ret, bufsiz);
+}
+
+// Fortified readlink variants used by dpkg / update-alternatives
+ssize_t __readlink_chk(const char *pathname, char *buf, size_t bufsiz, size_t buflen) {
+    return readlink(pathname, buf, bufsiz);
+}
+
+ssize_t __readlinkat_chk(int dirfd, const char *pathname, char *buf, size_t bufsiz, size_t buflen) {
+    return readlinkat(dirfd, pathname, buf, bufsiz);
 }
 
 // Hook symlink
@@ -916,6 +1145,10 @@ char *getcwd(char *buf, size_t size) {
     return orig_getcwd ? orig_getcwd(buf, size) : NULL;
 }
 
+char *__getcwd_chk(char *buf, size_t size, size_t buflen) {
+    return getcwd(buf, size);
+}
+
 // Hook realpath and canonicalize_file_name
 char *realpath(const char *path, char *resolved_path) {
     static char *(*orig_realpath)(const char *, char *) = NULL;
@@ -927,7 +1160,24 @@ char *realpath(const char *path, char *resolved_path) {
     init_cortex_hook();
     char pbuf[PATH_MAX];
     const char *target = rewrite_path(path, pbuf, sizeof(pbuf));
-    return orig_realpath ? orig_realpath(target, resolved_path) : NULL;
+    char *res = orig_realpath ? orig_realpath(target, resolved_path) : NULL;
+    if (res && g_cortex_root[0] != '\0') {
+        size_t rlen = strlen(g_cortex_root);
+        if (strncmp(res, g_cortex_root, rlen) == 0 && (res[rlen] == '/' || res[rlen] == '\0')) {
+            size_t rem_len = strlen(res + rlen);
+            if (rem_len == 0) {
+                res[0] = '/';
+                res[1] = '\0';
+            } else {
+                memmove(res, res + rlen, rem_len + 1);
+            }
+        }
+    }
+    return res;
+}
+
+char *__realpath_chk(const char *path, char *resolved_path, size_t resolved_len) {
+    return realpath(path, resolved_path);
 }
 
 char *canonicalize_file_name(const char *path) {
