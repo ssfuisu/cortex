@@ -249,15 +249,7 @@ int __open_2(const char *pathname, int flags) {
     return open(pathname, flags);
 }
 
-int __open64_2(const char *pathname, int flags) {
-    return open(pathname, flags);
-}
-
 int __openat_2(int dirfd, const char *pathname, int flags) {
-    return openat(dirfd, pathname, flags);
-}
-
-int __openat64_2(int dirfd, const char *pathname, int flags) {
     return openat(dirfd, pathname, flags);
 }
 
