@@ -71,6 +71,9 @@ class TerminalEmulator(
         }
     }
 
+    private var savedCursorRow = 0
+    private var savedCursorCol = 0
+
     private fun handleEscape(c: Char) {
         when (c) {
             '[' -> {
@@ -90,10 +93,14 @@ class TerminalEmulator(
                 buffer.cursorCol = 0
                 state = State.NORMAL
             }
-            '7' -> { // Save cursor
+            '7' -> { // Save cursor (DECSC)
+                savedCursorRow = buffer.cursorRow
+                savedCursorCol = buffer.cursorCol
                 state = State.NORMAL
             }
-            '8' -> { // Restore cursor
+            '8' -> { // Restore cursor (DECRC)
+                buffer.cursorRow = savedCursorRow.coerceIn(0, buffer.rows - 1)
+                buffer.cursorCol = savedCursorCol.coerceIn(0, buffer.cols - 1)
                 state = State.NORMAL
             }
             else -> {
@@ -202,6 +209,32 @@ class TerminalEmulator(
                     when (p1) {
                         25 -> buffer.isCursorVisible = false
                         47, 1047, 1049 -> buffer.useAlternateScreen(false)
+                    }
+                }
+            }
+            's' -> { // Save Cursor (ANSI.SYS)
+                savedCursorRow = buffer.cursorRow
+                savedCursorCol = buffer.cursorCol
+            }
+            'u' -> { // Restore Cursor (ANSI.SYS)
+                buffer.cursorRow = savedCursorRow.coerceIn(0, buffer.rows - 1)
+                buffer.cursorCol = savedCursorCol.coerceIn(0, buffer.cols - 1)
+            }
+            'G' -> { // Cursor Character Absolute (CHA)
+                val col = if (p1 == 0) 1 else p1
+                buffer.cursorCol = (col - 1).coerceIn(0, buffer.cols - 1)
+            }
+            'd' -> { // Line Position Absolute (VPA)
+                val row = if (p1 == 0) 1 else p1
+                buffer.cursorRow = (row - 1).coerceIn(0, buffer.rows - 1)
+            }
+            'X' -> { // Erase Characters (ECH)
+                val count = if (p1 == 0) 1 else p1
+                val r = buffer.cursorRow
+                if (r in 0 until buffer.rows) {
+                    val endCol = (buffer.cursorCol + count).coerceAtMost(buffer.cols)
+                    for (c in buffer.cursorCol until endCol) {
+                        buffer.screen[r].setChar(c, ' ', buffer.currentFg, buffer.currentBg, 0)
                     }
                 }
             }

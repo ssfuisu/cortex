@@ -100,7 +100,7 @@ jobs:
           if [ -f extra-rootfs/usr/share/dpkg/tupletable ]; then
             cp extra-rootfs/usr/share/dpkg/tupletable extra-rootfs/usr/share/dpkg/triplettable
           fi
-          printf 'APT::Sandbox::User "root";\nAPT::Sandbox::Seccomp "false";\nAcquire::ForceIPv4 "true";\nAcquire::Connect::AddrConfig "false";\nAcquire::SRV "false";\nAcquire::Languages "none";\nAcquire::GzipIndexes "true";\nDir::dpkg::cputable "/usr/share/dpkg/cputable";\nDir::dpkg::tupletable "/usr/share/dpkg/tupletable";\nDir::dpkg::triplettable "/usr/share/dpkg/triplettable";\nDPkg::Options {\n   "--force-confdef";\n   "--force-confold";\n   "--force-unsafe-io";\n};\n' > extra-rootfs/etc/apt/apt.conf.d/01sandbox
+          printf 'APT::Sandbox::User "root";\nAPT::Sandbox::Seccomp "false";\nAcquire::ForceIPv4 "true";\nAcquire::Connect::AddrConfig "false";\nAcquire::SRV "false";\nAcquire::Languages "none";\nAcquire::GzipIndexes "true";\nDir::dpkg::cputable "/usr/share/dpkg/cputable";\nDir::dpkg::tupletable "/usr/share/dpkg/tupletable";\nDir::dpkg::triplettable "/usr/share/dpkg/triplettable";\nDPkg::Install::Recursive "false";\nDpkg::Progress-Fancy "false";\nAPT::Color "false";\nDPkg::Options {\n   "--force-confdef";\n   "--force-confold";\n   "--force-unsafe-io";\n};\n' > extra-rootfs/etc/apt/apt.conf.d/01sandbox
           echo "# Disabled for Cortex" > extra-rootfs/etc/apt/apt.conf.d/docker-clean
           printf 'force-confdef\nforce-confold\nforce-unsafe-io\nno-debsig\n' > extra-rootfs/etc/dpkg/dpkg.cfg.d/01cortex
           printf 'export DPKG_DEB_THREADS_MAX=1\nexport XZ_OPT=-T1\nexport XZ_DEFAULTS=-T1\nexport TAR_OPTIONS=--no-same-owner\nexport DEBIAN_FRONTEND=noninteractive\nexport DEBCONF_FRONTEND=noninteractive\nexport DEBCONF_NONINTERACTIVE_SEEN=true\n' > extra-rootfs/etc/profile.d/01cortex.sh
@@ -240,12 +240,12 @@ jobs:
 
           NOTES="Cortex Release $VERSION
 
-          Yenilikler ve Duzeltmeler:
-          - libc-bin ve ldconfig Chroot Hatasi Giderildi: Debian paketlerinin (libc-bin, libpcre2-8-0 vb.) tetikleyicilerinde calistirilan ve Android sandbox altinda EPERM veren statik ldconfig araci cortex-hook icerisinde (execve, posix_spawn) guvenli sekilde kancalanip basariyla sonlandirildi.
-          - policy-rc.d ve start-stop-daemon Entegrasyonu: Paket kurulumlarinda arka plan servislerinin baslatilmasini engelleyen /usr/sbin/policy-rc.d (kod 101) ve start-stop-daemon kukla betikleri eklenerek apt upgrade ve apt install islemlerinin kesintisiz tamamlanmasi saglandi.
-          - Dinamik Linker Seccomp Guvenligi: Android seccomp mimarisinde engellenen set_robust_list (syscall 99) cagrisi BootstrapManager tarafindan dinamik olarak tespit edilip temizlendi.
-          - Coklu Is Parcacigi Guvenligi: dpkg-deb tarafindan calistirilan lzma ve zstd tek is parcacikli calismaya zorlanarak tar archive hatasi tamamen onlendi.
-          - Hizli ve Kararli Paket Yonetimi: Micro, NodeJS, Python ve diger tum Debian paketleri apt ile sorunsuz sekilde kurulabilir hale getirildi."
+Features and Fixes:
+- Prevent Auto-Execution on Paste: Stripped trailing newlines when pasting text into the terminal via context menu or soft keyboard suggestions, allowing commands to be reviewed and edited prior to execution.
+- Terminal Scroll Margins and Blank Lines Resolved: Fixed scroll margins (DECSTBM) and linefeed handling outside margins that previously generated large blank gaps and wiped package installation logs during APT operations.
+- Full VT100 / ANSI Cursor Save and Restore: Implemented support for ESC 7 / ESC 8 (DECSC/DECRC) and CSI s / CSI u, along with CHA (CSI G), VPA (CSI d), and ECH (CSI X) for accurate terminal cursor management.
+- Streamlined APT and Dpkg Console Output: Disabled fancy progress bar (Dpkg::Progress-Fancy) to provide clean, reliable line-by-line console logs on mobile screens.
+- Robust Package Management: Full support for apt update, apt upgrade, and installing packages such as Python, NodeJS, and Micro."
 
           gh release create "$VERSION" \
             release-apks/Cortex-arm64-v8a-signed.apk \

@@ -74,7 +74,7 @@ object BootstrapManager {
         patchAllDynamicLinkers(root)
     }
 
-    private const val CURRENT_BOOTSTRAP_VERSION = 12409
+    private const val CURRENT_BOOTSTRAP_VERSION = 12411
 
     fun isBootstrapInstalled(context: Context): Boolean {
         val root = Environment.getCortexRoot(context)
@@ -537,6 +537,8 @@ object BootstrapManager {
                 "Dir::dpkg::tupletable \"/usr/share/dpkg/tupletable\";\n" +
                 "Dir::dpkg::triplettable \"/usr/share/dpkg/triplettable\";\n" +
                 "DPkg::Install::Recursive \"false\";\n" +
+                "Dpkg::Progress-Fancy \"false\";\n" +
+                "APT::Color \"false\";\n" +
                 "DPkg::Options {\n" +
                 "   \"--force-confdef\";\n" +
                 "   \"--force-confold\";\n" +

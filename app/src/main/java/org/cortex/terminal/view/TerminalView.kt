@@ -507,7 +507,8 @@ class TerminalView @JvmOverloads constructor(
         val btnPaste = createButton("Paste") {
             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
             val item = clipboard.primaryClip?.getItemAt(0)
-            val text = item?.coerceToText(context)?.toString() ?: ""
+            val rawText = item?.coerceToText(context)?.toString() ?: ""
+            val text = rawText.trimEnd('\r', '\n')
             if (text.isNotEmpty()) {
                 session?.write(text)
                 scrollOffset = 0
@@ -596,8 +597,9 @@ class TerminalView @JvmOverloads constructor(
                 clearSelection()
                 composingLength = 0
                 if (!text.isNullOrEmpty()) {
-                    for (i in 0 until text.length) {
-                        sendChar(text[i])
+                    val str = if (text.length > 1) text.toString().trimEnd('\r', '\n') else text.toString()
+                    for (i in 0 until str.length) {
+                        sendChar(str[i])
                     }
                 }
                 return true

@@ -108,10 +108,18 @@ class TerminalBuffer(var rows: Int, var cols: Int, private val maxHistory: Int =
     }
 
     fun newLine() {
-        if (cursorRow >= scrollBottom) {
-            scrollUp(scrollTop, scrollBottom)
+        if (cursorRow in scrollTop..scrollBottom) {
+            if (cursorRow == scrollBottom) {
+                scrollUp(scrollTop, scrollBottom)
+            } else {
+                cursorRow++
+            }
         } else {
-            cursorRow++
+            if (cursorRow >= rows - 1) {
+                scrollUp(0, rows - 1)
+            } else {
+                cursorRow++
+            }
         }
     }
 
@@ -119,8 +127,8 @@ class TerminalBuffer(var rows: Int, var cols: Int, private val maxHistory: Int =
         val t = top.coerceIn(0, rows - 1)
         val b = bottom.coerceIn(t, rows - 1)
 
-        // If top is 0 and not in alternate buffer, save top line to history
-        if (t == 0 && !isAlternate) {
+        // If full screen scrolling and not in alternate buffer, save top line to history
+        if (t == 0 && b == rows - 1 && !isAlternate) {
             val historyRow = TerminalRow(cols)
             historyRow.copyFrom(screen[0])
             history.addLast(historyRow)
