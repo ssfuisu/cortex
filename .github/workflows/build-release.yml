@@ -232,7 +232,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          OFFSET=$(( ${{ github.run_number }} - 33 ))
+          OFFSET=$(( ${{ github.run_number }} - 34 ))
           if [ "$OFFSET" -lt 0 ]; then OFFSET=0; fi
           VERSION="v1.24.${OFFSET}"
           if [[ "${{ github.ref }}" == refs/tags/* ]]; then
@@ -241,12 +241,12 @@ jobs:
 
           NOTES="Cortex Release $VERSION
 
-Features and Fixes:
-- Termux-Style Persistent Foreground Notification: Added CortexService running in foreground with persistent system status notification showing active session count. Terminal sessions stay alive in the background even if the app is swiped away from Android Recent Apps.
-- WakeLock and Session Controls: Notification provides direct actions to Acquire or Release CPU WakeLock (preventing Android from sleeping terminal processes) and Exit to cleanly terminate all background sessions and processes.
-- Fixed Curl and HTTPS Network Operations: Bundled and dynamically extracted system CA certificates into /etc/ssl/certs/ca-certificates.crt. Pre-configured SSL_CERT_FILE and CURL_CA_BUNDLE environment variables so curl, git, python, and node work with HTTPS out of the box.
-- Dynamic DNS Fallback in Hook: Implemented UDP DNS resolver fallback in libcortex-hook to resolve hostnames directly via primary DNS and public resolvers (8.8.8.8, 1.1.1.1) when glibc's resolver encounters restrictions on Android.
-- Safe Exit Confirmation: Back press prompt cleanly integrates with CortexService to terminate sessions on user request."
+          Features and Fixes:
+          - Termux-Style Persistent Foreground Notification: Added CortexService running in foreground with persistent system status notification showing active session count. Terminal sessions stay alive in the background even if the app is swiped away from Android Recent Apps.
+          - WakeLock and Session Controls: Notification provides direct actions to Acquire or Release CPU WakeLock (preventing Android from sleeping terminal processes) and Exit to cleanly terminate all background sessions and processes.
+          - Fixed Curl and HTTPS Network Operations: Bundled and dynamically extracted system CA certificates into /etc/ssl/certs/ca-certificates.crt. Pre-configured SSL_CERT_FILE and CURL_CA_BUNDLE environment variables so curl, git, python, and node work with HTTPS out of the box.
+          - Dynamic DNS Fallback in Hook: Implemented UDP DNS resolver fallback in libcortex-hook to resolve hostnames directly via primary DNS and public resolvers (8.8.8.8, 1.1.1.1) when glibc's resolver encounters restrictions on Android.
+          - Safe Exit Confirmation: Back press prompt cleanly integrates with CortexService to terminate sessions on user request."
 
           gh release create "$VERSION" \
             release-apks/Cortex-arm64-v8a-signed.apk \
