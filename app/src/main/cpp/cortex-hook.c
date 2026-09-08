@@ -668,22 +668,7 @@ ssize_t readlink(const char *pathname, char *buf, size_t bufsiz) {
     if (!orig_readlink) orig_readlink = (ssize_t (*)(const char *, char *, size_t))dlsym(RTLD_NEXT, "readlink");
     char pbuf[PATH_MAX];
     const char *target = rewrite_path(pathname, pbuf, sizeof(pbuf));
-    ssize_t n = orig_readlink ? orig_readlink(target, buf, bufsiz) : -1;
-    if (n > 0 && g_cortex_root[0] != '\0') {
-        size_t root_len = strlen(g_cortex_root);
-        if ((size_t)n >= root_len && strncmp(buf, g_cortex_root, root_len) == 0 &&
-            ((size_t)n == root_len || buf[root_len] == '/')) {
-            size_t new_len = (size_t)n - root_len;
-            if (new_len == 0) {
-                buf[0] = '/';
-                new_len = 1;
-            } else {
-                memmove(buf, buf + root_len, new_len);
-            }
-            n = (ssize_t)new_len;
-        }
-    }
-    return n;
+    return orig_readlink ? orig_readlink(target, buf, bufsiz) : -1;
 }
 
 // Hook readlinkat
@@ -692,22 +677,7 @@ ssize_t readlinkat(int dirfd, const char *pathname, char *buf, size_t bufsiz) {
     if (!orig_readlinkat) orig_readlinkat = (ssize_t (*)(int, const char *, char *, size_t))dlsym(RTLD_NEXT, "readlinkat");
     char pbuf[PATH_MAX];
     const char *target = (pathname && pathname[0] == '/') ? rewrite_path(pathname, pbuf, sizeof(pbuf)) : pathname;
-    ssize_t n = orig_readlinkat ? orig_readlinkat(dirfd, target, buf, bufsiz) : -1;
-    if (n > 0 && g_cortex_root[0] != '\0') {
-        size_t root_len = strlen(g_cortex_root);
-        if ((size_t)n >= root_len && strncmp(buf, g_cortex_root, root_len) == 0 &&
-            ((size_t)n == root_len || buf[root_len] == '/')) {
-            size_t new_len = (size_t)n - root_len;
-            if (new_len == 0) {
-                buf[0] = '/';
-                new_len = 1;
-            } else {
-                memmove(buf, buf + root_len, new_len);
-            }
-            n = (ssize_t)new_len;
-        }
-    }
-    return n;
+    return orig_readlinkat ? orig_readlinkat(dirfd, target, buf, bufsiz) : -1;
 }
 
 // Hook symlink
@@ -846,39 +816,7 @@ int chdir(const char *path) {
 char *getcwd(char *buf, size_t size) {
     static char *(*orig_getcwd)(char *, size_t) = NULL;
     if (!orig_getcwd) orig_getcwd = (char *(*)(char *, size_t))dlsym(RTLD_NEXT, "getcwd");
-    init_cortex_hook();
-    char temp[PATH_MAX];
-    char *res = orig_getcwd ? orig_getcwd(temp, sizeof(temp)) : NULL;
-    if (!res) return NULL;
-
-    size_t root_len = strlen(g_cortex_root);
-    const char *final_path = temp;
-    if (root_len > 0 && strncmp(temp, g_cortex_root, root_len) == 0) {
-        if (temp[root_len] == '\0') {
-            final_path = "/";
-        } else if (temp[root_len] == '/') {
-            final_path = temp + root_len;
-        }
-    }
-
-    size_t len = strlen(final_path);
-    if (!buf) {
-        size_t alloc_size = (size > len + 1) ? size : (len + 1);
-        char *allocated = (char *)malloc(alloc_size);
-        if (!allocated) {
-            errno = ENOMEM;
-            return NULL;
-        }
-        memcpy(allocated, final_path, len + 1);
-        return allocated;
-    } else {
-        if (size < len + 1) {
-            errno = ERANGE;
-            return NULL;
-        }
-        memcpy(buf, final_path, len + 1);
-        return buf;
-    }
+    return orig_getcwd ? orig_getcwd(buf, size) : NULL;
 }
 
 // Hook realpath and canonicalize_file_name
@@ -892,33 +830,7 @@ char *realpath(const char *path, char *resolved_path) {
     init_cortex_hook();
     char pbuf[PATH_MAX];
     const char *target = rewrite_path(path, pbuf, sizeof(pbuf));
-    char resolved_temp[PATH_MAX];
-    char *res = orig_realpath ? orig_realpath(target, resolved_temp) : NULL;
-    if (!res) return NULL;
-
-    size_t root_len = strlen(g_cortex_root);
-    const char *final_path = resolved_temp;
-    if (root_len > 0 && strncmp(resolved_temp, g_cortex_root, root_len) == 0) {
-        if (resolved_temp[root_len] == '\0') {
-            final_path = "/";
-        } else if (resolved_temp[root_len] == '/') {
-            final_path = resolved_temp + root_len;
-        }
-    }
-
-    size_t len = strlen(final_path);
-    if (!resolved_path) {
-        char *allocated = (char *)malloc(len + 1);
-        if (!allocated) {
-            errno = ENOMEM;
-            return NULL;
-        }
-        memcpy(allocated, final_path, len + 1);
-        return allocated;
-    } else {
-        memcpy(resolved_path, final_path, len + 1);
-        return resolved_path;
-    }
+    return orig_realpath ? orig_realpath(target, resolved_path) : NULL;
 }
 
 char *canonicalize_file_name(const char *path) {

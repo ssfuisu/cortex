@@ -11,4 +11,5 @@
 *.apk
 *.aab
 *.keystore
+!app/cortex-release.keystore
 *.jks

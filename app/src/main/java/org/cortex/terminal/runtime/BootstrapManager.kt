@@ -49,11 +49,23 @@ object BootstrapManager {
                     "export CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt\n"
                 changed = true
             }
-            if (!bashrcText.contains("alias reload=")) {
-                bashrcText += "alias reload='source " + d + "HOME/.bashrc'\n" +
+            if (!bashrcText.contains("reload()")) {
+                if (bashrcText.contains("alias reload=")) {
+                    bashrcText = bashrcText.lines().filter { !it.startsWith("alias reload=") }.joinToString("\n")
+                }
+                bashrcText += "\nreload() {\n" +
+                    "    if [ -f \"" + d + "HOME/.bashrc\" ]; then . \"" + d + "HOME/.bashrc\"; fi\n" +
+                    "    if [ -f \"" + d + "HOME/.profile\" ]; then . \"" + d + "HOME/.profile\"; fi\n" +
+                    "    echo \"Configuration reloaded successfully.\"\n" +
+                    "}\n" +
+                    "alias reload='reload'\n" +
                     "source() {\n" +
-                    "    if [ \"" + d + "1\" = \"bashrc\" ] || [ \"" + d + "1\" = \".bashrc\" ]; then\n" +
-                    "        builtin source \"" + d + "HOME/.bashrc\"\n" +
+                    "    if [ \"" + d + "1\" = \"bashrc\" ] || [ \"" + d + "1\" = \".bashrc\" ] || [ \"" + d + "1\" = \"~/.bashrc\" ] || [ \"" + d + "1\" = \"" + d + "HOME/.bashrc\" ]; then\n" +
+                    "        builtin . \"" + d + "HOME/.bashrc\"\n" +
+                    "        echo \"Reloaded " + d + "HOME/.bashrc\"\n" +
+                    "    elif [ \"" + d + "1\" = \"profile\" ] || [ \"" + d + "1\" = \".profile\" ] || [ \"" + d + "1\" = \"~/.profile\" ] || [ \"" + d + "1\" = \"" + d + "HOME/.profile\" ]; then\n" +
+                    "        builtin . \"" + d + "HOME/.profile\"\n" +
+                    "        echo \"Reloaded " + d + "HOME/.profile\"\n" +
                     "    else\n" +
                     "        builtin source \"" + d + "@\"\n" +
                     "    fi\n" +
@@ -96,8 +108,16 @@ object BootstrapManager {
                     "export CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt\n"
                 changed = true
             }
-            if (!profileText.contains("alias reload=")) {
-                profileText += "alias reload='source " + d + "HOME/.bashrc'\n"
+            if (!profileText.contains("reload()")) {
+                if (profileText.contains("alias reload=")) {
+                    profileText = profileText.lines().filter { !it.startsWith("alias reload=") }.joinToString("\n")
+                }
+                profileText += "\nreload() {\n" +
+                    "    if [ -f \"" + d + "HOME/.bashrc\" ]; then . \"" + d + "HOME/.bashrc\"; fi\n" +
+                    "    if [ -f \"" + d + "HOME/.profile\" ]; then . \"" + d + "HOME/.profile\"; fi\n" +
+                    "    echo \"Configuration reloaded successfully.\"\n" +
+                    "}\n" +
+                    "alias reload='reload'\n"
                 changed = true
             }
             if (changed) {
@@ -128,6 +148,8 @@ object BootstrapManager {
         ensureHosts(root)
         ensureNsswitch(root)
         ensureCaCertificates(root)
+        ensurePasswd(root, home)
+        ensureReloadScripts(root, home)
 
         File(root, "var/cache/apt/archives/partial").mkdirs()
         File(root, "var/lib/apt/lists/partial").mkdirs()
@@ -250,22 +272,7 @@ object BootstrapManager {
             }
 
             // Ensure /etc/passwd and /etc/group exist with root and cortex user definitions
-            val passwdFile = File(etcDir, "passwd")
-            var passwdText = if (passwdFile.exists()) passwdFile.readText() else ""
-            if (!passwdText.contains("root:x:0:0")) {
-                passwdText = "root:x:0:0:root:/root:/bin/bash\n" + passwdText
-            }
-            if (!passwdText.contains("cortex:")) {
-                passwdText += "cortex:x:0:0:Cortex:/home:/bin/bash\n"
-            }
-            passwdFile.writeText(passwdText)
-
-            val groupFile = File(etcDir, "group")
-            var groupText = if (groupFile.exists()) groupFile.readText() else ""
-            if (!groupText.contains("root:x:0:")) {
-                groupText = "root:x:0:\n" + groupText
-            }
-            groupFile.writeText(groupText)
+            ensurePasswd(root, home)
 
             // Ensure user homes exist
             File(root, "root").mkdirs()
@@ -929,6 +936,56 @@ object BootstrapManager {
             }
         } catch (e: Exception) {
             android.util.Log.e("BootstrapManager", "Failed to ensure CA certificates", e)
+        }
+    }
+
+    private fun ensurePasswd(root: File, home: File) {
+        try {
+            val etcDir = File(root, "etc")
+            if (!etcDir.exists()) etcDir.mkdirs()
+            val passwdFile = File(etcDir, "passwd")
+            var passwdText = if (passwdFile.exists()) passwdFile.readText() else ""
+            val homePath = home.absolutePath
+            if (!passwdText.contains("root:x:0:0")) {
+                passwdText = "root:x:0:0:root:$homePath:/bin/bash\n" + passwdText
+            } else {
+                passwdText = passwdText.replace(Regex("root:x:0:0:root:[^:]+:/bin/bash"), "root:x:0:0:root:$homePath:/bin/bash")
+            }
+            if (!passwdText.contains("cortex:")) {
+                passwdText += "cortex:x:0:0:Cortex:$homePath:/bin/bash\n"
+            } else {
+                passwdText = passwdText.replace(Regex("cortex:x:0:0:Cortex:[^:]+:/bin/bash"), "cortex:x:0:0:Cortex:$homePath:/bin/bash")
+            }
+            passwdFile.writeText(passwdText)
+
+            val groupFile = File(etcDir, "group")
+            var groupText = if (groupFile.exists()) groupFile.readText() else ""
+            if (!groupText.contains("root:x:0:")) {
+                groupText = "root:x:0:\n" + groupText
+            }
+            groupFile.writeText(groupText)
+        } catch (e: Exception) {
+            android.util.Log.e("BootstrapManager", "Failed to ensure passwd/group", e)
+        }
+    }
+
+    private fun ensureReloadScripts(root: File, home: File) {
+        try {
+            val reloadScript = "#!/bin/bash\n" +
+                "if [ -f \"\$HOME/.bashrc\" ]; then . \"\$HOME/.bashrc\"; fi\n" +
+                "if [ -f \"\$HOME/.profile\" ]; then . \"\$HOME/.profile\"; fi\n" +
+                "echo \"Environment reloaded.\"\n"
+            val reloadDirs = listOf(File(root, "usr/bin"), File(root, "bin"), File(home, ".local/bin"))
+            reloadDirs.forEach { dir ->
+                if (dir.exists()) {
+                    val rFile = File(dir, "reload")
+                    rFile.writeText(reloadScript)
+                    rFile.setExecutable(true, false)
+                    rFile.setReadable(true, false)
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("BootstrapManager", "Failed to create reload scripts", e)
         }
     }
 }

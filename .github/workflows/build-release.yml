@@ -58,17 +58,22 @@ jobs:
           fi
           chmod +x gradlew
 
-      - name: Generate Release Signing Key
+      - name: Verify or Generate Release Signing Key
         run: |
-          keytool -genkeypair -v \
-            -keystore app/cortex-release.keystore \
-            -alias cortex \
-            -keyalg RSA \
-            -keysize 2048 \
-            -validity 10000 \
-            -storepass cortexpassword \
-            -keypass cortexpassword \
-            -dname "CN=Cortex, OU=Terminal, O=Cortex, C=US"
+          if [ ! -f app/cortex-release.keystore ]; then
+            echo "Generating release signing keystore..."
+            keytool -genkeypair -v \
+              -keystore app/cortex-release.keystore \
+              -alias cortex \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -storepass cortexpassword \
+              -keypass cortexpassword \
+              -dname "CN=Cortex, OU=Terminal, O=Cortex, C=US"
+          else
+            echo "Committed permanent release keystore found, using existing keystore."
+          fi
 
       - name: Build Glibc cortex-hook Libraries
         run: |
@@ -253,10 +258,12 @@ jobs:
           NOTES="Cortex Release $VERSION
 
           Features and Improvements:
-          - Resolve Broken Absolute Symlinks (awk / which fix): Debian alternatives created absolute symlinks (e.g. /usr/bin/awk -> /etc/alternatives/awk) that failed on rootless Android because Android /etc is read-only /system/etc. Converted all absolute symlinks into relative symlinks so awk, which, and other alternatives resolve properly inside the Glibc rootfs.
-          - Visible Notification Bar Icon: Created pure white monochrome vector terminal icon (ic_notification) for Android status bar notifications, replacing the blank/invisible notification icon.
-          - Smooth Terminal Scrolling with Inertia Physics: Re-engineered gesture scrolling with natural touch direction (drag down to reveal history, drag up to scroll to bottom), fractional scroll accumulation, and OverScroller fling inertia with instant touch cancellation.
-          - Streamlined Initial Setup: Initial clean install runs 'apt update && apt upgrade -y' automatically.
+          - Permanent Keystore Signature: Committed a permanent signing keystore to eliminate package signature mismatches (INSTALL_FAILED_UPDATE_INCOMPATIBLE / paket cakisti). All future updates will install seamlessly without requiring uninstallation.
+          - OpenCode & Modern CLI Runtime Compatibility: Removed virtual path stripping from getcwd, realpath, readlink, and readlinkat in libcortex-hook, and aligned /etc/passwd user home with the real physical storage path. Modern tools and runtimes (Bun, Node, Zig, Go, Rust) can now successfully resolve working directories without 'Failed to change directory to /home' errors.
+          - Enhanced reload and source Commands: Built-in reload function and executable scripts (/usr/bin/reload, ~/.local/bin/reload) allow instantly reloading ~/.bashrc and ~/.profile. Improved source command natively recognizes 'source bashrc', 'source .bashrc', and 'source ~/.bashrc'.
+          - Relative Symlink Resolution: Preserved relative symlink conversions for awk, which, and all Debian alternatives on Android rootless environments.
+          - Visible Notification Bar Icon: Monochrome vector terminal icon for Android status bar notifications.
+          - Smooth Terminal Scrolling with Inertia Physics: Inertial terminal scrolling with OverScroller physics.
           - Retained All Previous Releases: Older releases remain available alongside new releases."
 
           gh release create "$VERSION" \
