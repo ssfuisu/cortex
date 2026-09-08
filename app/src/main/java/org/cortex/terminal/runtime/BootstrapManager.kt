@@ -21,8 +21,24 @@ object BootstrapManager {
             }
         }
 
+        val d = "$"
+        val certExportSnippet = "if [ -z \"" + d + "CORTEX_ROOT\" ]; then\n" +
+            "    if [ -d \"" + d + "HOME/../etc\" ]; then\n" +
+            "        export CORTEX_ROOT=\"$(cd \"" + d + "HOME/..\" && pwd)\"\n" +
+            "    fi\n" +
+            "fi\n" +
+            "if [ -n \"" + d + "CORTEX_ROOT\" ]; then\n" +
+            "    export SSL_CERT_FILE=\"" + d + "CORTEX_ROOT/etc/ssl/certs/ca-certificates.crt\"\n" +
+            "    export SSL_CERT_DIR=\"" + d + "CORTEX_ROOT/etc/ssl/certs:/system/etc/security/cacerts\"\n" +
+            "    export CURL_CA_BUNDLE=\"" + d + "CORTEX_ROOT/etc/ssl/certs/ca-certificates.crt\"\n" +
+            "    export NODE_EXTRA_CA_CERTS=\"" + d + "CORTEX_ROOT/etc/ssl/certs/ca-certificates.crt\"\n" +
+            "    export REQUESTS_CA_BUNDLE=\"" + d + "CORTEX_ROOT/etc/ssl/certs/ca-certificates.crt\"\n" +
+            "else\n" +
+            "    export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt\n" +
+            "    export CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt\n" +
+            "fi\n"
+
         try {
-            val d = "$"
             val bashrc = File(home, ".bashrc")
             var bashrcText = if (bashrc.exists()) {
                 try { bashrc.readText() } catch (e: Exception) { "" }
@@ -52,21 +68,6 @@ object BootstrapManager {
                 bashrcText += "export PATH=\"" + d + "HOME/.local/bin:" + d + "PATH\"\n"
                 changed = true
             }
-            val certExportSnippet = "if [ -z \"" + d + "CORTEX_ROOT\" ]; then\n" +
-                "    if [ -d \"" + d + "HOME/../etc\" ]; then\n" +
-                "        export CORTEX_ROOT=\"$(cd \"" + d + "HOME/..\" && pwd)\"\n" +
-                "    fi\n" +
-                "fi\n" +
-                "if [ -n \"" + d + "CORTEX_ROOT\" ]; then\n" +
-                "    export SSL_CERT_FILE=\"" + d + "CORTEX_ROOT/etc/ssl/certs/ca-certificates.crt\"\n" +
-                "    export SSL_CERT_DIR=\"" + d + "CORTEX_ROOT/etc/ssl/certs:/system/etc/security/cacerts\"\n" +
-                "    export CURL_CA_BUNDLE=\"" + d + "CORTEX_ROOT/etc/ssl/certs/ca-certificates.crt\"\n" +
-                "    export NODE_EXTRA_CA_CERTS=\"" + d + "CORTEX_ROOT/etc/ssl/certs/ca-certificates.crt\"\n" +
-                "    export REQUESTS_CA_BUNDLE=\"" + d + "CORTEX_ROOT/etc/ssl/certs/ca-certificates.crt\"\n" +
-                "else\n" +
-                "    export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt\n" +
-                "    export CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt\n" +
-                "fi\n"
 
             if (bashrcText.contains("export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt")) {
                 bashrcText = bashrcText.replace(
@@ -132,7 +133,6 @@ object BootstrapManager {
         }
 
         try {
-            val d = "$"
             val profile = File(home, ".profile")
             var profileText = if (profile.exists()) {
                 try { profile.readText() } catch (e: Exception) { "" }
