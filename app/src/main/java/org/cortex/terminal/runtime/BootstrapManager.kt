@@ -52,9 +52,33 @@ object BootstrapManager {
                 bashrcText += "export PATH=\"" + d + "HOME/.local/bin:" + d + "PATH\"\n"
                 changed = true
             }
-            if (!bashrcText.contains("SSL_CERT_FILE")) {
-                bashrcText += "export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt\n" +
-                    "export CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt\n"
+            val certExportSnippet = "if [ -z \"" + d + "CORTEX_ROOT\" ]; then\n" +
+                "    if [ -d \"" + d + "HOME/../etc\" ]; then\n" +
+                "        export CORTEX_ROOT=\"$(cd \"" + d + "HOME/..\" && pwd)\"\n" +
+                "    fi\n" +
+                "fi\n" +
+                "if [ -n \"" + d + "CORTEX_ROOT\" ]; then\n" +
+                "    export SSL_CERT_FILE=\"" + d + "CORTEX_ROOT/etc/ssl/certs/ca-certificates.crt\"\n" +
+                "    export SSL_CERT_DIR=\"" + d + "CORTEX_ROOT/etc/ssl/certs:/system/etc/security/cacerts\"\n" +
+                "    export CURL_CA_BUNDLE=\"" + d + "CORTEX_ROOT/etc/ssl/certs/ca-certificates.crt\"\n" +
+                "    export NODE_EXTRA_CA_CERTS=\"" + d + "CORTEX_ROOT/etc/ssl/certs/ca-certificates.crt\"\n" +
+                "    export REQUESTS_CA_BUNDLE=\"" + d + "CORTEX_ROOT/etc/ssl/certs/ca-certificates.crt\"\n" +
+                "else\n" +
+                "    export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt\n" +
+                "    export CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt\n" +
+                "fi\n"
+
+            if (bashrcText.contains("export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt")) {
+                bashrcText = bashrcText.replace(
+                    "export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt\nexport CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt\n",
+                    certExportSnippet
+                )
+                if (bashrcText.contains("export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt")) {
+                    bashrcText = bashrcText.replace("export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt", certExportSnippet)
+                }
+                changed = true
+            } else if (!bashrcText.contains("SSL_CERT_FILE")) {
+                bashrcText += certExportSnippet
                 changed = true
             }
             if (!bashrcText.contains("TZDIR")) {
@@ -133,9 +157,17 @@ object BootstrapManager {
                 profileText += "export PATH=\"" + d + "HOME/.local/bin:" + d + "PATH\"\n"
                 changed = true
             }
-            if (!profileText.contains("SSL_CERT_FILE")) {
-                profileText += "export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt\n" +
-                    "export CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt\n"
+            if (profileText.contains("export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt")) {
+                profileText = profileText.replace(
+                    "export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt\nexport CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt\n",
+                    certExportSnippet
+                )
+                if (profileText.contains("export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt")) {
+                    profileText = profileText.replace("export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt", certExportSnippet)
+                }
+                changed = true
+            } else if (!profileText.contains("SSL_CERT_FILE")) {
+                profileText += certExportSnippet
                 changed = true
             }
             if (!profileText.contains("TZDIR")) {
@@ -775,8 +807,17 @@ object BootstrapManager {
                 "export DEBIAN_FRONTEND=noninteractive\n" +
                 "export DEBCONF_FRONTEND=noninteractive\n" +
                 "export DEBCONF_NONINTERACTIVE_SEEN=true\n" +
-                "export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt\n" +
-                "export CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt\n"
+                "if [ -n \"\$CORTEX_ROOT\" ]; then\n" +
+                "    export SSL_CERT_FILE=\"\$CORTEX_ROOT/etc/ssl/certs/ca-certificates.crt\"\n" +
+                "    export SSL_CERT_DIR=\"\$CORTEX_ROOT/etc/ssl/certs:/system/etc/security/cacerts\"\n" +
+                "    export CURL_CA_BUNDLE=\"\$CORTEX_ROOT/etc/ssl/certs/ca-certificates.crt\"\n" +
+                "    export NODE_EXTRA_CA_CERTS=\"\$CORTEX_ROOT/etc/ssl/certs/ca-certificates.crt\"\n" +
+                "    export REQUESTS_CA_BUNDLE=\"\$CORTEX_ROOT/etc/ssl/certs/ca-certificates.crt\"\n" +
+                "else\n" +
+                "    export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt\n" +
+                "    export CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt\n" +
+                "fi\n" +
+                "export TZDIR=/usr/share/zoneinfo\n"
             )
 
             val usrSbinDir = File(root, "usr/sbin")
@@ -955,29 +996,78 @@ object BootstrapManager {
             val certsDir = File(root, "etc/ssl/certs")
             certsDir.mkdirs()
             val caBundle = File(certsDir, "ca-certificates.crt")
-            if (!caBundle.exists() || caBundle.length() < 1000L) {
-                val androidCertsDir = File("/system/etc/security/cacerts")
-                val sb = StringBuilder()
-                if (androidCertsDir.exists() && androidCertsDir.isDirectory) {
-                    androidCertsDir.listFiles()?.forEach { f ->
-                        if (f.isFile && f.name.endsWith(".0")) {
-                            try {
-                                val content = f.readText()
-                                val start = content.indexOf("-----BEGIN CERTIFICATE-----")
-                                val end = content.indexOf("-----END CERTIFICATE-----")
-                                if (start != -1 && end != -1) {
-                                    sb.append(content.substring(start, end + "-----END CERTIFICATE-----".length)).append("\n")
+
+            val androidCertsDir = File("/system/etc/security/cacerts")
+            val existingText = if (caBundle.exists() && caBundle.length() > 0) {
+                try { caBundle.readText() } catch (e: Exception) { "" }
+            } else ""
+
+            val sb = StringBuilder(existingText)
+            var appended = false
+
+            if (androidCertsDir.exists() && androidCertsDir.isDirectory) {
+                androidCertsDir.listFiles()?.forEach { f ->
+                    if (f.isFile && f.name.endsWith(".0")) {
+                        try {
+                            val content = f.readText()
+                            val start = content.indexOf("-----BEGIN CERTIFICATE-----")
+                            val end = content.indexOf("-----END CERTIFICATE-----")
+                            if (start != -1 && end != -1) {
+                                val certPem = content.substring(start, end + "-----END CERTIFICATE-----".length)
+                                val bodyOnly = certPem
+                                    .replace("-----BEGIN CERTIFICATE-----", "")
+                                    .replace("-----END CERTIFICATE-----", "")
+                                    .replace("\n", "")
+                                    .replace("\r", "")
+                                    .trim()
+                                if (bodyOnly.length > 32 && !existingText.contains(bodyOnly.substring(0, 32))) {
+                                    if (sb.isNotEmpty() && !sb.endsWith("\n")) {
+                                        sb.append("\n")
+                                    }
+                                    sb.append(certPem).append("\n")
+                                    appended = true
                                 }
-                            } catch (e: Exception) {}
-                        }
+                            }
+                        } catch (e: Exception) {}
                     }
                 }
+            }
+
+            if (!caBundle.exists() || caBundle.length() < 1000L || appended) {
                 if (sb.isNotEmpty()) {
                     caBundle.writeText(sb.toString())
-                    caBundle.setReadable(true, false)
-                    android.util.Log.i("BootstrapManager", "Generated ca-certificates.crt (${caBundle.length()} bytes)")
                 }
             }
+
+            caBundle.setReadable(true, false)
+            try {
+                android.system.Os.chmod(caBundle.absolutePath, 420)
+            } catch (e: Exception) {}
+
+            val certAliases = listOf(
+                File(root, "etc/ssl/cert.pem"),
+                File(root, "etc/ssl/ca-bundle.pem"),
+                File(root, "usr/lib/ssl/cert.pem")
+            )
+            val usrLibSsl = File(root, "usr/lib/ssl")
+            if (!usrLibSsl.exists()) usrLibSsl.mkdirs()
+
+            val pkiDir = File(root, "etc/pki/tls/certs")
+            if (!pkiDir.exists()) pkiDir.mkdirs()
+            val pkiBundle = File(pkiDir, "ca-bundle.crt")
+
+            certAliases.plus(pkiBundle).forEach { aliasFile ->
+                try {
+                    if (!aliasFile.exists() || aliasFile.length() == 0L) {
+                        try {
+                            android.system.Os.symlink(caBundle.absolutePath, aliasFile.absolutePath)
+                        } catch (symEx: Exception) {
+                            aliasFile.writeBytes(caBundle.readBytes())
+                        }
+                    }
+                } catch (e: Exception) {}
+            }
+            android.util.Log.i("BootstrapManager", "ensureCaCertificates finished (${caBundle.length()} bytes)")
         } catch (e: Exception) {
             android.util.Log.e("BootstrapManager", "Failed to ensure CA certificates", e)
         }

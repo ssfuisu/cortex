@@ -151,6 +151,7 @@ class MainActivity : AppCompatActivity() {
         val root = Environment.getCortexRoot(this)
         BootstrapManager.updateDnsConfiguration(this, root)
         BootstrapManager.updateTimezone(this, root)
+        BootstrapManager.ensureCaCertificates(root)
         BootstrapManager.ensureEssentialBinaries(root, Environment.getHomeDir(this))
         BootstrapManager.initializeFileSystem(this)
         if (!BootstrapManager.isBootstrapInstalled(this)) {

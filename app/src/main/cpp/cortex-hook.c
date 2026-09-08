@@ -146,6 +146,27 @@ static void init_cortex_hook(void) {
             snprintf(tzdir_buf, sizeof(tzdir_buf), "%s/usr/share/zoneinfo", g_cortex_root);
             setenv("TZDIR", tzdir_buf, 0);
         }
+
+        const char *curr_cert = getenv("SSL_CERT_FILE");
+        if (!curr_cert || curr_cert[0] == '\0' || strcmp(curr_cert, "/etc/ssl/certs/ca-certificates.crt") == 0) {
+            char cert_buf[PATH_MAX];
+            snprintf(cert_buf, sizeof(cert_buf), "%s/etc/ssl/certs/ca-certificates.crt", g_cortex_root);
+            setenv("SSL_CERT_FILE", cert_buf, 1);
+        }
+
+        const char *curr_cert_dir = getenv("SSL_CERT_DIR");
+        if (!curr_cert_dir || curr_cert_dir[0] == '\0' || strcmp(curr_cert_dir, "/etc/ssl/certs") == 0) {
+            char cert_dir_buf[PATH_MAX];
+            snprintf(cert_dir_buf, sizeof(cert_dir_buf), "%s/etc/ssl/certs:/system/etc/security/cacerts", g_cortex_root);
+            setenv("SSL_CERT_DIR", cert_dir_buf, 1);
+        }
+
+        const char *curr_curl = getenv("CURL_CA_BUNDLE");
+        if (!curr_curl || curr_curl[0] == '\0' || strcmp(curr_curl, "/etc/ssl/certs/ca-certificates.crt") == 0) {
+            char curl_buf[PATH_MAX];
+            snprintf(curl_buf, sizeof(curl_buf), "%s/etc/ssl/certs/ca-certificates.crt", g_cortex_root);
+            setenv("CURL_CA_BUNDLE", curl_buf, 1);
+        }
     }
     g_initialized = 1;
 }

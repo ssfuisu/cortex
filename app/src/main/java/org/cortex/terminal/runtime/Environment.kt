@@ -90,6 +90,9 @@ object Environment {
             "%s%s%d".format(stdName, posixSign, hours)
         }
 
+        val certFile = File(root, "etc/ssl/certs/ca-certificates.crt").absolutePath
+        val certDir = "${File(root, "etc/ssl/certs").absolutePath}:/system/etc/security/cacerts"
+
         val envList = mutableListOf(
             "TERM=xterm-256color",
             "COLORTERM=truecolor",
@@ -114,8 +117,11 @@ object Environment {
             "DEBIAN_FRONTEND=noninteractive",
             "DEBCONF_FRONTEND=noninteractive",
             "DEBCONF_NONINTERACTIVE_SEEN=true",
-            "SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt",
-            "CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt",
+            "SSL_CERT_FILE=$certFile",
+            "SSL_CERT_DIR=$certDir",
+            "CURL_CA_BUNDLE=$certFile",
+            "NODE_EXTRA_CA_CERTS=$certFile",
+            "REQUESTS_CA_BUNDLE=$certFile",
             "TZDIR=$root/usr/share/zoneinfo",
             "TZ=$posixTz"
         )
