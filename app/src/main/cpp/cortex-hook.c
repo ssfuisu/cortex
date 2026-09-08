@@ -244,6 +244,24 @@ int creat(const char *pathname, mode_t mode) {
     return open(pathname, O_CREAT | O_WRONLY | O_TRUNC, mode);
 }
 
+// Fortified open variants used by GNU tar and other coreutils compiled with _FORTIFY_SOURCE=2
+int __open_2(const char *pathname, int flags) {
+    return open(pathname, flags);
+}
+
+int __open64_2(const char *pathname, int flags) {
+    return open(pathname, flags);
+}
+
+int __openat_2(int dirfd, const char *pathname, int flags) {
+    return openat(dirfd, pathname, flags);
+}
+
+int __openat64_2(int dirfd, const char *pathname, int flags) {
+    return openat(dirfd, pathname, flags);
+}
+
+
 // Hook fopen
 FILE *fopen(const char *pathname, const char *mode) {
     static FILE *(*orig_fopen)(const char *, const char *) = NULL;
@@ -945,10 +963,21 @@ int mknod(const char *pathname, mode_t mode, dev_t dev) {
     return 0;
 }
 
+int mkfifoat(int dirfd, const char *pathname, mode_t mode) {
+    static int (*orig_mkfifoat)(int, const char *, mode_t) = NULL;
+    if (!orig_mkfifoat) orig_mkfifoat = (int (*)(int, const char *, mode_t))dlsym(RTLD_NEXT, "mkfifoat");
+    char buf[PATH_MAX];
+    const char *target = (pathname && pathname[0] == '/') ? rewrite_path(pathname, buf, sizeof(buf)) : pathname;
+    return orig_mkfifoat ? orig_mkfifoat(dirfd, target, mode) : 0;
+}
+
 int mknodat(int dirfd, const char *pathname, mode_t mode, dev_t dev) {
     (void)dev;
     if (S_ISREG(mode)) {
         return openat(dirfd, pathname, O_CREAT | O_WRONLY | O_TRUNC, mode);
+    }
+    if (S_ISFIFO(mode)) {
+        return mkfifoat(dirfd, pathname, mode);
     }
     return 0;
 }
@@ -1015,6 +1044,10 @@ static char **prepare_cortex_env(char *const envp[]) {
     int has_tunables = 0;
     int has_path = 0;
     int has_tmp = 0;
+    int has_threads_max = 0;
+    int has_xz_opt = 0;
+    int has_xz_defaults = 0;
+    int has_tar_options = 0;
 
     char hook_path[PATH_MAX] = {0};
     if (g_cortex_root[0] != '\0') {
@@ -1032,11 +1065,19 @@ static char **prepare_cortex_env(char *const envp[]) {
             has_path = 1;
         } else if (strncmp(envp[count], "TMPDIR=", 7) == 0) {
             has_tmp = 1;
+        } else if (strncmp(envp[count], "DPKG_DEB_THREADS_MAX=", 21) == 0) {
+            has_threads_max = 1;
+        } else if (strncmp(envp[count], "XZ_OPT=", 7) == 0) {
+            has_xz_opt = 1;
+        } else if (strncmp(envp[count], "XZ_DEFAULTS=", 12) == 0) {
+            has_xz_defaults = 1;
+        } else if (strncmp(envp[count], "TAR_OPTIONS=", 12) == 0) {
+            has_tar_options = 1;
         }
         count++;
     }
 
-    char **new_env = calloc(count + 6, sizeof(char *));
+    char **new_env = calloc(count + 12, sizeof(char *));
     int dst = 0;
     for (int i = 0; i < count; i++) {
         new_env[dst++] = envp[i];
@@ -1068,6 +1109,18 @@ static char **prepare_cortex_env(char *const envp[]) {
             snprintf(str, PATH_MAX + 16, "TMPDIR=%s/tmp", g_cortex_root);
             new_env[dst++] = str;
         }
+    }
+    if (!has_threads_max) {
+        new_env[dst++] = "DPKG_DEB_THREADS_MAX=1";
+    }
+    if (!has_xz_opt) {
+        new_env[dst++] = "XZ_OPT=-T1";
+    }
+    if (!has_xz_defaults) {
+        new_env[dst++] = "XZ_DEFAULTS=-T1";
+    }
+    if (!has_tar_options) {
+        new_env[dst++] = "TAR_OPTIONS=--no-same-owner";
     }
     new_env[dst] = NULL;
     return new_env;

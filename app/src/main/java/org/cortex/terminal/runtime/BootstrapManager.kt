@@ -74,7 +74,7 @@ object BootstrapManager {
         patchAllDynamicLinkers(root)
     }
 
-    private const val CURRENT_BOOTSTRAP_VERSION = 12405
+    private const val CURRENT_BOOTSTRAP_VERSION = 12406
 
     fun isBootstrapInstalled(context: Context): Boolean {
         val root = Environment.getCortexRoot(context)
@@ -544,6 +544,24 @@ object BootstrapManager {
             )
             val dockerClean = File(aptConfDir, "docker-clean")
             dockerClean.writeText("# Disabled for Cortex\n")
+
+            val dpkgCfgDir = File(root, "etc/dpkg/dpkg.cfg.d")
+            dpkgCfgDir.mkdirs()
+            File(dpkgCfgDir, "01cortex").writeText(
+                "force-confdef\n" +
+                "force-confold\n" +
+                "force-unsafe-io\n" +
+                "no-debsig\n"
+            )
+
+            val profileD = File(root, "etc/profile.d")
+            profileD.mkdirs()
+            File(profileD, "01cortex.sh").writeText(
+                "export DPKG_DEB_THREADS_MAX=1\n" +
+                "export XZ_OPT=-T1\n" +
+                "export XZ_DEFAULTS=-T1\n" +
+                "export TAR_OPTIONS=--no-same-owner\n"
+            )
 
             File(root, "var/cache/apt/archives/partial").mkdirs()
             File(root, "var/lib/apt/lists/partial").mkdirs()

@@ -76,7 +76,11 @@ object Environment {
             "LOGNAME=cortex",
             "HOSTNAME=cortex-android",
             "PS1=~ $ ",
-            "ENV=$home/.profile"
+            "ENV=$home/.profile",
+            "DPKG_DEB_THREADS_MAX=1",
+            "XZ_OPT=-T1",
+            "XZ_DEFAULTS=-T1",
+            "TAR_OPTIONS=--no-same-owner"
         )
 
         if (preloadStr.isNotEmpty()) {
