@@ -153,7 +153,7 @@ class MainActivity : AppCompatActivity() {
         if (!BootstrapManager.isBootstrapInstalled(this)) {
             isBootstrapping = true
             val progress = android.app.ProgressDialog(this).apply {
-                setMessage("Setting up Cortex Glibc environment...")
+                setMessage("Setting up Cortex Glibc environment...\nExtracting base system...")
                 setCancelable(false)
                 setCanceledOnTouchOutside(false)
             }
@@ -165,6 +165,23 @@ class MainActivity : AppCompatActivity() {
             }
             kotlin.concurrent.thread {
                 val success = BootstrapManager.installBootstrapFromAssets(this)
+                if (success) {
+                    runOnUiThread {
+                        if (!isFinishing && !isDestroyed) {
+                            try {
+                                progress.setMessage("Updating system packages, certificates, and timezone in background...")
+                            } catch (e: Exception) {}
+                        }
+                    }
+                    try {
+                        val setupCmd = "apt update && apt upgrade -y && apt install -y ca-certificates tzdata && update-ca-certificates"
+                        BootstrapManager.runBackgroundCommand(this, setupCmd)
+                    } catch (e: Exception) {
+                        android.util.Log.e("MainActivity", "Initial background package setup failed", e)
+                    }
+                    BootstrapManager.updateTimezone(this, root)
+                }
+
                 runOnUiThread {
                     if (!isFinishing && !isDestroyed) {
                         try {
@@ -176,17 +193,10 @@ class MainActivity : AppCompatActivity() {
                     bootstrapDialog = null
                     isBootstrapping = false
                     if (success) {
-                        val session = createNewSession()
+                        createNewSession()
                         terminalView.post {
                             terminalView.showKeyboard()
                         }
-                        terminalView.postDelayed({
-                            try {
-                                session.write("apt update && apt upgrade -y\n".toByteArray(Charsets.UTF_8))
-                            } catch (e: Exception) {
-                                android.util.Log.e("MainActivity", "Failed to run initial apt setup", e)
-                            }
-                        }, 800)
                     } else {
                         android.widget.Toast.makeText(
                             this,

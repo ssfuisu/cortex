@@ -2,6 +2,7 @@ package org.cortex.terminal.runtime
 
 import android.content.Context
 import org.cortex.terminal.pty.PtyNative
+import org.cortex.terminal.pty.PtyProcess
 import java.io.File
 import java.io.InputStream
 import java.io.PushbackInputStream
@@ -47,6 +48,10 @@ object BootstrapManager {
             if (!bashrcText.contains("SSL_CERT_FILE")) {
                 bashrcText += "export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt\n" +
                     "export CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt\n"
+                changed = true
+            }
+            if (!bashrcText.contains("export TZ=")) {
+                bashrcText += "if [ -f /etc/timezone ]; then export TZ=\"$(cat /etc/timezone 2>/dev/null)\"; fi\n"
                 changed = true
             }
             if (!bashrcText.contains("reload()")) {
@@ -108,6 +113,10 @@ object BootstrapManager {
                     "export CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt\n"
                 changed = true
             }
+            if (!profileText.contains("export TZ=")) {
+                profileText += "if [ -f /etc/timezone ]; then export TZ=\"$(cat /etc/timezone 2>/dev/null)\"; fi\n"
+                changed = true
+            }
             if (!profileText.contains("reload()")) {
                 if (profileText.contains("alias reload=")) {
                     profileText = profileText.lines().filter { !it.startsWith("alias reload=") }.joinToString("\n")
@@ -150,6 +159,7 @@ object BootstrapManager {
         ensureCaCertificates(root)
         ensurePasswd(root, home)
         ensureReloadScripts(root, home)
+        updateTimezone(context, root)
 
         File(root, "var/cache/apt/archives/partial").mkdirs()
         File(root, "var/lib/apt/lists/partial").mkdirs()
@@ -988,6 +998,70 @@ object BootstrapManager {
         } catch (e: Exception) {
             android.util.Log.e("BootstrapManager", "Failed to create reload scripts", e)
         }
+    }
+
+    fun updateTimezone(context: Context, root: File) {
+        try {
+            val tzId = try {
+                java.util.TimeZone.getDefault().id ?: "UTC"
+            } catch (e: Exception) {
+                "UTC"
+            }
+            val etcDir = File(root, "etc")
+            if (!etcDir.exists()) etcDir.mkdirs()
+
+            // 1. Write /etc/timezone
+            val tzFile = File(etcDir, "timezone")
+            tzFile.writeText(tzId + "\n")
+            tzFile.setReadable(true, false)
+
+            // 2. Setup /etc/localtime from zoneinfo
+            val zoneinfoFile = File(root, "usr/share/zoneinfo/$tzId")
+            val localTimeFile = File(etcDir, "localtime")
+            if (zoneinfoFile.exists() && zoneinfoFile.isFile) {
+                try {
+                    if (localTimeFile.exists()) {
+                        localTimeFile.delete()
+                    }
+                    zoneinfoFile.copyTo(localTimeFile, overwrite = true)
+                    localTimeFile.setReadable(true, false)
+                } catch (e: Exception) {
+                    android.util.Log.e("BootstrapManager", "Failed to copy zoneinfo to localtime", e)
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("BootstrapManager", "Failed to update timezone", e)
+        }
+    }
+
+    fun runBackgroundCommand(context: Context, command: String, onProgress: ((String) -> Unit)? = null): Int {
+        val shell = getInitialShellCommand(context)
+        val env = Environment.buildEnvironment(context)
+        val homeDir = Environment.getHomeDir(context).absolutePath
+        val pty = PtyProcess.create(
+            cmd = shell,
+            args = arrayOf("-l", "-c", command),
+            envVars = env,
+            cwd = homeDir,
+            rows = 24,
+            cols = 80,
+            widthPx = 0,
+            heightPx = 0
+        ) ?: return -1
+
+        try {
+            val stream = pty.inputStream
+            val buffer = ByteArray(2048)
+            while (true) {
+                val read = stream.read(buffer)
+                if (read <= 0) break
+                val str = String(buffer, 0, minOf(read, 256), Charsets.UTF_8)
+                onProgress?.invoke(str)
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("BootstrapManager", "Background command stream error", e)
+        }
+        return pty.waitFor()
     }
 }
 

@@ -258,12 +258,12 @@ jobs:
           NOTES="Cortex Release $VERSION
 
           Features and Improvements:
-          - Permanent Keystore Signature: Committed a permanent signing keystore to eliminate package signature mismatches (INSTALL_FAILED_UPDATE_INCOMPATIBLE / paket cakisti). All future updates will install seamlessly without requiring uninstallation.
-          - OpenCode & Modern CLI Runtime Compatibility: Removed virtual path stripping from getcwd, realpath, readlink, and readlinkat in libcortex-hook, and aligned /etc/passwd user home with the real physical storage path. Modern tools and runtimes (Bun, Node, Zig, Go, Rust) can now successfully resolve working directories without 'Failed to change directory to /home' errors.
-          - Enhanced reload and source Commands: Built-in reload function and executable scripts (/usr/bin/reload, ~/.local/bin/reload) allow instantly reloading ~/.bashrc and ~/.profile. Improved source command natively recognizes 'source bashrc', 'source .bashrc', and 'source ~/.bashrc'.
-          - Relative Symlink Resolution: Preserved relative symlink conversions for awk, which, and all Debian alternatives on Android rootless environments.
-          - Visible Notification Bar Icon: Monochrome vector terminal icon for Android status bar notifications.
-          - Smooth Terminal Scrolling with Inertia Physics: Inertial terminal scrolling with OverScroller physics.
+          - Background Package and Certificate Initialization: Initial setup (apt update, apt upgrade, ca-certificates, tzdata, and update-ca-certificates) now executes silently in the background while the setup progress dialog is displayed, completely eliminating intrusive terminal text typing on launch.
+          - Automatic Local Timezone Synchronization: Synchronized Linux /etc/timezone, /etc/localtime, and TZ environment variable with the device's exact local timezone, fixing incorrect UTC hour offsets in date and timedate tools.
+          - Permanent Keystore Signature: Built with permanent committed release keystore to allow smooth in-place updates.
+          - OpenCode & Modern CLI Runtime Compatibility: Resolved working directory resolution so Bun, Node, Zig, Go, and Rust CLI tools operate reliably without /home errors.
+          - Enhanced reload and source Commands: Built-in reload function and executable scripts (/usr/bin/reload, ~/.local/bin/reload) allow instantly reloading ~/.bashrc and ~/.profile.
+          - Relative Symlink Resolution: Preserved relative symlinks for awk, which, and all Debian alternatives.
           - Retained All Previous Releases: Older releases remain available alongside new releases."
 
           gh release create "$VERSION" \

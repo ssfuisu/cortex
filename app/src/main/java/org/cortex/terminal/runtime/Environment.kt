@@ -60,6 +60,12 @@ object Environment {
         val hookLib = glibcHooks.firstOrNull { it.exists() }
         val preloadStr = hookLib?.absolutePath ?: ""
 
+        val tzId = try {
+            java.util.TimeZone.getDefault().id ?: "UTC"
+        } catch (e: Exception) {
+            "UTC"
+        }
+
         val envList = mutableListOf(
             "TERM=xterm-256color",
             "COLORTERM=truecolor",
@@ -85,7 +91,8 @@ object Environment {
             "DEBCONF_FRONTEND=noninteractive",
             "DEBCONF_NONINTERACTIVE_SEEN=true",
             "SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt",
-            "CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt"
+            "CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt",
+            "TZ=$tzId"
         )
 
         if (preloadStr.isNotEmpty()) {
