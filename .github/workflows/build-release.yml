@@ -84,13 +84,13 @@ jobs:
           arm-linux-gnueabihf-gcc -std=gnu11 -shared -fPIC -O3 -Wall -Wno-nonnull-compare -o hook-libs/libcortex-hook-arm.so app/src/main/cpp/cortex-hook.c -ldl
 
           echo "Verifying Glibc version requirements in hook libraries..."
-          if readelf -V hook-libs/*.so | grep -E "GLIBC_2\.(3[7-9]|[4-9][0-9])"; then
-            echo "ERROR: libcortex-hook.so requires GLIBC version higher than 2.36!"
+          if readelf -V hook-libs/*.so | grep -E "GLIBC_2\.([4-9][0-9])"; then
+            echo "ERROR: libcortex-hook.so requires GLIBC version higher than 2.39!"
             exit 1
           fi
-          echo "All hook libraries verified: fully compatible with Debian 12 Bookworm (glibc <= 2.36)."
+          echo "All hook libraries verified: fully compatible with Ubuntu 24.04 LTS (glibc <= 2.39)."
 
-      - name: Bundle Debian Glibc Minimal Bootstrap into APK
+      - name: Bundle Ubuntu 24.04 LTS Glibc Bootstrap into APK
         run: |
           mkdir -p app/src/main/assets
 
@@ -124,21 +124,21 @@ jobs:
           printf '#!/bin/sh\nexit 0\n' > extra-rootfs/usr/sbin/start-stop-daemon
           chmod 0755 extra-rootfs/usr/sbin/*
 
-          printf '127.0.0.1 localhost localhost.localdomain\n::1 localhost ip6-localhost ip6-loopback\n151.101.130.132 deb.debian.org\n151.101.2.132 deb.debian.org\n151.101.66.132 deb.debian.org\n151.101.194.132 deb.debian.org\n151.101.130.132 security.debian.org\n151.101.2.132 security.debian.org\n151.101.66.132 security.debian.org\n151.101.194.132 security.debian.org\n151.101.130.132 cdn-fastly.deb.debian.org\n151.101.2.132 cdn-fastly.deb.debian.org\n' > extra-rootfs/etc/hosts
+          printf '127.0.0.1 localhost localhost.localdomain\n::1 localhost ip6-localhost ip6-loopback\n91.189.91.103 ports.ubuntu.com\n91.189.92.21 ports.ubuntu.com\n91.189.91.102 ports.ubuntu.com\n91.189.92.20 ports.ubuntu.com\n185.125.190.81 archive.ubuntu.com\n91.189.91.81 archive.ubuntu.com\n185.125.190.82 security.ubuntu.com\n91.189.91.82 security.ubuntu.com\n151.101.130.132 deb.debian.org\n151.101.2.132 deb.debian.org\n151.101.66.132 deb.debian.org\n151.101.194.132 deb.debian.org\n151.101.130.132 security.debian.org\n151.101.2.132 security.debian.org\n151.101.66.132 security.debian.org\n151.101.194.132 security.debian.org\n151.101.130.132 cdn-fastly.deb.debian.org\n151.101.2.132 cdn-fastly.deb.debian.org\n' > extra-rootfs/etc/hosts
           printf 'nameserver 8.8.8.8\nnameserver 1.1.1.1\noptions timeout:1 attempts:2 rotate\n' > extra-rootfs/etc/resolv.conf
           printf 'passwd:         files\ngroup:          files\nshadow:         files\ngshadow:        files\n\nhosts:          files dns\nnetworks:       files\n\nprotocols:      db files\nservices:       db files\nethers:         db files\nrpc:            db files\n' > extra-rootfs/etc/nsswitch.conf
 
-          echo "Preparing 64-bit Debian Glibc minimal bootstrap..."
-          docker pull --platform linux/arm64 debian:bookworm-slim
-          CID_64=$(docker create --platform linux/arm64 debian:bookworm-slim)
+          echo "Preparing 64-bit Ubuntu 24.04 LTS minimal bootstrap..."
+          docker pull --platform linux/arm64 ubuntu:24.04
+          CID_64=$(docker create --platform linux/arm64 ubuntu:24.04)
           docker cp hook-libs/libcortex-hook-arm64.so "$CID_64":/usr/lib/libcortex-hook.so
           docker cp extra-rootfs/. "$CID_64":/
           docker export "$CID_64" > app/src/main/assets/bootstrap-arm64.tar
           docker rm "$CID_64"
 
-          echo "Preparing 32-bit Debian Glibc minimal bootstrap..."
-          docker pull --platform linux/arm/v7 debian:bookworm-slim
-          CID_32=$(docker create --platform linux/arm/v7 debian:bookworm-slim)
+          echo "Preparing 32-bit Ubuntu 24.04 LTS minimal bootstrap..."
+          docker pull --platform linux/arm/v7 ubuntu:24.04
+          CID_32=$(docker create --platform linux/arm/v7 ubuntu:24.04)
           docker cp hook-libs/libcortex-hook-arm.so "$CID_32":/usr/lib/libcortex-hook.so
           docker cp extra-rootfs/. "$CID_32":/
           docker export "$CID_32" > app/src/main/assets/bootstrap-arm.tar
@@ -263,18 +263,19 @@ jobs:
             VERSION="${{ github.ref_name }}"
           fi
 
-          NOTES="Cortex Release $VERSION
+          NOTES="Cortex Release $VERSION (Ubuntu 24.04 LTS Noble Numbat)
 
           Features and Improvements:
-          - Root CA Certificate Verification for Go, Node, Python, and Curl: Configured absolute SSL_CERT_FILE and SSL_CERT_DIR pointing to Debian and Android system certificate stores ($CORTEX_ROOT/etc/ssl/certs/ca-certificates.crt and /system/etc/security/cacerts). Resolves x509 unknown authority errors during Google OAuth2 token exchange in Antigravity CLI and other developer tools.
-          - Dual Trust Store Merging: Automatically merges Android system root certificates with Debian CA bundles and creates compatibility symlinks for OpenSSL, GnuTLS, and Go TLS.
+          - Native Ubuntu 24.04 LTS (Noble Numbat) Rootfs: Upgraded base userland to Ubuntu 24.04 LTS with glibc 2.39, providing modern package repositories, libraries, and tools completely natively on Android without chroot, proot, or virtualization.
+          - Zero-Overhead LD_PRELOAD Hooking: Full user-space system call translation via libcortex-hook, delivering native CPU execution speed and zero background context switching.
+          - Root CA Certificate Verification for Go, Node, Python, and Curl: Configured absolute SSL_CERT_FILE and SSL_CERT_DIR pointing to Ubuntu and Android system certificate stores ($CORTEX_ROOT/etc/ssl/certs/ca-certificates.crt and /system/etc/security/cacerts).
+          - Dual Trust Store Merging: Automatically merges Android system root certificates with Ubuntu CA bundles and provides compatibility symlinks for OpenSSL, GnuTLS, and Go TLS.
           - Accurate Local Timezone Clock & TZDIR: Bundled full /usr/share/zoneinfo database into bootstrap archives, exported TZDIR across environment and libcortex-hook, and write POSIX offset to /etc/timezone so date command and timedate tools always match device local time exactly.
           - AWK and Which Direct Binary Guarantee: Directly copies mawk and which into /usr/bin, /bin, and ~/.local/bin as real executable ELF binaries, resolving awk command not found errors during nvm install --lts.
           - Native source and reload Support: Sourcing ~/.bashrc or bashrc now executes bash native source with zero positional arguments, immediately loading newly installed tools into the current session.
           - Status Bar Notification Icon: Restructured notification icon silhouette with evenOdd fillType to ensure the Cortex terminal icon displays clearly on the Android notification bar and lock screen.
           - OpenCode and Modern CLI Support: Seamless rootfs working directory mapping for Node, Bun, Zig, Python, and Go developer tools.
-          - Permanent Keystore Signature: Uses permanent release key for seamless application updates.
-          - Retained All Previous Releases: Older releases remain available alongside new releases."
+          - Permanent Keystore Signature: Uses permanent release key for seamless application updates."
 
           gh release create "$VERSION" \
             release-apks/Cortex-arm64-v8a-signed.apk \

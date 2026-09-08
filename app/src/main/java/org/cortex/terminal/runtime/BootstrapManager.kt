@@ -401,16 +401,16 @@ object BootstrapManager {
             // Configure APT sandbox so APT operates without superuser privilege drop
             ensureAptSandbox(root)
 
-            // Ensure sources.list exists without duplicating debian.sources
             val debianSources = File(root, "etc/apt/sources.list.d/debian.sources")
+            val ubuntuSources = File(root, "etc/apt/sources.list.d/ubuntu.sources")
             val sourcesList = File(root, "etc/apt/sources.list")
-            if (debianSources.exists()) {
+            if (ubuntuSources.exists() || debianSources.exists()) {
                 if (sourcesList.exists()) sourcesList.delete()
             } else if (!sourcesList.exists() || sourcesList.length() == 0L) {
                 sourcesList.writeText(
-                    "deb http://deb.debian.org/debian bookworm main contrib non-free non-free-firmware\n" +
-                    "deb http://security.debian.org/debian-security bookworm-security main contrib non-free non-free-firmware\n" +
-                    "deb http://deb.debian.org/debian bookworm-updates main contrib non-free non-free-firmware\n"
+                    "deb http://ports.ubuntu.com/ubuntu-ports noble main restricted universe multiverse\n" +
+                    "deb http://ports.ubuntu.com/ubuntu-ports noble-updates main restricted universe multiverse\n" +
+                    "deb http://ports.ubuntu.com/ubuntu-ports noble-security main restricted universe multiverse\n"
                 )
             }
 
@@ -893,6 +893,14 @@ object BootstrapManager {
             val hostsFile = File(etcDir, "hosts")
             val defaultHosts = "127.0.0.1 localhost localhost.localdomain\n" +
                 "::1 localhost ip6-localhost ip6-loopback\n" +
+                "91.189.91.103 ports.ubuntu.com\n" +
+                "91.189.92.21 ports.ubuntu.com\n" +
+                "91.189.91.102 ports.ubuntu.com\n" +
+                "91.189.92.20 ports.ubuntu.com\n" +
+                "185.125.190.81 archive.ubuntu.com\n" +
+                "91.189.91.81 archive.ubuntu.com\n" +
+                "185.125.190.82 security.ubuntu.com\n" +
+                "91.189.91.82 security.ubuntu.com\n" +
                 "151.101.130.132 deb.debian.org\n" +
                 "151.101.2.132 deb.debian.org\n" +
                 "151.101.66.132 deb.debian.org\n" +
@@ -908,7 +916,7 @@ object BootstrapManager {
                 hostsFile.writeText(defaultHosts)
             } else {
                 val currentText = hostsFile.readText()
-                if (!currentText.contains("deb.debian.org")) {
+                if (!currentText.contains("ports.ubuntu.com")) {
                     hostsFile.writeText(currentText.trimEnd() + "\n" + defaultHosts)
                 }
             }
@@ -977,8 +985,9 @@ object BootstrapManager {
     private fun cleanupAptArtifacts(root: File) {
         try {
             val debianSources = File(root, "etc/apt/sources.list.d/debian.sources")
+            val ubuntuSources = File(root, "etc/apt/sources.list.d/ubuntu.sources")
             val sourcesList = File(root, "etc/apt/sources.list")
-            if (debianSources.exists() && sourcesList.exists()) {
+            if ((debianSources.exists() || ubuntuSources.exists()) && sourcesList.exists()) {
                 sourcesList.delete()
             }
 

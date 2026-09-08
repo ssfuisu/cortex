@@ -1917,6 +1917,17 @@ static int synthesize_fallback_addrinfo(const char *node, const char *service,
         }
     }
 
+    if (strstr(node, "ubuntu.com") != NULL) {
+        struct addrinfo *ai1 = alloc_one_addrinfo(node, "91.189.91.103", port, socktype, protocol);
+        if (!ai1) return EAI_MEMORY;
+        struct addrinfo *ai2 = alloc_one_addrinfo(node, "91.189.92.21", port, socktype, protocol);
+        if (ai2) {
+            ai1->ai_next = ai2;
+        }
+        *res = ai1;
+        return 0;
+    }
+
     if (strstr(node, "debian.org") != NULL) {
         struct addrinfo *ai1 = alloc_one_addrinfo(node, "151.101.130.132", port, socktype, protocol);
         if (!ai1) return EAI_MEMORY;
@@ -2078,9 +2089,16 @@ static in_addr_t s_fallback_addr2;
 static char *s_fallback_addr_list[3] = { NULL, NULL, NULL };
 
 static struct hostent *get_fallback_hostent(const char *name) {
-    if (!name || strstr(name, "debian.org") == NULL) return NULL;
-    inet_pton(AF_INET, "151.101.130.132", &s_fallback_addr1);
-    inet_pton(AF_INET, "151.101.2.132", &s_fallback_addr2);
+    if (!name) return NULL;
+    if (strstr(name, "ubuntu.com") != NULL) {
+        inet_pton(AF_INET, "91.189.91.103", &s_fallback_addr1);
+        inet_pton(AF_INET, "91.189.92.21", &s_fallback_addr2);
+    } else if (strstr(name, "debian.org") != NULL) {
+        inet_pton(AF_INET, "151.101.130.132", &s_fallback_addr1);
+        inet_pton(AF_INET, "151.101.2.132", &s_fallback_addr2);
+    } else {
+        return NULL;
+    }
     s_fallback_addr_list[0] = (char *)&s_fallback_addr1;
     s_fallback_addr_list[1] = (char *)&s_fallback_addr2;
     s_fallback_addr_list[2] = NULL;
@@ -2097,7 +2115,7 @@ struct hostent *gethostbyname(const char *name) {
     static struct hostent *(*orig_gethostbyname)(const char *) = NULL;
     if (!orig_gethostbyname) orig_gethostbyname = (struct hostent *(*)(const char *))dlsym(RTLD_NEXT, "gethostbyname");
     struct hostent *ret = orig_gethostbyname ? orig_gethostbyname(name) : NULL;
-    if (!ret && name && strstr(name, "debian.org")) {
+    if (!ret && name && (strstr(name, "ubuntu.com") || strstr(name, "debian.org"))) {
         return get_fallback_hostent(name);
     }
     return ret;
@@ -2107,7 +2125,7 @@ struct hostent *gethostbyname2(const char *name, int af) {
     static struct hostent *(*orig_gethostbyname2)(const char *, int) = NULL;
     if (!orig_gethostbyname2) orig_gethostbyname2 = (struct hostent *(*)(const char *, int))dlsym(RTLD_NEXT, "gethostbyname2");
     struct hostent *ret = orig_gethostbyname2 ? orig_gethostbyname2(name, af) : NULL;
-    if (!ret && (af == AF_INET || af == AF_UNSPEC) && name && strstr(name, "debian.org")) {
+    if (!ret && (af == AF_INET || af == AF_UNSPEC) && name && (strstr(name, "ubuntu.com") || strstr(name, "debian.org"))) {
         return get_fallback_hostent(name);
     }
     return ret;
