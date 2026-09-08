@@ -217,17 +217,10 @@ object BootstrapManager {
                 profile.setWritable(true, false)
             }
 
-            // Create bashrc and profile helper scripts so 'source bashrc' works natively from anywhere
-            val homeBashrc = File(home, "bashrc")
-            if (!homeBashrc.exists() || homeBashrc.length() == 0L) {
-                homeBashrc.writeText(". \"" + d + "HOME/.bashrc\"\n")
-                homeBashrc.setReadable(true, false)
-            }
-            val homeProfile = File(home, "profile")
-            if (!homeProfile.exists() || homeProfile.length() == 0L) {
-                homeProfile.writeText(". \"" + d + "HOME/.profile\"\n")
-                homeProfile.setReadable(true, false)
-            }
+            // Clean up any unhidden bashrc, profile, or ubuntu directory in home
+            File(home, "bashrc").delete()
+            File(home, "profile").delete()
+            File(home, "ubuntu").deleteRecursively()
 
             val localBin = File(home, ".local/bin")
             localBin.mkdirs()
@@ -272,6 +265,10 @@ object BootstrapManager {
         File(root, "var/cache/apt/archives/partial").mkdirs()
         File(root, "var/lib/apt/lists/partial").mkdirs()
         File(root, "tmp").mkdirs()
+        listOf("boot", "media", "mnt", "srv", "opt").forEach {
+            val d = File(root, it)
+            if (!d.exists()) d.mkdirs()
+        }
 
         // File system structure initialized
         patchAllDynamicLinkers(root)
@@ -396,7 +393,10 @@ object BootstrapManager {
 
             // Ensure user homes exist
             File(root, "root").mkdirs()
-            File(root, "home").mkdirs()
+            val homeDir = File(root, "home")
+            homeDir.mkdirs()
+            File(homeDir, "ubuntu").deleteRecursively()
+            listOf("boot", "media", "mnt", "srv", "opt").forEach { File(root, it).mkdirs() }
 
             // Configure APT sandbox so APT operates without superuser privilege drop
             ensureAptSandbox(root)
@@ -535,21 +535,30 @@ object BootstrapManager {
             val bytes = file.readBytes()
             var modified = false
 
-            // AArch64: mov x8, #0x63 (syscall 99 set_robust_list)
-            // Little-endian bytes: 68 0c 80 d2
-            val movX8Syscall99 = byteArrayOf(0x68.toByte(), 0x0c.toByte(), 0x80.toByte(), 0xd2.toByte())
-            // svc #0 in AArch64: 01 00 00 d4
+            // AArch64 syscall patterns
             val svcAarch64 = byteArrayOf(0x01.toByte(), 0x00.toByte(), 0x00.toByte(), 0xd4.toByte())
-            // nop in AArch64: 1f 20 03 d5
             val nopAarch64 = byteArrayOf(0x1f.toByte(), 0x20.toByte(), 0x03.toByte(), 0xd5.toByte())
+            val movEnosysAarch64 = byteArrayOf(0xa0.toByte(), 0x04.toByte(), 0x80.toByte(), 0x92.toByte()) // mov x0, #-38
+
+            // mov x8, #0x63 (syscall 99 set_robust_list)
+            val movX8Syscall99 = byteArrayOf(0x68.toByte(), 0x0c.toByte(), 0x80.toByte(), 0xd2.toByte())
+            // mov x8, #0x1b3 (syscall 435 clone3)
+            val movX8Syscall435 = byteArrayOf(0x68.toByte(), 0x36.toByte(), 0x80.toByte(), 0xd2.toByte())
+            // mov x8, #0x125 (syscall 293 rseq)
+            val movX8Syscall293 = byteArrayOf(0xa8.toByte(), 0x24.toByte(), 0x80.toByte(), 0xd2.toByte())
 
             var pos = 0
             while (pos <= bytes.size - 4) {
-                if (bytes[pos] == movX8Syscall99[0] &&
-                    bytes[pos + 1] == movX8Syscall99[1] &&
-                    bytes[pos + 2] == movX8Syscall99[2] &&
-                    bytes[pos + 3] == movX8Syscall99[3]) {
+                val isSyscall99 = (bytes[pos] == movX8Syscall99[0] && bytes[pos + 1] == movX8Syscall99[1] &&
+                                   bytes[pos + 2] == movX8Syscall99[2] && bytes[pos + 3] == movX8Syscall99[3])
+                val isSyscall435 = (bytes[pos] == movX8Syscall435[0] && bytes[pos + 1] == movX8Syscall435[1] &&
+                                    bytes[pos + 2] == movX8Syscall435[2] && bytes[pos + 3] == movX8Syscall435[3])
+                val isSyscall293 = (bytes[pos] == movX8Syscall293[0] && bytes[pos + 1] == movX8Syscall293[1] &&
+                                    bytes[pos + 2] == movX8Syscall293[2] && bytes[pos + 3] == movX8Syscall293[3])
 
+                if (isSyscall99 || isSyscall435 || isSyscall293) {
+                    val replacement = if (isSyscall99) nopAarch64 else movEnosysAarch64
+                    val scName = if (isSyscall99) "99 set_robust_list" else if (isSyscall435) "435 clone3" else "293 rseq"
                     val searchEnd = minOf(bytes.size - 4, pos + 64)
                     for (i in (pos + 4)..searchEnd step 4) {
                         if (bytes[i] == svcAarch64[0] &&
@@ -557,9 +566,9 @@ object BootstrapManager {
                             bytes[i + 2] == svcAarch64[2] &&
                             bytes[i + 3] == svcAarch64[3]) {
 
-                            nopAarch64.copyInto(bytes, destinationOffset = i)
+                            replacement.copyInto(bytes, destinationOffset = i)
                             modified = true
-                            android.util.Log.i("BootstrapManager", "Patched syscall 99 svc #0 at 0x${Integer.toHexString(i)} in ${file.name}")
+                            android.util.Log.i("BootstrapManager", "Patched syscall $scName svc #0 at 0x${Integer.toHexString(i)} in ${file.name}")
                             break
                         }
                     }
@@ -1105,6 +1114,9 @@ object BootstrapManager {
             var groupText = if (groupFile.exists()) groupFile.readText() else ""
             if (!groupText.contains("root:x:0:")) {
                 groupText = "root:x:0:\n" + groupText
+            }
+            if (!groupText.contains("cortex:")) {
+                groupText += "cortex:x:0:\n"
             }
             groupFile.writeText(groupText)
         } catch (e: Exception) {

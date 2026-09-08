@@ -122,7 +122,10 @@ jobs:
           printf '#!/bin/sh\nexit 101\n' > extra-rootfs/usr/sbin/policy-rc.d
           printf '#!/bin/sh\nexit 0\n' > extra-rootfs/usr/sbin/ldconfig
           printf '#!/bin/sh\nexit 0\n' > extra-rootfs/usr/sbin/start-stop-daemon
-          chmod 0755 extra-rootfs/usr/sbin/*
+          mkdir -p extra-rootfs/boot extra-rootfs/media extra-rootfs/mnt extra-rootfs/srv extra-rootfs/opt extra-rootfs/run extra-rootfs/tmp
+          chmod 0755 extra-rootfs/boot extra-rootfs/media extra-rootfs/mnt extra-rootfs/srv extra-rootfs/opt extra-rootfs/usr/sbin/*
+          printf 'root:x:0:\ndaemon:x:1:\ncortex:x:0:\n' > extra-rootfs/etc/group
+          printf 'root:x:0:0:root:/home:/bin/bash\ncortex:x:0:0:Cortex:/home:/bin/bash\n' > extra-rootfs/etc/passwd
 
           printf '127.0.0.1 localhost localhost.localdomain\n::1 localhost ip6-localhost ip6-loopback\n91.189.91.103 ports.ubuntu.com\n91.189.92.21 ports.ubuntu.com\n91.189.91.102 ports.ubuntu.com\n91.189.92.20 ports.ubuntu.com\n185.125.190.81 archive.ubuntu.com\n91.189.91.81 archive.ubuntu.com\n185.125.190.82 security.ubuntu.com\n91.189.91.82 security.ubuntu.com\n151.101.130.132 deb.debian.org\n151.101.2.132 deb.debian.org\n151.101.66.132 deb.debian.org\n151.101.194.132 deb.debian.org\n151.101.130.132 security.debian.org\n151.101.2.132 security.debian.org\n151.101.66.132 security.debian.org\n151.101.194.132 security.debian.org\n151.101.130.132 cdn-fastly.deb.debian.org\n151.101.2.132 cdn-fastly.deb.debian.org\n' > extra-rootfs/etc/hosts
           printf 'nameserver 8.8.8.8\nnameserver 1.1.1.1\noptions timeout:1 attempts:2 rotate\n' > extra-rootfs/etc/resolv.conf
@@ -150,15 +153,25 @@ jobs:
 
           def patch_tar_ld(tar_path):
               print(f"Checking and patching dynamic linkers and libc in {tar_path}...")
-              pattern = b"\x68\x0c\x80\xd2" # mov x8, #0x63
-              svc = b"\x01\x00\x00\xd4"     # svc #0
-              nop = b"\x1f\x20\x03\xd5"     # nop
+              svc = b"\x01\x00\x00\xd4"          # svc #0
+              nop = b"\x1f\x20\x03\xd5"          # nop
+              mov_enosys = b"\xa0\x04\x80\x92"   # mov x0, #-38
+
+              patches = [
+                  ("set_robust_list", b"\x68\x0c\x80\xd2", nop),        # mov x8, #0x63 (99) -> nop
+                  ("clone3",          b"\x68\x36\x80\xd2", mov_enosys), # mov x8, #0x1b3 (435) -> mov x0, #-38
+                  ("rseq",            b"\xa8\x24\x80\xd2", mov_enosys), # mov x8, #0x125 (293) -> mov x0, #-38
+              ]
 
               count = 0
               with tarfile.open(tar_path, "r") as tin:
                   members = tin.getmembers()
                   with tarfile.open(tar_path + ".tmp", "w") as tout:
                       for m in members:
+                          if m.name == "home/ubuntu" or m.name.startswith("home/ubuntu/"):
+                              continue
+                          if m.name in ["home/bashrc", "home/profile"]:
+                              continue
                           if m.issym() and m.linkname.startswith("/"):
                               parent = os.path.dirname(m.name)
                               target = m.linkname.lstrip("/")
@@ -167,21 +180,23 @@ jobs:
                           f = tin.extractfile(m) if m.isreg() else None
                           if f and ("ld-linux" in m.name or "libc.so" in m.name or "libc-" in m.name):
                               data = bytearray(f.read())
-                              pos = 0
                               file_patched = 0
-                              while True:
-                                  idx = data.find(pattern, pos)
-                                  if idx == -1: break
-                                  sub = data[idx:idx+64]
-                                  s_idx = sub.find(svc)
-                                  if s_idx != -1:
-                                      target = idx + s_idx
-                                      data[target:target+4] = nop
-                                      file_patched += 1
-                                      count += 1
-                                  pos = idx + 4
+                              for sc_name, pat, repl in patches:
+                                  pos = 0
+                                  while True:
+                                      idx = data.find(pat, pos)
+                                      if idx == -1: break
+                                      sub = data[idx:idx+64]
+                                      s_idx = sub.find(svc)
+                                      if s_idx != -1:
+                                          target = idx + s_idx
+                                          data[target:target+4] = repl
+                                          file_patched += 1
+                                          count += 1
+                                          print(f"Patched {sc_name} at 0x{target:x} in {m.name}")
+                                      pos = idx + 4
                               if file_patched > 0:
-                                  print(f"Patched {m.name}: {file_patched} occurrence(s) replaced with nop!")
+                                  print(f"Total patched in {m.name}: {file_patched}")
                               m.size = len(data)
                               tout.addfile(m, io.BytesIO(data))
                           elif f:
@@ -267,14 +282,15 @@ jobs:
 
           Features and Improvements:
           - Native Ubuntu 24.04 LTS (Noble Numbat) Rootfs: Upgraded base userland to Ubuntu 24.04 LTS with glibc 2.39, providing modern package repositories, libraries, and tools completely natively on Android without chroot, proot, or virtualization.
+          - Seccomp Syscall Compatibility for Modern CLIs: Patched glibc dynamic linkers and C libraries to handle clone3, rseq, and set_robust_list without triggering Android kernel seccomp SIGSYS traps, enabling Antigravity CLI, Go binaries, and modern runtimes to execute flawlessly.
+          - Full Dpkg Filesystem Path Redirection: Updated libcortex-hook path rewriting to dynamically redirect all rootfs directories (/boot, /media, /snap, etc.) to Cortex root, preventing Read-only file system errors during dpkg deb extractions.
+          - Robust User and Group Resolution: Added synthetic fallbacks for getgrgid, getgrnam, getpwuid, and getpwnam in libcortex-hook and ensured /etc/group definitions, permanently resolving 'cannot find name for group ID 0'.
+          - Clean Home Directory: Cleaned up extraneous ubuntu subfolder and unhidden files from ~, maintaining a standard, tidy home directory layout.
           - Zero-Overhead LD_PRELOAD Hooking: Full user-space system call translation via libcortex-hook, delivering native CPU execution speed and zero background context switching.
-          - Root CA Certificate Verification for Go, Node, Python, and Curl: Configured absolute SSL_CERT_FILE and SSL_CERT_DIR pointing to Ubuntu and Android system certificate stores ($CORTEX_ROOT/etc/ssl/certs/ca-certificates.crt and /system/etc/security/cacerts).
+          - Root CA Certificate Verification for Go, Node, Python, and Curl: Configured absolute SSL_CERT_FILE and SSL_CERT_DIR pointing to Ubuntu and Android system certificate stores.
           - Dual Trust Store Merging: Automatically merges Android system root certificates with Ubuntu CA bundles and provides compatibility symlinks for OpenSSL, GnuTLS, and Go TLS.
-          - Accurate Local Timezone Clock & TZDIR: Bundled full /usr/share/zoneinfo database into bootstrap archives, exported TZDIR across environment and libcortex-hook, and write POSIX offset to /etc/timezone so date command and timedate tools always match device local time exactly.
-          - AWK and Which Direct Binary Guarantee: Directly copies mawk and which into /usr/bin, /bin, and ~/.local/bin as real executable ELF binaries, resolving awk command not found errors during nvm install --lts.
-          - Native source and reload Support: Sourcing ~/.bashrc or bashrc now executes bash native source with zero positional arguments, immediately loading newly installed tools into the current session.
-          - Status Bar Notification Icon: Restructured notification icon silhouette with evenOdd fillType to ensure the Cortex terminal icon displays clearly on the Android notification bar and lock screen.
-          - OpenCode and Modern CLI Support: Seamless rootfs working directory mapping for Node, Bun, Zig, Python, and Go developer tools.
+          - Accurate Local Timezone Clock and TZDIR: Full /usr/share/zoneinfo database bundled into bootstrap archives with POSIX timezone synchronization.
+          - Native source and reload Support: Immediate environment reloading into current terminal session.
           - Permanent Keystore Signature: Uses permanent release key for seamless application updates."
 
           gh release create "$VERSION" \

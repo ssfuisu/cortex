@@ -25,6 +25,8 @@
 #include <resolv.h>
 #include <utime.h>
 #include <sys/time.h>
+#include <pwd.h>
+#include <grp.h>
 
 // Intercept SECCOMP blocked syscalls (SIGSYS) and return -ENOSYS so glibc falls back gracefully
 static void cortex_sigsys_handler(int sig, siginfo_t *info, void *ctx) {
@@ -81,6 +83,28 @@ int sigaction(int signum, const struct sigaction *act, struct sigaction *oldact)
     return real_sig(signum, act, oldact);
 }
 
+int rt_sigaction(int signum, const struct sigaction *act, struct sigaction *oldact, size_t sigsetsize) {
+    static int (*orig_rt_sigaction)(int, const struct sigaction *, struct sigaction *, size_t) = NULL;
+    if (!orig_rt_sigaction) orig_rt_sigaction = (int (*)(int, const struct sigaction *, struct sigaction *, size_t))dlsym(RTLD_NEXT, "rt_sigaction");
+
+    if (signum == SIGSYS) {
+        if (act && act->sa_sigaction == cortex_sigsys_handler) {
+            return orig_rt_sigaction ? orig_rt_sigaction(signum, act, oldact, sigsetsize) : 0;
+        }
+        if (oldact) {
+            memset(oldact, 0, sizeof(*oldact));
+            oldact->sa_sigaction = cortex_sigsys_handler;
+            oldact->sa_flags = SA_SIGINFO | SA_NODEFER | SA_RESTART;
+        }
+        return 0;
+    }
+    return orig_rt_sigaction ? orig_rt_sigaction(signum, act, oldact, sigsetsize) : -1;
+}
+
+int __libc_sigaction(int signum, const struct sigaction *act, struct sigaction *oldact) {
+    return sigaction(signum, act, oldact);
+}
+
 typedef void (*sighandler_t)(int);
 sighandler_t signal(int signum, sighandler_t handler) {
     static sighandler_t (*orig_signal)(int, sighandler_t) = NULL;
@@ -111,6 +135,18 @@ int pthread_sigmask(int how, const sigset_t *set, sigset_t *oldset) {
         return orig_pthread_sigmask ? orig_pthread_sigmask(how, &mod_set, oldset) : 0;
     }
     return orig_pthread_sigmask ? orig_pthread_sigmask(how, set, oldset) : 0;
+}
+
+int rt_sigprocmask(int how, const sigset_t *set, sigset_t *oldset, size_t sigsetsize) {
+    static int (*orig_rt_sigprocmask)(int, const sigset_t *, sigset_t *, size_t) = NULL;
+    if (!orig_rt_sigprocmask) orig_rt_sigprocmask = (int (*)(int, const sigset_t *, sigset_t *, size_t))dlsym(RTLD_NEXT, "rt_sigprocmask");
+    if (set && (how == SIG_BLOCK || how == SIG_SETMASK)) {
+        sigset_t mod_set;
+        memcpy(&mod_set, set, sizeof(mod_set));
+        sigdelset(&mod_set, SIGSYS);
+        return orig_rt_sigprocmask ? orig_rt_sigprocmask(how, &mod_set, oldset, sigsetsize) : 0;
+    }
+    return orig_rt_sigprocmask ? orig_rt_sigprocmask(how, set, oldset, sigsetsize) : 0;
 }
 
 
@@ -199,41 +235,51 @@ static const char *rewrite_path(const char *path, char *buffer, size_t bufsize) 
         return path;
     }
 
+    // Strip multiple redundant leading slashes: //foo -> /foo
     while (path[0] == '/' && path[1] == '/') {
         path++;
     }
 
-    if (strncmp(path, g_cortex_root, strlen(g_cortex_root)) == 0 ||
-        strncmp(path, "/proc", 5) == 0 ||
-        strncmp(path, "/dev", 4) == 0 ||
-        strncmp(path, "/sys", 4) == 0 ||
-        strncmp(path, "/system", 7) == 0 ||
-        strncmp(path, "/data", 5) == 0 ||
-        strncmp(path, "/sdcard", 7) == 0 ||
-        strncmp(path, "/storage", 8) == 0) {
-        return path;
+    // Strip leading /./: /./boot -> /boot
+    while (path[0] == '/' && path[1] == '.' && (path[2] == '/' || path[2] == '\0')) {
+        path += (path[2] == '/') ? 2 : 1;
     }
 
-    if (strcmp(path, "/") == 0) {
+    // Root directory
+    if (strcmp(path, "/") == 0 || strcmp(path, ".") == 0 || path[0] == '\0') {
         snprintf(buffer, bufsize, "%s", g_cortex_root);
         return buffer;
     }
 
-    if (is_path_prefix(path, "/usr", 4) ||
-        is_path_prefix(path, "/bin", 4) ||
-        is_path_prefix(path, "/sbin", 5) ||
-        is_path_prefix(path, "/lib", 4) ||
-        is_path_prefix(path, "/lib64", 6) ||
-        is_path_prefix(path, "/etc", 4) ||
-        is_path_prefix(path, "/var", 4) ||
-        is_path_prefix(path, "/opt", 4) ||
-        is_path_prefix(path, "/tmp", 4) ||
-        is_path_prefix(path, "/root", 5) ||
-        is_path_prefix(path, "/home", 5) ||
-        is_path_prefix(path, "/run", 4) ||
-        is_path_prefix(path, "/srv", 4) ||
-        is_path_prefix(path, "/mnt", 4)) {
-        
+    // Already inside Cortex rootfs
+    size_t root_len = strlen(g_cortex_root);
+    if (strncmp(path, g_cortex_root, root_len) == 0 &&
+        (path[root_len] == '/' || path[root_len] == '\0')) {
+        return path;
+    }
+
+    // Real host Android kernel & system mounts
+    if (is_path_prefix(path, "/proc", 5) ||
+        is_path_prefix(path, "/dev", 4) ||
+        is_path_prefix(path, "/sys", 4) ||
+        is_path_prefix(path, "/system", 7) ||
+        is_path_prefix(path, "/vendor", 7) ||
+        is_path_prefix(path, "/apex", 5) ||
+        is_path_prefix(path, "/product", 8) ||
+        is_path_prefix(path, "/system_ext", 11) ||
+        is_path_prefix(path, "/odm", 4) ||
+        is_path_prefix(path, "/oem", 4) ||
+        is_path_prefix(path, "/linkerconfig", 13) ||
+        is_path_prefix(path, "/config", 7) ||
+        is_path_prefix(path, "/d", 2) ||
+        is_path_prefix(path, "/data", 5) ||
+        is_path_prefix(path, "/sdcard", 7) ||
+        is_path_prefix(path, "/storage", 8)) {
+        return path;
+    }
+
+    // Any other absolute path belongs to Cortex rootfs (/boot, /media, /snap, /etc, /usr, ...)
+    if (path[0] == '/') {
         snprintf(buffer, bufsize, "%s%s", g_cortex_root, path);
         return buffer;
     }
@@ -856,6 +902,13 @@ int chdir(const char *path) {
     return orig_chdir ? orig_chdir(target) : -1;
 }
 
+// Hook fchdir
+int fchdir(int fd) {
+    static int (*orig_fchdir)(int) = NULL;
+    if (!orig_fchdir) orig_fchdir = (int (*)(int))dlsym(RTLD_NEXT, "fchdir");
+    return orig_fchdir ? orig_fchdir(fd) : -1;
+}
+
 // Hook getcwd
 char *getcwd(char *buf, size_t size) {
     static char *(*orig_getcwd)(char *, size_t) = NULL;
@@ -941,6 +994,169 @@ int getgroups(int size, gid_t list[]) {
 }
 int setgroups(size_t size, const gid_t *list) { (void)size; (void)list; return 0; }
 int initgroups(const char *user, gid_t group) { (void)user; (void)group; return 0; }
+
+int getgrouplist(const char *user, gid_t group, gid_t *groups, int *ngroups) {
+    (void)user;
+    if (ngroups && *ngroups > 0 && groups) {
+        groups[0] = group;
+        *ngroups = 1;
+        return 1;
+    }
+    if (ngroups) *ngroups = 1;
+    return 1;
+}
+
+struct group *getgrgid(gid_t gid) {
+    static struct group *(*orig_getgrgid)(gid_t) = NULL;
+    if (!orig_getgrgid) orig_getgrgid = (struct group *(*)(gid_t))dlsym(RTLD_NEXT, "getgrgid");
+    struct group *res = orig_getgrgid ? orig_getgrgid(gid) : NULL;
+    if (res) return res;
+
+    static struct group s_grp;
+    static char *s_mem[] = {"root", "cortex", NULL};
+    s_grp.gr_name = (gid == 0) ? "root" : "cortex";
+    s_grp.gr_passwd = "x";
+    s_grp.gr_gid = gid;
+    s_grp.gr_mem = s_mem;
+    return &s_grp;
+}
+
+struct group *getgrnam(const char *name) {
+    static struct group *(*orig_getgrnam)(const char *) = NULL;
+    if (!orig_getgrnam) orig_getgrnam = (struct group *(*)(const char *))dlsym(RTLD_NEXT, "getgrnam");
+    struct group *res = orig_getgrnam ? orig_getgrnam(name) : NULL;
+    if (res) return res;
+
+    static struct group s_grp;
+    static char *s_mem[] = {"root", "cortex", NULL};
+    s_grp.gr_name = (char *)(name ? name : "root");
+    s_grp.gr_passwd = "x";
+    s_grp.gr_gid = 0;
+    s_grp.gr_mem = s_mem;
+    return &s_grp;
+}
+
+int getgrgid_r(gid_t gid, struct group *grp, char *buf, size_t buflen, struct group **result) {
+    static int (*orig_getgrgid_r)(gid_t, struct group *, char *, size_t, struct group **) = NULL;
+    if (!orig_getgrgid_r) orig_getgrgid_r = (int (*)(gid_t, struct group *, char *, size_t, struct group **))dlsym(RTLD_NEXT, "getgrgid_r");
+    int ret = orig_getgrgid_r ? orig_getgrgid_r(gid, grp, buf, buflen, result) : -1;
+    if (ret == 0 && result && *result != NULL) return 0;
+
+    if (!grp || !buf || buflen < 64) {
+        if (result) *result = NULL;
+        return ERANGE;
+    }
+    const char *gname = (gid == 0) ? "root" : "cortex";
+    snprintf(buf, buflen, "%s", gname);
+    grp->gr_name = buf;
+    grp->gr_passwd = "x";
+    grp->gr_gid = gid;
+    static char *s_members[] = {"root", "cortex", NULL};
+    grp->gr_mem = s_members;
+    if (result) *result = grp;
+    return 0;
+}
+
+int getgrnam_r(const char *name, struct group *grp, char *buf, size_t buflen, struct group **result) {
+    static int (*orig_getgrnam_r)(const char *, struct group *, char *, size_t, struct group **) = NULL;
+    if (!orig_getgrnam_r) orig_getgrnam_r = (int (*)(const char *, struct group *, char *, size_t, struct group **))dlsym(RTLD_NEXT, "getgrnam_r");
+    int ret = orig_getgrnam_r ? orig_getgrnam_r(name, grp, buf, buflen, result) : -1;
+    if (ret == 0 && result && *result != NULL) return 0;
+
+    if (!grp || !buf || buflen < 64) {
+        if (result) *result = NULL;
+        return ERANGE;
+    }
+    const char *gname = (name && name[0]) ? name : "root";
+    snprintf(buf, buflen, "%s", gname);
+    grp->gr_name = buf;
+    grp->gr_passwd = "x";
+    grp->gr_gid = 0;
+    static char *s_members[] = {"root", "cortex", NULL};
+    grp->gr_mem = s_members;
+    if (result) *result = grp;
+    return 0;
+}
+
+struct passwd *getpwuid(uid_t uid) {
+    static struct passwd *(*orig_getpwuid)(uid_t) = NULL;
+    if (!orig_getpwuid) orig_getpwuid = (struct passwd *(*)(uid_t))dlsym(RTLD_NEXT, "getpwuid");
+    struct passwd *res = orig_getpwuid ? orig_getpwuid(uid) : NULL;
+    if (res) return res;
+
+    static struct passwd s_pwd;
+    s_pwd.pw_name = (uid == 0) ? "root" : "cortex";
+    s_pwd.pw_passwd = "x";
+    s_pwd.pw_uid = uid;
+    s_pwd.pw_gid = 0;
+    s_pwd.pw_gecos = (uid == 0) ? "root" : "cortex";
+    s_pwd.pw_dir = "/home";
+    s_pwd.pw_shell = "/bin/bash";
+    return &s_pwd;
+}
+
+struct passwd *getpwnam(const char *name) {
+    static struct passwd *(*orig_getpwnam)(const char *) = NULL;
+    if (!orig_getpwnam) orig_getpwnam = (struct passwd *(*)(const char *))dlsym(RTLD_NEXT, "getpwnam");
+    struct passwd *res = orig_getpwnam ? orig_getpwnam(name) : NULL;
+    if (res) return res;
+
+    static struct passwd s_pwd;
+    s_pwd.pw_name = (char *)(name ? name : "root");
+    s_pwd.pw_passwd = "x";
+    s_pwd.pw_uid = 0;
+    s_pwd.pw_gid = 0;
+    s_pwd.pw_gecos = s_pwd.pw_name;
+    s_pwd.pw_dir = "/home";
+    s_pwd.pw_shell = "/bin/bash";
+    return &s_pwd;
+}
+
+int getpwuid_r(uid_t uid, struct passwd *pwd, char *buf, size_t buflen, struct passwd **result) {
+    static int (*orig_getpwuid_r)(uid_t, struct passwd *, char *, size_t, struct passwd **) = NULL;
+    if (!orig_getpwuid_r) orig_getpwuid_r = (int (*)(uid_t, struct passwd *, char *, size_t, struct passwd **))dlsym(RTLD_NEXT, "getpwuid_r");
+    int ret = orig_getpwuid_r ? orig_getpwuid_r(uid, pwd, buf, buflen, result) : -1;
+    if (ret == 0 && result && *result != NULL) return 0;
+
+    if (!pwd || !buf || buflen < 128) {
+        if (result) *result = NULL;
+        return ERANGE;
+    }
+    const char *pname = (uid == 0) ? "root" : "cortex";
+    snprintf(buf, buflen, "%s", pname);
+    pwd->pw_name = buf;
+    pwd->pw_passwd = "x";
+    pwd->pw_uid = uid;
+    pwd->pw_gid = 0;
+    pwd->pw_gecos = buf;
+    pwd->pw_dir = "/home";
+    pwd->pw_shell = "/bin/bash";
+    if (result) *result = pwd;
+    return 0;
+}
+
+int getpwnam_r(const char *name, struct passwd *pwd, char *buf, size_t buflen, struct passwd **result) {
+    static int (*orig_getpwnam_r)(const char *, struct passwd *, char *, size_t, struct passwd **) = NULL;
+    if (!orig_getpwnam_r) orig_getpwnam_r = (int (*)(const char *, struct passwd *, char *, size_t, struct passwd **))dlsym(RTLD_NEXT, "getpwnam_r");
+    int ret = orig_getpwnam_r ? orig_getpwnam_r(name, pwd, buf, buflen, result) : -1;
+    if (ret == 0 && result && *result != NULL) return 0;
+
+    if (!pwd || !buf || buflen < 128) {
+        if (result) *result = NULL;
+        return ERANGE;
+    }
+    const char *pname = (name && name[0]) ? name : "root";
+    snprintf(buf, buflen, "%s", pname);
+    pwd->pw_name = buf;
+    pwd->pw_passwd = "x";
+    pwd->pw_uid = 0;
+    pwd->pw_gid = 0;
+    pwd->pw_gecos = buf;
+    pwd->pw_dir = "/home";
+    pwd->pw_shell = "/bin/bash";
+    if (result) *result = pwd;
+    return 0;
+}
 
 int chown(const char *pathname, uid_t owner, gid_t group) { (void)pathname; (void)owner; (void)group; return 0; }
 int fchown(int fd, uid_t owner, gid_t group) { (void)fd; (void)owner; (void)group; return 0; }
