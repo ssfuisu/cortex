@@ -1,8 +1,10 @@
 # Cortex
 
-Cortex is a modern, high-performance Linux terminal application for Android.
+[![Release](https://img.shields.io/github/v/release/ssfuisu/cortex?style=for-the-badge&color=blue)](https://github.com/ssfuisu/cortex/releases)
+[![Telegram](https://img.shields.io/badge/Telegram-@ratzgn-2CA5E0?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/ratzgn)
+[![License](https://img.shields.io/badge/License-Apache_2.0-green.svg?style=for-the-badge)](LICENSE)
 
-It provides a native Linux command-line environment directly on your Android phone or tablet without needing root access and without the performance penalties of virtualized isolation tools.
+Cortex is a modern, high-performance Linux terminal application for Android powered by **Ubuntu 24.04 LTS (Noble Numbat)** and **Glibc 2.39**.
 
 ---
 
@@ -23,11 +25,14 @@ Most existing Android terminal setups suffer from two major problems:
 
 ## Features
 
-- **High-Speed Display Engine**: Smooth, hardware-accelerated text rendering with full 256-color and TrueColor support.
-- **Convenient Keyboard Bar**: Dedicated quick-access buttons for Esc, Tab, Ctrl, Alt, navigation arrows, and common terminal symbols.
-- **Multiple Tabs**: Run multiple command-line sessions at the same time and switch between them instantly.
-- **Customizable Appearance**: Change font sizes, appearance settings, and keep the screen awake during long tasks.
-- **Native PTY Controller**: Uses custom native components written in C to handle terminal sessions cleanly.
+- **Ubuntu 24.04 LTS (Noble Numbat) Userland**: Full APT package management (`apt update`, `apt install`) with standard Ubuntu repositories and Glibc 2.39.
+- **Pure Native Execution**: Zero PRoot, zero chroot, and zero virtualization overhead. Direct hardware execution on Android's Linux kernel with userspace translation (`libcortex-hook.so`).
+- **CLI Browser Auto-Redirection**: Seamlessly bridges CLI auth tools (`antigravity auth login`, `gh auth login`, OAuth flows, and `xdg-open`) into Google Chrome or your default Android browser.
+- **Direct Keyboard Image Insertion**: Tap any image in Gboard or Samsung Keyboard's clipboard to save it to `/sdcard/Pictures/` and insert its file path directly into the terminal prompt.
+- **Background Service Manager**: Control services with `service`, `systemctl`, `/etc/init.d/`, and persistent background daemons via `/etc/cortex/autostart`.
+- **All-Files Storage Access**: Deep integration with Android's `MANAGE_EXTERNAL_STORAGE` to work directly across device files on `/sdcard`.
+- **High-Speed Display Engine**: Smooth text rendering with full 256-color, TrueColor, and crisp monospace typography.
+- **Convenient Keyboard Bar & Tabs**: Quick-access buttons for Esc, Tab, Ctrl, Alt, arrows, and multi-tab session management.
 
 ---
 
@@ -81,6 +86,15 @@ To build manually on your workstation:
 # Build release APKs for 64-bit and 32-bit
 ./gradlew assembleRelease
 ```
+
+---
+
+## Contact & Community
+
+Have feedback, questions, or feature requests? Reach out directly:
+
+- **Telegram**: [@ratzgn](https://t.me/ratzgn)
+- **GitHub Issues**: [Report an Issue / Feature Request](https://github.com/ssfuisu/cortex/issues)
 
 ---
 

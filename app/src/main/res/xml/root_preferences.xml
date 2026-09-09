@@ -28,4 +28,11 @@
             app:title="Runtime Information" />
     </PreferenceCategory>
 
+    <PreferenceCategory app:title="Community &amp; Support">
+        <Preference
+            app:key="telegram_contact_pref"
+            app:summary="Message developer on Telegram: @ratzgn"
+            app:title="Telegram Support" />
+    </PreferenceCategory>
+
 </PreferenceScreen>

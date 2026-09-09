@@ -47,6 +47,19 @@ class SettingsActivity : AppCompatActivity() {
                 showRuntimeInfo()
                 true
             }
+
+            findPreference<Preference>("telegram_contact_pref")?.setOnPreferenceClickListener {
+                try {
+                    val intent = android.content.Intent(
+                        android.content.Intent.ACTION_VIEW,
+                        android.net.Uri.parse("https://t.me/ratzgn")
+                    ).apply {
+                        addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    startActivity(intent)
+                } catch (e: Exception) {}
+                true
+            }
         }
 
         private fun showAptInfo() {
