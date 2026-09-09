@@ -236,6 +236,7 @@ class TerminalView @JvmOverloads constructor(
             distanceY: Float
         ): Boolean {
             if (isSelecting) return false
+            if (isEdgeDrag) return false
             scroller.abortAnimation()
             removeCallbacks(flingRunnable)
 
@@ -502,6 +503,9 @@ class TerminalView @JvmOverloads constructor(
 
     private var downX = 0f
     private var downY = 0f
+    private var isEdgeDrag = false
+
+    var onTerminalTouchWhenDrawerOpen: (() -> Boolean)? = null
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (isSelecting) {
@@ -509,24 +513,48 @@ class TerminalView @JvmOverloads constructor(
             return true
         }
 
-        gestureDetector.onTouchEvent(event)
+        if (onTerminalTouchWhenDrawerOpen?.invoke() == true) {
+            return true
+        }
+
+        val density = resources.displayMetrics.density
+        val edgeSlop = 36f * density
+
         when (event.action) {
             MotionEvent.ACTION_DOWN -> {
                 scroller.abortAnimation()
                 removeCallbacks(flingRunnable)
                 downX = event.x
                 downY = event.y
+                isEdgeDrag = event.x <= edgeSlop
+                if (isEdgeDrag) {
+                    parent?.requestDisallowInterceptTouchEvent(false)
+                }
             }
-            MotionEvent.ACTION_UP -> {
+            MotionEvent.ACTION_MOVE -> {
+                if (isEdgeDrag) {
+                    val dx = event.x - downX
+                    val dy = kotlin.math.abs(event.y - downY)
+                    if (dx > 12 * density && dx > dy) {
+                        parent?.requestDisallowInterceptTouchEvent(false)
+                        return false
+                    }
+                }
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                val wasEdgeDrag = isEdgeDrag
+                isEdgeDrag = false
                 val dx = kotlin.math.abs(event.x - downX)
                 val dy = kotlin.math.abs(event.y - downY)
-                val slop = 24 * resources.displayMetrics.density
-                if (dx < slop && dy < slop) {
+                val slop = 24 * density
+                if (!wasEdgeDrag && dx < slop && dy < slop) {
                     requestFocus()
                     showKeyboard()
                 }
             }
         }
+
+        gestureDetector.onTouchEvent(event)
         return true
     }
 

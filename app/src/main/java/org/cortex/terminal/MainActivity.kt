@@ -38,8 +38,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var drawerLayout: DrawerLayout
     private lateinit var terminalView: TerminalView
     private lateinit var extraKeysView: ExtraKeysView
-    private lateinit var appTitle: TextView
-    private lateinit var btnMenu: TextView
+    private lateinit var drawerTitle: TextView
     private lateinit var btnDrawerSettings: ImageView
     private lateinit var layoutUpdateBadge: android.widget.FrameLayout
     private lateinit var updateRedDot: android.view.View
@@ -58,10 +57,20 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         drawerLayout = findViewById(R.id.drawerLayout)
+        drawerLayout.setDrawerLockMode(DrawerLayout.LOCK_MODE_UNLOCKED)
+        try {
+            val mLeftDraggerField = DrawerLayout::class.java.getDeclaredField("mLeftDragger")
+            mLeftDraggerField.isAccessible = true
+            val leftDragger = mLeftDraggerField.get(drawerLayout)
+            val edgeSizeField = leftDragger.javaClass.getDeclaredField("mEdgeSize")
+            edgeSizeField.isAccessible = true
+            val density = resources.displayMetrics.density
+            edgeSizeField.setInt(leftDragger, (40 * density).toInt())
+        } catch (e: Exception) {}
+
         terminalView = findViewById(R.id.terminalView)
         extraKeysView = findViewById(R.id.extraKeysView)
-        appTitle = findViewById(R.id.appTitle)
-        btnMenu = findViewById(R.id.btnMenu)
+        drawerTitle = findViewById(R.id.drawerTitle)
         btnDrawerSettings = findViewById(R.id.btnDrawerSettings)
         layoutUpdateBadge = findViewById(R.id.layoutUpdateBadge)
         updateRedDot = findViewById(R.id.updateRedDot)
@@ -100,16 +109,17 @@ class MainActivity : AppCompatActivity() {
         btnDrawerKeyboard = findViewById(R.id.btnDrawerKeyboard)
         btnDrawerNewSession = findViewById(R.id.btnDrawerNewSession)
 
-        extraKeysView.terminalView = terminalView
-        extraKeysView.onMenuClick = {
+        terminalView.onTerminalTouchWhenDrawerOpen = {
             if (drawerLayout.isDrawerOpen(GravityCompat.START)) {
                 drawerLayout.closeDrawer(GravityCompat.START)
+                true
             } else {
-                drawerLayout.openDrawer(GravityCompat.START)
+                false
             }
         }
 
-        btnMenu.setOnClickListener {
+        extraKeysView.terminalView = terminalView
+        extraKeysView.onMenuClick = {
             if (drawerLayout.isDrawerOpen(GravityCompat.START)) {
                 drawerLayout.closeDrawer(GravityCompat.START)
             } else {
@@ -171,7 +181,7 @@ class MainActivity : AppCompatActivity() {
                     terminalView.session = session
                     val tabNum = sessionManager.currentSessionIndex + 1
                     val totalTabs = sessionManager.sessions.size
-                    appTitle.text = "Cortex [$tabNum/$totalTabs]"
+                    drawerTitle.text = "Sessions [$tabNum/$totalTabs]"
                     sessionAdapter.notifyDataSetChanged()
                     terminalView.invalidate()
                 }
@@ -251,7 +261,7 @@ class MainActivity : AppCompatActivity() {
                 terminalView.session = current
                 val tabNum = sessionManager.currentSessionIndex + 1
                 val totalTabs = sessionManager.sessions.size
-                appTitle.text = "Cortex [$tabNum/$totalTabs]"
+                drawerTitle.text = "Sessions [$tabNum/$totalTabs]"
                 sessionAdapter.notifyDataSetChanged()
                 terminalView.invalidate()
             }
@@ -312,7 +322,7 @@ class MainActivity : AppCompatActivity() {
         terminalView.session = session
         val tabNum = sessionManager.currentSessionIndex + 1
         val totalTabs = sessionManager.sessions.size
-        appTitle.text = "Cortex [$tabNum/$totalTabs]"
+        drawerTitle.text = "Sessions [$tabNum/$totalTabs]"
         sessionAdapter.notifyDataSetChanged()
         return session
     }

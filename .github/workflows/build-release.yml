@@ -274,7 +274,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          VERSION="v1.24.55"
+          VERSION="v1.24.56"
           if [[ "${{ github.ref }}" == refs/tags/* ]]; then
             VERSION="${{ github.ref_name }}"
           fi
@@ -285,22 +285,21 @@ jobs:
           git push --delete origin "$VERSION" 2>/dev/null || true
 
           cat << 'EOFNOTES' > release-notes.md
-          ### Cortex Release v1.24.55 — Next-Gen Native Linux Terminal for Android
+          ### Cortex Release v1.24.56 — Next-Gen Native Linux Terminal for Android
 
           Cortex turns your Android device into a complete, native development powerhouse powered by **Ubuntu 24.04 LTS (Noble Numbat)** and **Glibc 2.39** — with **ZERO virtualization, ZERO PRoot, and ZERO containers**.
 
-          #### What's New in v1.24.55:
-          - **In-App Direct Update System & Notification Badge**: Added an integrated update checking system directly in the top action bar. When a new release is detected on the official GitHub repository, an indicator badge appears on the update icon. Tapping the update icon displays current version vs latest version and release notes. Tapping "Update" downloads the architecture-specific APK (arm64 or armv7) with live progress bar and percentage, launches the Android package installer, and automatically cleans up the APK after installation or cancellation.
-          - **Bubble Tea / OpenCode Mouse Wheel Scrolling & TUI Mouse Support**: Implemented comprehensive DECSET / Xterm mouse reporting (SGR mode 1006, cell motion 1002, all motion 1003, VT200 mode 1000, and X10 mode 9). In terminal AI tools like `opencode` (powered by Charm's Bubble Tea framework) and editors like `micro`, swiping on the screen now transmits native mouse wheel escape sequences directly to the viewport rather than arrow keys, preventing input prompt history cycling and enabling smooth touch scrolling through AI responses and code diffs.
-          - **Root Shell Environment & Segmentation Fault Fix (su / tsu / sudo / root)**: Resolved a segmentation fault crash in `/system/bin/sh` that occurred when testing or launching superuser binaries on APatch, Magisk, and KernelSU. Preserves required Android Bionic runtime variables while safely isolating Glibc linker variables (`LD_PRELOAD`, `LD_LIBRARY_PATH`, `GLIBC_TUNABLES`).
-          - **AI CLI & TUI Enter Key Mapping**: Fixed newline vs carriage return mapping on virtual keyboards (including LineageOS AOSP keyboard, Gboard, and OEM keyboards). Pressing Enter properly sends carriage return (\r) to submit prompts in raw-mode TUI and CLI tools.
-          - **Instant First-Launch Bootstrap**: Fast offline setup completes in 2-3 seconds without blocking modal dialogs.
-          - **Pure Native Execution**: Runs directly on the Android Linux kernel with custom Glibc system-call interposition (libcortex-hook). Maximum CPU performance with zero context-switching overhead.
-          - **Full CLI Browser Redirection**: Seamlessly bridges CLI auth tools (antigravity auth login, gh auth login, OAuth flows, Python webbrowser, and xdg-open) directly to Android Google Chrome or your default browser.
-          - **Direct Keyboard Image Insertion**: Seamlessly insert images from Gboard, Samsung Keyboard, or device clipboard into the terminal. Images are automatically saved to /sdcard/Pictures and their exact file paths are inserted into your command prompt.
-          - **Background Service Manager & Autostart**: Full support for service, systemctl, /etc/init.d/, and persistent background daemons via /etc/cortex/autostart.
-          - **All Files Storage Access**: Deep integration with Android MANAGE_EXTERNAL_STORAGE allows reading, editing, and building projects across /sdcard.
-          - **Global Developer Experience**: 100% English interface with streamlined terminal typography and rock-solid stability.
+          #### What's New in v1.24.56:
+          - **Maximized Terminal Workspace**: Removed the top header bar from the primary terminal view to eliminate screen clutter and provide maximum vertical terminal workspace when the soft keyboard and virtual keys are visible.
+          - **Integrated Drawer Update Manager**: Relocated the Update Manager button, notification badge, and session info into the session navigation drawer header. Tapping the update icon shows current vs latest release version and enables direct in-app APK upgrades.
+          - **Fluid Left-Edge Swipe & Keyboard Menu Navigation**: Easily open the session drawer by swiping inwards from the left edge of the screen or tapping the hamburger menu button (☰) on the extra keys toolbar.
+          - **Instant Tap-Outside Dismissal**: Tapping anywhere on the terminal canvas while the drawer is open immediately closes the drawer.
+          - **Bubble Tea / OpenCode Mouse Wheel Scrolling & TUI Mouse Support**: Transmits native mouse wheel escape sequences directly to TUI applications like `opencode` and `micro`, preventing prompt cycling and enabling smooth touch scrolling through AI responses and code diffs.
+          - **Root Shell Environment (su / tsu / sudo / root)**: Stable superuser execution across APatch, Magisk, and KernelSU with proper Android Bionic / Glibc variable isolation.
+          - **AI CLI & TUI Enter Key Mapping**: Virtual keyboard carriage return (\r) normalization for instant prompt submission in raw-mode TUI and CLI utilities.
+          - **Instant Bootstrap**: Offline Ubuntu setup completed in 2-3 seconds on first launch.
+          - **Pure Native Execution**: Direct execution on the Android Linux kernel with custom libcortex-hook system call translation.
+          - **Full CLI Browser Redirection**: Redirects auth links and web URLs straight to your Android browser.
 
           #### Included Packages & Assets:
           - `Cortex-arm64-v8a-signed.apk` (64-bit ARM)
