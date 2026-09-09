@@ -77,8 +77,8 @@ jobs:
 
       - name: Build Glibc cortex-hook Libraries
         run: |
-          sudo rm -f /etc/apt/sources.list.d/google*.list /etc/apt/sources.list.d/*chrome*.list
-          sudo apt-get update -o Acquire::Retries=3 -qq || sudo apt-get update -o Acquire::Retries=3
+          sudo rm -f /etc/apt/sources.list.d/*google* /etc/apt/sources.list.d/*chrome*
+          sudo apt-get update -o Acquire::Retries=3 -qq || true
           sudo apt-get install -y --no-install-recommends gcc-aarch64-linux-gnu gcc-arm-linux-gnueabihf libc6-dev-arm64-cross libc6-dev-armhf-cross dpkg-dev
           mkdir -p hook-libs
           aarch64-linux-gnu-gcc -std=gnu11 -shared -fPIC -O3 -Wall -Wno-nonnull-compare -o hook-libs/libcortex-hook-arm64.so app/src/main/cpp/cortex-hook.c -ldl
