@@ -43,6 +43,34 @@
                 android:textColor="#ffffff"
                 android:textStyle="bold"
                 android:textSize="16sp" />
+
+            <FrameLayout
+                android:id="@+id/layoutUpdateBadge"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_gravity="center_vertical"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:clickable="true"
+                android:focusable="true">
+
+                <ImageView
+                    android:id="@+id/btnUpdateCheck"
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ic_update"
+                    android:contentDescription="Check for Updates" />
+
+                <View
+                    android:id="@+id/updateRedDot"
+                    android:layout_width="8dp"
+                    android:layout_height="8dp"
+                    android:layout_gravity="top|end"
+                    android:layout_marginTop="7dp"
+                    android:layout_marginEnd="7dp"
+                    android:background="@drawable/badge_red_dot"
+                    android:visibility="gone" />
+            </FrameLayout>
         </LinearLayout>
 
         <!-- Terminal Display Surface -->

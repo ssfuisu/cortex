@@ -187,6 +187,41 @@ class TerminalView @JvmOverloads constructor(
         }
     }
 
+    private fun dispatchScrollOrFling(lines: Int, touchX: Float, touchY: Float): Boolean {
+        val session = this.session ?: return false
+        val emulator = session.emulator
+        val isMouseActive = emulator.isMouseTrackingActive
+        val isAlternate = emulator.buffer.isAlternate
+
+        if (isMouseActive) {
+            val cols = emulator.buffer.cols
+            val rows = emulator.buffer.rows
+            val col = ((touchX / charWidth) + 1).toInt().coerceIn(1, cols)
+            val row = ((touchY / charHeight) + 1).toInt().coerceIn(1, rows)
+            val isUp = lines > 0
+            val count = kotlin.math.abs(lines)
+            val sb = StringBuilder()
+            for (i in 0 until count) {
+                sb.append(emulator.getMouseScrollSequence(isUp, col, row))
+            }
+            session.write(sb.toString())
+            return true
+        } else if (isAlternate) {
+            val isAppCursor = emulator.isApplicationCursorKeys
+            val upSeq = if (isAppCursor) "\u001bOA" else "\u001b[A"
+            val downSeq = if (isAppCursor) "\u001bOB" else "\u001b[B"
+            val seq = if (lines > 0) upSeq else downSeq
+            val count = kotlin.math.abs(lines)
+            val sb = StringBuilder()
+            for (i in 0 until count) {
+                sb.append(seq)
+            }
+            session.write(sb.toString())
+            return true
+        }
+        return false
+    }
+
     private val gestureDetector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
         override fun onDown(e: MotionEvent): Boolean {
             scroller.abortAnimation()
@@ -204,30 +239,15 @@ class TerminalView @JvmOverloads constructor(
             scroller.abortAnimation()
             removeCallbacks(flingRunnable)
 
-            val isAlternate = session?.emulator?.buffer?.isAlternate == true
-            if (isAlternate) {
-                val isAppCursor = session?.emulator?.isApplicationCursorKeys ?: false
-                val upSeq = if (isAppCursor) "\u001bOA" else "\u001b[A"
-                val downSeq = if (isAppCursor) "\u001bOB" else "\u001b[B"
-
+            val emulator = session?.emulator
+            val isSpecialScroll = emulator != null && (emulator.isMouseTrackingActive || emulator.buffer.isAlternate)
+            if (isSpecialScroll) {
                 val totalDelta = -distanceY + scrollRemainder
                 val lines = (totalDelta / charHeight).toInt()
                 scrollRemainder = totalDelta - (lines * charHeight)
 
-                if (lines > 0) {
-                    val sb = StringBuilder()
-                    for (i in 0 until lines) {
-                        sb.append(upSeq)
-                    }
-                    session?.write(sb.toString())
-                    return true
-                } else if (lines < 0) {
-                    val sb = StringBuilder()
-                    for (i in 0 until -lines) {
-                        sb.append(downSeq)
-                    }
-                    session?.write(sb.toString())
-                    return true
+                if (lines != 0) {
+                    return dispatchScrollOrFling(lines, e2.x, e2.y)
                 }
                 return false
             }
@@ -260,26 +280,12 @@ class TerminalView @JvmOverloads constructor(
             velocityY: Float
         ): Boolean {
             if (isSelecting) return false
-            val isAlternate = session?.emulator?.buffer?.isAlternate == true
-            if (isAlternate) {
-                val isAppCursor = session?.emulator?.isApplicationCursorKeys ?: false
-                val upSeq = if (isAppCursor) "\u001bOA" else "\u001b[A"
-                val downSeq = if (isAppCursor) "\u001bOB" else "\u001b[B"
+            val emulator = session?.emulator
+            val isSpecialScroll = emulator != null && (emulator.isMouseTrackingActive || emulator.buffer.isAlternate)
+            if (isSpecialScroll) {
                 val lines = (velocityY / (charHeight * 8)).toInt().coerceIn(-10, 10)
-                if (lines > 0) {
-                    val sb = StringBuilder()
-                    for (i in 0 until lines) {
-                        sb.append(upSeq)
-                    }
-                    session?.write(sb.toString())
-                    return true
-                } else if (lines < 0) {
-                    val sb = StringBuilder()
-                    for (i in 0 until -lines) {
-                        sb.append(downSeq)
-                    }
-                    session?.write(sb.toString())
-                    return true
+                if (lines != 0) {
+                    return dispatchScrollOrFling(lines, e2.x, e2.y)
                 }
                 return false
             }
@@ -312,6 +318,15 @@ class TerminalView @JvmOverloads constructor(
             }
             requestFocus()
             showKeyboard()
+
+            val emulator = session?.emulator
+            if (emulator != null && emulator.isMouseTrackingActive) {
+                val cols = emulator.buffer.cols
+                val rows = emulator.buffer.rows
+                val col = ((e.x / charWidth) + 1).toInt().coerceIn(1, cols)
+                val row = ((e.y / charHeight) + 1).toInt().coerceIn(1, rows)
+                session?.write(emulator.getMouseClickSequence(button = 0, col = col, row = row))
+            }
             return true
         }
 

@@ -24,6 +24,7 @@ import org.cortex.terminal.service.CortexService
 import org.cortex.terminal.session.SessionAdapter
 import org.cortex.terminal.session.SessionManager
 import org.cortex.terminal.session.TerminalSession
+import org.cortex.terminal.update.UpdateManager
 import org.cortex.terminal.view.ExtraKeysView
 import org.cortex.terminal.view.TerminalView
 
@@ -40,6 +41,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var appTitle: TextView
     private lateinit var btnMenu: TextView
     private lateinit var btnDrawerSettings: ImageView
+    private lateinit var layoutUpdateBadge: android.widget.FrameLayout
+    private lateinit var updateRedDot: android.view.View
 
     private lateinit var sessionRecyclerView: RecyclerView
     private lateinit var sessionAdapter: SessionAdapter
@@ -60,6 +63,38 @@ class MainActivity : AppCompatActivity() {
         appTitle = findViewById(R.id.appTitle)
         btnMenu = findViewById(R.id.btnMenu)
         btnDrawerSettings = findViewById(R.id.btnDrawerSettings)
+        layoutUpdateBadge = findViewById(R.id.layoutUpdateBadge)
+        updateRedDot = findViewById(R.id.updateRedDot)
+
+        layoutUpdateBadge.setOnClickListener {
+            val cached = UpdateManager.cachedReleaseInfo
+            if (UpdateManager.isUpdateAvailable && cached != null) {
+                UpdateManager.showUpdateDialog(this, cached)
+            } else {
+                val checkingToast = Toast.makeText(this, "Checking for updates...", Toast.LENGTH_SHORT)
+                checkingToast.show()
+                UpdateManager.checkForUpdate(this) { isAvailable, info, error ->
+                    if (isFinishing || isDestroyed) return@checkForUpdate
+                    checkingToast.cancel()
+                    if (isAvailable && info != null) {
+                        updateRedDot.visibility = android.view.View.VISIBLE
+                        UpdateManager.showUpdateDialog(this, info)
+                    } else if (error != null) {
+                        Toast.makeText(this, "Update check failed: $error", Toast.LENGTH_LONG).show()
+                    } else {
+                        updateRedDot.visibility = android.view.View.GONE
+                        UpdateManager.showUpToDateDialog(this, info?.tagName)
+                    }
+                }
+            }
+        }
+
+        UpdateManager.cleanUpdates(this)
+        UpdateManager.checkForUpdate(this) { isAvailable, _, _ ->
+            if (!isFinishing && !isDestroyed) {
+                updateRedDot.visibility = if (isAvailable) android.view.View.VISIBLE else android.view.View.GONE
+            }
+        }
 
         sessionRecyclerView = findViewById(R.id.sessionRecyclerView)
         btnDrawerKeyboard = findViewById(R.id.btnDrawerKeyboard)
@@ -229,6 +264,10 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         applyPreferences()
+        UpdateManager.cleanUpdates(this)
+        if (UpdateManager.isUpdateAvailable) {
+            updateRedDot.visibility = android.view.View.VISIBLE
+        }
         val root = Environment.getCortexRoot(this)
         kotlin.concurrent.thread(name = "Cortex-DnsUpdate") {
             BootstrapManager.updateDnsConfiguration(this@MainActivity, root)

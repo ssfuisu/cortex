@@ -29,6 +29,45 @@ class TerminalEmulator(
     var onSendResponse: ((String) -> Unit)? = null
     var isApplicationCursorKeys = false
 
+    enum class MouseMode {
+        OFF,
+        X10,          // 9
+        VT200,        // 1000, 1001
+        CELL_MOTION,  // 1002
+        ALL_MOTION    // 1003
+    }
+
+    var mouseMode = MouseMode.OFF
+    var isMouseSgr = false      // 1006
+    var isMouseUrxvt = false    // 1015
+    var isMouseUtf8 = false     // 1005
+
+    val isMouseTrackingActive: Boolean
+        get() = mouseMode != MouseMode.OFF
+
+    fun getMouseScrollSequence(isUp: Boolean, col: Int, row: Int): String {
+        val button = if (isUp) 64 else 65
+        return if (isMouseSgr) {
+            "\u001b[<${button};${col};${row}M"
+        } else if (isMouseUrxvt) {
+            "\u001b[${button + 32};${col};${row}M"
+        } else {
+            "\u001b[M" + (32 + button).toChar() + (32 + col).toChar() + (32 + row).toChar()
+        }
+    }
+
+    fun getMouseClickSequence(button: Int, col: Int, row: Int): String {
+        return if (isMouseSgr) {
+            "\u001b[<${button};${col};${row}M\u001b[<${button};${col};${row}m"
+        } else if (isMouseUrxvt) {
+            "\u001b[${button + 32};${col};${row}M\u001b[${3 + 32};${col};${row}M"
+        } else {
+            val press = "\u001b[M" + (32 + button).toChar() + (32 + col).toChar() + (32 + row).toChar()
+            val release = "\u001b[M" + (32 + 3).toChar() + (32 + col).toChar() + (32 + row).toChar()
+            press + release
+        }
+    }
+
     fun resize(rows: Int, cols: Int) {
         lock.withLock {
             buffer.resize(rows, cols)
@@ -110,6 +149,10 @@ class TerminalEmulator(
                 buffer.cursorRow = 0
                 buffer.cursorCol = 0
                 isApplicationCursorKeys = false
+                mouseMode = MouseMode.OFF
+                isMouseSgr = false
+                isMouseUrxvt = false
+                isMouseUtf8 = false
                 state = State.NORMAL
             }
             '7' -> { // Save cursor (DECSC)
@@ -371,8 +414,15 @@ class TerminalEmulator(
                     if (csiPrefix == '?') {
                         when (p) {
                             1 -> isApplicationCursorKeys = true
+                            9 -> mouseMode = MouseMode.X10
                             25 -> buffer.isCursorVisible = true
                             47, 1047, 1049 -> buffer.useAlternateScreen(true)
+                            1000, 1001 -> mouseMode = MouseMode.VT200
+                            1002 -> mouseMode = MouseMode.CELL_MOTION
+                            1003 -> mouseMode = MouseMode.ALL_MOTION
+                            1005 -> isMouseUtf8 = true
+                            1006 -> isMouseSgr = true
+                            1015 -> isMouseUrxvt = true
                         }
                     }
                 }
@@ -383,8 +433,12 @@ class TerminalEmulator(
                     if (csiPrefix == '?') {
                         when (p) {
                             1 -> isApplicationCursorKeys = false
+                            9, 1000, 1001, 1002, 1003 -> mouseMode = MouseMode.OFF
                             25 -> buffer.isCursorVisible = false
                             47, 1047, 1049 -> buffer.useAlternateScreen(false)
+                            1005 -> isMouseUtf8 = false
+                            1006 -> isMouseSgr = false
+                            1015 -> isMouseUrxvt = false
                         }
                     }
                 }
