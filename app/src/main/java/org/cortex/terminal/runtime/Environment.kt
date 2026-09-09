@@ -109,7 +109,7 @@ object Environment {
             "USER=cortex",
             "LOGNAME=cortex",
             "HOSTNAME=cortex-android",
-            "PS1=~ $ ",
+            "PS1=\\w $ ",
             "ENV=$home/.profile",
             "DPKG_DEB_THREADS_MAX=1",
             "XZ_OPT=-T1",

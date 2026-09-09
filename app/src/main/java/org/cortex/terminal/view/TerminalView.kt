@@ -597,39 +597,15 @@ class TerminalView @JvmOverloads constructor(
         }
 
         val btnCopy = createButton("Copy") {
-            val norm = getNormalizedSelection()
-            val text = session?.emulator?.buffer?.getSelectedText(norm[0], norm[1], norm[2], norm[3]) ?: ""
-            if (text.isNotEmpty()) {
-                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                clipboard.setPrimaryClip(ClipData.newPlainText("Cortex", text))
-                Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
-            }
-            clearSelection()
+            copySelectionToClipboard()
         }
 
         val btnPaste = createButton("Paste") {
-            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-            val item = clipboard.primaryClip?.getItemAt(0)
-            val rawText = item?.coerceToText(context)?.toString() ?: ""
-            val text = rawText.trimEnd('\r', '\n')
-            if (text.isNotEmpty()) {
-                session?.write(text)
-                scrollOffset = 0
-                invalidate()
-            }
-            clearSelection()
+            pasteFromClipboard()
         }
 
         val btnSelectAll = createButton("Select All") {
-            val histSize = session?.emulator?.buffer?.history?.size ?: 0
-            selectStartRow = -histSize
-            selectStartCol = 0
-            selectEndRow = rows - 1
-            selectEndCol = cols - 1
-            invalidate()
-            post {
-                showActionPopup()
-            }
+            selectAllText()
         }
 
         layout.addView(btnCopy)
@@ -667,6 +643,75 @@ class TerminalView @JvmOverloads constructor(
         super.onDetachedFromWindow()
     }
 
+    fun sanitizePastedText(raw: String): String {
+        // Strip trailing newlines and carriage returns so the pasted text NEVER triggers auto-execution
+        var s = raw.trimEnd('\r', '\n')
+        if (s.isEmpty()) return ""
+        // Handle bash line continuations: backslash followed by newline
+        s = s.replace(Regex("\\\\[\\r\\n]+\\s*"), " ")
+        // Replace internal newlines with space to prevent splitting and accidental execution
+        s = s.replace(Regex("[\\r\\n]+"), " ")
+        return s
+    }
+
+    fun copySelectionToClipboard(): Boolean {
+        val norm = getNormalizedSelection()
+        val text = session?.emulator?.buffer?.getSelectedText(norm[0], norm[1], norm[2], norm[3]) ?: ""
+        if (text.isNotEmpty()) {
+            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            clipboard.setPrimaryClip(ClipData.newPlainText("Cortex", text))
+            Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
+            clearSelection()
+            return true
+        }
+        clearSelection()
+        return false
+    }
+
+    fun pasteFromClipboard() {
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return
+        val clip = clipboard.primaryClip ?: return
+        if (clip.itemCount == 0) return
+        val item = clip.getItemAt(0)
+        val rawText = item?.coerceToText(context)?.toString() ?: return
+        val text = sanitizePastedText(rawText)
+        if (text.isNotEmpty()) {
+            session?.write(text)
+            scrollOffset = 0
+            invalidate()
+        }
+        clearSelection()
+    }
+
+    fun selectAllText() {
+        val histSize = session?.emulator?.buffer?.history?.size ?: 0
+        selectStartRow = -histSize
+        selectStartCol = 0
+        selectEndRow = rows - 1
+        selectEndCol = cols - 1
+        invalidate()
+        post {
+            showActionPopup()
+        }
+    }
+
+    override fun onTextContextMenuItem(id: Int): Boolean {
+        when (id) {
+            android.R.id.paste, 16908337 /* pasteAsPlainText */ -> {
+                pasteFromClipboard()
+                return true
+            }
+            android.R.id.copy -> {
+                return copySelectionToClipboard()
+            }
+            android.R.id.selectAll -> {
+                selectAllText()
+                return true
+            }
+        }
+        return super.onTextContextMenuItem(id)
+    }
+
     fun showKeyboard() {
         requestFocus()
         val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
@@ -700,7 +745,7 @@ class TerminalView @JvmOverloads constructor(
                 clearSelection()
                 composingLength = 0
                 if (!text.isNullOrEmpty()) {
-                    val str = if (text.length > 1) text.toString().trimEnd('\r', '\n') else text.toString()
+                    val str = if (text.length > 1) sanitizePastedText(text.toString()) else text.toString()
                     for (i in 0 until str.length) {
                         sendChar(str[i])
                     }

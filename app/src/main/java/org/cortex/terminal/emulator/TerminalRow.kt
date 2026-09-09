@@ -5,6 +5,7 @@ class TerminalRow(val cols: Int) {
     val fgColors = IntArray(cols) { TerminalColor.DEFAULT_FG }
     val bgColors = IntArray(cols) { TerminalColor.DEFAULT_BG }
     val styles = ByteArray(cols) { 0 } // bit 0: bold, bit 1: underline, bit 2: inverse
+    var isWrapped: Boolean = false
 
     fun clear(fg: Int = TerminalColor.DEFAULT_FG, bg: Int = TerminalColor.DEFAULT_BG) {
         for (i in 0 until cols) {
@@ -13,6 +14,7 @@ class TerminalRow(val cols: Int) {
             bgColors[i] = bg
             styles[i] = 0
         }
+        isWrapped = false
     }
 
     fun setChar(col: Int, char: Char, fg: Int, bg: Int, style: Byte = 0) {
@@ -30,6 +32,7 @@ class TerminalRow(val cols: Int) {
         System.arraycopy(other.fgColors, 0, fgColors, 0, count)
         System.arraycopy(other.bgColors, 0, bgColors, 0, count)
         System.arraycopy(other.styles, 0, styles, 0, count)
+        isWrapped = other.isWrapped
     }
 
     fun getText(): String {

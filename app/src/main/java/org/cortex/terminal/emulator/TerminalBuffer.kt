@@ -100,6 +100,7 @@ class TerminalBuffer(var rows: Int, var cols: Int, private val maxHistory: Int =
 
     fun writeChar(c: Char) {
         if (cursorCol >= cols) {
+            screen[cursorRow].isWrapped = true
             newLine()
             cursorCol = 0
         }
@@ -192,6 +193,7 @@ class TerminalBuffer(var rows: Int, var cols: Int, private val maxHistory: Int =
                 for (c in cursorCol until cols) {
                     row.setChar(c, ' ', currentFg, currentBg, 0)
                 }
+                row.isWrapped = false
             }
             1 -> { // Start to cursor
                 for (c in 0..cursorCol.coerceAtMost(cols - 1)) {
@@ -239,11 +241,23 @@ class TerminalBuffer(var rows: Int, var cols: Int, private val maxHistory: Int =
             val cStart = if (r == startRow) startCol.coerceIn(0, cols - 1) else 0
             val cEnd = if (r == endRow) endCol.coerceIn(0, cols - 1) else cols - 1
 
-            for (c in cStart..cEnd) {
-                sb.append(row.chars[c])
+            if (row.isWrapped) {
+                for (c in cStart..cEnd) {
+                    sb.append(row.chars[c])
+                }
+            } else {
+                var lastChar = cEnd
+                while (lastChar >= cStart && row.chars[lastChar] == ' ') {
+                    lastChar--
+                }
+                for (c in cStart..lastChar) {
+                    sb.append(row.chars[c])
+                }
+                if (r != endRow) {
+                    sb.append("\n")
+                }
             }
-            if (r != endRow) sb.append("\n")
         }
-        return sb.toString().trimEnd()
+        return sb.toString()
     }
 }

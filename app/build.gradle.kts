@@ -13,8 +13,8 @@ android {
         applicationId = "org.cortex.terminal"
         minSdk = 24
         targetSdk = 28
-        versionCode = 12430
-        versionName = "1.24.30"
+        versionCode = 12432
+        versionName = "1.24.32"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

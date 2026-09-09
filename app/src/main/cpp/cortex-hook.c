@@ -229,6 +229,8 @@ static inline int is_path_prefix(const char *path, const char *prefix, size_t pr
 
 static const char *rewrite_path(const char *path, char *buffer, size_t bufsize) {
     if (!path) return NULL;
+    // Relative paths must NEVER be rewritten to rootfs root
+    if (path[0] != '/') return path;
     init_cortex_hook();
 
     if (g_cortex_root[0] == '\0') {
@@ -242,11 +244,16 @@ static const char *rewrite_path(const char *path, char *buffer, size_t bufsize) 
 
     // Strip leading /./: /./boot -> /boot
     while (path[0] == '/' && path[1] == '.' && (path[2] == '/' || path[2] == '\0')) {
-        path += (path[2] == '/') ? 2 : 1;
+        if (path[2] == '/') {
+            path += 2;
+        } else {
+            path = "/";
+            break;
+        }
     }
 
     // Root directory
-    if (strcmp(path, "/") == 0 || strcmp(path, ".") == 0 || path[0] == '\0') {
+    if (strcmp(path, "/") == 0) {
         snprintf(buffer, bufsize, "%s", g_cortex_root);
         return buffer;
     }
