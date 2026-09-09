@@ -274,7 +274,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          VERSION="v1.24.51"
+          VERSION="v1.24.52"
           if [[ "${{ github.ref }}" == refs/tags/* ]]; then
             VERSION="${{ github.ref_name }}"
           fi
@@ -285,13 +285,14 @@ jobs:
           git push --delete origin "$VERSION" 2>/dev/null || true
 
           cat << 'EOFNOTES' > release-notes.md
-          ### Cortex Release v1.24.51 — Next-Gen Native Linux Terminal for Android
+          ### Cortex Release v1.24.52 — Next-Gen Native Linux Terminal for Android
 
           Cortex turns your Android device into a complete, native development powerhouse powered by **Ubuntu 24.04 LTS (Noble Numbat)** and **Glibc 2.39** — with **ZERO virtualization, ZERO PRoot, and ZERO containers**.
 
-          #### What's New in v1.24.51:
-          - **Root Superuser Support (su, tsu, sudo)**: Seamless Magisk, KernelSU, and APatch root switching. Environment sanitization prevents Android dynamic linker crashes when invoking host superuser binaries, enabling flawless superuser execution directly within the Cortex terminal.
-          - **Micro & Text Editor Stability**: Resolved memory corruption and register faults caused by unchecked string offset calculations during file and terminfo lookups, allowing micro and full-screen Go/C editors to launch smoothly.
+          #### What's New in v1.24.52:
+          - **APatch & KernelSU Superuser Fix**: Fixed a critical issue where granting root permissions on APatch or KernelSU still triggered `root not found`. Host PATH is now strictly isolated when invoking Android host binaries, ensuring native superuser verification succeeds without Glibc dynamic linker conflicts.
+          - **Resilient Root Detection**: Expanded superuser checks across mksh, toybox, and shell internal UID verification, providing instantaneous and robust permission confirmation for su, tsu, and sudo.
+          - **Micro & Text Editor Stability**: Complete stability for full-screen Go, C, and terminal text editors (micro, nano, vim) without memory faults or register corruption.
           - **Nano Configuration & Syntax Highlighting**: Configured default syntax file to prevent missing .nanorc glob warnings on startup.
           - **Pure Native Execution**: Runs directly on the Android Linux kernel with custom Glibc system-call interposition (libcortex-hook). Maximum CPU performance with zero context-switching overhead.
           - **Full CLI Browser Redirection**: Seamlessly bridges CLI auth tools (antigravity auth login, gh auth login, OAuth flows, Python webbrowser, and xdg-open) directly to Android Google Chrome or your default browser.

@@ -1614,13 +1614,24 @@ int ZSTD_CCtx_setParameter(void *cctx, int param, int value) {
 static char **clean_env_for_system(char *const envp[]) {
     int count = 0;
     while (envp && envp[count]) count++;
-    char **new_env = calloc(count + 1, sizeof(char *));
+    char **new_env = calloc(count + 2, sizeof(char *));
     int dst = 0;
     for (int i = 0; i < count; i++) {
         if (strncmp(envp[i], "LD_PRELOAD=", 11) != 0 &&
             strncmp(envp[i], "LD_LIBRARY_PATH=", 16) != 0 &&
             strncmp(envp[i], "GLIBC_TUNABLES=", 15) != 0) {
-            new_env[dst++] = envp[i];
+            if (strncmp(envp[i], "PATH=", 5) == 0) {
+                size_t plen = strlen(envp[i]);
+                char *new_path = malloc(plen + 32);
+                if (new_path) {
+                    snprintf(new_path, plen + 32, "PATH=/system/bin:/system/xbin:%s", envp[i] + 5);
+                    new_env[dst++] = new_path;
+                } else {
+                    new_env[dst++] = envp[i];
+                }
+            } else {
+                new_env[dst++] = envp[i];
+            }
         }
     }
     new_env[dst] = NULL;

@@ -226,26 +226,30 @@ find_host_su() {
     /sbin/su \
     /data/adb/ksu/bin/su \
     /data/adb/ap/bin/su \
+    /data/adb/ap/su \
     /data/adb/magisk/su \
     /vendor/bin/su \
     /system_ext/bin/su \
-    /product/bin/su; do
-    if [ -f "$cand" ] || [ -x "$cand" ]; then
+    /product/bin/su \
+    /apex/com.android.runtime/bin/su; do
+    if [ -f "$cand" ] || [ -x "$cand" ] || [ -L "$cand" ]; then
       echo "$cand"
       return 0
     fi
   done
 
-  for p in /system/bin /system/xbin /sbin /vendor/bin /system_ext/bin /product/bin $(echo "$PATH" | tr ':' ' '); do
-    case "$p" in
-      */usr/local/bin*|*/local/bin*|*/bin|*/usr/bin) continue ;;
-      *)
-        if [ -x "$p/su" ] || [ -f "$p/su" ]; then
-          echo "$p/su"
-          return 0
-        fi
-        ;;
-    esac
+  local host_which
+  host_which=$(env -i PATH=/system/bin:/system/xbin:/sbin /system/bin/sh -c 'command -v su 2>/dev/null || which su 2>/dev/null' 2>/dev/null)
+  if [ -n "$host_which" ] && ([ -f "$host_which" ] || [ -x "$host_which" ] || [ -L "$host_which" ]); then
+    echo "$host_which"
+    return 0
+  fi
+
+  for p in /system/bin /system/xbin /sbin /vendor/bin /system_ext/bin /product/bin; do
+    if [ -x "$p/su" ] || [ -f "$p/su" ] || [ -L "$p/su" ]; then
+      echo "$p/su"
+      return 0
+    fi
   done
 
   if [ -x "/data/adb/magisk/magisk" ] || [ -f "/data/adb/magisk/magisk" ]; then
@@ -263,12 +267,30 @@ if [ -z "$HOST_SU" ]; then
   exit 1
 fi
 
-RUN_HOST_SU() {
-  env -u LD_PRELOAD -u LD_LIBRARY_PATH -u GLIBC_TUNABLES $HOST_SU "$@"
+RUN_ANDROID_SU() {
+  env -i PATH=/system/bin:/system/xbin TERM="${TERM:-xterm-256color}" COLORTERM="${COLORTERM:-truecolor}" $HOST_SU "$@"
 }
 
-SU_UID=$(RUN_HOST_SU -c 'id -u' 2>/dev/null)
-if [ "$SU_UID" != "0" ]; then
+CHECK_ROOT() {
+  local uid
+  uid=$(RUN_ANDROID_SU -c 'id -u 2>/dev/null || /system/bin/id -u 2>/dev/null || /system/xbin/id -u 2>/dev/null || /system/bin/toybox id -u 2>/dev/null || echo "$UID" || echo "$USER_ID"' 2>/dev/null)
+  if [ -n "$uid" ] && [ "$uid" -eq 0 ] 2>/dev/null; then
+    return 0
+  fi
+
+  uid=$(env -i PATH=/system/bin:/system/xbin /system/bin/sh -c "$HOST_SU -c 'id -u 2>/dev/null || /system/bin/id -u 2>/dev/null || /system/xbin/id -u 2>/dev/null || /system/bin/toybox id -u 2>/dev/null || echo \$UID || echo \$USER_ID'" 2>/dev/null)
+  if [ -n "$uid" ] && [ "$uid" -eq 0 ] 2>/dev/null; then
+    return 0
+  fi
+
+  if RUN_ANDROID_SU -c 'true' 2>/dev/null; then
+    return 0
+  fi
+
+  return 1
+}
+
+if ! CHECK_ROOT; then
   echo "root not found" >&2
   exit 1
 fi
@@ -345,7 +367,7 @@ for cand_ld in \
   "$CORTEX_ROOT/usr/lib/arm-linux-gnueabihf/ld-linux-armhf.so.3" \
   "$CORTEX_ROOT/lib/ld-linux-armhf.so.3" \
   "$CORTEX_ROOT/lib/arm-linux-gnueabihf/ld-linux-armhf.so.3"; do
-  if [ -f "$cand_ld" ] && [ -x "$cand_ld" ]; then
+  if [ -f "$cand_ld" ] || [ -x "$cand_ld" ] || [ -L "$cand_ld" ]; then
     CORTEX_LD_SO="$cand_ld"
     break
   fi
@@ -357,22 +379,24 @@ else
   LAUNCH_SHELL="'$CORTEX_SHELL'"
 fi
 
+RUN_SU="env -i PATH=/system/bin:/system/xbin TERM='${TERM:-xterm-256color}' COLORTERM='${COLORTERM:-truecolor}' $HOST_SU"
+
 if [ "$1" = "-c" ]; then
   shift
-  exec env -u LD_PRELOAD -u LD_LIBRARY_PATH -u GLIBC_TUNABLES $HOST_SU -c "$ENV_SETUP export HOME='$ROOT_HOME'; cd '$CURRENT_DIR' 2>/dev/null; exec $LAUNCH_SHELL -c \"\$@\"" _ "$@"
+  exec $RUN_SU -c "$ENV_SETUP export HOME='$ROOT_HOME'; cd '$CURRENT_DIR' 2>/dev/null || cd '$ROOT_HOME' 2>/dev/null; exec $LAUNCH_SHELL -c \"\$@\"" _ "$@"
 elif [ "$1" = "-" ] || [ "$1" = "-l" ] || [ "$1" = "--login" ]; then
-  exec env -u LD_PRELOAD -u LD_LIBRARY_PATH -u GLIBC_TUNABLES $HOST_SU -c "$ENV_SETUP export HOME='$ROOT_HOME'; cd '$ROOT_HOME' 2>/dev/null; exec $LAUNCH_SHELL -l -i"
+  exec $RUN_SU -c "$ENV_SETUP export HOME='$ROOT_HOME'; cd '$ROOT_HOME' 2>/dev/null; exec $LAUNCH_SHELL -l -i"
 elif [ "$1" = "root" ]; then
   shift
   if [ $# -eq 0 ]; then
-    exec env -u LD_PRELOAD -u LD_LIBRARY_PATH -u GLIBC_TUNABLES $HOST_SU -c "$ENV_SETUP export HOME='$ROOT_HOME'; cd '$CURRENT_DIR' 2>/dev/null; exec $LAUNCH_SHELL -i"
+    exec $RUN_SU -c "$ENV_SETUP export HOME='$ROOT_HOME'; cd '$CURRENT_DIR' 2>/dev/null || cd '$ROOT_HOME' 2>/dev/null; exec $LAUNCH_SHELL -i"
   else
-    exec env -u LD_PRELOAD -u LD_LIBRARY_PATH -u GLIBC_TUNABLES $HOST_SU -c "$ENV_SETUP export HOME='$ROOT_HOME'; cd '$CURRENT_DIR' 2>/dev/null; exec $LAUNCH_SHELL -c \"\$*\"" _ "$@"
+    exec $RUN_SU -c "$ENV_SETUP export HOME='$ROOT_HOME'; cd '$CURRENT_DIR' 2>/dev/null || cd '$ROOT_HOME' 2>/dev/null; exec $LAUNCH_SHELL -c \"\$*\"" _ "$@"
   fi
 elif [ $# -eq 0 ]; then
-  exec env -u LD_PRELOAD -u LD_LIBRARY_PATH -u GLIBC_TUNABLES $HOST_SU -c "$ENV_SETUP export HOME='$ROOT_HOME'; cd '$CURRENT_DIR' 2>/dev/null; exec $LAUNCH_SHELL -i"
+  exec $RUN_SU -c "$ENV_SETUP export HOME='$ROOT_HOME'; cd '$CURRENT_DIR' 2>/dev/null || cd '$ROOT_HOME' 2>/dev/null; exec $LAUNCH_SHELL -i"
 else
-  exec env -u LD_PRELOAD -u LD_LIBRARY_PATH -u GLIBC_TUNABLES $HOST_SU -c "$ENV_SETUP export HOME='$ROOT_HOME'; cd '$CURRENT_DIR' 2>/dev/null; exec $LAUNCH_SHELL -c \"\$*\"" _ "$@"
+  exec $RUN_SU -c "$ENV_SETUP export HOME='$ROOT_HOME'; cd '$CURRENT_DIR' 2>/dev/null || cd '$ROOT_HOME' 2>/dev/null; exec $LAUNCH_SHELL -c \"\$*\"" _ "$@"
 fi
 EOFSU
 
