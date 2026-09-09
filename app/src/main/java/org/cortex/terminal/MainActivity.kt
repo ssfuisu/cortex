@@ -1,12 +1,18 @@
 package org.cortex.terminal
 
 import android.content.Intent
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.view.WindowManager
 import android.widget.ImageView
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import androidx.core.view.GravityCompat
 import androidx.drawerlayout.widget.DrawerLayout
 import androidx.preference.PreferenceManager
@@ -148,6 +154,8 @@ class MainActivity : AppCompatActivity() {
         }
 
         applyPreferences()
+        org.cortex.terminal.audio.AudioServer.start(this)
+        checkAndRequestStoragePermission()
         val root = Environment.getCortexRoot(this)
         BootstrapManager.updateDnsConfiguration(this, root)
         BootstrapManager.updateTimezone(this, root)
@@ -252,8 +260,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun applyPreferences() {
         val prefs = PreferenceManager.getDefaultSharedPreferences(this)
-        val fontSizeStr = prefs.getString("terminal_font_size", "14") ?: "14"
-        val fontSize = fontSizeStr.toFloatOrNull() ?: 14f
+        val fontSizeStr = prefs.getString("terminal_font_size", "11") ?: "11"
+        val fontSize = fontSizeStr.toFloatOrNull() ?: 11f
         terminalView.setTerminalTextSize(fontSize)
 
         val keepScreenOn = prefs.getBoolean("keep_screen_on", false)
@@ -308,6 +316,44 @@ class MainActivity : AppCompatActivity() {
             }
             .setNegativeButton(R.string.no, null)
             .show()
+    }
+
+    private fun checkAndRequestStoragePermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            if (!android.os.Environment.isExternalStorageManager()) {
+                AlertDialog.Builder(this)
+                    .setTitle("Tüm Dosyaları Yönet İzni")
+                    .setMessage("Cortex Terminal'in cihaz depolamanızdaki dosyalara (/sdcard) erişebilmesi ve CLI araçlarını tam yetkiyle çalıştırabilmesi için 'Tüm dosyaları yönet' iznini etkinleştirmeniz gerekmektedir.")
+                    .setCancelable(false)
+                    .setPositiveButton("İzin Ver") { _, _ ->
+                        try {
+                            val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
+                                data = Uri.parse("package:$packageName")
+                            }
+                            startActivity(intent)
+                        } catch (e: Exception) {
+                            try {
+                                startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
+                            } catch (e2: Exception) {
+                                Toast.makeText(this, "İzin sayfası açılamadı", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }
+                    .setNegativeButton("Daha Sonra", null)
+                    .show()
+            }
+        } else {
+            val permissions = arrayOf(
+                android.Manifest.permission.READ_EXTERNAL_STORAGE,
+                android.Manifest.permission.WRITE_EXTERNAL_STORAGE
+            )
+            val missing = permissions.filter {
+                ContextCompat.checkSelfPermission(this, it) != android.content.pm.PackageManager.PERMISSION_GRANTED
+            }
+            if (missing.isNotEmpty()) {
+                ActivityCompat.requestPermissions(this, missing.toTypedArray(), 1001)
+            }
+        }
     }
 
     override fun onDestroy() {

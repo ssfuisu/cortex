@@ -138,6 +138,18 @@ object BootstrapManager {
                 changed = true
             }
 
+            if (!bashrcText.contains("/etc/cortex/autostart")) {
+                bashrcText += "\nif [ -d /etc/cortex/autostart ]; then\n" +
+                    "    for s in /etc/cortex/autostart/*; do\n" +
+                    "        if [ -f \"" + d + "s\" ]; then\n" +
+                    "            sname=\"" + d + "(basename \"" + d + "s\")\"\n" +
+                    "            service \"" + d + "sname\" start >/dev/null 2>&1 || true\n" +
+                    "        fi\n" +
+                    "    done\n" +
+                    "fi\n"
+                changed = true
+            }
+
             if (changed) {
                 bashrc.writeText(bashrcText.trim() + "\n")
                 bashrc.setReadable(true, false)
@@ -1289,8 +1301,315 @@ object BootstrapManager {
                     android.util.Log.e("BootstrapManager", "Failed to setup which at ${target.absolutePath}", e)
                 }
             }
+            ensureServiceManager(root)
+            ensureAudioTools(root)
         } catch (e: Exception) {
             android.util.Log.e("BootstrapManager", "Failed in ensureEssentialBinaries", e)
+        }
+    }
+
+    fun ensureServiceManager(root: File) {
+        try {
+            File(root, "run").mkdirs()
+            File(root, "var/run").mkdirs()
+            File(root, "var/lock").mkdirs()
+            File(root, "etc/init.d").mkdirs()
+            File(root, "etc/cortex/autostart").mkdirs()
+
+            val localBin = File(root, "usr/local/bin")
+            localBin.mkdirs()
+
+            val serviceScript = """
+#!/bin/bash
+# Cortex Service Manager for Ubuntu on Android
+SERVICE="${'$'}1"
+ACTION="${'$'}2"
+shift 2 2>/dev/null
+
+if [ -z "${'$'}SERVICE" ]; then
+    echo "Usage: service <service-name> {start|stop|restart|status}"
+    echo "       service --status-all"
+    exit 1
+fi
+
+if [ "${'$'}SERVICE" = "--status-all" ]; then
+    echo " [ + ] Running services"
+    echo " [ - ] Stopped services"
+    for initscript in /etc/init.d/*; do
+        if [ -f "${'$'}initscript" ] && [ -x "${'$'}initscript" ]; then
+            sname="${'$'}(basename "${'$'}initscript")"
+            if [ "${'$'}sname" != "skeleton" ] && [ "${'$'}sname" != "rc" ]; then
+                if "${'$'}initscript" status >/dev/null 2>&1; then
+                    echo " [ + ]  ${'$'}sname"
+                else
+                    echo " [ - ]  ${'$'}sname"
+                fi
+            fi
+        fi
+    done
+    exit 0
+fi
+
+PIDFILE="/run/${'$'}SERVICE.pid"
+mkdir -p /run /var/run
+
+if [ -x "/etc/init.d/${'$'}SERVICE" ]; then
+    exec "/etc/init.d/${'$'}SERVICE" "${'$'}ACTION" "${'$'}@"
+fi
+
+case "${'$'}ACTION" in
+    start)
+        if [ -f "${'$'}PIDFILE" ] && kill -0 "${'$'}(cat "${'$'}PIDFILE")" 2>/dev/null; then
+            echo "Service ${'$'}SERVICE is already running (PID ${'$'}(cat "${'$'}PIDFILE"))."
+            exit 0
+        fi
+        DAEMON=""
+        for p in "/usr/sbin/${'$'}SERVICE" "/usr/bin/${'$'}SERVICE"; do
+            if [ -x "${'$'}p" ]; then DAEMON="${'$'}p"; break; fi
+        done
+        if [ -n "${'$'}DAEMON" ]; then
+            echo "Starting ${'$'}SERVICE..."
+            "${'$'}DAEMON" "${'$'}@" &
+            echo ${'$'}! > "${'$'}PIDFILE"
+            echo "${'$'}SERVICE started with PID ${'$'}!"
+        else
+            echo "service: unrecognized service ${'$'}SERVICE"
+            exit 1
+        fi
+        ;;
+    stop)
+        if [ -f "${'$'}PIDFILE" ]; then
+            PID=${'$'}(cat "${'$'}PIDFILE")
+            if kill -0 "${'$'}PID" 2>/dev/null; then
+                echo "Stopping ${'$'}SERVICE (PID ${'$'}PID)..."
+                kill "${'$'}PID" 2>/dev/null
+                rm -f "${'$'}PIDFILE"
+                echo "${'$'}SERVICE stopped."
+            else
+                rm -f "${'$'}PIDFILE"
+            fi
+        else
+            pkill -f "${'$'}SERVICE" 2>/dev/null && echo "Stopped ${'$'}SERVICE." || echo "${'$'}SERVICE is not running."
+        fi
+        ;;
+    status)
+        if [ -f "${'$'}PIDFILE" ] && kill -0 "${'$'}(cat "${'$'}PIDFILE")" 2>/dev/null; then
+            echo "* ${'$'}SERVICE is running (PID ${'$'}(cat "${'$'}PIDFILE"))"
+            exit 0
+        elif pgrep -f "${'$'}SERVICE" >/dev/null 2>&1; then
+            echo "* ${'$'}SERVICE is running"
+            exit 0
+        else
+            echo "* ${'$'}SERVICE is not running"
+            exit 3
+        fi
+        ;;
+    restart)
+        "${'$'}0" "${'$'}SERVICE" stop
+        sleep 1
+        "${'$'}0" "${'$'}SERVICE" start "${'$'}@"
+        ;;
+    *)
+        echo "Usage: service ${'$'}SERVICE {start|stop|restart|status}"
+        exit 1
+        ;;
+esac
+""".trimIndent() + "\n"
+
+            val systemctlScript = """
+#!/bin/bash
+# Cortex systemctl compatibility shim
+ACTION="${'$'}1"
+SERVICE="${'$'}{2%.service}"
+shift 2 2>/dev/null
+
+case "${'$'}ACTION" in
+    daemon-reload|reset-failed)
+        exit 0
+        ;;
+    is-system-running)
+        echo "running"
+        exit 0
+        ;;
+    is-active)
+        if [ -z "${'$'}SERVICE" ]; then exit 1; fi
+        if service "${'$'}SERVICE" status >/dev/null 2>&1; then
+            echo "active"
+            exit 0
+        else
+            echo "inactive"
+            exit 3
+        fi
+        ;;
+    is-enabled)
+        if [ -f "/etc/cortex/autostart/${'$'}SERVICE" ]; then
+            echo "enabled"
+            exit 0
+        else
+            echo "disabled"
+            exit 1
+        fi
+        ;;
+    enable)
+        mkdir -p /etc/cortex/autostart
+        touch "/etc/cortex/autostart/${'$'}SERVICE"
+        echo "Enabled ${'$'}SERVICE for automatic startup."
+        exit 0
+        ;;
+    disable)
+        rm -f "/etc/cortex/autostart/${'$'}SERVICE"
+        echo "Disabled ${'$'}SERVICE from automatic startup."
+        exit 0
+        ;;
+    start|stop|restart|status|reload|force-reload)
+        if [ -z "${'$'}SERVICE" ]; then
+            echo "Usage: systemctl ${'$'}ACTION <service>"
+            exit 1
+        fi
+        exec service "${'$'}SERVICE" "${'$'}ACTION" "${'$'}@"
+        ;;
+    list-units|list-unit-files)
+        exec service --status-all
+        ;;
+    *)
+        if [ -n "${'$'}SERVICE" ]; then
+            exec service "${'$'}SERVICE" "${'$'}ACTION" "${'$'}@"
+        fi
+        exit 0
+        ;;
+esac
+""".trimIndent() + "\n"
+
+            val serviceFile = File(localBin, "service")
+            serviceFile.writeText(serviceScript)
+            serviceFile.setReadable(true, false)
+            serviceFile.setExecutable(true, false)
+            try { android.system.Os.chmod(serviceFile.absolutePath, 493) } catch (e: Exception) {}
+
+            val systemctlFile = File(localBin, "systemctl")
+            systemctlFile.writeText(systemctlScript)
+            systemctlFile.setReadable(true, false)
+            systemctlFile.setExecutable(true, false)
+            try { android.system.Os.chmod(systemctlFile.absolutePath, 493) } catch (e: Exception) {}
+
+            val cortexServiceFile = File(localBin, "cortex-service")
+            cortexServiceFile.writeText("#!/bin/sh\nexec service \"${'$'}@\"\n")
+            cortexServiceFile.setReadable(true, false)
+            cortexServiceFile.setExecutable(true, false)
+            try { android.system.Os.chmod(cortexServiceFile.absolutePath, 493) } catch (e: Exception) {}
+        } catch (e: Exception) {
+            android.util.Log.e("BootstrapManager", "Failed to ensure service manager", e)
+        }
+    }
+
+    fun ensureAudioTools(root: File) {
+        try {
+            val localBin = File(root, "usr/local/bin")
+            localBin.mkdirs()
+
+            val playAudioScript = """
+#!/bin/bash
+# Cortex Audio Player CLI
+ACTION="${'$'}1"
+
+if [ -z "${'$'}ACTION" ]; then
+    echo "Usage: play-audio <file.mp3|wav|ogg|flac|aac|m4a>"
+    echo "       play-audio --stop"
+    echo "       play-audio --pause"
+    echo "       play-audio --resume"
+    echo "       play-audio --status"
+    echo "       play-audio --beep [frequency_hz]"
+    exit 1
+fi
+
+case "${'$'}ACTION" in
+    --stop|-s)
+        CMD="STOP"
+        ;;
+    --pause|-p)
+        CMD="PAUSE"
+        ;;
+    --resume|-r)
+        CMD="RESUME"
+        ;;
+    --status)
+        CMD="STATUS"
+        ;;
+    --beep|-b)
+        FREQ="${'$'}{2:-440}"
+        CMD="BEEP ${'$'}FREQ"
+        ;;
+    *)
+        TARGET="${'$'}1"
+        if [ ! -e "${'$'}TARGET" ]; then
+            echo "play-audio: file not found: ${'$'}TARGET"
+            exit 1
+        fi
+        REAL_PATH="${'$'}(realpath "${'$'}TARGET" 2>/dev/null || readlink -f "${'$'}TARGET" 2>/dev/null || echo "${'$'}TARGET")"
+        CMD="PLAY ${'$'}REAL_PATH"
+        ;;
+esac
+
+if (exec 3<>/dev/tcp/127.0.0.1/4712) 2>/dev/null; then
+    echo "${'$'}CMD" >&3
+    cat <&3
+    exec 3<&-
+    exec 3>&-
+else
+    echo "play-audio: Cortex AudioServer is not running on port 4712."
+    exit 1
+fi
+""".trimIndent() + "\n"
+
+            val aplayScript = """
+#!/bin/bash
+if [ -n "${'$'}1" ]; then
+    exec play-audio "${'$'}@"
+else
+    if (exec 3<>/dev/tcp/127.0.0.1/4712) 2>/dev/null; then
+        echo "STREAM" >&3
+        read -r _ <&3
+        cat >&3
+        exec 3<&-
+        exec 3>&-
+    else
+        echo "aplay: AudioServer not available"
+        exit 1
+    fi
+fi
+""".trimIndent() + "\n"
+
+            val playAudioFile = File(localBin, "play-audio")
+            playAudioFile.writeText(playAudioScript)
+            playAudioFile.setReadable(true, false)
+            playAudioFile.setExecutable(true, false)
+            try { android.system.Os.chmod(playAudioFile.absolutePath, 493) } catch (e: Exception) {}
+
+            val cortexPlayFile = File(localBin, "cortex-play")
+            cortexPlayFile.writeText("#!/bin/sh\nexec play-audio \"${'$'}@\"\n")
+            cortexPlayFile.setReadable(true, false)
+            cortexPlayFile.setExecutable(true, false)
+            try { android.system.Os.chmod(cortexPlayFile.absolutePath, 493) } catch (e: Exception) {}
+
+            val speakerTestFile = File(localBin, "speaker-test")
+            speakerTestFile.writeText("#!/bin/bash\necho \"Playing 440Hz test tone on device speaker...\"\nplay-audio --beep 440\n")
+            speakerTestFile.setReadable(true, false)
+            speakerTestFile.setExecutable(true, false)
+            try { android.system.Os.chmod(speakerTestFile.absolutePath, 493) } catch (e: Exception) {}
+
+            val aplayFile = File(localBin, "aplay")
+            aplayFile.writeText(aplayScript)
+            aplayFile.setReadable(true, false)
+            aplayFile.setExecutable(true, false)
+            try { android.system.Os.chmod(aplayFile.absolutePath, 493) } catch (e: Exception) {}
+
+            val paplayFile = File(localBin, "paplay")
+            paplayFile.writeText("#!/bin/sh\nexec play-audio \"${'$'}@\"\n")
+            paplayFile.setReadable(true, false)
+            paplayFile.setExecutable(true, false)
+            try { android.system.Os.chmod(paplayFile.absolutePath, 493) } catch (e: Exception) {}
+        } catch (e: Exception) {
+            android.util.Log.e("BootstrapManager", "Failed to ensure audio tools", e)
         }
     }
 

@@ -94,6 +94,7 @@ class CortexService : Service() {
         super.onCreate()
         instance = this
         getOrCreateSessionManager(this)
+        org.cortex.terminal.audio.AudioServer.start(this)
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, buildNotification())
     }
@@ -271,6 +272,7 @@ class CortexService : Service() {
     }
 
     override fun onDestroy() {
+        org.cortex.terminal.audio.AudioServer.stop()
         releaseWakeLock()
         instance = null
         super.onDestroy()

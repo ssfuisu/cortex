@@ -1,6 +1,7 @@
 <resources>
     <string-array name="font_size_entries">
         <item>Small (10sp)</item>
+        <item>Compact (11sp)</item>
         <item>Normal (12sp)</item>
         <item>Medium (14sp)</item>
         <item>Large (16sp)</item>
@@ -9,6 +10,7 @@
 
     <string-array name="font_size_values">
         <item>10</item>
+        <item>11</item>
         <item>12</item>
         <item>14</item>
         <item>16</item>

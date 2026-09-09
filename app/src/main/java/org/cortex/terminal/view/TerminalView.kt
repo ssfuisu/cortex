@@ -3,6 +3,8 @@ package org.cortex.terminal.view
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.net.Uri
+import java.io.File
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -15,6 +17,7 @@ import android.view.GestureDetector
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.MotionEvent
+import android.view.ScaleGestureDetector
 import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.BaseInputConnection
@@ -73,7 +76,7 @@ class TerminalView @JvmOverloads constructor(
 
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         typeface = Typeface.MONOSPACE
-        textSize = 38f
+        textSize = 28f
     }
 
     private val bgPaint = Paint()
@@ -258,6 +261,32 @@ class TerminalView @JvmOverloads constructor(
         }
     })
 
+    private val scaleGestureDetector = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+        override fun onScale(detector: ScaleGestureDetector): Boolean {
+            val factor = detector.scaleFactor
+            val minPx = 14f * resources.displayMetrics.density
+            val maxPx = 42f * resources.displayMetrics.density
+            val currentPx = textPaint.textSize
+            val newPx = (currentPx * factor).coerceIn(minPx, maxPx)
+            if (kotlin.math.abs(newPx - currentPx) >= 0.5f) {
+                textPaint.textSize = newPx
+                measureCharDimensions()
+                updateTerminalDimensions()
+                invalidate()
+            }
+            return true
+        }
+
+        override fun onScaleEnd(detector: ScaleGestureDetector) {
+            super.onScaleEnd(detector)
+            try {
+                val sp = textPaint.textSize / resources.displayMetrics.scaledDensity
+                val prefs = androidx.preference.PreferenceManager.getDefaultSharedPreferences(context)
+                prefs.edit().putString("terminal_font_size", kotlin.math.round(sp).toInt().toString()).apply()
+            } catch (e: Exception) {}
+        }
+    })
+
     init {
         isFocusable = true
         isFocusableInTouchMode = true
@@ -428,6 +457,16 @@ class TerminalView @JvmOverloads constructor(
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (isSelecting) {
             handleSelectionTouch(event)
+            return true
+        }
+
+        if (event.pointerCount > 1) {
+            scaleGestureDetector.onTouchEvent(event)
+            return true
+        }
+
+        scaleGestureDetector.onTouchEvent(event)
+        if (scaleGestureDetector.isInProgress) {
             return true
         }
 
@@ -697,6 +736,30 @@ class TerminalView @JvmOverloads constructor(
         val clip = clipboard.primaryClip ?: return
         if (clip.itemCount == 0) return
         val item = clip.getItemAt(0)
+
+        val uri = item.uri
+        val mimeType = if (uri != null) {
+            try { context.contentResolver.getType(uri) } catch (e: Exception) { null }
+        } else null
+        val hasImageMime = clip.description.hasMimeType("image/*") ||
+            (mimeType != null && mimeType.startsWith("image/")) ||
+            (uri != null && uri.path?.let { p ->
+                p.endsWith(".png", true) || p.endsWith(".jpg", true) || p.endsWith(".jpeg", true) ||
+                p.endsWith(".webp", true) || p.endsWith(".gif", true)
+            } == true)
+
+        if (uri != null && hasImageMime) {
+            val savedPath = saveImageFromUri(uri, mimeType)
+            if (savedPath != null) {
+                session?.write(savedPath)
+                scrollOffset = 0
+                invalidate()
+                clearSelection()
+                Toast.makeText(context, "Fotoğraf yolu yapıştırıldı: $savedPath", Toast.LENGTH_SHORT).show()
+                return
+            }
+        }
+
         val rawText = item?.coerceToText(context)?.toString() ?: return
         val text = sanitizePastedText(rawText)
         if (text.isNotEmpty()) {
@@ -705,6 +768,46 @@ class TerminalView @JvmOverloads constructor(
             invalidate()
         }
         clearSelection()
+    }
+
+    private fun saveImageFromUri(uri: Uri, mimeType: String?): String? {
+        try {
+            if (uri.scheme == "file" && uri.path != null) {
+                val f = File(uri.path!!)
+                if (f.exists()) return f.absolutePath + " "
+            }
+
+            val ext = when (mimeType?.lowercase()) {
+                "image/jpeg", "image/jpg" -> ".jpg"
+                "image/gif" -> ".gif"
+                "image/webp" -> ".webp"
+                "image/svg+xml" -> ".svg"
+                else -> ".png"
+            }
+
+            val picturesDir = File("/sdcard/Pictures")
+            val destDir = if (picturesDir.exists() || picturesDir.mkdirs()) {
+                picturesDir
+            } else {
+                val extDir = File(android.os.Environment.getExternalStorageDirectory(), "Pictures")
+                if (extDir.exists() || extDir.mkdirs()) extDir else File(context.filesDir, "pictures").apply { mkdirs() }
+            }
+
+            val timeStamp = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US).format(java.util.Date())
+            val targetFile = File(destDir, "cortex_img_${timeStamp}${ext}")
+
+            context.contentResolver.openInputStream(uri)?.use { inStream ->
+                targetFile.outputStream().use { outStream ->
+                    inStream.copyTo(outStream)
+                }
+            } ?: return null
+
+            targetFile.setReadable(true, false)
+            return targetFile.absolutePath + " "
+        } catch (e: Exception) {
+            android.util.Log.e("TerminalView", "Failed to save clipboard image", e)
+            return null
+        }
     }
 
     fun selectAllText() {

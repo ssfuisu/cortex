@@ -2,7 +2,7 @@
 
     <PreferenceCategory app:title="Display &amp; Font">
         <ListPreference
-            app:defaultValue="14"
+            app:defaultValue="11"
             app:entries="@array/font_size_entries"
             app:entryValues="@array/font_size_values"
             app:key="terminal_font_size"
