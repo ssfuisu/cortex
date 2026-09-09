@@ -1686,7 +1686,7 @@ CHECK_ROOT() {
         return 0
     fi
 
-    uid=${'$'}(env -i PATH=/system/bin:/system/xbin /system/bin/sh -c "${'$'}HOST_SU -c 'id -u 2>/dev/null || /system/bin/id -u 2>/dev/null || /system/xbin/id -u 2>/dev/null || /system/bin/toybox id -u 2>/dev/null || echo \$UID || echo \$USER_ID'" 2>/dev/null)
+    uid=${'$'}(env -i PATH=/system/bin:/system/xbin /system/bin/sh -c "${'$'}HOST_SU -c 'id -u 2>/dev/null || /system/bin/id -u 2>/dev/null || /system/xbin/id -u 2>/dev/null || /system/bin/toybox id -u 2>/dev/null || echo \${'$'}UID || echo \${'$'}USER_ID'" 2>/dev/null)
     if [ -n "${'$'}uid" ] && [ "${'$'}uid" -eq 0 ] 2>/dev/null; then
         return 0
     fi
