@@ -695,22 +695,6 @@ class TerminalView @JvmOverloads constructor(
         }
     }
 
-    override fun onTextContextMenuItem(id: Int): Boolean {
-        when (id) {
-            android.R.id.paste, 16908337 /* pasteAsPlainText */ -> {
-                pasteFromClipboard()
-                return true
-            }
-            android.R.id.copy -> {
-                return copySelectionToClipboard()
-            }
-            android.R.id.selectAll -> {
-                selectAllText()
-                return true
-            }
-        }
-        return super.onTextContextMenuItem(id)
-    }
 
     fun showKeyboard() {
         requestFocus()
