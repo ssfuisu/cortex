@@ -2404,6 +2404,17 @@ static int synthesize_fallback_addrinfo(const char *node, const char *service,
         return 0;
     }
 
+    if (strstr(node, "googleapis.com") != NULL || strstr(node, "accounts.google.com") != NULL) {
+        struct addrinfo *ai1 = alloc_one_addrinfo(node, "142.251.127.95", port, socktype, protocol);
+        if (!ai1) return EAI_MEMORY;
+        struct addrinfo *ai2 = alloc_one_addrinfo(node, "142.251.127.84", port, socktype, protocol);
+        if (ai2) {
+            ai1->ai_next = ai2;
+        }
+        *res = ai1;
+        return 0;
+    }
+
     return EAI_NONAME;
 }
 

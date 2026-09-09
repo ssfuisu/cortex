@@ -51,6 +51,11 @@ object BootstrapManager {
                 changed = true
             }
 
+            if (!bashrcText.contains("unset PREFIX")) {
+                bashrcText = "unset PREFIX\n" + bashrcText
+                changed = true
+            }
+
             if (!bashrcText.contains("PS1=")) {
                 bashrcText += "# Cortex Terminal Environment\n" +
                     "if [ -n \"" + d + "BASH_VERSION\" ]; then\n" +
@@ -142,6 +147,11 @@ object BootstrapManager {
             // Strip legacy source() override if present
             if (profileText.contains("source()")) {
                 profileText = profileText.replace(Regex("source\\s*\\(\\)\\s*\\{[\\s\\S]*?\\n\\}"), "")
+                changed = true
+            }
+
+            if (!profileText.contains("unset PREFIX")) {
+                profileText = "unset PREFIX\n" + profileText
                 changed = true
             }
 
@@ -921,13 +931,16 @@ object BootstrapManager {
                 "151.101.66.132 security.debian.org\n" +
                 "151.101.194.132 security.debian.org\n" +
                 "151.101.130.132 cdn-fastly.deb.debian.org\n" +
-                "151.101.2.132 cdn-fastly.deb.debian.org\n"
+                "151.101.2.132 cdn-fastly.deb.debian.org\n" +
+                "142.251.127.95 oauth2.googleapis.com\n" +
+                "142.251.127.84 accounts.google.com\n" +
+                "142.250.74.202 www.googleapis.com\n"
 
             if (!hostsFile.exists()) {
                 hostsFile.writeText(defaultHosts)
             } else {
                 val currentText = hostsFile.readText()
-                if (!currentText.contains("ports.ubuntu.com")) {
+                if (!currentText.contains("oauth2.googleapis.com")) {
                     hostsFile.writeText(currentText.trimEnd() + "\n" + defaultHosts)
                 }
             }
@@ -1028,6 +1041,13 @@ object BootstrapManager {
             if (androidCertsDir.exists() && androidCertsDir.isDirectory) {
                 androidCertsDir.listFiles()?.forEach { f ->
                     if (f.isFile && f.name.endsWith(".0")) {
+                        try {
+                            val targetFile = File(certsDir, f.name)
+                            if (!targetFile.exists() || targetFile.length() == 0L) {
+                                f.copyTo(targetFile, overwrite = true)
+                                targetFile.setReadable(true, false)
+                            }
+                        } catch (e: Exception) {}
                         try {
                             val content = f.readText()
                             val start = content.indexOf("-----BEGIN CERTIFICATE-----")
@@ -1300,9 +1320,8 @@ object BootstrapManager {
                 }
             }
 
-            // Always write POSIX TZ format to /etc/timezone so that bash 'export TZ="$(cat /etc/timezone)"'
-            // computes exact local time directly in memory without needing host rootfs zoneinfo files.
-            tzFile.writeText(posixTz + "\n")
+            val effectiveTz = if (zoneinfoFile.exists() && zoneinfoFile.isFile) tzId else posixTz
+            tzFile.writeText(effectiveTz + "\n")
             tzFile.setReadable(true, false)
         } catch (e: Exception) {
             android.util.Log.e("BootstrapManager", "Failed to update timezone", e)

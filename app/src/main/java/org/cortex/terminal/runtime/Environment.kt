@@ -89,6 +89,7 @@ object Environment {
         } else {
             "%s%s%d".format(stdName, posixSign, hours)
         }
+        val effectiveTz = if (File(root, "usr/share/zoneinfo/$tzId").exists()) tzId else posixTz
 
         val certFile = File(root, "etc/ssl/certs/ca-certificates.crt").absolutePath
         val certDir = "${File(root, "etc/ssl/certs").absolutePath}:/system/etc/security/cacerts"
@@ -98,7 +99,6 @@ object Environment {
             "COLORTERM=truecolor",
             "HOME=$home",
             "CORTEX_ROOT=$root",
-            "PREFIX=$root/usr",
             "TMPDIR=$tmp",
             "PATH=$pathStr",
             "LD_LIBRARY_PATH=$ldPathStr",
@@ -123,7 +123,7 @@ object Environment {
             "NODE_EXTRA_CA_CERTS=$certFile",
             "REQUESTS_CA_BUNDLE=$certFile",
             "TZDIR=$root/usr/share/zoneinfo",
-            "TZ=$posixTz"
+            "TZ=$effectiveTz"
         )
 
         if (preloadStr.isNotEmpty()) {
