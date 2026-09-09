@@ -14,7 +14,6 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.core.content.FileProvider
-import org.cortex.terminal.BuildConfig
 import org.cortex.terminal.R
 import org.json.JSONObject
 import java.io.File
@@ -67,6 +66,20 @@ object UpdateManager {
             if (l < c) return false
         }
         return false
+    }
+
+    fun getInstalledVersionName(context: Context): String {
+        return try {
+            val packageInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                context.packageManager.getPackageInfo(context.packageName, android.content.pm.PackageManager.PackageInfoFlags.of(0))
+            } else {
+                @Suppress("DEPRECATION")
+                context.packageManager.getPackageInfo(context.packageName, 0)
+            }
+            packageInfo.versionName ?: "1.24.55"
+        } catch (e: Exception) {
+            "1.24.55"
+        }
     }
 
     fun cleanUpdates(context: Context) {
@@ -139,7 +152,7 @@ object UpdateManager {
                     asset = selectedAsset
                 )
 
-                val available = isNewerVersion(BuildConfig.VERSION_NAME, cleanLatest)
+                val available = isNewerVersion(getInstalledVersionName(context), cleanLatest)
                 cachedReleaseInfo = info
                 isUpdateAvailable = available
 
@@ -179,7 +192,7 @@ object UpdateManager {
     fun showUpdateDialog(activity: Activity, info: ReleaseInfo) {
         if (activity.isFinishing || activity.isDestroyed) return
 
-        val currentVer = "v${BuildConfig.VERSION_NAME}"
+        val currentVer = "v${getInstalledVersionName(activity)}"
         val latestVer = if (info.tagName.startsWith("v", ignoreCase = true)) info.tagName else "v${info.tagName}"
 
         val messageBuilder = StringBuilder()
@@ -206,7 +219,7 @@ object UpdateManager {
     fun showUpToDateDialog(activity: Activity, latestVersionTag: String?) {
         if (activity.isFinishing || activity.isDestroyed) return
 
-        val currentVer = "v${BuildConfig.VERSION_NAME}"
+        val currentVer = "v${getInstalledVersionName(activity)}"
         val latestVer = if (!latestVersionTag.isNullOrEmpty()) {
             if (latestVersionTag.startsWith("v", ignoreCase = true)) latestVersionTag else "v$latestVersionTag"
         } else {
