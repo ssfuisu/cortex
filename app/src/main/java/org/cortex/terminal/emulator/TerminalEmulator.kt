@@ -13,18 +13,21 @@ class TerminalEmulator(
     val buffer = TerminalBuffer(rows, cols)
 
     private enum class State {
-        NORMAL, ESCAPE, CSI, OSC
+        NORMAL, ESCAPE, CSI, OSC, CHARSET
     }
 
     private var state = State.NORMAL
     private val csiParams = ArrayList<Int>()
     private var csiCurrentParam = 0
     private var csiHasParam = false
-    private var csiPrivate = false
+    private var csiPrefix: Char? = null
+    private var csiIntermediate: Char? = null
     private val oscBuffer = StringBuilder()
 
     var onTitleChange: ((String) -> Unit)? = null
     var onBell: (() -> Unit)? = null
+    var onSendResponse: ((String) -> Unit)? = null
+    var isApplicationCursorKeys = false
 
     fun resize(rows: Int, cols: Int) {
         lock.withLock {
@@ -49,7 +52,13 @@ class TerminalEmulator(
             State.ESCAPE -> handleEscape(c)
             State.CSI -> handleCsi(c)
             State.OSC -> handleOsc(c)
+            State.CHARSET -> handleCharset(c)
         }
+    }
+
+    private fun handleCharset(c: Char) {
+        // Consumes the charset designator (e.g. 'B' for ASCII, '0' for DEC line drawing)
+        state = State.NORMAL
     }
 
     private fun handleNormal(c: Char) {
@@ -85,16 +94,22 @@ class TerminalEmulator(
                 csiParams.clear()
                 csiCurrentParam = 0
                 csiHasParam = false
-                csiPrivate = false
+                csiPrefix = null
+                csiIntermediate = null
             }
             ']' -> {
                 state = State.OSC
                 oscBuffer.setLength(0)
             }
-            'c' -> { // Full reset
+            '(', ')', '*', '+' -> {
+                // Character set selection (e.g. \e(B for US-ASCII, \e(0 for line drawing)
+                state = State.CHARSET
+            }
+            'c' -> { // Full reset (RIS)
                 buffer.eraseInDisplay(2)
                 buffer.cursorRow = 0
                 buffer.cursorCol = 0
+                isApplicationCursorKeys = false
                 state = State.NORMAL
             }
             '7' -> { // Save cursor (DECSC)
@@ -105,6 +120,31 @@ class TerminalEmulator(
             '8' -> { // Restore cursor (DECRC)
                 buffer.cursorRow = savedCursorRow.coerceIn(0, buffer.rows - 1)
                 buffer.cursorCol = savedCursorCol.coerceIn(0, buffer.cols - 1)
+                buffer.isWrapPending = false
+                state = State.NORMAL
+            }
+            'M' -> { // Reverse Index (RI)
+                if (buffer.cursorRow == buffer.scrollTop) {
+                    buffer.scrollDown(buffer.scrollTop, buffer.scrollBottom)
+                } else {
+                    buffer.cursorRow = (buffer.cursorRow - 1).coerceAtLeast(0)
+                }
+                buffer.isWrapPending = false
+                state = State.NORMAL
+            }
+            'D' -> { // Index (IND)
+                buffer.newLine()
+                state = State.NORMAL
+            }
+            'E' -> { // Next Line (NEL)
+                buffer.carriageReturn()
+                buffer.newLine()
+                state = State.NORMAL
+            }
+            '=', '>' -> { // Application / Normal keypad mode
+                state = State.NORMAL
+            }
+            'H' -> { // Horizontal Tab Set
                 state = State.NORMAL
             }
             else -> {
@@ -114,8 +154,9 @@ class TerminalEmulator(
     }
 
     private fun handleCsi(c: Char) {
-        if (c == '?') {
-            csiPrivate = true
+        // Parameter prefix character (e.g. '?' for DEC private, '>' for secondary DA, '=', '<', '!')
+        if (csiParams.isEmpty() && !csiHasParam && (c == '?' || c == '>' || c == '=' || c == '<' || c == '!')) {
+            csiPrefix = c
             return
         }
 
@@ -125,19 +166,35 @@ class TerminalEmulator(
             return
         }
 
-        if (c == ';') {
+        if (c == ';' || c == ':') {
             csiParams.add(if (csiHasParam) csiCurrentParam else 0)
             csiCurrentParam = 0
             csiHasParam = false
             return
         }
 
-        // Final character of CSI
-        if (csiHasParam) {
-            csiParams.add(csiCurrentParam)
+        // Intermediate character (0x20 - 0x2F, e.g. space, $, ', ", *)
+        if (c in ' '..'/' && c != ';') {
+            csiIntermediate = c
+            return
         }
 
-        executeCsi(c)
+        // Final character (0x40 - 0x7E)
+        if (c in '@'..'~') {
+            if (csiHasParam) {
+                csiParams.add(csiCurrentParam)
+            }
+            executeCsi(c)
+            state = State.NORMAL
+            return
+        }
+
+        if (c == '\u001b') {
+            state = State.ESCAPE
+            return
+        }
+
+        // Any other character cancels CSI
         state = State.NORMAL
     }
 
@@ -178,11 +235,24 @@ class TerminalEmulator(
                 buffer.cursorCol = 0
                 buffer.isWrapPending = false
             }
+            'G' -> { // Cursor Character Absolute (CHA)
+                val col = if (p1 == 0) 1 else p1
+                buffer.cursorCol = (col - 1).coerceIn(0, buffer.cols - 1)
+                buffer.isWrapPending = false
+            }
             'H', 'f' -> { // Cursor Position (1-indexed)
                 val row = if (p1 == 0) 1 else p1
                 val col = if (p2 == 0) 1 else p2
                 buffer.cursorRow = (row - 1).coerceIn(0, buffer.rows - 1)
                 buffer.cursorCol = (col - 1).coerceIn(0, buffer.cols - 1)
+                buffer.isWrapPending = false
+            }
+            'I' -> { // Cursor Forward Tabulation (CHT)
+                val count = if (p1 == 0) 1 else p1
+                for (k in 0 until count) {
+                    val nextTab = (buffer.cursorCol / 8 + 1) * 8
+                    buffer.cursorCol = nextTab.coerceAtMost(buffer.cols - 1)
+                }
                 buffer.isWrapPending = false
             }
             'J' -> { // Erase In Display
@@ -198,12 +268,14 @@ class TerminalEmulator(
                 for (i in 0 until count) {
                     buffer.scrollDown(buffer.cursorRow, buffer.scrollBottom)
                 }
+                buffer.isWrapPending = false
             }
             'M' -> { // Delete line
                 val count = if (p1 == 0) 1 else p1
                 for (i in 0 until count) {
                     buffer.scrollUp(buffer.cursorRow, buffer.scrollBottom)
                 }
+                buffer.isWrapPending = false
             }
             'P' -> { // Delete characters (DCH)
                 val count = if (p1 == 0) 1 else p1
@@ -229,55 +301,6 @@ class TerminalEmulator(
                     buffer.scrollDown(buffer.scrollTop, buffer.scrollBottom)
                 }
             }
-            'm' -> { // SGR (Select Graphic Rendition)
-                handleSgr()
-            }
-            'r' -> { // Set Scroll Margins
-                if (csiParams.isEmpty()) {
-                    buffer.scrollTop = 0
-                    buffer.scrollBottom = buffer.rows - 1
-                } else {
-                    val top = (p1 - 1).coerceIn(0, buffer.rows - 1)
-                    val bottom = if (p2 == 0) buffer.rows - 1 else (p2 - 1).coerceIn(top, buffer.rows - 1)
-                    buffer.scrollTop = top
-                    buffer.scrollBottom = bottom
-                }
-            }
-            'h' -> { // Set Mode
-                if (csiPrivate) {
-                    when (p1) {
-                        25 -> buffer.isCursorVisible = true
-                        47, 1047, 1049 -> buffer.useAlternateScreen(true)
-                    }
-                }
-            }
-            'l' -> { // Reset Mode
-                if (csiPrivate) {
-                    when (p1) {
-                        25 -> buffer.isCursorVisible = false
-                        47, 1047, 1049 -> buffer.useAlternateScreen(false)
-                    }
-                }
-            }
-            's' -> { // Save Cursor (ANSI.SYS)
-                savedCursorRow = buffer.cursorRow
-                savedCursorCol = buffer.cursorCol
-            }
-            'u' -> { // Restore Cursor (ANSI.SYS)
-                buffer.cursorRow = savedCursorRow.coerceIn(0, buffer.rows - 1)
-                buffer.cursorCol = savedCursorCol.coerceIn(0, buffer.cols - 1)
-                buffer.isWrapPending = false
-            }
-            'G' -> { // Cursor Character Absolute (CHA)
-                val col = if (p1 == 0) 1 else p1
-                buffer.cursorCol = (col - 1).coerceIn(0, buffer.cols - 1)
-                buffer.isWrapPending = false
-            }
-            'd' -> { // Line Position Absolute (VPA)
-                val row = if (p1 == 0) 1 else p1
-                buffer.cursorRow = (row - 1).coerceIn(0, buffer.rows - 1)
-                buffer.isWrapPending = false
-            }
             'X' -> { // Erase Characters (ECH)
                 val count = if (p1 == 0) 1 else p1
                 val r = buffer.cursorRow
@@ -287,6 +310,96 @@ class TerminalEmulator(
                         buffer.screen[r].setChar(c, ' ', buffer.currentFg, buffer.currentBg, 0)
                     }
                 }
+                buffer.isWrapPending = false
+            }
+            'Z' -> { // Cursor Backward Tabulation (CBT)
+                val count = if (p1 == 0) 1 else p1
+                for (k in 0 until count) {
+                    val prevTab = if (buffer.cursorCol % 8 == 0) buffer.cursorCol - 8 else (buffer.cursorCol / 8) * 8
+                    buffer.cursorCol = prevTab.coerceAtLeast(0)
+                }
+                buffer.isWrapPending = false
+            }
+            'd' -> { // Line Position Absolute (VPA)
+                val row = if (p1 == 0) 1 else p1
+                buffer.cursorRow = (row - 1).coerceIn(0, buffer.rows - 1)
+                buffer.isWrapPending = false
+            }
+            'm' -> { // SGR (Select Graphic Rendition)
+                handleSgr()
+            }
+            'n' -> { // Device Status Report (DSR)
+                if (csiPrefix == null) {
+                    if (p1 == 6) { // Cursor Position Report (CPR)
+                        val row = (buffer.cursorRow + 1).coerceIn(1, buffer.rows)
+                        val col = (buffer.cursorCol + 1).coerceIn(1, buffer.cols)
+                        onSendResponse?.invoke("\u001b[${row};${col}R")
+                    } else if (p1 == 5) { // Status Report
+                        onSendResponse?.invoke("\u001b[0n") // OK
+                    }
+                }
+            }
+            'c' -> { // Device Attributes (DA)
+                if (csiPrefix == '>') { // Secondary DA
+                    onSendResponse?.invoke("\u001b[>0;10;0c")
+                } else { // Primary DA
+                    onSendResponse?.invoke("\u001b[?62;1;2;6;7;8;9c")
+                }
+            }
+            't' -> { // Window Manipulation
+                if (p1 == 18) { // Report terminal size in characters
+                    onSendResponse?.invoke("\u001b[8;${buffer.rows};${buffer.cols}t")
+                }
+            }
+            'r' -> { // Set Scroll Margins (DECSTBM)
+                if (csiParams.isEmpty()) {
+                    buffer.scrollTop = 0
+                    buffer.scrollBottom = buffer.rows - 1
+                } else {
+                    val top = (p1 - 1).coerceIn(0, buffer.rows - 1)
+                    val bottom = if (p2 == 0) buffer.rows - 1 else (p2 - 1).coerceIn(top, buffer.rows - 1)
+                    buffer.scrollTop = top
+                    buffer.scrollBottom = bottom
+                }
+                buffer.cursorRow = 0
+                buffer.cursorCol = 0
+                buffer.isWrapPending = false
+            }
+            'h' -> { // Set Mode
+                val params = if (csiParams.isEmpty()) listOf(0) else csiParams
+                for (p in params) {
+                    if (csiPrefix == '?') {
+                        when (p) {
+                            1 -> isApplicationCursorKeys = true
+                            25 -> buffer.isCursorVisible = true
+                            47, 1047, 1049 -> buffer.useAlternateScreen(true)
+                        }
+                    }
+                }
+            }
+            'l' -> { // Reset Mode
+                val params = if (csiParams.isEmpty()) listOf(0) else csiParams
+                for (p in params) {
+                    if (csiPrefix == '?') {
+                        when (p) {
+                            1 -> isApplicationCursorKeys = false
+                            25 -> buffer.isCursorVisible = false
+                            47, 1047, 1049 -> buffer.useAlternateScreen(false)
+                        }
+                    }
+                }
+            }
+            's' -> { // Save Cursor
+                savedCursorRow = buffer.cursorRow
+                savedCursorCol = buffer.cursorCol
+            }
+            'u' -> { // Restore Cursor
+                buffer.cursorRow = savedCursorRow.coerceIn(0, buffer.rows - 1)
+                buffer.cursorCol = savedCursorCol.coerceIn(0, buffer.cols - 1)
+                buffer.isWrapPending = false
+            }
+            'q' -> { // Cursor Style (DECSCUSR)
+                // Ignored gracefully
             }
         }
     }

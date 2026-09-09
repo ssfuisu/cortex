@@ -20,6 +20,8 @@ object BootstrapManager {
                 dir.mkdirs()
             }
         }
+        ensureRootTools(root)
+        ensureBrowserOpener(root)
 
         val d = "$"
         val certExportSnippet = "if [ -z \"" + d + "CORTEX_ROOT\" ]; then\n" +
@@ -1303,6 +1305,7 @@ object BootstrapManager {
             }
             ensureServiceManager(root)
             ensureBrowserOpener(root)
+            ensureRootTools(root)
         } catch (e: Exception) {
             android.util.Log.e("BootstrapManager", "Failed in ensureEssentialBinaries", e)
         }
@@ -1596,6 +1599,210 @@ exec /usr/local/bin/xdg-open "${'$'}@"
             }
         } catch (e: Exception) {
             android.util.Log.e("BootstrapManager", "Failed to ensure browser opener", e)
+        }
+    }
+
+    fun ensureRootTools(root: File) {
+        try {
+            val rootHome = File(root, "root")
+            if (!rootHome.exists()) {
+                rootHome.mkdirs()
+            }
+            val rootBashrc = File(rootHome, ".bashrc")
+            if (!rootBashrc.exists()) {
+                rootBashrc.writeText(
+                    "# Root profile for Cortex Terminal\n" +
+                    "export PS1='\\[\\033[01;31m\\]\\u@\\h\\[\\033[00m\\]:\\[\\033[01;34m\\]\\w\\[\\033[00m\\]# '\n" +
+                    "alias ll='ls -la'\n" +
+                    "alias la='ls -A'\n" +
+                    "alias l='ls -CF'\n" +
+                    "alias cls='clear'\n"
+                )
+            }
+
+            val localBin = File(root, "usr/local/bin")
+            if (!localBin.exists()) localBin.mkdirs()
+
+            val suScript = """
+#!/bin/bash
+# Cortex Root Switcher (su / tsu / sudo)
+
+find_host_su() {
+    for cand in \
+        /system/bin/su \
+        /system/xbin/su \
+        /sbin/su \
+        /data/adb/ksu/bin/su \
+        /data/adb/ap/bin/su \
+        /data/adb/magisk/su \
+        /vendor/bin/su \
+        /system_ext/bin/su \
+        /product/bin/su; do
+        if [ -f "${'$'}cand" ] && [ -x "${'$'}cand" ]; then
+            echo "${'$'}cand"
+            return 0
+        fi
+    done
+
+    for p in /system/bin /system/xbin /sbin /vendor/bin /system_ext/bin /product/bin; do
+        if [ -x "${'$'}p/su" ]; then
+            echo "${'$'}p/su"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+HOST_SU=${'$'}(find_host_su)
+
+if [ -z "${'$'}HOST_SU" ]; then
+    echo "root not found" >&2
+    exit 1
+fi
+
+if [ "${'$'}("${'$'}HOST_SU" -c 'id -u' 2>/dev/null)" != "0" ]; then
+    echo "root not found" >&2
+    exit 1
+fi
+
+if [ -z "${'$'}CORTEX_ROOT" ]; then
+    if [ -d "/data/user/0/org.cortex.terminal/files/cortex" ]; then
+        CORTEX_ROOT="/data/user/0/org.cortex.terminal/files/cortex"
+    elif [ -d "/data/data/org.cortex.terminal/files/cortex" ]; then
+        CORTEX_ROOT="/data/data/org.cortex.terminal/files/cortex"
+    fi
+fi
+
+ROOT_HOME="${'$'}CORTEX_ROOT/root"
+if [ ! -d "${'$'}ROOT_HOME" ]; then
+    mkdir -p "${'$'}ROOT_HOME" 2>/dev/null || ROOT_HOME="${'$'}CORTEX_ROOT/home"
+fi
+
+CORTEX_SHELL=""
+for s in "${'$'}CORTEX_ROOT/bin/bash" "${'$'}CORTEX_ROOT/usr/bin/bash" "${'$'}CORTEX_ROOT/bin/sh" "${'$'}CORTEX_ROOT/usr/bin/sh"; do
+    if [ -x "${'$'}s" ]; then
+        CORTEX_SHELL="${'$'}s"
+        break
+    fi
+done
+[ -z "${'$'}CORTEX_SHELL" ] && CORTEX_SHELL="/system/bin/sh"
+
+CORTEX_PATH="${'$'}CORTEX_ROOT/usr/local/sbin:${'$'}CORTEX_ROOT/usr/sbin:${'$'}CORTEX_ROOT/sbin:${'$'}CORTEX_ROOT/usr/local/bin:${'$'}CORTEX_ROOT/bin:${'$'}CORTEX_ROOT/usr/bin:/system/bin:/system/xbin"
+CORTEX_LD="${'$'}CORTEX_ROOT/lib:${'$'}CORTEX_ROOT/usr/lib:${'$'}CORTEX_ROOT/lib/aarch64-linux-gnu:${'$'}CORTEX_ROOT/usr/lib/aarch64-linux-gnu:${'$'}CORTEX_ROOT/lib/arm-linux-gnueabihf:${'$'}CORTEX_ROOT/usr/lib/arm-linux-gnueabihf:${'$'}CORTEX_ROOT/usr/local/lib"
+CORTEX_PRELOAD=""
+if [ -f "${'$'}CORTEX_ROOT/usr/lib/libcortex-hook.so" ]; then
+    CORTEX_PRELOAD="${'$'}CORTEX_ROOT/usr/lib/libcortex-hook.so"
+elif [ -f "${'$'}CORTEX_ROOT/lib/libcortex-hook.so" ]; then
+    CORTEX_PRELOAD="${'$'}CORTEX_ROOT/lib/libcortex-hook.so"
+fi
+
+CERT_FILE="${'$'}CORTEX_ROOT/etc/ssl/certs/ca-certificates.crt"
+CERT_DIR="${'$'}CORTEX_ROOT/etc/ssl/certs:/system/etc/security/cacerts"
+CURRENT_DIR="${'$'}PWD"
+
+ENV_SETUP="export CORTEX_ROOT='${'$'}CORTEX_ROOT'; \
+export PATH='${'$'}CORTEX_PATH'; \
+export LD_LIBRARY_PATH='${'$'}CORTEX_LD'; \
+export GLIBC_TUNABLES='glibc.pthread.rseq=0'; \
+export LANG='C.UTF-8'; \
+export LC_ALL='C.UTF-8'; \
+export LOCPATH='${'$'}CORTEX_ROOT/usr/lib/locale'; \
+export USER='root'; \
+export LOGNAME='root'; \
+export HOSTNAME='cortex-android'; \
+export TERM='${'$'}{TERM:-xterm-256color}'; \
+export COLORTERM='${'$'}{COLORTERM:-truecolor}'; \
+export SSL_CERT_FILE='${'$'}CERT_FILE'; \
+export SSL_CERT_DIR='${'$'}CERT_DIR'; \
+export CURL_CA_BUNDLE='${'$'}CERT_FILE'; \
+export NODE_EXTRA_CA_CERTS='${'$'}CERT_FILE'; \
+export REQUESTS_CA_BUNDLE='${'$'}CERT_FILE'; \
+export TZDIR='${'$'}CORTEX_ROOT/usr/share/zoneinfo'; \
+export TERMINFO='${'$'}CORTEX_ROOT/usr/share/terminfo'; \
+export TERMINFO_DIRS='${'$'}CORTEX_ROOT/usr/share/terminfo:${'$'}CORTEX_ROOT/lib/terminfo:${'$'}CORTEX_ROOT/etc/terminfo:/usr/share/terminfo'; \
+export GODEBUG='netdns=cgo'; \
+export BROWSER='/usr/local/bin/xdg-open'; \
+export PS1='\[\033[01;31m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]# ';"
+
+if [ -n "${'$'}CORTEX_PRELOAD" ]; then
+    ENV_SETUP="${'$'}ENV_SETUP export LD_PRELOAD='${'$'}CORTEX_PRELOAD';"
+fi
+
+CORTEX_LD_SO=""
+for cand_ld in \
+    "${'$'}CORTEX_ROOT/usr/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1" \
+    "${'$'}CORTEX_ROOT/lib/ld-linux-aarch64.so.1" \
+    "${'$'}CORTEX_ROOT/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1" \
+    "${'$'}CORTEX_ROOT/usr/lib/ld-linux-aarch64.so.1" \
+    "${'$'}CORTEX_ROOT/usr/lib/arm-linux-gnueabihf/ld-linux-armhf.so.3" \
+    "${'$'}CORTEX_ROOT/lib/ld-linux-armhf.so.3" \
+    "${'$'}CORTEX_ROOT/lib/arm-linux-gnueabihf/ld-linux-armhf.so.3"; do
+    if [ -f "${'$'}cand_ld" ] && [ -x "${'$'}cand_ld" ]; then
+        CORTEX_LD_SO="${'$'}cand_ld"
+        break
+    fi
+done
+
+if [ -n "${'$'}CORTEX_LD_SO" ]; then
+    LAUNCH_SHELL="'${'$'}CORTEX_LD_SO' --library-path '${'$'}CORTEX_LD' '${'$'}CORTEX_SHELL'"
+else
+    LAUNCH_SHELL="'${'$'}CORTEX_SHELL'"
+fi
+
+if [ "${'$'}1" = "-c" ]; then
+    shift
+    CMD="${'$'}*"
+    exec "${'$'}HOST_SU" -c "${'$'}ENV_SETUP export HOME='${'$'}ROOT_HOME'; cd '${'$'}CURRENT_DIR' 2>/dev/null; exec ${'$'}LAUNCH_SHELL -c \"${'$'}CMD\""
+elif [ "${'$'}1" = "-" ] || [ "${'$'}1" = "-l" ] || [ "${'$'}1" = "--login" ]; then
+    exec "${'$'}HOST_SU" -c "${'$'}ENV_SETUP export HOME='${'$'}ROOT_HOME'; cd '${'$'}ROOT_HOME' 2>/dev/null; exec ${'$'}LAUNCH_SHELL -l -i"
+elif [ "${'$'}1" = "root" ]; then
+    shift
+    if [ "${'$'}#" -eq 0 ]; then
+        exec "${'$'}HOST_SU" -c "${'$'}ENV_SETUP export HOME='${'$'}ROOT_HOME'; cd '${'$'}CURRENT_DIR' 2>/dev/null; exec ${'$'}LAUNCH_SHELL -i"
+    else
+        CMD="${'$'}*"
+        exec "${'$'}HOST_SU" -c "${'$'}ENV_SETUP export HOME='${'$'}ROOT_HOME'; cd '${'$'}CURRENT_DIR' 2>/dev/null; exec ${'$'}LAUNCH_SHELL -c \"${'$'}CMD\""
+    fi
+elif [ "${'$'}#" -eq 0 ]; then
+    exec "${'$'}HOST_SU" -c "${'$'}ENV_SETUP export HOME='${'$'}ROOT_HOME'; cd '${'$'}CURRENT_DIR' 2>/dev/null; exec ${'$'}LAUNCH_SHELL -i"
+else
+    CMD="${'$'}*"
+    exec "${'$'}HOST_SU" -c "${'$'}ENV_SETUP export HOME='${'$'}ROOT_HOME'; cd '${'$'}CURRENT_DIR' 2>/dev/null; exec ${'$'}LAUNCH_SHELL -c \"${'$'}CMD\""
+fi
+""".trimIndent() + "\n"
+
+            val suFile = File(localBin, "su")
+            suFile.writeText(suScript)
+            suFile.setReadable(true, false)
+            suFile.setExecutable(true, false)
+            try { android.system.Os.chmod(suFile.absolutePath, 493) } catch (e: Exception) {}
+
+            val tsuScript = """
+#!/bin/sh
+SCRIPT_DIR="${'$'}(cd "${'$'}(dirname "${'$'}0")" && pwd)"
+if [ -x "${'$'}SCRIPT_DIR/su" ]; then
+    exec "${'$'}SCRIPT_DIR/su" "${'$'}@"
+elif [ -x /usr/local/bin/su ]; then
+    exec /usr/local/bin/su "${'$'}@"
+else
+    exec su "${'$'}@"
+fi
+""".trimIndent() + "\n"
+
+            val tsuFile = File(localBin, "tsu")
+            tsuFile.writeText(tsuScript)
+            tsuFile.setReadable(true, false)
+            tsuFile.setExecutable(true, false)
+            try { android.system.Os.chmod(tsuFile.absolutePath, 493) } catch (e: Exception) {}
+
+            val sudoFile = File(localBin, "sudo")
+            sudoFile.writeText(tsuScript)
+            sudoFile.setReadable(true, false)
+            sudoFile.setExecutable(true, false)
+            try { android.system.Os.chmod(sudoFile.absolutePath, 493) } catch (e: Exception) {}
+        } catch (e: Exception) {
+            android.util.Log.e("BootstrapManager", "Failed to ensure root tools", e)
         }
     }
 

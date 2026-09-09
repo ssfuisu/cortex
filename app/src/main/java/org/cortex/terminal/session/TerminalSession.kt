@@ -94,6 +94,10 @@ class TerminalSession(
                 this.title = newTitle
             }
 
+            emulator.onSendResponse = { response ->
+                write(response)
+            }
+
         } catch (e: Exception) {
             Log.e(tag, "Error launching session", e)
         }

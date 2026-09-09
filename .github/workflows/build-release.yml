@@ -270,6 +270,7 @@ jobs:
           path: release-apks/*.apk
 
       - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

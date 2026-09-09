@@ -75,6 +75,16 @@ class TerminalBuffer(var rows: Int, var cols: Int, private val maxHistory: Int =
             cursorRow = (cursorRow + restoredCount).coerceIn(0, newRows - 1)
         }
 
+        if (isAlternate && alternateScreen != null) {
+            val oldAlt = alternateScreen!!
+            val newAlt = Array(newRows) { TerminalRow(newCols) }
+            val minR = minOf(oldAlt.size, newRows)
+            for (r in 0 until minR) {
+                newAlt[r].copyFrom(oldAlt[r])
+            }
+            alternateScreen = newAlt
+        }
+
         screen = newScreen
         rows = newRows
         cols = newCols
@@ -89,12 +99,20 @@ class TerminalBuffer(var rows: Int, var cols: Int, private val maxHistory: Int =
             screen = Array(rows) { TerminalRow(cols) }
             savedCursorRow = cursorRow
             savedCursorCol = cursorCol
+            cursorRow = 0
+            cursorCol = 0
+            scrollTop = 0
+            scrollBottom = rows - 1
+            isWrapPending = false
             isAlternate = true
         } else if (!enable && isAlternate) {
             alternateScreen?.let { screen = it }
             alternateScreen = null
             cursorRow = savedCursorRow.coerceIn(0, rows - 1)
             cursorCol = savedCursorCol.coerceIn(0, cols - 1)
+            scrollTop = 0
+            scrollBottom = rows - 1
+            isWrapPending = false
             isAlternate = false
         }
     }
@@ -224,6 +242,9 @@ class TerminalBuffer(var rows: Int, var cols: Int, private val maxHistory: Int =
     }
 
     fun getVisibleRow(screenRowIndex: Int, scrollOffset: Int): TerminalRow {
+        if (isAlternate) {
+            return if (screenRowIndex in 0 until rows) screen[screenRowIndex] else TerminalRow(cols)
+        }
         val totalHistory = history.size
         val effectiveIndex = screenRowIndex - scrollOffset
         return if (effectiveIndex < 0) {

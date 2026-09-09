@@ -32,9 +32,10 @@ object Environment {
 
         val pathList = listOf(
             "$home/.local/bin",
+            "$root/usr/local/bin",
             "$root/bin",
             "$root/usr/bin",
-            "$root/usr/local/bin",
+            "$root/usr/local/sbin",
             "$root/usr/sbin",
             "$root/sbin",
             "/system/bin",
@@ -94,6 +95,9 @@ object Environment {
         val certFile = File(root, "etc/ssl/certs/ca-certificates.crt").absolutePath
         val certDir = "${File(root, "etc/ssl/certs").absolutePath}:/system/etc/security/cacerts"
 
+        val terminfo = "$root/usr/share/terminfo"
+        val terminfoDirs = "$root/usr/share/terminfo:$root/lib/terminfo:$root/etc/terminfo:/usr/share/terminfo"
+
         val envList = mutableListOf(
             "TERM=xterm-256color",
             "COLORTERM=truecolor",
@@ -124,6 +128,8 @@ object Environment {
             "REQUESTS_CA_BUNDLE=$certFile",
             "TZDIR=$root/usr/share/zoneinfo",
             "TZ=$effectiveTz",
+            "TERMINFO=$terminfo",
+            "TERMINFO_DIRS=$terminfoDirs",
             "GODEBUG=netdns=cgo",
             "BROWSER=/usr/local/bin/xdg-open"
         )

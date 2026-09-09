@@ -156,6 +156,10 @@ class TerminalView @JvmOverloads constructor(
     private val flingRunnable = object : Runnable {
         override fun run() {
             if (scroller.computeScrollOffset()) {
+                if (session?.emulator?.buffer?.isAlternate == true) {
+                    scroller.abortAnimation()
+                    return
+                }
                 val currentY = scroller.currY
                 val historySize = session?.emulator?.buffer?.history?.size ?: 0
                 val deltaY = currentY - lastFlingY
@@ -197,6 +201,7 @@ class TerminalView @JvmOverloads constructor(
             distanceY: Float
         ): Boolean {
             if (isSelecting) return false
+            if (session?.emulator?.buffer?.isAlternate == true) return false
             scroller.abortAnimation()
             removeCallbacks(flingRunnable)
 
@@ -228,6 +233,7 @@ class TerminalView @JvmOverloads constructor(
             velocityY: Float
         ): Boolean {
             if (isSelecting) return false
+            if (session?.emulator?.buffer?.isAlternate == true) return false
             val historySize = session?.emulator?.buffer?.history?.size ?: 0
             if (historySize == 0 && scrollOffset == 0) return false
 
@@ -949,7 +955,8 @@ class TerminalView @JvmOverloads constructor(
     fun sendKeySequence(keyCode: Int): Boolean {
         clearSelection()
         scrollOffset = 0
-        val bytes = KeyMapper.getEscapeSequence(keyCode, isCtrlPressed, isAltPressed)
+        val isAppCursor = session?.emulator?.isApplicationCursorKeys ?: false
+        val bytes = KeyMapper.getEscapeSequence(keyCode, isCtrlPressed, isAltPressed, isAppCursor)
         return if (bytes != null) {
             session?.write(bytes)
             isCtrlPressed = false

@@ -3,14 +3,14 @@ package org.cortex.terminal.emulator
 import android.view.KeyEvent
 
 object KeyMapper {
-    fun getEscapeSequence(keyCode: Int, isCtrl: Boolean, isAlt: Boolean): ByteArray? {
+    fun getEscapeSequence(keyCode: Int, isCtrl: Boolean, isAlt: Boolean, isAppCursor: Boolean = false): ByteArray? {
         val baseSeq = when (keyCode) {
-            KeyEvent.KEYCODE_DPAD_UP -> "\u001b[A"
-            KeyEvent.KEYCODE_DPAD_DOWN -> "\u001b[B"
-            KeyEvent.KEYCODE_DPAD_RIGHT -> "\u001b[C"
-            KeyEvent.KEYCODE_DPAD_LEFT -> "\u001b[D"
-            KeyEvent.KEYCODE_MOVE_HOME -> "\u001b[H"
-            KeyEvent.KEYCODE_MOVE_END -> "\u001b[F"
+            KeyEvent.KEYCODE_DPAD_UP -> if (isAppCursor) "\u001bOA" else "\u001b[A"
+            KeyEvent.KEYCODE_DPAD_DOWN -> if (isAppCursor) "\u001bOB" else "\u001b[B"
+            KeyEvent.KEYCODE_DPAD_RIGHT -> if (isAppCursor) "\u001bOC" else "\u001b[C"
+            KeyEvent.KEYCODE_DPAD_LEFT -> if (isAppCursor) "\u001bOD" else "\u001b[D"
+            KeyEvent.KEYCODE_MOVE_HOME -> if (isAppCursor) "\u001bOH" else "\u001b[H"
+            KeyEvent.KEYCODE_MOVE_END -> if (isAppCursor) "\u001bOF" else "\u001b[F"
             KeyEvent.KEYCODE_PAGE_UP -> "\u001b[5~"
             KeyEvent.KEYCODE_PAGE_DOWN -> "\u001b[6~"
             KeyEvent.KEYCODE_FORWARD_DEL -> "\u001b[3~"

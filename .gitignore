@@ -13,3 +13,5 @@
 *.keystore
 !app/cortex-release.keystore
 *.jks
+extra-rootfs/
+hook-libs/
