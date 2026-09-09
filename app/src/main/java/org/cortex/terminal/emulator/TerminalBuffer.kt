@@ -23,6 +23,7 @@ class TerminalBuffer(var rows: Int, var cols: Int, private val maxHistory: Int =
     private var savedCursorCol = 0
     var isAlternate = false
         private set
+    var isWrapPending = false
 
     fun resize(newRows: Int, newCols: Int) {
         if (newRows == rows && newCols == cols) return
@@ -99,16 +100,30 @@ class TerminalBuffer(var rows: Int, var cols: Int, private val maxHistory: Int =
     }
 
     fun writeChar(c: Char) {
-        if (cursorCol >= cols) {
-            screen[cursorRow].isWrapped = true
+        if (isWrapPending) {
+            if (cursorRow in 0 until rows) {
+                screen[cursorRow].isWrapped = true
+            }
             newLine()
             cursorCol = 0
+            isWrapPending = false
         }
-        screen[cursorRow].setChar(cursorCol, c, currentFg, currentBg, currentStyle)
-        cursorCol++
+        val r = cursorRow.coerceIn(0, rows - 1)
+        screen[r].setChar(cursorCol, c, currentFg, currentBg, currentStyle)
+        if (cursorCol >= cols - 1) {
+            isWrapPending = true
+        } else {
+            cursorCol++
+        }
+    }
+
+    fun carriageReturn() {
+        isWrapPending = false
+        cursorCol = 0
     }
 
     fun newLine() {
+        isWrapPending = false
         if (cursorRow in scrollTop..scrollBottom) {
             if (cursorRow == scrollBottom) {
                 scrollUp(scrollTop, scrollBottom)
@@ -187,10 +202,12 @@ class TerminalBuffer(var rows: Int, var cols: Int, private val maxHistory: Int =
     }
 
     fun eraseInLine(mode: Int) {
-        val row = screen[cursorRow]
+        isWrapPending = false
+        val r = cursorRow.coerceIn(0, rows - 1)
+        val row = screen[r]
         when (mode) {
             0 -> { // Cursor to end of line
-                for (c in cursorCol until cols) {
+                for (c in cursorCol.coerceIn(0, cols - 1) until cols) {
                     row.setChar(c, ' ', currentFg, currentBg, 0)
                 }
                 row.isWrapped = false

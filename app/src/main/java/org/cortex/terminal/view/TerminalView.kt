@@ -29,6 +29,7 @@ import android.widget.Toast
 import org.cortex.terminal.emulator.KeyMapper
 import org.cortex.terminal.emulator.TerminalColor
 import org.cortex.terminal.session.TerminalSession
+import kotlin.concurrent.withLock
 import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
@@ -41,12 +42,34 @@ class TerminalView @JvmOverloads constructor(
 
     var session: TerminalSession? = null
         set(value) {
+            field?.onRedraw = null
+            field?.emulator?.onScreenUpdate = null
             field = value
+            value?.onRedraw = { postInvalidate() }
+            value?.emulator?.onScreenUpdate = { postInvalidate() }
             isCtrlPressed = false
             isAltPressed = false
             updateTerminalDimensions()
-            invalidate()
+            postInvalidate()
         }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        session?.onRedraw = { postInvalidate() }
+        session?.emulator?.onScreenUpdate = { postInvalidate() }
+        updateTerminalDimensions()
+        postInvalidate()
+    }
+
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        scroller.abortAnimation()
+        removeCallbacks(flingRunnable)
+        hideActionPopup()
+        isSelecting = false
+        session?.onRedraw = null
+        session?.emulator?.onScreenUpdate = null
+    }
 
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         typeface = Typeface.MONOSPACE
@@ -286,7 +309,10 @@ class TerminalView @JvmOverloads constructor(
         // Draw overall background
         canvas.drawColor(TerminalColor.DEFAULT_BG)
 
-        emulator.lock.lock()
+        if (!emulator.lock.tryLock()) {
+            postInvalidateDelayed(16)
+            return
+        }
         try {
             for (r in 0 until rows) {
                 val row = buffer.getVisibleRow(r, scrollOffset)
@@ -362,14 +388,14 @@ class TerminalView @JvmOverloads constructor(
             if (!isSelecting && scrollOffset == 0 && buffer.isCursorVisible) {
                 val cRow = buffer.cursorRow
                 val cCol = buffer.cursorCol
-                if (cRow in 0 until rows && cCol in 0 until cols) {
+                if (cRow in 0 until rows && cCol in 0 until cols && cRow in 0 until buffer.screen.size) {
                     val cursorX = cCol * charWidth
                     val cursorY = cRow * charHeight
                     canvas.drawRect(cursorX, cursorY, cursorX + charWidth, cursorY + charHeight, cursorPaint)
 
                     // Draw inverse char on cursor
                     val row = buffer.screen[cRow]
-                    val char = if (cCol < row.cols) row.chars[cCol] else ' '
+                    val char = if (cCol in 0 until row.chars.size) row.chars[cCol] else ' '
                     if (char != ' ') {
                         textPaint.color = TerminalColor.DEFAULT_BG
                         canvas.drawText(char.toString(), cursorX, cursorY + charBaseline, textPaint)
@@ -523,37 +549,40 @@ class TerminalView @JvmOverloads constructor(
     }
 
     private fun startSelectionAt(x: Float, y: Float) {
-        val buffer = session?.emulator?.buffer ?: return
+        val emulator = session?.emulator ?: return
+        val buffer = emulator.buffer
         val bufferRow = screenYToBufferRow(y)
         val col = screenXToCol(x)
-
-        val row = if (bufferRow < 0) {
-            val hIdx = buffer.history.size + bufferRow
-            if (hIdx in 0 until buffer.history.size) buffer.history[hIdx] else null
-        } else if (bufferRow in 0 until rows) {
-            buffer.screen[bufferRow]
-        } else null
 
         var startC = col
         var endC = col
 
-        if (row != null && col in 0 until row.cols) {
-            val isWordChar = { c: Char -> c.isLetterOrDigit() || c == '_' || c == '-' || c == '/' || c == '.' }
-            val clickedChar = row.chars[col]
+        emulator.lock.withLock {
+            val row = if (bufferRow < 0) {
+                val hIdx = buffer.history.size + bufferRow
+                if (hIdx in 0 until buffer.history.size) buffer.history[hIdx] else null
+            } else if (bufferRow in 0 until rows && bufferRow in 0 until buffer.screen.size) {
+                buffer.screen[bufferRow]
+            } else null
 
-            if (isWordChar(clickedChar)) {
-                while (startC > 0 && isWordChar(row.chars[startC - 1])) {
-                    startC--
-                }
-                while (endC < row.cols - 1 && isWordChar(row.chars[endC + 1])) {
-                    endC++
-                }
-            } else if (clickedChar != ' ') {
-                while (startC > 0 && row.chars[startC - 1] != ' ') {
-                    startC--
-                }
-                while (endC < row.cols - 1 && row.chars[endC + 1] != ' ') {
-                    endC++
+            if (row != null && col in 0 until row.cols) {
+                val isWordChar = { c: Char -> c.isLetterOrDigit() || c == '_' || c == '-' || c == '/' || c == '.' }
+                val clickedChar = row.chars[col]
+
+                if (isWordChar(clickedChar)) {
+                    while (startC > 0 && isWordChar(row.chars[startC - 1])) {
+                        startC--
+                    }
+                    while (endC < row.cols - 1 && isWordChar(row.chars[endC + 1])) {
+                        endC++
+                    }
+                } else if (clickedChar != ' ') {
+                    while (startC > 0 && row.chars[startC - 1] != ' ') {
+                        startC--
+                    }
+                    while (endC < row.cols - 1 && row.chars[endC + 1] != ' ') {
+                        endC++
+                    }
                 }
             }
         }
@@ -636,11 +665,6 @@ class TerminalView @JvmOverloads constructor(
             hideActionPopup()
             invalidate()
         }
-    }
-
-    override fun onDetachedFromWindow() {
-        hideActionPopup()
-        super.onDetachedFromWindow()
     }
 
     fun sanitizePastedText(raw: String): String {

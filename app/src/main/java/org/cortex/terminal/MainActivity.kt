@@ -151,7 +151,7 @@ class MainActivity : AppCompatActivity() {
         val root = Environment.getCortexRoot(this)
         BootstrapManager.updateDnsConfiguration(this, root)
         BootstrapManager.updateTimezone(this, root)
-        BootstrapManager.ensureCaCertificates(root)
+        BootstrapManager.ensureCaCertificates(root, this)
         BootstrapManager.ensureEssentialBinaries(root, Environment.getHomeDir(this))
         BootstrapManager.initializeFileSystem(this)
         if (!BootstrapManager.isBootstrapInstalled(this)) {
@@ -234,7 +234,20 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         applyPreferences()
         val root = Environment.getCortexRoot(this)
-        BootstrapManager.updateDnsConfiguration(this, root)
+        kotlin.concurrent.thread(name = "Cortex-DnsUpdate") {
+            BootstrapManager.updateDnsConfiguration(this@MainActivity, root)
+        }
+        val current = sessionManager.currentSession
+        if (current != null) {
+            terminalView.session = current
+        }
+        terminalView.requestLayout()
+        terminalView.postInvalidate()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        terminalView.clearSelection()
     }
 
     private fun applyPreferences() {
@@ -260,11 +273,7 @@ class MainActivity : AppCompatActivity() {
             cols = terminalView.cols,
             widthPx = terminalView.width,
             heightPx = terminalView.height
-        ) {
-            runOnUiThread {
-                terminalView.invalidate()
-            }
-        }
+        )
         terminalView.session = session
         val tabNum = sessionManager.currentSessionIndex + 1
         val totalTabs = sessionManager.sessions.size

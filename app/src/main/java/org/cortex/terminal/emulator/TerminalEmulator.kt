@@ -7,7 +7,7 @@ import kotlin.concurrent.withLock
 class TerminalEmulator(
     rows: Int,
     cols: Int,
-    val onScreenUpdate: () -> Unit
+    var onScreenUpdate: (() -> Unit)? = null
 ) {
     val lock = ReentrantLock()
     val buffer = TerminalBuffer(rows, cols)
@@ -30,7 +30,7 @@ class TerminalEmulator(
         lock.withLock {
             buffer.resize(rows, cols)
         }
-        onScreenUpdate()
+        onScreenUpdate?.invoke()
     }
 
     fun processInput(bytes: ByteArray, offset: Int, length: Int) {
@@ -40,7 +40,7 @@ class TerminalEmulator(
                 processChar(ch)
             }
         }
-        onScreenUpdate()
+        onScreenUpdate?.invoke()
     }
 
     private fun processChar(c: Char) {
@@ -55,12 +55,16 @@ class TerminalEmulator(
     private fun handleNormal(c: Char) {
         when (c) {
             '\u001b' -> state = State.ESCAPE
-            '\r' -> buffer.cursorCol = 0
+            '\r' -> buffer.carriageReturn()
             '\n' -> buffer.newLine()
-            '\b' -> buffer.cursorCol = (buffer.cursorCol - 1).coerceAtLeast(0)
+            '\b' -> {
+                buffer.cursorCol = (buffer.cursorCol - 1).coerceAtLeast(0)
+                buffer.isWrapPending = false
+            }
             '\t' -> {
                 val nextTab = (buffer.cursorCol / 8 + 1) * 8
                 buffer.cursorCol = nextTab.coerceAtMost(buffer.cols - 1)
+                buffer.isWrapPending = false
             }
             '\u0007' -> onBell?.invoke()
             else -> {
@@ -144,30 +148,49 @@ class TerminalEmulator(
         when (cmd) {
             'A' -> { // Cursor Up
                 val count = if (p1 == 0) 1 else p1
-                buffer.cursorRow = (buffer.cursorRow - count).coerceAtLeast(buffer.scrollTop)
+                buffer.cursorRow = (buffer.cursorRow - count).coerceAtLeast(0)
+                buffer.isWrapPending = false
             }
             'B' -> { // Cursor Down
                 val count = if (p1 == 0) 1 else p1
-                buffer.cursorRow = (buffer.cursorRow + count).coerceAtMost(buffer.scrollBottom)
+                buffer.cursorRow = (buffer.cursorRow + count).coerceAtMost(buffer.rows - 1)
+                buffer.isWrapPending = false
             }
             'C' -> { // Cursor Forward
                 val count = if (p1 == 0) 1 else p1
                 buffer.cursorCol = (buffer.cursorCol + count).coerceAtMost(buffer.cols - 1)
+                buffer.isWrapPending = false
             }
             'D' -> { // Cursor Back
                 val count = if (p1 == 0) 1 else p1
                 buffer.cursorCol = (buffer.cursorCol - count).coerceAtLeast(0)
+                buffer.isWrapPending = false
+            }
+            'E' -> { // Cursor Next Line (CNL)
+                val count = if (p1 == 0) 1 else p1
+                buffer.cursorRow = (buffer.cursorRow + count).coerceAtMost(buffer.rows - 1)
+                buffer.cursorCol = 0
+                buffer.isWrapPending = false
+            }
+            'F' -> { // Cursor Previous Line (CPL)
+                val count = if (p1 == 0) 1 else p1
+                buffer.cursorRow = (buffer.cursorRow - count).coerceAtLeast(0)
+                buffer.cursorCol = 0
+                buffer.isWrapPending = false
             }
             'H', 'f' -> { // Cursor Position (1-indexed)
                 val row = if (p1 == 0) 1 else p1
                 val col = if (p2 == 0) 1 else p2
                 buffer.cursorRow = (row - 1).coerceIn(0, buffer.rows - 1)
                 buffer.cursorCol = (col - 1).coerceIn(0, buffer.cols - 1)
+                buffer.isWrapPending = false
             }
             'J' -> { // Erase In Display
+                buffer.isWrapPending = false
                 buffer.eraseInDisplay(p1)
             }
             'K' -> { // Erase In Line
+                buffer.isWrapPending = false
                 buffer.eraseInLine(p1)
             }
             'L' -> { // Insert line
@@ -180,6 +203,30 @@ class TerminalEmulator(
                 val count = if (p1 == 0) 1 else p1
                 for (i in 0 until count) {
                     buffer.scrollUp(buffer.cursorRow, buffer.scrollBottom)
+                }
+            }
+            'P' -> { // Delete characters (DCH)
+                val count = if (p1 == 0) 1 else p1
+                buffer.isWrapPending = false
+                val r = buffer.cursorRow.coerceIn(0, buffer.rows - 1)
+                buffer.screen[r].deleteChars(buffer.cursorCol, count, buffer.currentFg, buffer.currentBg)
+            }
+            '@' -> { // Insert characters (ICH)
+                val count = if (p1 == 0) 1 else p1
+                buffer.isWrapPending = false
+                val r = buffer.cursorRow.coerceIn(0, buffer.rows - 1)
+                buffer.screen[r].insertChars(buffer.cursorCol, count, buffer.currentFg, buffer.currentBg)
+            }
+            'S' -> { // Scroll Up (SU)
+                val count = if (p1 == 0) 1 else p1
+                for (i in 0 until count) {
+                    buffer.scrollUp(buffer.scrollTop, buffer.scrollBottom)
+                }
+            }
+            'T' -> { // Scroll Down (SD)
+                val count = if (p1 == 0) 1 else p1
+                for (i in 0 until count) {
+                    buffer.scrollDown(buffer.scrollTop, buffer.scrollBottom)
                 }
             }
             'm' -> { // SGR (Select Graphic Rendition)
@@ -219,14 +266,17 @@ class TerminalEmulator(
             'u' -> { // Restore Cursor (ANSI.SYS)
                 buffer.cursorRow = savedCursorRow.coerceIn(0, buffer.rows - 1)
                 buffer.cursorCol = savedCursorCol.coerceIn(0, buffer.cols - 1)
+                buffer.isWrapPending = false
             }
             'G' -> { // Cursor Character Absolute (CHA)
                 val col = if (p1 == 0) 1 else p1
                 buffer.cursorCol = (col - 1).coerceIn(0, buffer.cols - 1)
+                buffer.isWrapPending = false
             }
             'd' -> { // Line Position Absolute (VPA)
                 val row = if (p1 == 0) 1 else p1
                 buffer.cursorRow = (row - 1).coerceIn(0, buffer.rows - 1)
+                buffer.isWrapPending = false
             }
             'X' -> { // Erase Characters (ECH)
                 val count = if (p1 == 0) 1 else p1

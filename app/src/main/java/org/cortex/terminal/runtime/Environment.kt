@@ -123,7 +123,8 @@ object Environment {
             "NODE_EXTRA_CA_CERTS=$certFile",
             "REQUESTS_CA_BUNDLE=$certFile",
             "TZDIR=$root/usr/share/zoneinfo",
-            "TZ=$effectiveTz"
+            "TZ=$effectiveTz",
+            "GODEBUG=netdns=cgo"
         )
 
         if (preloadStr.isNotEmpty()) {

@@ -16,8 +16,8 @@ class SessionManager(private val context: Context) {
             null
         }
 
-    fun newSession(rows: Int = 24, cols: Int = 80, widthPx: Int = 0, heightPx: Int = 0, onRedraw: () -> Unit): TerminalSession {
-        val session = TerminalSession(context, rows, cols, widthPx, heightPx, onRedraw)
+    fun newSession(rows: Int = 24, cols: Int = 80, widthPx: Int = 0, heightPx: Int = 0, onRedraw: (() -> Unit)? = null): TerminalSession {
+        val session = TerminalSession(context.applicationContext, rows, cols, widthPx, heightPx, onRedraw)
         session.onSessionFinished = { _ ->
             removeSession(session)
         }

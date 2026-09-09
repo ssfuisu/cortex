@@ -56,6 +56,16 @@ object BootstrapManager {
                 changed = true
             }
 
+            if (!bashrcText.contains("checkwinsize")) {
+                bashrcText = "shopt -s checkwinsize 2>/dev/null\n" + bashrcText
+                changed = true
+            }
+
+            if (!bashrcText.contains("GODEBUG")) {
+                bashrcText = "export GODEBUG=netdns=cgo\n" + bashrcText
+                changed = true
+            }
+
             if (!bashrcText.contains("PS1=")) {
                 bashrcText += "# Cortex Terminal Environment\n" +
                     "if [ -n \"" + d + "BASH_VERSION\" ]; then\n" +
@@ -152,6 +162,16 @@ object BootstrapManager {
 
             if (!profileText.contains("unset PREFIX")) {
                 profileText = "unset PREFIX\n" + profileText
+                changed = true
+            }
+
+            if (!profileText.contains("checkwinsize")) {
+                profileText = "shopt -s checkwinsize 2>/dev/null\n" + profileText
+                changed = true
+            }
+
+            if (!profileText.contains("GODEBUG")) {
+                profileText = "export GODEBUG=netdns=cgo\n" + profileText
                 changed = true
             }
 
@@ -267,10 +287,17 @@ object BootstrapManager {
         ensureLocale(root)
         ensureHosts(root)
         ensureNsswitch(root)
-        ensureCaCertificates(root)
+        ensureCaCertificates(root, context)
         ensurePasswd(root, home)
         ensureReloadScripts(root, home)
         updateTimezone(context, root)
+
+        val storageLink = File(home, "storage")
+        if (!storageLink.exists()) {
+            try {
+                android.system.Os.symlink("/sdcard", storageLink.absolutePath)
+            } catch (e: Exception) {}
+        }
 
         File(root, "var/cache/apt/archives/partial").mkdirs()
         File(root, "var/lib/apt/lists/partial").mkdirs()
@@ -437,7 +464,7 @@ object BootstrapManager {
             ensureLocale(root)
             ensureHosts(root)
             ensureNsswitch(root)
-            ensureCaCertificates(root)
+            ensureCaCertificates(root, context)
             cleanupAptArtifacts(root)
             initializeFileSystem(context)
 
@@ -1024,13 +1051,26 @@ object BootstrapManager {
         }
     }
 
-    fun ensureCaCertificates(root: File) {
+    fun ensureCaCertificates(root: File, context: Context? = null) {
         try {
             val certsDir = File(root, "etc/ssl/certs")
             certsDir.mkdirs()
             val caBundle = File(certsDir, "ca-certificates.crt")
 
-            val androidCertsDir = File("/system/etc/security/cacerts")
+            if ((!caBundle.exists() || caBundle.length() < 100000L) && context != null) {
+                try {
+                    context.assets.open("cacert.pem").use { input ->
+                        java.io.FileOutputStream(caBundle).use { output ->
+                            input.copyTo(output)
+                        }
+                    }
+                    caBundle.setReadable(true, false)
+                    android.util.Log.i("BootstrapManager", "Copied bundled cacert.pem from assets (${caBundle.length()} bytes)")
+                } catch (e: Exception) {
+                    android.util.Log.e("BootstrapManager", "Failed to extract bundled cacert.pem", e)
+                }
+            }
+
             val existingText = if (caBundle.exists() && caBundle.length() > 0) {
                 try { caBundle.readText() } catch (e: Exception) { "" }
             } else ""
@@ -1038,37 +1078,43 @@ object BootstrapManager {
             val sb = StringBuilder(existingText)
             var appended = false
 
-            if (androidCertsDir.exists() && androidCertsDir.isDirectory) {
-                androidCertsDir.listFiles()?.forEach { f ->
-                    if (f.isFile && f.name.endsWith(".0")) {
-                        try {
-                            val targetFile = File(certsDir, f.name)
-                            if (!targetFile.exists() || targetFile.length() == 0L) {
-                                f.copyTo(targetFile, overwrite = true)
-                                targetFile.setReadable(true, false)
-                            }
-                        } catch (e: Exception) {}
-                        try {
-                            val content = f.readText()
-                            val start = content.indexOf("-----BEGIN CERTIFICATE-----")
-                            val end = content.indexOf("-----END CERTIFICATE-----")
-                            if (start != -1 && end != -1) {
-                                val certPem = content.substring(start, end + "-----END CERTIFICATE-----".length)
-                                val bodyOnly = certPem
-                                    .replace("-----BEGIN CERTIFICATE-----", "")
-                                    .replace("-----END CERTIFICATE-----", "")
-                                    .replace("\n", "")
-                                    .replace("\r", "")
-                                    .trim()
-                                if (bodyOnly.length > 32 && !existingText.contains(bodyOnly.substring(0, 32))) {
-                                    if (sb.isNotEmpty() && !sb.endsWith("\n")) {
-                                        sb.append("\n")
-                                    }
-                                    sb.append(certPem).append("\n")
-                                    appended = true
+            val certDirs = listOf(
+                File("/system/etc/security/cacerts"),
+                File("/apex/com.android.conscrypt/cacerts")
+            )
+            for (androidCertsDir in certDirs) {
+                if (androidCertsDir.exists() && androidCertsDir.isDirectory) {
+                    androidCertsDir.listFiles()?.forEach { f ->
+                        if (f.isFile && f.name.endsWith(".0")) {
+                            try {
+                                val targetFile = File(certsDir, f.name)
+                                if (!targetFile.exists() || targetFile.length() == 0L) {
+                                    f.copyTo(targetFile, overwrite = true)
+                                    targetFile.setReadable(true, false)
                                 }
-                            }
-                        } catch (e: Exception) {}
+                            } catch (e: Exception) {}
+                            try {
+                                val content = f.readText()
+                                val start = content.indexOf("-----BEGIN CERTIFICATE-----")
+                                val end = content.indexOf("-----END CERTIFICATE-----")
+                                if (start != -1 && end != -1) {
+                                    val certPem = content.substring(start, end + "-----END CERTIFICATE-----".length)
+                                    val bodyOnly = certPem
+                                        .replace("-----BEGIN CERTIFICATE-----", "")
+                                        .replace("-----END CERTIFICATE-----", "")
+                                        .replace("\n", "")
+                                        .replace("\r", "")
+                                        .trim()
+                                    if (bodyOnly.length > 32 && !existingText.contains(bodyOnly.substring(0, 32))) {
+                                        if (sb.isNotEmpty() && !sb.endsWith("\n")) {
+                                            sb.append("\n")
+                                        }
+                                        sb.append(certPem).append("\n")
+                                        appended = true
+                                    }
+                                }
+                            } catch (e: Exception) {}
+                        }
                     }
                 }
             }

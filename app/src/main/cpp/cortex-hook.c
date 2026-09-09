@@ -203,6 +203,15 @@ static void init_cortex_hook(void) {
             snprintf(curl_buf, sizeof(curl_buf), "%s/etc/ssl/certs/ca-certificates.crt", g_cortex_root);
             setenv("CURL_CA_BUNDLE", curl_buf, 1);
         }
+
+        const char *curr_godebug = getenv("GODEBUG");
+        if (!curr_godebug || curr_godebug[0] == '\0') {
+            setenv("GODEBUG", "netdns=cgo", 0);
+        } else if (strstr(curr_godebug, "netdns") == NULL) {
+            char godebug_buf[512];
+            snprintf(godebug_buf, sizeof(godebug_buf), "%s,netdns=cgo", curr_godebug);
+            setenv("GODEBUG", godebug_buf, 1);
+        }
     }
     g_initialized = 1;
 }

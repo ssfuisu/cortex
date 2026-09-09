@@ -16,10 +16,12 @@ class TerminalSession(
     var cols: Int = 80,
     var widthPx: Int = 0,
     var heightPx: Int = 0,
-    val onRedraw: () -> Unit
+    var onRedraw: (() -> Unit)? = null
 ) {
     private val tag = "TerminalSession"
-    val emulator = TerminalEmulator(rows, cols, onRedraw)
+    val emulator = TerminalEmulator(rows, cols) {
+        onRedraw?.invoke()
+    }
     private var ptyProcess: PtyProcess? = null
     private var readerThread: Thread? = null
     var isRunning = false
@@ -69,8 +71,6 @@ class TerminalSession(
                     while (isRunning) {
                         val read = stream.read(buffer)
                         if (read <= 0) break
-                        val snippet = String(buffer, 0, minOf(read, 256), Charsets.UTF_8)
-                        Log.i(tag, "PTY read $read bytes: $snippet")
                         emulator.processInput(buffer, 0, read)
                     }
                 } catch (e: IOException) {

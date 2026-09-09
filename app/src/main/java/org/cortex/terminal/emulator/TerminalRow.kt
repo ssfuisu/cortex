@@ -35,6 +35,43 @@ class TerminalRow(val cols: Int) {
         isWrapped = other.isWrapped
     }
 
+    fun deleteChars(startCol: Int, count: Int, fg: Int = TerminalColor.DEFAULT_FG, bg: Int = TerminalColor.DEFAULT_BG) {
+        if (startCol !in 0 until cols || count <= 0) return
+        val clampedCount = minOf(count, cols - startCol)
+        val shiftCount = cols - startCol - clampedCount
+        if (shiftCount > 0) {
+            System.arraycopy(chars, startCol + clampedCount, chars, startCol, shiftCount)
+            System.arraycopy(fgColors, startCol + clampedCount, fgColors, startCol, shiftCount)
+            System.arraycopy(bgColors, startCol + clampedCount, bgColors, startCol, shiftCount)
+            System.arraycopy(styles, startCol + clampedCount, styles, startCol, shiftCount)
+        }
+        val blankStart = cols - clampedCount
+        for (i in blankStart until cols) {
+            chars[i] = ' '
+            fgColors[i] = fg
+            bgColors[i] = bg
+            styles[i] = 0
+        }
+    }
+
+    fun insertChars(startCol: Int, count: Int, fg: Int = TerminalColor.DEFAULT_FG, bg: Int = TerminalColor.DEFAULT_BG) {
+        if (startCol !in 0 until cols || count <= 0) return
+        val clampedCount = minOf(count, cols - startCol)
+        val shiftCount = cols - startCol - clampedCount
+        if (shiftCount > 0) {
+            System.arraycopy(chars, startCol, chars, startCol + clampedCount, shiftCount)
+            System.arraycopy(fgColors, startCol, fgColors, startCol + clampedCount, shiftCount)
+            System.arraycopy(bgColors, startCol, bgColors, startCol + clampedCount, shiftCount)
+            System.arraycopy(styles, startCol, styles, startCol + clampedCount, shiftCount)
+        }
+        for (i in startCol until minOf(cols, startCol + clampedCount)) {
+            chars[i] = ' '
+            fgColors[i] = fg
+            bgColors[i] = bg
+            styles[i] = 0
+        }
+    }
+
     fun getText(): String {
         var lastNonSpace = cols - 1
         while (lastNonSpace >= 0 && chars[lastNonSpace] == ' ') {
