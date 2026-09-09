@@ -201,9 +201,36 @@ class TerminalView @JvmOverloads constructor(
             distanceY: Float
         ): Boolean {
             if (isSelecting) return false
-            if (session?.emulator?.buffer?.isAlternate == true) return false
             scroller.abortAnimation()
             removeCallbacks(flingRunnable)
+
+            val isAlternate = session?.emulator?.buffer?.isAlternate == true
+            if (isAlternate) {
+                val isAppCursor = session?.emulator?.isApplicationCursorKeys ?: false
+                val upSeq = if (isAppCursor) "\u001bOA" else "\u001b[A"
+                val downSeq = if (isAppCursor) "\u001bOB" else "\u001b[B"
+
+                val totalDelta = -distanceY + scrollRemainder
+                val lines = (totalDelta / charHeight).toInt()
+                scrollRemainder = totalDelta - (lines * charHeight)
+
+                if (lines > 0) {
+                    val sb = StringBuilder()
+                    for (i in 0 until lines) {
+                        sb.append(upSeq)
+                    }
+                    session?.write(sb.toString())
+                    return true
+                } else if (lines < 0) {
+                    val sb = StringBuilder()
+                    for (i in 0 until -lines) {
+                        sb.append(downSeq)
+                    }
+                    session?.write(sb.toString())
+                    return true
+                }
+                return false
+            }
 
             val historySize = session?.emulator?.buffer?.history?.size ?: 0
             if (historySize == 0 && scrollOffset == 0) return false
@@ -233,7 +260,30 @@ class TerminalView @JvmOverloads constructor(
             velocityY: Float
         ): Boolean {
             if (isSelecting) return false
-            if (session?.emulator?.buffer?.isAlternate == true) return false
+            val isAlternate = session?.emulator?.buffer?.isAlternate == true
+            if (isAlternate) {
+                val isAppCursor = session?.emulator?.isApplicationCursorKeys ?: false
+                val upSeq = if (isAppCursor) "\u001bOA" else "\u001b[A"
+                val downSeq = if (isAppCursor) "\u001bOB" else "\u001b[B"
+                val lines = (velocityY / (charHeight * 8)).toInt().coerceIn(-10, 10)
+                if (lines > 0) {
+                    val sb = StringBuilder()
+                    for (i in 0 until lines) {
+                        sb.append(upSeq)
+                    }
+                    session?.write(sb.toString())
+                    return true
+                } else if (lines < 0) {
+                    val sb = StringBuilder()
+                    for (i in 0 until -lines) {
+                        sb.append(downSeq)
+                    }
+                    session?.write(sb.toString())
+                    return true
+                }
+                return false
+            }
+
             val historySize = session?.emulator?.buffer?.history?.size ?: 0
             if (historySize == 0 && scrollOffset == 0) return false
 

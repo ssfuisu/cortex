@@ -239,15 +239,15 @@ find_host_su() {
   done
 
   local host_which
-  host_which=$(env -i PATH=/system/bin:/system/xbin:/sbin:/vendor/bin /system/bin/sh -c 'command -v su 2>/dev/null || which su 2>/dev/null' 2>/dev/null)
+  host_which=$(env -u LD_PRELOAD -u LD_LIBRARY_PATH -u GLIBC_TUNABLES PATH=/system/bin:/system/xbin:/sbin:/vendor/bin ANDROID_ROOT=/system ANDROID_DATA=/data /system/bin/sh -c 'command -v su 2>/dev/null || which su 2>/dev/null' 2>/dev/null)
   if [ -n "$host_which" ]; then
     echo "$host_which"
     return 0
   fi
 
   for cand in /system/bin/su /system/xbin/su /sbin/su /data/adb/ap/bin/su /data/adb/ksu/bin/su /data/adb/magisk/su; do
-    if env -i PATH=/system/bin:/system/xbin:/sbin:/vendor/bin $cand -v >/dev/null 2>&1 || \
-       env -i PATH=/system/bin:/system/xbin:/sbin:/vendor/bin /system/bin/sh -c "$cand -v" >/dev/null 2>&1; then
+    if env -u LD_PRELOAD -u LD_LIBRARY_PATH -u GLIBC_TUNABLES PATH=/system/bin:/system/xbin:/sbin:/vendor/bin ANDROID_ROOT=/system ANDROID_DATA=/data $cand -v >/dev/null 2>&1 || \
+       env -u LD_PRELOAD -u LD_LIBRARY_PATH -u GLIBC_TUNABLES PATH=/system/bin:/system/xbin:/sbin:/vendor/bin ANDROID_ROOT=/system ANDROID_DATA=/data /system/bin/sh -c "$cand -v" >/dev/null 2>&1; then
       echo "$cand"
       return 0
     fi
@@ -278,9 +278,21 @@ fi
 
 RUN_ANDROID_SU() {
   if [ -x "$HOST_SU" ] || [ -f "$HOST_SU" ]; then
-    env -i PATH=/system/bin:/system/xbin:/sbin:/vendor/bin TERM="${TERM:-xterm-256color}" COLORTERM="${COLORTERM:-truecolor}" $HOST_SU "$@"
+    env -u LD_PRELOAD -u LD_LIBRARY_PATH -u GLIBC_TUNABLES \
+      PATH=/system/bin:/system/xbin:/sbin:/vendor/bin \
+      ANDROID_ROOT=/system \
+      ANDROID_DATA=/data \
+      TERM="${TERM:-xterm-256color}" \
+      COLORTERM="${COLORTERM:-truecolor}" \
+      $HOST_SU "$@"
   else
-    env -i PATH=/system/bin:/system/xbin:/sbin:/vendor/bin TERM="${TERM:-xterm-256color}" COLORTERM="${COLORTERM:-truecolor}" /system/bin/sh -c "exec $HOST_SU \"\$@\"" _ "$@"
+    env -u LD_PRELOAD -u LD_LIBRARY_PATH -u GLIBC_TUNABLES \
+      PATH=/system/bin:/system/xbin:/sbin:/vendor/bin \
+      ANDROID_ROOT=/system \
+      ANDROID_DATA=/data \
+      TERM="${TERM:-xterm-256color}" \
+      COLORTERM="${COLORTERM:-truecolor}" \
+      /system/bin/sh -c "exec $HOST_SU \"\$@\"" _ "$@"
   fi
 }
 
@@ -291,7 +303,7 @@ CHECK_ROOT() {
     return 0
   fi
 
-  uid=$(env -i PATH=/system/bin:/system/xbin:/sbin:/vendor/bin /system/bin/sh -c "$HOST_SU -c 'id -u 2>/dev/null || /system/bin/id -u 2>/dev/null || /system/xbin/id -u 2>/dev/null || /system/bin/toybox id -u 2>/dev/null || echo \$UID || echo \$USER_ID'" 2>/dev/null)
+  uid=$(env -u LD_PRELOAD -u LD_LIBRARY_PATH -u GLIBC_TUNABLES PATH=/system/bin:/system/xbin:/sbin:/vendor/bin ANDROID_ROOT=/system ANDROID_DATA=/data /system/bin/sh -c "$HOST_SU -c 'id -u 2>/dev/null || /system/bin/id -u 2>/dev/null || /system/xbin/id -u 2>/dev/null || /system/bin/toybox id -u 2>/dev/null || echo \$UID || echo \$USER_ID'" 2>/dev/null)
   if [ -n "$uid" ] && [ "$uid" -eq 0 ] 2>/dev/null; then
     return 0
   fi
@@ -300,7 +312,7 @@ CHECK_ROOT() {
     return 0
   fi
 
-  if env -i PATH=/system/bin:/system/xbin:/sbin:/vendor/bin /system/bin/sh -c "$HOST_SU -c 'true'" 2>/dev/null; then
+  if env -u LD_PRELOAD -u LD_LIBRARY_PATH -u GLIBC_TUNABLES PATH=/system/bin:/system/xbin:/sbin:/vendor/bin ANDROID_ROOT=/system ANDROID_DATA=/data /system/bin/sh -c "$HOST_SU -c 'true'" 2>/dev/null; then
     return 0
   fi
 
@@ -397,9 +409,9 @@ else
 fi
 
 if [ -x "$HOST_SU" ] || [ -f "$HOST_SU" ]; then
-  RUN_SU="env -i PATH=/system/bin:/system/xbin:/sbin:/vendor/bin TERM='${TERM:-xterm-256color}' COLORTERM='${COLORTERM:-truecolor}' $HOST_SU"
+  RUN_SU="env -u LD_PRELOAD -u LD_LIBRARY_PATH -u GLIBC_TUNABLES PATH=/system/bin:/system/xbin:/sbin:/vendor/bin ANDROID_ROOT=/system ANDROID_DATA=/data TERM='${TERM:-xterm-256color}' COLORTERM='${COLORTERM:-truecolor}' $HOST_SU"
 else
-  RUN_SU="env -i PATH=/system/bin:/system/xbin:/sbin:/vendor/bin TERM='${TERM:-xterm-256color}' COLORTERM='${COLORTERM:-truecolor}' /system/bin/sh -c \"exec $HOST_SU \\\"\\\$@\\\"\" _"
+  RUN_SU="env -u LD_PRELOAD -u LD_LIBRARY_PATH -u GLIBC_TUNABLES PATH=/system/bin:/system/xbin:/sbin:/vendor/bin ANDROID_ROOT=/system ANDROID_DATA=/data TERM='${TERM:-xterm-256color}' COLORTERM='${COLORTERM:-truecolor}' /system/bin/sh -c \"exec $HOST_SU \\\"\\\$@\\\"\" _"
 fi
 
 if [ "$1" = "-c" ]; then
