@@ -274,7 +274,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          VERSION="v1.24.52"
+          VERSION="v1.24.53"
           if [[ "${{ github.ref }}" == refs/tags/* ]]; then
             VERSION="${{ github.ref_name }}"
           fi
@@ -285,14 +285,16 @@ jobs:
           git push --delete origin "$VERSION" 2>/dev/null || true
 
           cat << 'EOFNOTES' > release-notes.md
-          ### Cortex Release v1.24.52 — Next-Gen Native Linux Terminal for Android
+          ### Cortex Release v1.24.53 — Next-Gen Native Linux Terminal for Android
 
           Cortex turns your Android device into a complete, native development powerhouse powered by **Ubuntu 24.04 LTS (Noble Numbat)** and **Glibc 2.39** — with **ZERO virtualization, ZERO PRoot, and ZERO containers**.
 
-          #### What's New in v1.24.52:
-          - **APatch & KernelSU Superuser Fix**: Fixed a critical issue where granting root permissions on APatch or KernelSU still triggered `root not found`. Host PATH is now strictly isolated when invoking Android host binaries, ensuring native superuser verification succeeds without Glibc dynamic linker conflicts.
-          - **Resilient Root Detection**: Expanded superuser checks across mksh, toybox, and shell internal UID verification, providing instantaneous and robust permission confirmation for su, tsu, and sudo.
-          - **Micro & Text Editor Stability**: Complete stability for full-screen Go, C, and terminal text editors (micro, nano, vim) without memory faults or register corruption.
+          #### What's New in v1.24.53:
+          - **AI CLI & TUI Enter Key Fix (opencode, aichat, etc.)**: Fixed newline vs carriage return mapping on virtual keyboards (including LineageOS AOSP keyboard, Gboard, and OEM keyboards). Pressing Enter now properly sends carriage return (\r) to submit prompts in raw-mode TUI and CLI tools instead of dropping to a new line.
+          - **Universal Root Switcher (root, su, tsu, sudo)**: Added dedicated `root` command alias and resolved superuser discovery for APatch and KernelSU environments where static file checks fail due to kernel-level DAC/SELinux policies. Superuser execution now falls back cleanly to Android host shell execution so kernel hooks intercept requests reliably.
+          - **Instant First-Launch Bootstrap**: Eliminated the modal startup freeze where background apt package downloads stalled the setup dialog. Base filesystem setup now completes in 2-3 seconds offline without network blocking or dialog lockups.
+          - **Host Dynamic Linker Isolation**: Whitelisted `/sbin/su` and enhanced environment sanitization to protect host Android binaries from Glibc library conflicts.
+          - **Micro & Text Editor Stability**: Full-screen Go, C, and terminal text editors (micro, nano, vim) operate smoothly without memory faults or register corruption.
           - **Nano Configuration & Syntax Highlighting**: Configured default syntax file to prevent missing .nanorc glob warnings on startup.
           - **Pure Native Execution**: Runs directly on the Android Linux kernel with custom Glibc system-call interposition (libcortex-hook). Maximum CPU performance with zero context-switching overhead.
           - **Full CLI Browser Redirection**: Seamlessly bridges CLI auth tools (antigravity auth login, gh auth login, OAuth flows, Python webbrowser, and xdg-open) directly to Android Google Chrome or your default browser.

@@ -1647,11 +1647,19 @@ find_host_su() {
     done
 
     local host_which
-    host_which=${'$'}(env -i PATH=/system/bin:/system/xbin:/sbin /system/bin/sh -c 'command -v su 2>/dev/null || which su 2>/dev/null' 2>/dev/null)
-    if [ -n "${'$'}host_which" ] && ([ -f "${'$'}host_which" ] || [ -x "${'$'}host_which" ] || [ -L "${'$'}host_which" ]); then
+    host_which=${'$'}(env -i PATH=/system/bin:/system/xbin:/sbin:/vendor/bin /system/bin/sh -c 'command -v su 2>/dev/null || which su 2>/dev/null' 2>/dev/null)
+    if [ -n "${'$'}host_which" ]; then
         echo "${'$'}host_which"
         return 0
     fi
+
+    for cand in /system/bin/su /system/xbin/su /sbin/su /data/adb/ap/bin/su /data/adb/ksu/bin/su /data/adb/magisk/su; do
+        if env -i PATH=/system/bin:/system/xbin:/sbin:/vendor/bin ${'$'}cand -v >/dev/null 2>&1 || \
+           env -i PATH=/system/bin:/system/xbin:/sbin:/vendor/bin /system/bin/sh -c "${'$'}cand -v" >/dev/null 2>&1; then
+            echo "${'$'}cand"
+            return 0
+        fi
+    done
 
     for p in /system/bin /system/xbin /sbin /vendor/bin /system_ext/bin /product/bin; do
         if [ -x "${'$'}p/su" ] || [ -f "${'$'}p/su" ] || [ -L "${'$'}p/su" ]; then
@@ -1665,7 +1673,8 @@ find_host_su() {
         return 0
     fi
 
-    return 1
+    echo "su"
+    return 0
 }
 
 HOST_SU=${'$'}(find_host_su)
@@ -1676,7 +1685,11 @@ if [ -z "${'$'}HOST_SU" ]; then
 fi
 
 RUN_ANDROID_SU() {
-    env -i PATH=/system/bin:/system/xbin TERM="${'$'}{TERM:-xterm-256color}" COLORTERM="${'$'}{COLORTERM:-truecolor}" ${'$'}HOST_SU "${'$'}@"
+    if [ -x "${'$'}HOST_SU" ] || [ -f "${'$'}HOST_SU" ]; then
+        env -i PATH=/system/bin:/system/xbin:/sbin:/vendor/bin TERM="${'$'}{TERM:-xterm-256color}" COLORTERM="${'$'}{COLORTERM:-truecolor}" ${'$'}HOST_SU "${'$'}@"
+    else
+        env -i PATH=/system/bin:/system/xbin:/sbin:/vendor/bin TERM="${'$'}{TERM:-xterm-256color}" COLORTERM="${'$'}{COLORTERM:-truecolor}" /system/bin/sh -c "exec ${'$'}HOST_SU \"\$@\"" _ "${'$'}@"
+    fi
 }
 
 CHECK_ROOT() {
@@ -1686,12 +1699,16 @@ CHECK_ROOT() {
         return 0
     fi
 
-    uid=${'$'}(env -i PATH=/system/bin:/system/xbin /system/bin/sh -c "${'$'}HOST_SU -c 'id -u 2>/dev/null || /system/bin/id -u 2>/dev/null || /system/xbin/id -u 2>/dev/null || /system/bin/toybox id -u 2>/dev/null || echo \${'$'}UID || echo \${'$'}USER_ID'" 2>/dev/null)
+    uid=${'$'}(env -i PATH=/system/bin:/system/xbin:/sbin:/vendor/bin /system/bin/sh -c "${'$'}HOST_SU -c 'id -u 2>/dev/null || /system/bin/id -u 2>/dev/null || /system/xbin/id -u 2>/dev/null || /system/bin/toybox id -u 2>/dev/null || echo \${'$'}UID || echo \${'$'}USER_ID'" 2>/dev/null)
     if [ -n "${'$'}uid" ] && [ "${'$'}uid" -eq 0 ] 2>/dev/null; then
         return 0
     fi
 
     if RUN_ANDROID_SU -c 'true' 2>/dev/null; then
+        return 0
+    fi
+
+    if env -i PATH=/system/bin:/system/xbin:/sbin:/vendor/bin /system/bin/sh -c "${'$'}HOST_SU -c 'true'" 2>/dev/null; then
         return 0
     fi
 
@@ -1787,7 +1804,11 @@ else
     LAUNCH_SHELL="'${'$'}CORTEX_SHELL'"
 fi
 
-RUN_SU="env -i PATH=/system/bin:/system/xbin TERM='${'$'}{TERM:-xterm-256color}' COLORTERM='${'$'}{COLORTERM:-truecolor}' ${'$'}HOST_SU"
+if [ -x "${'$'}HOST_SU" ] || [ -f "${'$'}HOST_SU" ]; then
+    RUN_SU="env -i PATH=/system/bin:/system/xbin:/sbin:/vendor/bin TERM='${'$'}{TERM:-xterm-256color}' COLORTERM='${'$'}{COLORTERM:-truecolor}' ${'$'}HOST_SU"
+else
+    RUN_SU="env -i PATH=/system/bin:/system/xbin:/sbin:/vendor/bin TERM='${'$'}{TERM:-xterm-256color}' COLORTERM='${'$'}{COLORTERM:-truecolor}' /system/bin/sh -c \"exec ${'$'}HOST_SU \\\"\\\$@\\\"\" _"
+fi
 
 if [ "${'$'}1" = "-c" ]; then
     shift
@@ -1837,6 +1858,12 @@ fi
             sudoFile.setReadable(true, false)
             sudoFile.setExecutable(true, false)
             try { android.system.Os.chmod(sudoFile.absolutePath, 493) } catch (e: Exception) {}
+
+            val rootFile = File(localBin, "root")
+            rootFile.writeText(tsuScript)
+            rootFile.setReadable(true, false)
+            rootFile.setExecutable(true, false)
+            try { android.system.Os.chmod(rootFile.absolutePath, 493) } catch (e: Exception) {}
 
             val nanoDir = File(root, "usr/share/nano")
             if (!nanoDir.exists()) nanoDir.mkdirs()

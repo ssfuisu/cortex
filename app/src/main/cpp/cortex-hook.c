@@ -285,7 +285,8 @@ static const char *rewrite_path(const char *path, char *buffer, size_t bufsize) 
     }
 
     // Real host Android kernel & system mounts
-    if (is_path_prefix(path, "/proc", 5) ||
+    if (strcmp(path, "/sbin/su") == 0 || strcmp(path, "/su") == 0 ||
+        is_path_prefix(path, "/proc", 5) ||
         is_path_prefix(path, "/dev", 4) ||
         is_path_prefix(path, "/sys", 4) ||
         is_path_prefix(path, "/system", 7) ||
@@ -1614,17 +1615,19 @@ int ZSTD_CCtx_setParameter(void *cctx, int param, int value) {
 static char **clean_env_for_system(char *const envp[]) {
     int count = 0;
     while (envp && envp[count]) count++;
-    char **new_env = calloc(count + 2, sizeof(char *));
+    char **new_env = calloc(count + 3, sizeof(char *));
     int dst = 0;
+    int has_path = 0;
     for (int i = 0; i < count; i++) {
         if (strncmp(envp[i], "LD_PRELOAD=", 11) != 0 &&
             strncmp(envp[i], "LD_LIBRARY_PATH=", 16) != 0 &&
             strncmp(envp[i], "GLIBC_TUNABLES=", 15) != 0) {
             if (strncmp(envp[i], "PATH=", 5) == 0) {
+                has_path = 1;
                 size_t plen = strlen(envp[i]);
-                char *new_path = malloc(plen + 32);
+                char *new_path = malloc(plen + 64);
                 if (new_path) {
-                    snprintf(new_path, plen + 32, "PATH=/system/bin:/system/xbin:%s", envp[i] + 5);
+                    snprintf(new_path, plen + 64, "PATH=/system/bin:/system/xbin:/sbin:/vendor/bin:%s", envp[i] + 5);
                     new_env[dst++] = new_path;
                 } else {
                     new_env[dst++] = envp[i];
@@ -1633,6 +1636,9 @@ static char **clean_env_for_system(char *const envp[]) {
                 new_env[dst++] = envp[i];
             }
         }
+    }
+    if (!has_path) {
+        new_env[dst++] = strdup("PATH=/system/bin:/system/xbin:/sbin:/vendor/bin");
     }
     new_env[dst] = NULL;
     return new_env;

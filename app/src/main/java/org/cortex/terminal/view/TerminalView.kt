@@ -821,7 +821,7 @@ class TerminalView @JvmOverloads constructor(
 
     override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection {
         outAttrs.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
-        outAttrs.imeOptions = EditorInfo.IME_ACTION_NONE or EditorInfo.IME_FLAG_NO_FULLSCREEN
+        outAttrs.imeOptions = EditorInfo.IME_FLAG_NO_FULLSCREEN
 
         val mimeTypes = arrayOf(
             "image/png",
@@ -840,9 +840,18 @@ class TerminalView @JvmOverloads constructor(
                 clearSelection()
                 composingLength = 0
                 if (!text.isNullOrEmpty()) {
+                    if (text == "\n" || text == "\r" || text == "\r\n") {
+                        sendKeySequence(KeyEvent.KEYCODE_ENTER)
+                        return true
+                    }
                     val str = if (text.length > 1) sanitizePastedText(text.toString()) else text.toString()
                     for (i in 0 until str.length) {
-                        sendChar(str[i])
+                        val c = str[i]
+                        if (c == '\n' || c == '\r') {
+                            sendKeySequence(KeyEvent.KEYCODE_ENTER)
+                        } else {
+                            sendChar(c)
+                        }
                     }
                 }
                 return true
@@ -946,7 +955,8 @@ class TerminalView @JvmOverloads constructor(
     fun sendChar(ch: Char) {
         clearSelection()
         scrollOffset = 0
-        val bytes = KeyMapper.getCharBytes(ch, isCtrlPressed, isAltPressed)
+        val targetChar = if (ch == '\n') '\r' else ch
+        val bytes = KeyMapper.getCharBytes(targetChar, isCtrlPressed, isAltPressed)
         session?.write(bytes)
         isCtrlPressed = false
         isAltPressed = false

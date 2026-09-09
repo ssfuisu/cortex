@@ -155,7 +155,6 @@ class MainActivity : AppCompatActivity() {
 
         applyPreferences()
         org.cortex.terminal.runtime.UrlOpenerServer.start(this)
-        checkAndRequestStoragePermission()
         val root = Environment.getCortexRoot(this)
         BootstrapManager.updateDnsConfiguration(this, root)
         BootstrapManager.updateTimezone(this, root)
@@ -178,19 +177,6 @@ class MainActivity : AppCompatActivity() {
             kotlin.concurrent.thread {
                 val success = BootstrapManager.installBootstrapFromAssets(this)
                 if (success) {
-                    runOnUiThread {
-                        if (!isFinishing && !isDestroyed) {
-                            try {
-                                progress.setMessage("Updating system packages, certificates, and timezone in background...")
-                            } catch (e: Exception) {}
-                        }
-                    }
-                    try {
-                        val setupCmd = "apt update && apt upgrade -y && apt install -y ca-certificates tzdata && update-ca-certificates"
-                        BootstrapManager.runBackgroundCommand(this, setupCmd)
-                    } catch (e: Exception) {
-                        android.util.Log.e("MainActivity", "Initial background package setup failed", e)
-                    }
                     BootstrapManager.updateTimezone(this, root)
                     BootstrapManager.ensureEssentialBinaries(root, Environment.getHomeDir(this))
                     BootstrapManager.initializeFileSystem(this)
@@ -211,6 +197,7 @@ class MainActivity : AppCompatActivity() {
                         terminalView.post {
                             terminalView.showKeyboard()
                         }
+                        checkAndRequestStoragePermission()
                     } else {
                         android.widget.Toast.makeText(
                             this,
@@ -221,6 +208,7 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         } else {
+            checkAndRequestStoragePermission()
             if (sessionManager.sessions.isEmpty()) {
                 createNewSession()
             } else {
