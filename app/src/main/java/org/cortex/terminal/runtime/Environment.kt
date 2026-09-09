@@ -124,7 +124,8 @@ object Environment {
             "REQUESTS_CA_BUNDLE=$certFile",
             "TZDIR=$root/usr/share/zoneinfo",
             "TZ=$effectiveTz",
-            "GODEBUG=netdns=cgo"
+            "GODEBUG=netdns=cgo",
+            "BROWSER=/usr/local/bin/xdg-open"
         )
 
         if (preloadStr.isNotEmpty()) {

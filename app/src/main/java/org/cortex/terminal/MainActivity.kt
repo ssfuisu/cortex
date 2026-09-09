@@ -154,7 +154,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         applyPreferences()
-        org.cortex.terminal.audio.AudioServer.start(this)
+        org.cortex.terminal.runtime.UrlOpenerServer.start(this)
         checkAndRequestStoragePermission()
         val root = Environment.getCortexRoot(this)
         BootstrapManager.updateDnsConfiguration(this, root)
@@ -322,10 +322,10 @@ class MainActivity : AppCompatActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             if (!android.os.Environment.isExternalStorageManager()) {
                 AlertDialog.Builder(this)
-                    .setTitle("Tüm Dosyaları Yönet İzni")
-                    .setMessage("Cortex Terminal'in cihaz depolamanızdaki dosyalara (/sdcard) erişebilmesi ve CLI araçlarını tam yetkiyle çalıştırabilmesi için 'Tüm dosyaları yönet' iznini etkinleştirmeniz gerekmektedir.")
+                    .setTitle("Manage All Files Permission")
+                    .setMessage("Cortex Terminal requires 'All files access' permission to manage device storage (/sdcard) and run CLI development tools with full privileges.")
                     .setCancelable(false)
-                    .setPositiveButton("İzin Ver") { _, _ ->
+                    .setPositiveButton("Grant Permission") { _, _ ->
                         try {
                             val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
                                 data = Uri.parse("package:$packageName")
@@ -335,11 +335,11 @@ class MainActivity : AppCompatActivity() {
                             try {
                                 startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
                             } catch (e2: Exception) {
-                                Toast.makeText(this, "İzin sayfası açılamadı", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(this, "Unable to open permission settings", Toast.LENGTH_SHORT).show()
                             }
                         }
                     }
-                    .setNegativeButton("Daha Sonra", null)
+                    .setNegativeButton("Later", null)
                     .show()
             }
         } else {

@@ -12,18 +12,21 @@ import android.graphics.Path
 import android.graphics.Rect
 import android.graphics.Typeface
 import android.text.InputType
+import android.os.Build
 import android.util.AttributeSet
 import android.view.GestureDetector
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.MotionEvent
-import android.view.ScaleGestureDetector
 import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.BaseInputConnection
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
 import android.view.inputmethod.InputMethodManager
+import androidx.core.view.inputmethod.EditorInfoCompat
+import androidx.core.view.inputmethod.InputConnectionCompat
+import androidx.core.view.inputmethod.InputContentInfoCompat
 import android.widget.LinearLayout
 import android.widget.OverScroller
 import android.widget.PopupWindow
@@ -261,31 +264,6 @@ class TerminalView @JvmOverloads constructor(
         }
     })
 
-    private val scaleGestureDetector = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
-        override fun onScale(detector: ScaleGestureDetector): Boolean {
-            val factor = detector.scaleFactor
-            val minPx = 14f * resources.displayMetrics.density
-            val maxPx = 42f * resources.displayMetrics.density
-            val currentPx = textPaint.textSize
-            val newPx = (currentPx * factor).coerceIn(minPx, maxPx)
-            if (kotlin.math.abs(newPx - currentPx) >= 0.5f) {
-                textPaint.textSize = newPx
-                measureCharDimensions()
-                updateTerminalDimensions()
-                invalidate()
-            }
-            return true
-        }
-
-        override fun onScaleEnd(detector: ScaleGestureDetector) {
-            super.onScaleEnd(detector)
-            try {
-                val sp = textPaint.textSize / resources.displayMetrics.scaledDensity
-                val prefs = androidx.preference.PreferenceManager.getDefaultSharedPreferences(context)
-                prefs.edit().putString("terminal_font_size", kotlin.math.round(sp).toInt().toString()).apply()
-            } catch (e: Exception) {}
-        }
-    })
 
     init {
         isFocusable = true
@@ -457,16 +435,6 @@ class TerminalView @JvmOverloads constructor(
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (isSelecting) {
             handleSelectionTouch(event)
-            return true
-        }
-
-        if (event.pointerCount > 1) {
-            scaleGestureDetector.onTouchEvent(event)
-            return true
-        }
-
-        scaleGestureDetector.onTouchEvent(event)
-        if (scaleGestureDetector.isInProgress) {
             return true
         }
 
@@ -755,7 +723,7 @@ class TerminalView @JvmOverloads constructor(
                 scrollOffset = 0
                 invalidate()
                 clearSelection()
-                Toast.makeText(context, "Fotoğraf yolu yapıştırıldı: $savedPath", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "Pasted image path: $savedPath", Toast.LENGTH_SHORT).show()
                 return
             }
         }
@@ -849,7 +817,17 @@ class TerminalView @JvmOverloads constructor(
         outAttrs.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
         outAttrs.imeOptions = EditorInfo.IME_ACTION_NONE or EditorInfo.IME_FLAG_NO_FULLSCREEN
 
-        return object : BaseInputConnection(this, false) {
+        val mimeTypes = arrayOf(
+            "image/png",
+            "image/jpeg",
+            "image/jpg",
+            "image/gif",
+            "image/webp",
+            "image/*"
+        )
+        EditorInfoCompat.setContentMimeTypes(outAttrs, mimeTypes)
+
+        val baseConnection = object : BaseInputConnection(this, false) {
             private var composingLength = 0
 
             override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
@@ -910,6 +888,53 @@ class TerminalView @JvmOverloads constructor(
                 return true
             }
         }
+
+        val callback = InputConnectionCompat.OnCommitContentListener { inputContentInfo, flags, _ ->
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N_MR1 &&
+                    (flags and InputConnectionCompat.INPUT_CONTENT_GRANT_READ_URI_PERMISSION) != 0) {
+                    try {
+                        inputContentInfo.requestPermission()
+                    } catch (e: Exception) {
+                        android.util.Log.e("TerminalView", "Failed to request permission for content info", e)
+                        return@OnCommitContentListener false
+                    }
+                }
+
+                val uri = inputContentInfo.contentUri
+                val description = inputContentInfo.description
+                val mimeType = if (description.mimeTypeCount > 0) description.getMimeType(0) else null
+
+                val savedPath = saveImageFromUri(uri, mimeType)
+                if (savedPath != null) {
+                    post {
+                        session?.write(savedPath)
+                        scrollOffset = 0
+                        invalidate()
+                        clearSelection()
+                        Toast.makeText(context, "Pasted image path: $savedPath", Toast.LENGTH_SHORT).show()
+                    }
+                    true
+                } else {
+                    post {
+                        Toast.makeText(context, "Failed to save image", Toast.LENGTH_SHORT).show()
+                    }
+                    false
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("TerminalView", "Error committing rich content", e)
+                false
+            } finally {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N_MR1 &&
+                    (flags and InputConnectionCompat.INPUT_CONTENT_GRANT_READ_URI_PERMISSION) != 0) {
+                    try {
+                        inputContentInfo.releasePermission()
+                    } catch (e: Exception) {}
+                }
+            }
+        }
+
+        return InputConnectionCompat.createWrapper(baseConnection, outAttrs, callback)
     }
 
     fun sendChar(ch: Char) {

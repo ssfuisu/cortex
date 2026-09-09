@@ -1302,7 +1302,7 @@ object BootstrapManager {
                 }
             }
             ensureServiceManager(root)
-            ensureAudioTools(root)
+            ensureBrowserOpener(root)
         } catch (e: Exception) {
             android.util.Log.e("BootstrapManager", "Failed in ensureEssentialBinaries", e)
         }
@@ -1502,114 +1502,100 @@ esac
         }
     }
 
-    fun ensureAudioTools(root: File) {
+    fun ensureBrowserOpener(root: File) {
         try {
             val localBin = File(root, "usr/local/bin")
             localBin.mkdirs()
 
-            val playAudioScript = """
-#!/bin/bash
-# Cortex Audio Player CLI
-ACTION="${'$'}1"
+            // Remove deprecated audio files if they exist
+            val oldAudioFiles = listOf("play-audio", "cortex-play", "speaker-test", "aplay", "paplay")
+            for (fname in oldAudioFiles) {
+                val f = File(localBin, fname)
+                if (f.exists()) {
+                    try { f.delete() } catch (e: Exception) {}
+                }
+            }
 
-if [ -z "${'$'}ACTION" ]; then
-    echo "Usage: play-audio <file.mp3|wav|ogg|flac|aac|m4a>"
-    echo "       play-audio --stop"
-    echo "       play-audio --pause"
-    echo "       play-audio --resume"
-    echo "       play-audio --status"
-    echo "       play-audio --beep [frequency_hz]"
+            val xdgOpenScript = """
+#!/bin/bash
+# Cortex URL & Browser Opener for Android Chrome / Default Browser
+if [ -z "${'$'}1" ]; then
+    echo "Usage: xdg-open <url>" >&2
     exit 1
 fi
 
-case "${'$'}ACTION" in
-    --stop|-s)
-        CMD="STOP"
-        ;;
-    --pause|-p)
-        CMD="PAUSE"
-        ;;
-    --resume|-r)
-        CMD="RESUME"
-        ;;
-    --status)
-        CMD="STATUS"
-        ;;
-    --beep|-b)
-        FREQ="${'$'}{2:-440}"
-        CMD="BEEP ${'$'}FREQ"
-        ;;
-    *)
-        TARGET="${'$'}1"
-        if [ ! -e "${'$'}TARGET" ]; then
-            echo "play-audio: file not found: ${'$'}TARGET"
-            exit 1
-        fi
-        REAL_PATH="${'$'}(realpath "${'$'}TARGET" 2>/dev/null || readlink -f "${'$'}TARGET" 2>/dev/null || echo "${'$'}TARGET")"
-        CMD="PLAY ${'$'}REAL_PATH"
-        ;;
-esac
+TARGET=""
+for arg in "${'$'}@"; do
+    case "${'$'}arg" in
+        http://*|https://*|ftp://*|file://*)
+            TARGET="${'$'}arg"
+            break
+            ;;
+        --*|-*)
+            ;;
+        *)
+            if [ -z "${'$'}TARGET" ]; then
+                TARGET="${'$'}arg"
+            fi
+            ;;
+    esac
+done
 
-if (exec 3<>/dev/tcp/127.0.0.1/4712) 2>/dev/null; then
-    echo "${'$'}CMD" >&3
-    cat <&3
+if [ -z "${'$'}TARGET" ]; then
+    TARGET="${'$'}1"
+fi
+
+# Send OPEN command to Cortex UrlOpenerServer on 127.0.0.1:4715
+if (exec 3<>/dev/tcp/127.0.0.1/4715) 2>/dev/null; then
+    echo "OPEN ${'$'}TARGET" >&3
+    read -r RESPONSE <&3 2>/dev/null
     exec 3<&-
     exec 3>&-
-else
-    echo "play-audio: Cortex AudioServer is not running on port 4712."
-    exit 1
-fi
-""".trimIndent() + "\n"
-
-            val aplayScript = """
-#!/bin/bash
-if [ -n "${'$'}1" ]; then
-    exec play-audio "${'$'}@"
-else
-    if (exec 3<>/dev/tcp/127.0.0.1/4712) 2>/dev/null; then
-        echo "STREAM" >&3
-        read -r _ <&3
-        cat >&3
-        exec 3<&-
-        exec 3>&-
-    else
-        echo "aplay: AudioServer not available"
-        exit 1
+    if [ "${'$'}RESPONSE" = "OK" ]; then
+        exit 0
     fi
 fi
+
+# Fallback to Android am command if available
+if command -v am >/dev/null 2>&1; then
+    am start -a android.intent.action.VIEW -d "${'$'}TARGET" >/dev/null 2>&1 && exit 0
+fi
+
+echo "xdg-open: Unable to open browser for: ${'$'}TARGET" >&2
+exit 1
 """.trimIndent() + "\n"
 
-            val playAudioFile = File(localBin, "play-audio")
-            playAudioFile.writeText(playAudioScript)
-            playAudioFile.setReadable(true, false)
-            playAudioFile.setExecutable(true, false)
-            try { android.system.Os.chmod(playAudioFile.absolutePath, 493) } catch (e: Exception) {}
+            val xdgOpenFile = File(localBin, "xdg-open")
+            xdgOpenFile.writeText(xdgOpenScript)
+            xdgOpenFile.setReadable(true, false)
+            xdgOpenFile.setExecutable(true, false)
+            try { android.system.Os.chmod(xdgOpenFile.absolutePath, 493) } catch (e: Exception) {}
 
-            val cortexPlayFile = File(localBin, "cortex-play")
-            cortexPlayFile.writeText("#!/bin/sh\nexec play-audio \"${'$'}@\"\n")
-            cortexPlayFile.setReadable(true, false)
-            cortexPlayFile.setExecutable(true, false)
-            try { android.system.Os.chmod(cortexPlayFile.absolutePath, 493) } catch (e: Exception) {}
+            val browserAliases = listOf(
+                "sensible-browser",
+                "x-www-browser",
+                "google-chrome",
+                "google-chrome-stable",
+                "chromium",
+                "chromium-browser",
+                "firefox",
+                "open"
+            )
 
-            val speakerTestFile = File(localBin, "speaker-test")
-            speakerTestFile.writeText("#!/bin/bash\necho \"Playing 440Hz test tone on device speaker...\"\nplay-audio --beep 440\n")
-            speakerTestFile.setReadable(true, false)
-            speakerTestFile.setExecutable(true, false)
-            try { android.system.Os.chmod(speakerTestFile.absolutePath, 493) } catch (e: Exception) {}
+            val wrapperScript = """
+#!/bin/sh
+exec /usr/local/bin/xdg-open "${'$'}@"
+""".trimIndent() + "\n"
 
-            val aplayFile = File(localBin, "aplay")
-            aplayFile.writeText(aplayScript)
-            aplayFile.setReadable(true, false)
-            aplayFile.setExecutable(true, false)
-            try { android.system.Os.chmod(aplayFile.absolutePath, 493) } catch (e: Exception) {}
-
-            val paplayFile = File(localBin, "paplay")
-            paplayFile.writeText("#!/bin/sh\nexec play-audio \"${'$'}@\"\n")
-            paplayFile.setReadable(true, false)
-            paplayFile.setExecutable(true, false)
-            try { android.system.Os.chmod(paplayFile.absolutePath, 493) } catch (e: Exception) {}
+            for (alias in browserAliases) {
+                val aliasFile = File(localBin, alias)
+                aliasFile.writeText(wrapperScript)
+                aliasFile.setReadable(true, false)
+                aliasFile.setExecutable(true, false)
+                try { android.system.Os.chmod(aliasFile.absolutePath, 493) } catch (e: Exception) {}
+            }
         } catch (e: Exception) {
-            android.util.Log.e("BootstrapManager", "Failed to ensure audio tools", e)
+            android.util.Log.e("BootstrapManager", "Failed to ensure browser opener", e)
         }
     }
 

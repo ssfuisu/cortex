@@ -273,27 +273,27 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          OFFSET=$(( ${{ github.run_number }} - 34 ))
-          if [ "$OFFSET" -lt 0 ]; then OFFSET=0; fi
-          VERSION="v1.24.${OFFSET}"
+          VERSION="v1.24.50"
           if [[ "${{ github.ref }}" == refs/tags/* ]]; then
             VERSION="${{ github.ref_name }}"
           fi
 
-          NOTES="Cortex Release $VERSION (Ubuntu 24.04 LTS Noble Numbat)
+          NOTES="### Cortex Release v1.24.50 — Next-Gen Native Linux Terminal for Android
 
-          Features and Improvements:
-          - Native Ubuntu 24.04 LTS (Noble Numbat) Rootfs: Upgraded base userland to Ubuntu 24.04 LTS with glibc 2.39, providing modern package repositories, libraries, and tools completely natively on Android without chroot, proot, or virtualization.
-          - Seccomp Syscall Compatibility for Modern CLIs: Patched glibc dynamic linkers and C libraries to handle clone3, rseq, and set_robust_list without triggering Android kernel seccomp SIGSYS traps, enabling Antigravity CLI, Go binaries, and modern runtimes to execute flawlessly.
-          - Full Dpkg Filesystem Path Redirection: Updated libcortex-hook path rewriting to dynamically redirect all rootfs directories (/boot, /media, /snap, etc.) to Cortex root, preventing Read-only file system errors during dpkg deb extractions.
-          - Robust User and Group Resolution: Added synthetic fallbacks for getgrgid, getgrnam, getpwuid, and getpwnam in libcortex-hook and ensured /etc/group definitions, permanently resolving 'cannot find name for group ID 0'.
-          - Clean Home Directory: Cleaned up extraneous ubuntu subfolder and unhidden files from ~, maintaining a standard, tidy home directory layout.
-          - Zero-Overhead LD_PRELOAD Hooking: Full user-space system call translation via libcortex-hook, delivering native CPU execution speed and zero background context switching.
-          - Root CA Certificate Verification for Go, Node, Python, and Curl: Configured absolute SSL_CERT_FILE and SSL_CERT_DIR pointing to Ubuntu and Android system certificate stores.
-          - Dual Trust Store Merging: Automatically merges Android system root certificates with Ubuntu CA bundles and provides compatibility symlinks for OpenSSL, GnuTLS, and Go TLS.
-          - Accurate Local Timezone Clock and TZDIR: Full /usr/share/zoneinfo database bundled into bootstrap archives with POSIX timezone synchronization.
-          - Native source and reload Support: Immediate environment reloading into current terminal session.
-          - Permanent Keystore Signature: Uses permanent release key for seamless application updates."
+Cortex turns your Android device into a complete, native development powerhouse powered by **Ubuntu 24.04 LTS (Noble Numbat)** and **Glibc 2.39** — with **ZERO virtualization, ZERO PRoot, and ZERO containers**.
+
+#### Key Features & Highlights:
+- **Pure Native Execution**: Runs directly on the Android Linux kernel with custom Glibc system-call interposition (\`libcortex-hook\`). Maximum CPU performance and zero context-switching overhead.
+- **Full CLI Browser Redirection**: Seamlessly bridges CLI auth tools (\`antigravity auth login\`, \`gh auth login\`, OAuth flows, Python \`webbrowser\`, and \`xdg-open\`) directly to Android Google Chrome or your default browser.
+- **Direct Keyboard Image Insertion**: Seamlessly insert images from Gboard, Samsung Keyboard, or device clipboard into the terminal. Images are automatically saved to \`/sdcard/Pictures\` and their exact file paths are inserted into your command prompt.
+- **Background Service Manager & Autostart**: Full support for \`service\`, \`systemctl\`, \`/etc/init.d/\`, and persistent background daemons via \`/etc/cortex/autostart\`.
+- **All Files Storage Access**: Deep integration with Android \`MANAGE_EXTERNAL_STORAGE\` allows reading, editing, and building projects across \`/sdcard\`.
+- **Kernel Seccomp Bypass**: Patched dynamic linkers safely handle modern \`clone3\`, \`rseq\`, and \`set_robust_list\` system calls, allowing Node.js (via NVM), Go, Rust, and Python to build and execute cleanly.
+- **Global Developer Experience**: 100% English interface with streamlined terminal typography and rock-solid stability.
+
+#### Included Packages & Assets:
+- \`Cortex-arm64-v8a-signed.apk\` (64-bit ARM)
+- \`Cortex-armeabi-v7a-signed.apk\` (32-bit ARM)"
 
           gh release create "$VERSION" \
             release-apks/Cortex-arm64-v8a-signed.apk \

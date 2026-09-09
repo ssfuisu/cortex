@@ -156,53 +156,64 @@ case "$ACTION" in
 esac
 EOFSYSTEMCTL
 
-cat << 'EOFAUDIO' > extra-rootfs/usr/local/bin/play-audio
+cat << 'EOFXDG' > extra-rootfs/usr/local/bin/xdg-open
 #!/bin/bash
-ACTION="$1"
-if [ -z "$ACTION" ]; then
-  echo "Usage: play-audio <file.mp3|wav|ogg|flac|aac|m4a>"
-  echo "       play-audio --stop"
-  echo "       play-audio --pause"
-  echo "       play-audio --resume"
-  echo "       play-audio --status"
-  echo "       play-audio --beep [frequency_hz]"
+# Cortex URL & Browser Opener for Android Chrome / Default Browser
+if [ -z "$1" ]; then
+  echo "Usage: xdg-open <url>" >&2
   exit 1
 fi
-case "$ACTION" in
-  --stop|-s) CMD="STOP" ;;
-  --pause|-p) CMD="PAUSE" ;;
-  --resume|-r) CMD="RESUME" ;;
-  --status) CMD="STATUS" ;;
-  --beep|-b)
-    FREQ="${2:-440}"
-    CMD="BEEP $FREQ"
-    ;;
-  *)
-    TARGET="$1"
-    if [ ! -e "$TARGET" ]; then
-      echo "play-audio: file not found: $TARGET"
-      exit 1
-    fi
-    REAL_PATH="$(realpath "$TARGET" 2>/dev/null || readlink -f "$TARGET" 2>/dev/null || echo "$TARGET")"
-    CMD="PLAY $REAL_PATH"
-    ;;
-esac
-if (exec 3<>/dev/tcp/127.0.0.1/4712) 2>/dev/null; then
-  echo "$CMD" >&3
-  cat <&3
+
+TARGET=""
+for arg in "$@"; do
+  case "$arg" in
+    http://*|https://*|ftp://*|file://*)
+      TARGET="$arg"
+      break
+      ;;
+    --*|-*)
+      ;;
+    *)
+      if [ -z "$TARGET" ]; then
+        TARGET="$arg"
+      fi
+      ;;
+  esac
+done
+
+if [ -z "$TARGET" ]; then
+  TARGET="$1"
+fi
+
+# Send OPEN command to Cortex UrlOpenerServer on 127.0.0.1:4715
+if (exec 3<>/dev/tcp/127.0.0.1/4715) 2>/dev/null; then
+  echo "OPEN $TARGET" >&3
+  read -r RESPONSE <&3 2>/dev/null
   exec 3<&-
   exec 3>&-
-else
-  echo "play-audio: Cortex AudioServer is not running on port 4712."
-  exit 1
+  if [ "$RESPONSE" = "OK" ]; then
+    exit 0
+  fi
 fi
-EOFAUDIO
+
+# Fallback to Android am command if available
+if command -v am >/dev/null 2>&1; then
+  am start -a android.intent.action.VIEW -d "$TARGET" >/dev/null 2>&1 && exit 0
+fi
+
+echo "xdg-open: Unable to open browser for: $TARGET" >&2
+exit 1
+EOFXDG
 
 printf '#!/bin/sh\nexec service "$@"\n' > extra-rootfs/usr/local/bin/cortex-service
-printf '#!/bin/sh\nexec play-audio "$@"\n' > extra-rootfs/usr/local/bin/cortex-play
-printf '#!/bin/sh\nexec play-audio "$@"\n' > extra-rootfs/usr/local/bin/paplay
-printf '#!/bin/bash\necho "Playing 440Hz test tone on device speaker..."\nplay-audio --beep 440\n' > extra-rootfs/usr/local/bin/speaker-test
-printf '#!/bin/bash\nif [ -n "$1" ]; then\n  exec play-audio "$@"\nelse\n  if (exec 3<>/dev/tcp/127.0.0.1/4712) 2>/dev/null; then\n    echo "STREAM" >&3\n    read -r _ <&3\n    cat >&3\n    exec 3<&-\n    exec 3>&-\n  else\n    echo "aplay: AudioServer not available"\n    exit 1\n  fi\nfi\n' > extra-rootfs/usr/local/bin/aplay
+printf '#!/bin/sh\nexec /usr/local/bin/xdg-open "$@"\n' > extra-rootfs/usr/local/bin/sensible-browser
+printf '#!/bin/sh\nexec /usr/local/bin/xdg-open "$@"\n' > extra-rootfs/usr/local/bin/x-www-browser
+printf '#!/bin/sh\nexec /usr/local/bin/xdg-open "$@"\n' > extra-rootfs/usr/local/bin/google-chrome
+printf '#!/bin/sh\nexec /usr/local/bin/xdg-open "$@"\n' > extra-rootfs/usr/local/bin/google-chrome-stable
+printf '#!/bin/sh\nexec /usr/local/bin/xdg-open "$@"\n' > extra-rootfs/usr/local/bin/chromium
+printf '#!/bin/sh\nexec /usr/local/bin/xdg-open "$@"\n' > extra-rootfs/usr/local/bin/chromium-browser
+printf '#!/bin/sh\nexec /usr/local/bin/xdg-open "$@"\n' > extra-rootfs/usr/local/bin/firefox
+printf '#!/bin/sh\nexec /usr/local/bin/xdg-open "$@"\n' > extra-rootfs/usr/local/bin/open
 
 chmod 0755 extra-rootfs/usr/local/bin/*
-echo "extra-rootfs service and audio tools prepared successfully."
+echo "extra-rootfs service and browser tools prepared successfully."
