@@ -278,25 +278,29 @@ jobs:
             VERSION="${{ github.ref_name }}"
           fi
 
-          NOTES="### Cortex Release v1.24.50 — Next-Gen Native Linux Terminal for Android
+          cat << 'EOFNOTES' > release-notes.md
+          ### Cortex Release v1.24.50 — Next-Gen Native Linux Terminal for Android
 
-Cortex turns your Android device into a complete, native development powerhouse powered by **Ubuntu 24.04 LTS (Noble Numbat)** and **Glibc 2.39** — with **ZERO virtualization, ZERO PRoot, and ZERO containers**.
+          Cortex turns your Android device into a complete, native development powerhouse powered by **Ubuntu 24.04 LTS (Noble Numbat)** and **Glibc 2.39** — with **ZERO virtualization, ZERO PRoot, and ZERO containers**.
 
-#### Key Features & Highlights:
-- **Pure Native Execution**: Runs directly on the Android Linux kernel with custom Glibc system-call interposition (\`libcortex-hook\`). Maximum CPU performance and zero context-switching overhead.
-- **Full CLI Browser Redirection**: Seamlessly bridges CLI auth tools (\`antigravity auth login\`, \`gh auth login\`, OAuth flows, Python \`webbrowser\`, and \`xdg-open\`) directly to Android Google Chrome or your default browser.
-- **Direct Keyboard Image Insertion**: Seamlessly insert images from Gboard, Samsung Keyboard, or device clipboard into the terminal. Images are automatically saved to \`/sdcard/Pictures\` and their exact file paths are inserted into your command prompt.
-- **Background Service Manager & Autostart**: Full support for \`service\`, \`systemctl\`, \`/etc/init.d/\`, and persistent background daemons via \`/etc/cortex/autostart\`.
-- **All Files Storage Access**: Deep integration with Android \`MANAGE_EXTERNAL_STORAGE\` allows reading, editing, and building projects across \`/sdcard\`.
-- **Kernel Seccomp Bypass**: Patched dynamic linkers safely handle modern \`clone3\`, \`rseq\`, and \`set_robust_list\` system calls, allowing Node.js (via NVM), Go, Rust, and Python to build and execute cleanly.
-- **Global Developer Experience**: 100% English interface with streamlined terminal typography and rock-solid stability.
+          #### Key Features & Highlights:
+          - **Pure Native Execution**: Runs directly on the Android Linux kernel with custom Glibc system-call interposition (`libcortex-hook`). Maximum CPU performance and zero context-switching overhead.
+          - **Full CLI Browser Redirection**: Seamlessly bridges CLI auth tools (`antigravity auth login`, `gh auth login`, OAuth flows, Python `webbrowser`, and `xdg-open`) directly to Android Google Chrome or your default browser.
+          - **Direct Keyboard Image Insertion**: Seamlessly insert images from Gboard, Samsung Keyboard, or device clipboard into the terminal. Images are automatically saved to `/sdcard/Pictures` and their exact file paths are inserted into your command prompt.
+          - **Background Service Manager & Autostart**: Full support for `service`, `systemctl`, `/etc/init.d/`, and persistent background daemons via `/etc/cortex/autostart`.
+          - **All Files Storage Access**: Deep integration with Android `MANAGE_EXTERNAL_STORAGE` allows reading, editing, and building projects across `/sdcard`.
+          - **Kernel Seccomp Bypass**: Patched dynamic linkers safely handle modern `clone3`, `rseq`, and `set_robust_list` system calls, allowing Node.js (via NVM), Go, Rust, and Python to build and execute cleanly.
+          - **Global Developer Experience**: 100% English interface with streamlined terminal typography and rock-solid stability.
 
-#### Included Packages & Assets:
-- \`Cortex-arm64-v8a-signed.apk\` (64-bit ARM)
-- \`Cortex-armeabi-v7a-signed.apk\` (32-bit ARM)"
+          #### Included Packages & Assets:
+          - `Cortex-arm64-v8a-signed.apk` (64-bit ARM)
+          - `Cortex-armeabi-v7a-signed.apk` (32-bit ARM)
+          EOFNOTES
+
+          sed -i 's/^          //' release-notes.md
 
           gh release create "$VERSION" \
             release-apks/Cortex-arm64-v8a-signed.apk \
             release-apks/Cortex-armeabi-v7a-signed.apk \
             --title "Cortex Release $VERSION" \
-            --notes "$NOTES"
+            --notes-file release-notes.md
