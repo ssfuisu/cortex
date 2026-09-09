@@ -1638,18 +1638,28 @@ find_host_su() {
         /vendor/bin/su \
         /system_ext/bin/su \
         /product/bin/su; do
-        if [ -f "${'$'}cand" ] && [ -x "${'$'}cand" ]; then
+        if [ -f "${'$'}cand" ] || [ -x "${'$'}cand" ]; then
             echo "${'$'}cand"
             return 0
         fi
     done
 
-    for p in /system/bin /system/xbin /sbin /vendor/bin /system_ext/bin /product/bin; do
-        if [ -x "${'$'}p/su" ]; then
-            echo "${'$'}p/su"
-            return 0
-        fi
+    for p in /system/bin /system/xbin /sbin /vendor/bin /system_ext/bin /product/bin ${'$'}(echo "${'$'}PATH" | tr ':' ' '); do
+        case "${'$'}p" in
+            */usr/local/bin*|*/local/bin*|*/bin|*/usr/bin) continue ;;
+            *)
+                if [ -x "${'$'}p/su" ] || [ -f "${'$'}p/su" ]; then
+                    echo "${'$'}p/su"
+                    return 0
+                fi
+                ;;
+        esac
     done
+
+    if [ -x "/data/adb/magisk/magisk" ] || [ -f "/data/adb/magisk/magisk" ]; then
+        echo "/data/adb/magisk/magisk su"
+        return 0
+    fi
 
     return 1
 }
@@ -1661,7 +1671,12 @@ if [ -z "${'$'}HOST_SU" ]; then
     exit 1
 fi
 
-if [ "${'$'}("${'$'}HOST_SU" -c 'id -u' 2>/dev/null)" != "0" ]; then
+RUN_HOST_SU() {
+    env -u LD_PRELOAD -u LD_LIBRARY_PATH -u GLIBC_TUNABLES ${'$'}HOST_SU "${'$'}@"
+}
+
+SU_UID=${'$'}(RUN_HOST_SU -c 'id -u' 2>/dev/null)
+if [ "${'$'}SU_UID" != "0" ]; then
     echo "root not found" >&2
     exit 1
 fi
@@ -1752,23 +1767,20 @@ fi
 
 if [ "${'$'}1" = "-c" ]; then
     shift
-    CMD="${'$'}*"
-    exec "${'$'}HOST_SU" -c "${'$'}ENV_SETUP export HOME='${'$'}ROOT_HOME'; cd '${'$'}CURRENT_DIR' 2>/dev/null; exec ${'$'}LAUNCH_SHELL -c \"${'$'}CMD\""
+    exec env -u LD_PRELOAD -u LD_LIBRARY_PATH -u GLIBC_TUNABLES ${'$'}HOST_SU -c "${'$'}ENV_SETUP export HOME='${'$'}ROOT_HOME'; cd '${'$'}CURRENT_DIR' 2>/dev/null; exec ${'$'}LAUNCH_SHELL -c \"\$@\"" _ "${'$'}@"
 elif [ "${'$'}1" = "-" ] || [ "${'$'}1" = "-l" ] || [ "${'$'}1" = "--login" ]; then
-    exec "${'$'}HOST_SU" -c "${'$'}ENV_SETUP export HOME='${'$'}ROOT_HOME'; cd '${'$'}ROOT_HOME' 2>/dev/null; exec ${'$'}LAUNCH_SHELL -l -i"
+    exec env -u LD_PRELOAD -u LD_LIBRARY_PATH -u GLIBC_TUNABLES ${'$'}HOST_SU -c "${'$'}ENV_SETUP export HOME='${'$'}ROOT_HOME'; cd '${'$'}ROOT_HOME' 2>/dev/null; exec ${'$'}LAUNCH_SHELL -l -i"
 elif [ "${'$'}1" = "root" ]; then
     shift
     if [ "${'$'}#" -eq 0 ]; then
-        exec "${'$'}HOST_SU" -c "${'$'}ENV_SETUP export HOME='${'$'}ROOT_HOME'; cd '${'$'}CURRENT_DIR' 2>/dev/null; exec ${'$'}LAUNCH_SHELL -i"
+        exec env -u LD_PRELOAD -u LD_LIBRARY_PATH -u GLIBC_TUNABLES ${'$'}HOST_SU -c "${'$'}ENV_SETUP export HOME='${'$'}ROOT_HOME'; cd '${'$'}CURRENT_DIR' 2>/dev/null; exec ${'$'}LAUNCH_SHELL -i"
     else
-        CMD="${'$'}*"
-        exec "${'$'}HOST_SU" -c "${'$'}ENV_SETUP export HOME='${'$'}ROOT_HOME'; cd '${'$'}CURRENT_DIR' 2>/dev/null; exec ${'$'}LAUNCH_SHELL -c \"${'$'}CMD\""
+        exec env -u LD_PRELOAD -u LD_LIBRARY_PATH -u GLIBC_TUNABLES ${'$'}HOST_SU -c "${'$'}ENV_SETUP export HOME='${'$'}ROOT_HOME'; cd '${'$'}CURRENT_DIR' 2>/dev/null; exec ${'$'}LAUNCH_SHELL -c \"\$*\"" _ "${'$'}@"
     fi
 elif [ "${'$'}#" -eq 0 ]; then
-    exec "${'$'}HOST_SU" -c "${'$'}ENV_SETUP export HOME='${'$'}ROOT_HOME'; cd '${'$'}CURRENT_DIR' 2>/dev/null; exec ${'$'}LAUNCH_SHELL -i"
+    exec env -u LD_PRELOAD -u LD_LIBRARY_PATH -u GLIBC_TUNABLES ${'$'}HOST_SU -c "${'$'}ENV_SETUP export HOME='${'$'}ROOT_HOME'; cd '${'$'}CURRENT_DIR' 2>/dev/null; exec ${'$'}LAUNCH_SHELL -i"
 else
-    CMD="${'$'}*"
-    exec "${'$'}HOST_SU" -c "${'$'}ENV_SETUP export HOME='${'$'}ROOT_HOME'; cd '${'$'}CURRENT_DIR' 2>/dev/null; exec ${'$'}LAUNCH_SHELL -c \"${'$'}CMD\""
+    exec env -u LD_PRELOAD -u LD_LIBRARY_PATH -u GLIBC_TUNABLES ${'$'}HOST_SU -c "${'$'}ENV_SETUP export HOME='${'$'}ROOT_HOME'; cd '${'$'}CURRENT_DIR' 2>/dev/null; exec ${'$'}LAUNCH_SHELL -c \"\$*\"" _ "${'$'}@"
 fi
 """.trimIndent() + "\n"
 
@@ -1801,6 +1813,14 @@ fi
             sudoFile.setReadable(true, false)
             sudoFile.setExecutable(true, false)
             try { android.system.Os.chmod(sudoFile.absolutePath, 493) } catch (e: Exception) {}
+
+            val nanoDir = File(root, "usr/share/nano")
+            if (!nanoDir.exists()) nanoDir.mkdirs()
+            val defaultNanorc = File(nanoDir, "default.nanorc")
+            if (!defaultNanorc.exists()) {
+                defaultNanorc.writeText("## Default syntax highlighting\nsyntax \"default\"\n")
+                defaultNanorc.setReadable(true, false)
+            }
         } catch (e: Exception) {
             android.util.Log.e("BootstrapManager", "Failed to ensure root tools", e)
         }

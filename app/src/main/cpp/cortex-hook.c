@@ -236,6 +236,16 @@ static inline int is_path_prefix(const char *path, const char *prefix, size_t pr
     return path[prefix_len] == '/' || path[prefix_len] == '\0';
 }
 
+static inline const char *get_rootfs_subpath(const char *target) {
+    if (!target || g_cortex_root[0] == '\0') return NULL;
+    size_t root_len = strlen(g_cortex_root);
+    if (strncmp(target, g_cortex_root, root_len) == 0 &&
+        (target[root_len] == '/' || target[root_len] == '\0')) {
+        return target + root_len;
+    }
+    return NULL;
+}
+
 static const char *rewrite_path(const char *path, char *buffer, size_t bufsize) {
     if (!path) return NULL;
     // Relative paths must NEVER be rewritten to rootfs root
@@ -658,21 +668,23 @@ int stat(const char *pathname, struct stat *statbuf) {
     char buf[PATH_MAX];
     const char *target = rewrite_path(pathname, buf, sizeof(buf));
     int ret = orig_stat ? orig_stat(target, statbuf) : -1;
-    if (ret != 0 && errno == ENOENT && target && g_cortex_root[0] != '\0') {
-        char alt[PATH_MAX];
-        const char *sub = target + strlen(g_cortex_root);
-        if (strncmp(sub, "/usr/bin/", 9) == 0) {
-            snprintf(alt, sizeof(alt), "%s/bin/%s", g_cortex_root, sub + 9);
-            ret = orig_stat(alt, statbuf);
-        } else if (strncmp(sub, "/bin/", 5) == 0) {
-            snprintf(alt, sizeof(alt), "%s/usr/bin/%s", g_cortex_root, sub + 5);
-            ret = orig_stat(alt, statbuf);
-        } else if (strncmp(sub, "/usr/sbin/", 10) == 0) {
-            snprintf(alt, sizeof(alt), "%s/sbin/%s", g_cortex_root, sub + 10);
-            ret = orig_stat(alt, statbuf);
-        } else if (strncmp(sub, "/sbin/", 6) == 0) {
-            snprintf(alt, sizeof(alt), "%s/usr/sbin/%s", g_cortex_root, sub + 6);
-            ret = orig_stat(alt, statbuf);
+    if (ret != 0 && errno == ENOENT) {
+        const char *sub = get_rootfs_subpath(target);
+        if (sub) {
+            char alt[PATH_MAX];
+            if (strncmp(sub, "/usr/bin/", 9) == 0) {
+                snprintf(alt, sizeof(alt), "%s/bin/%s", g_cortex_root, sub + 9);
+                ret = orig_stat(alt, statbuf);
+            } else if (strncmp(sub, "/bin/", 5) == 0) {
+                snprintf(alt, sizeof(alt), "%s/usr/bin/%s", g_cortex_root, sub + 5);
+                ret = orig_stat(alt, statbuf);
+            } else if (strncmp(sub, "/usr/sbin/", 10) == 0) {
+                snprintf(alt, sizeof(alt), "%s/sbin/%s", g_cortex_root, sub + 10);
+                ret = orig_stat(alt, statbuf);
+            } else if (strncmp(sub, "/sbin/", 6) == 0) {
+                snprintf(alt, sizeof(alt), "%s/usr/sbin/%s", g_cortex_root, sub + 6);
+                ret = orig_stat(alt, statbuf);
+            }
         }
     }
     return ret;
@@ -685,28 +697,30 @@ int lstat(const char *pathname, struct stat *statbuf) {
     char buf[PATH_MAX];
     const char *target = rewrite_path(pathname, buf, sizeof(buf));
     int ret = orig_lstat ? orig_lstat(target, statbuf) : -1;
-    if (ret != 0 && errno == ENOENT && target && g_cortex_root[0] != '\0') {
-        char alt[PATH_MAX];
-        const char *sub = target + strlen(g_cortex_root);
-        if (strncmp(sub, "/usr/bin/", 9) == 0) {
-            snprintf(alt, sizeof(alt), "%s/bin/%s", g_cortex_root, sub + 9);
-            ret = orig_lstat(alt, statbuf);
-            if (ret == 0) target = alt;
-        } else if (strncmp(sub, "/bin/", 5) == 0) {
-            snprintf(alt, sizeof(alt), "%s/usr/bin/%s", g_cortex_root, sub + 5);
-            ret = orig_lstat(alt, statbuf);
-            if (ret == 0) target = alt;
-        } else if (strncmp(sub, "/usr/sbin/", 10) == 0) {
-            snprintf(alt, sizeof(alt), "%s/sbin/%s", g_cortex_root, sub + 10);
-            ret = orig_lstat(alt, statbuf);
-            if (ret == 0) target = alt;
-        } else if (strncmp(sub, "/sbin/", 6) == 0) {
-            snprintf(alt, sizeof(alt), "%s/usr/sbin/%s", g_cortex_root, sub + 6);
-            ret = orig_lstat(alt, statbuf);
-            if (ret == 0) target = alt;
+    if (ret != 0 && errno == ENOENT) {
+        const char *sub = get_rootfs_subpath(target);
+        if (sub) {
+            char alt[PATH_MAX];
+            if (strncmp(sub, "/usr/bin/", 9) == 0) {
+                snprintf(alt, sizeof(alt), "%s/bin/%s", g_cortex_root, sub + 9);
+                ret = orig_lstat(alt, statbuf);
+                if (ret == 0) target = alt;
+            } else if (strncmp(sub, "/bin/", 5) == 0) {
+                snprintf(alt, sizeof(alt), "%s/usr/bin/%s", g_cortex_root, sub + 5);
+                ret = orig_lstat(alt, statbuf);
+                if (ret == 0) target = alt;
+            } else if (strncmp(sub, "/usr/sbin/", 10) == 0) {
+                snprintf(alt, sizeof(alt), "%s/sbin/%s", g_cortex_root, sub + 10);
+                ret = orig_lstat(alt, statbuf);
+                if (ret == 0) target = alt;
+            } else if (strncmp(sub, "/sbin/", 6) == 0) {
+                snprintf(alt, sizeof(alt), "%s/usr/sbin/%s", g_cortex_root, sub + 6);
+                ret = orig_lstat(alt, statbuf);
+                if (ret == 0) target = alt;
+            }
         }
     }
-    if (ret == 0 && statbuf && S_ISLNK(statbuf->st_mode) && g_cortex_root[0] != '\0') {
+    if (ret == 0 && statbuf && S_ISLNK(statbuf->st_mode) && g_cortex_root[0] != '\0' && target) {
         char link_buf[PATH_MAX];
         static ssize_t (*orig_readlink)(const char *, char *, size_t) = NULL;
         if (!orig_readlink) orig_readlink = (ssize_t (*)(const char *, char *, size_t))dlsym(RTLD_NEXT, "readlink");
@@ -728,28 +742,30 @@ int fstatat(int dirfd, const char *pathname, struct stat *statbuf, int flags) {
     char buf[PATH_MAX];
     const char *target = (pathname && pathname[0] == '/') ? rewrite_path(pathname, buf, sizeof(buf)) : pathname;
     int ret = orig_fstatat ? orig_fstatat(dirfd, target, statbuf, flags) : -1;
-    if (ret != 0 && errno == ENOENT && target && pathname && pathname[0] == '/' && g_cortex_root[0] != '\0') {
-        char alt[PATH_MAX];
-        const char *sub = target + strlen(g_cortex_root);
-        if (strncmp(sub, "/usr/bin/", 9) == 0) {
-            snprintf(alt, sizeof(alt), "%s/bin/%s", g_cortex_root, sub + 9);
-            ret = orig_fstatat(dirfd, alt, statbuf, flags);
-            if (ret == 0) target = alt;
-        } else if (strncmp(sub, "/bin/", 5) == 0) {
-            snprintf(alt, sizeof(alt), "%s/usr/bin/%s", g_cortex_root, sub + 5);
-            ret = orig_fstatat(dirfd, alt, statbuf, flags);
-            if (ret == 0) target = alt;
-        } else if (strncmp(sub, "/usr/sbin/", 10) == 0) {
-            snprintf(alt, sizeof(alt), "%s/sbin/%s", g_cortex_root, sub + 10);
-            ret = orig_fstatat(dirfd, alt, statbuf, flags);
-            if (ret == 0) target = alt;
-        } else if (strncmp(sub, "/sbin/", 6) == 0) {
-            snprintf(alt, sizeof(alt), "%s/usr/sbin/%s", g_cortex_root, sub + 6);
-            ret = orig_fstatat(dirfd, alt, statbuf, flags);
-            if (ret == 0) target = alt;
+    if (ret != 0 && errno == ENOENT && pathname && pathname[0] == '/') {
+        const char *sub = get_rootfs_subpath(target);
+        if (sub) {
+            char alt[PATH_MAX];
+            if (strncmp(sub, "/usr/bin/", 9) == 0) {
+                snprintf(alt, sizeof(alt), "%s/bin/%s", g_cortex_root, sub + 9);
+                ret = orig_fstatat(dirfd, alt, statbuf, flags);
+                if (ret == 0) target = alt;
+            } else if (strncmp(sub, "/bin/", 5) == 0) {
+                snprintf(alt, sizeof(alt), "%s/usr/bin/%s", g_cortex_root, sub + 5);
+                ret = orig_fstatat(dirfd, alt, statbuf, flags);
+                if (ret == 0) target = alt;
+            } else if (strncmp(sub, "/usr/sbin/", 10) == 0) {
+                snprintf(alt, sizeof(alt), "%s/sbin/%s", g_cortex_root, sub + 10);
+                ret = orig_fstatat(dirfd, alt, statbuf, flags);
+                if (ret == 0) target = alt;
+            } else if (strncmp(sub, "/sbin/", 6) == 0) {
+                snprintf(alt, sizeof(alt), "%s/usr/sbin/%s", g_cortex_root, sub + 6);
+                ret = orig_fstatat(dirfd, alt, statbuf, flags);
+                if (ret == 0) target = alt;
+            }
         }
     }
-    if (ret == 0 && statbuf && (flags & AT_SYMLINK_NOFOLLOW) && S_ISLNK(statbuf->st_mode) && g_cortex_root[0] != '\0') {
+    if (ret == 0 && statbuf && (flags & AT_SYMLINK_NOFOLLOW) && S_ISLNK(statbuf->st_mode) && g_cortex_root[0] != '\0' && target) {
         char link_buf[PATH_MAX];
         static ssize_t (*orig_readlinkat)(int, const char *, char *, size_t) = NULL;
         if (!orig_readlinkat) orig_readlinkat = (ssize_t (*)(int, const char *, char *, size_t))dlsym(RTLD_NEXT, "readlinkat");
@@ -951,21 +967,23 @@ ssize_t readlink(const char *pathname, char *buf, size_t bufsiz) {
     char pbuf[PATH_MAX];
     const char *target = rewrite_path(pathname, pbuf, sizeof(pbuf));
     ssize_t ret = orig_readlink ? orig_readlink(target, buf, bufsiz) : -1;
-    if (ret < 0 && errno == ENOENT && target && g_cortex_root[0] != '\0') {
-        char alt[PATH_MAX];
-        const char *sub = target + strlen(g_cortex_root);
-        if (strncmp(sub, "/usr/bin/", 9) == 0) {
-            snprintf(alt, sizeof(alt), "%s/bin/%s", g_cortex_root, sub + 9);
-            ret = orig_readlink(alt, buf, bufsiz);
-        } else if (strncmp(sub, "/bin/", 5) == 0) {
-            snprintf(alt, sizeof(alt), "%s/usr/bin/%s", g_cortex_root, sub + 5);
-            ret = orig_readlink(alt, buf, bufsiz);
-        } else if (strncmp(sub, "/usr/sbin/", 10) == 0) {
-            snprintf(alt, sizeof(alt), "%s/sbin/%s", g_cortex_root, sub + 10);
-            ret = orig_readlink(alt, buf, bufsiz);
-        } else if (strncmp(sub, "/sbin/", 6) == 0) {
-            snprintf(alt, sizeof(alt), "%s/usr/sbin/%s", g_cortex_root, sub + 6);
-            ret = orig_readlink(alt, buf, bufsiz);
+    if (ret < 0 && errno == ENOENT) {
+        const char *sub = get_rootfs_subpath(target);
+        if (sub) {
+            char alt[PATH_MAX];
+            if (strncmp(sub, "/usr/bin/", 9) == 0) {
+                snprintf(alt, sizeof(alt), "%s/bin/%s", g_cortex_root, sub + 9);
+                ret = orig_readlink(alt, buf, bufsiz);
+            } else if (strncmp(sub, "/bin/", 5) == 0) {
+                snprintf(alt, sizeof(alt), "%s/usr/bin/%s", g_cortex_root, sub + 5);
+                ret = orig_readlink(alt, buf, bufsiz);
+            } else if (strncmp(sub, "/usr/sbin/", 10) == 0) {
+                snprintf(alt, sizeof(alt), "%s/sbin/%s", g_cortex_root, sub + 10);
+                ret = orig_readlink(alt, buf, bufsiz);
+            } else if (strncmp(sub, "/sbin/", 6) == 0) {
+                snprintf(alt, sizeof(alt), "%s/usr/sbin/%s", g_cortex_root, sub + 6);
+                ret = orig_readlink(alt, buf, bufsiz);
+            }
         }
     }
     return postprocess_readlink(pathname, buf, ret, bufsiz);
@@ -978,21 +996,23 @@ ssize_t readlinkat(int dirfd, const char *pathname, char *buf, size_t bufsiz) {
     char pbuf[PATH_MAX];
     const char *target = (pathname && pathname[0] == '/') ? rewrite_path(pathname, pbuf, sizeof(pbuf)) : pathname;
     ssize_t ret = orig_readlinkat ? orig_readlinkat(dirfd, target, buf, bufsiz) : -1;
-    if (ret < 0 && errno == ENOENT && target && pathname && pathname[0] == '/' && g_cortex_root[0] != '\0') {
-        char alt[PATH_MAX];
-        const char *sub = target + strlen(g_cortex_root);
-        if (strncmp(sub, "/usr/bin/", 9) == 0) {
-            snprintf(alt, sizeof(alt), "%s/bin/%s", g_cortex_root, sub + 9);
-            ret = orig_readlinkat(dirfd, alt, buf, bufsiz);
-        } else if (strncmp(sub, "/bin/", 5) == 0) {
-            snprintf(alt, sizeof(alt), "%s/usr/bin/%s", g_cortex_root, sub + 5);
-            ret = orig_readlinkat(dirfd, alt, buf, bufsiz);
-        } else if (strncmp(sub, "/usr/sbin/", 10) == 0) {
-            snprintf(alt, sizeof(alt), "%s/sbin/%s", g_cortex_root, sub + 10);
-            ret = orig_readlinkat(dirfd, alt, buf, bufsiz);
-        } else if (strncmp(sub, "/sbin/", 6) == 0) {
-            snprintf(alt, sizeof(alt), "%s/usr/sbin/%s", g_cortex_root, sub + 6);
-            ret = orig_readlinkat(dirfd, alt, buf, bufsiz);
+    if (ret < 0 && errno == ENOENT && pathname && pathname[0] == '/') {
+        const char *sub = get_rootfs_subpath(target);
+        if (sub) {
+            char alt[PATH_MAX];
+            if (strncmp(sub, "/usr/bin/", 9) == 0) {
+                snprintf(alt, sizeof(alt), "%s/bin/%s", g_cortex_root, sub + 9);
+                ret = orig_readlinkat(dirfd, alt, buf, bufsiz);
+            } else if (strncmp(sub, "/bin/", 5) == 0) {
+                snprintf(alt, sizeof(alt), "%s/usr/bin/%s", g_cortex_root, sub + 5);
+                ret = orig_readlinkat(dirfd, alt, buf, bufsiz);
+            } else if (strncmp(sub, "/usr/sbin/", 10) == 0) {
+                snprintf(alt, sizeof(alt), "%s/sbin/%s", g_cortex_root, sub + 10);
+                ret = orig_readlinkat(dirfd, alt, buf, bufsiz);
+            } else if (strncmp(sub, "/sbin/", 6) == 0) {
+                snprintf(alt, sizeof(alt), "%s/usr/sbin/%s", g_cortex_root, sub + 6);
+                ret = orig_readlinkat(dirfd, alt, buf, bufsiz);
+            }
         }
     }
     return postprocess_readlink(pathname, buf, ret, bufsiz);
@@ -1598,7 +1618,8 @@ static char **clean_env_for_system(char *const envp[]) {
     int dst = 0;
     for (int i = 0; i < count; i++) {
         if (strncmp(envp[i], "LD_PRELOAD=", 11) != 0 &&
-            strncmp(envp[i], "LD_LIBRARY_PATH=", 16) != 0) {
+            strncmp(envp[i], "LD_LIBRARY_PATH=", 16) != 0 &&
+            strncmp(envp[i], "GLIBC_TUNABLES=", 15) != 0) {
             new_env[dst++] = envp[i];
         }
     }
@@ -1833,7 +1854,8 @@ int execve(const char *filename, char *const argv[], char *const envp[]) {
                 }
                 new_argv[idx] = NULL;
 
-                if (strncmp(rewritten_interp, "/system", 7) == 0) {
+                if (strncmp(rewritten_interp, "/system", 7) == 0 ||
+                    (g_cortex_root[0] != '\0' && strncmp(rewritten_interp, g_cortex_root, strlen(g_cortex_root)) != 0)) {
                     char **sys_env = clean_env_for_system(envp);
                     return orig_execve(rewritten_interp, new_argv, sys_env);
                 }
@@ -1841,10 +1863,9 @@ int execve(const char *filename, char *const argv[], char *const envp[]) {
             }
         }
     } else {
-        if (strncmp(target, "/system", 7) == 0) {
-            char **sys_env = clean_env_for_system(envp);
-            return orig_execve(target, argv, sys_env);
-        }
+        // Any binary outside CORTEX_ROOT is an Android host binary (e.g. /system/bin/su, /sbin/su, /data/adb/...)
+        char **sys_env = clean_env_for_system(envp);
+        return orig_execve(target, argv, sys_env);
     }
 
     return orig_execve(target, argv, prepare_cortex_env(envp));

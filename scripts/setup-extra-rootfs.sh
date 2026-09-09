@@ -227,24 +227,31 @@ find_host_su() {
     /data/adb/ksu/bin/su \
     /data/adb/ap/bin/su \
     /data/adb/magisk/su \
-    /vendor/bin/su; do
-    if [ -f "$cand" ] && [ -x "$cand" ]; then
+    /vendor/bin/su \
+    /system_ext/bin/su \
+    /product/bin/su; do
+    if [ -f "$cand" ] || [ -x "$cand" ]; then
       echo "$cand"
       return 0
     fi
   done
 
-  for p in $(echo "$PATH" | tr ':' ' '); do
+  for p in /system/bin /system/xbin /sbin /vendor/bin /system_ext/bin /product/bin $(echo "$PATH" | tr ':' ' '); do
     case "$p" in
-      */usr/local/bin*|*/local/bin*) continue ;;
+      */usr/local/bin*|*/local/bin*|*/bin|*/usr/bin) continue ;;
       *)
-        if [ -x "$p/su" ]; then
+        if [ -x "$p/su" ] || [ -f "$p/su" ]; then
           echo "$p/su"
           return 0
         fi
         ;;
     esac
   done
+
+  if [ -x "/data/adb/magisk/magisk" ] || [ -f "/data/adb/magisk/magisk" ]; then
+    echo "/data/adb/magisk/magisk su"
+    return 0
+  fi
 
   return 1
 }
@@ -256,7 +263,12 @@ if [ -z "$HOST_SU" ]; then
   exit 1
 fi
 
-if [ "$("$HOST_SU" -c 'id -u' 2>/dev/null)" != "0" ]; then
+RUN_HOST_SU() {
+  env -u LD_PRELOAD -u LD_LIBRARY_PATH -u GLIBC_TUNABLES $HOST_SU "$@"
+}
+
+SU_UID=$(RUN_HOST_SU -c 'id -u' 2>/dev/null)
+if [ "$SU_UID" != "0" ]; then
   echo "root not found" >&2
   exit 1
 fi
@@ -347,28 +359,32 @@ fi
 
 if [ "$1" = "-c" ]; then
   shift
-  CMD="$*"
-  exec "$HOST_SU" -c "$ENV_SETUP export HOME='$ROOT_HOME'; cd '$CURRENT_DIR' 2>/dev/null; exec $LAUNCH_SHELL -c \"$CMD\""
+  exec env -u LD_PRELOAD -u LD_LIBRARY_PATH -u GLIBC_TUNABLES $HOST_SU -c "$ENV_SETUP export HOME='$ROOT_HOME'; cd '$CURRENT_DIR' 2>/dev/null; exec $LAUNCH_SHELL -c \"\$@\"" _ "$@"
 elif [ "$1" = "-" ] || [ "$1" = "-l" ] || [ "$1" = "--login" ]; then
-  exec "$HOST_SU" -c "$ENV_SETUP export HOME='$ROOT_HOME'; cd '$ROOT_HOME' 2>/dev/null; exec $LAUNCH_SHELL -l -i"
+  exec env -u LD_PRELOAD -u LD_LIBRARY_PATH -u GLIBC_TUNABLES $HOST_SU -c "$ENV_SETUP export HOME='$ROOT_HOME'; cd '$ROOT_HOME' 2>/dev/null; exec $LAUNCH_SHELL -l -i"
 elif [ "$1" = "root" ]; then
   shift
   if [ $# -eq 0 ]; then
-    exec "$HOST_SU" -c "$ENV_SETUP export HOME='$ROOT_HOME'; cd '$CURRENT_DIR' 2>/dev/null; exec $LAUNCH_SHELL -i"
+    exec env -u LD_PRELOAD -u LD_LIBRARY_PATH -u GLIBC_TUNABLES $HOST_SU -c "$ENV_SETUP export HOME='$ROOT_HOME'; cd '$CURRENT_DIR' 2>/dev/null; exec $LAUNCH_SHELL -i"
   else
-    CMD="$*"
-    exec "$HOST_SU" -c "$ENV_SETUP export HOME='$ROOT_HOME'; cd '$CURRENT_DIR' 2>/dev/null; exec $LAUNCH_SHELL -c \"$CMD\""
+    exec env -u LD_PRELOAD -u LD_LIBRARY_PATH -u GLIBC_TUNABLES $HOST_SU -c "$ENV_SETUP export HOME='$ROOT_HOME'; cd '$CURRENT_DIR' 2>/dev/null; exec $LAUNCH_SHELL -c \"\$*\"" _ "$@"
   fi
 elif [ $# -eq 0 ]; then
-  exec "$HOST_SU" -c "$ENV_SETUP export HOME='$ROOT_HOME'; cd '$CURRENT_DIR' 2>/dev/null; exec $LAUNCH_SHELL -i"
+  exec env -u LD_PRELOAD -u LD_LIBRARY_PATH -u GLIBC_TUNABLES $HOST_SU -c "$ENV_SETUP export HOME='$ROOT_HOME'; cd '$CURRENT_DIR' 2>/dev/null; exec $LAUNCH_SHELL -i"
 else
-  CMD="$*"
-  exec "$HOST_SU" -c "$ENV_SETUP export HOME='$ROOT_HOME'; cd '$CURRENT_DIR' 2>/dev/null; exec $LAUNCH_SHELL -c \"$CMD\""
+  exec env -u LD_PRELOAD -u LD_LIBRARY_PATH -u GLIBC_TUNABLES $HOST_SU -c "$ENV_SETUP export HOME='$ROOT_HOME'; cd '$CURRENT_DIR' 2>/dev/null; exec $LAUNCH_SHELL -c \"\$*\"" _ "$@"
 fi
 EOFSU
 
 printf '#!/bin/sh\nSCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"\nif [ -x "$SCRIPT_DIR/su" ]; then exec "$SCRIPT_DIR/su" "$@"; elif [ -x /usr/local/bin/su ]; then exec /usr/local/bin/su "$@"; else exec su "$@"; fi\n' > extra-rootfs/usr/local/bin/tsu
 printf '#!/bin/sh\nSCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"\nif [ -x "$SCRIPT_DIR/su" ]; then exec "$SCRIPT_DIR/su" "$@"; elif [ -x /usr/local/bin/su ]; then exec /usr/local/bin/su "$@"; else exec su "$@"; fi\n' > extra-rootfs/usr/local/bin/sudo
+
+mkdir -p extra-rootfs/usr/share/nano
+cat << 'EOFNANO' > extra-rootfs/usr/share/nano/default.nanorc
+## Default syntax highlighting
+syntax "default"
+EOFNANO
+chmod 0644 extra-rootfs/usr/share/nano/default.nanorc
 
 chmod 0755 extra-rootfs/usr/local/bin/*
 echo "extra-rootfs service, browser, and root tools prepared successfully."
