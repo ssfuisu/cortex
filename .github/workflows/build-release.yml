@@ -118,6 +118,8 @@ jobs:
           fi
           printf 'APT::Sandbox::User "root";\nAPT::Sandbox::Seccomp "false";\nAcquire::ForceIPv4 "true";\nAcquire::Connect::AddrConfig "false";\nAcquire::SRV "false";\nAcquire::Languages "none";\nAcquire::GzipIndexes "true";\nDir::dpkg::cputable "/usr/share/dpkg/cputable";\nDir::dpkg::tupletable "/usr/share/dpkg/tupletable";\nDir::dpkg::triplettable "/usr/share/dpkg/triplettable";\nDPkg::Install::Recursive "false";\nDpkg::Progress-Fancy "false";\nAPT::Color "false";\nDPkg::Options {\n   "--force-confdef";\n   "--force-confold";\n   "--force-unsafe-io";\n};\n' > extra-rootfs/etc/apt/apt.conf.d/01sandbox
           echo "# Disabled for Cortex" > extra-rootfs/etc/apt/apt.conf.d/docker-clean
+          mkdir -p extra-rootfs/etc/apt/preferences.d
+          printf 'Explanation: Pin core glibc and linker packages to prevent upgrading to stock upstream packages that fail Android SECCOMP\nPackage: libc6*\nPin: release *\nPin-Priority: -1\n\nPackage: libc-bin\nPin: release *\nPin-Priority: -1\n\nPackage: libc-dev-bin\nPin: release *\nPin-Priority: -1\n\nPackage: locales\nPin: release *\nPin-Priority: -1\n' > extra-rootfs/etc/apt/preferences.d/01cortex-pins
           printf 'force-confdef\nforce-confold\nforce-unsafe-io\nno-debsig\n' > extra-rootfs/etc/dpkg/dpkg.cfg.d/01cortex
           printf 'export DPKG_DEB_THREADS_MAX=1\nexport XZ_OPT=-T1\nexport XZ_DEFAULTS=-T1\nexport TAR_OPTIONS=--no-same-owner\nexport DEBIAN_FRONTEND=noninteractive\nexport DEBCONF_FRONTEND=noninteractive\nexport DEBCONF_NONINTERACTIVE_SEEN=true\nunset PREFIX\nexport GODEBUG=netdns=cgo\nshopt -s checkwinsize 2>/dev/null\nif [ -n "$CORTEX_ROOT" ]; then\n  export SSL_CERT_FILE="$CORTEX_ROOT/etc/ssl/certs/ca-certificates.crt"\n  export SSL_CERT_DIR="$CORTEX_ROOT/etc/ssl/certs:/system/etc/security/cacerts"\n  export CURL_CA_BUNDLE="$CORTEX_ROOT/etc/ssl/certs/ca-certificates.crt"\n  export NODE_EXTRA_CA_CERTS="$CORTEX_ROOT/etc/ssl/certs/ca-certificates.crt"\n  export REQUESTS_CA_BUNDLE="$CORTEX_ROOT/etc/ssl/certs/ca-certificates.crt"\nelse\n  export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt\n  export CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt\nfi\nexport TZDIR=/usr/share/zoneinfo\nif [ -d /etc/cortex/autostart ]; then\n  for s in /etc/cortex/autostart/*; do\n    if [ -f "$s" ]; then\n      sname="$(basename "$s")"\n      service "$sname" start >/dev/null 2>&1 || true\n    fi\n  done\nfi\n' > extra-rootfs/etc/profile.d/01cortex.sh
 
@@ -181,6 +183,37 @@ jobs:
                               rel = os.path.relpath(target, parent)
                               m.linkname = rel
                           f = tin.extractfile(m) if m.isreg() else None
+                          if f and m.name == "var/lib/dpkg/status":
+                              status_data = f.read().decode("utf-8", errors="replace")
+                              packages_to_hold = {"libc6", "libc6:arm64", "libc6:armhf", "libc-bin", "libc-dev-bin", "locales"}
+                              blocks = status_data.split("\n\n")
+                              new_blocks = []
+                              for b in blocks:
+                                  lines = b.split("\n")
+                                  pkg_name = None
+                                  for l in lines:
+                                      if l.startswith("Package: "):
+                                          pkg_name = l.split(": ", 1)[1].strip()
+                                          break
+                                  if pkg_name in packages_to_hold:
+                                      new_lines = []
+                                      has_status = False
+                                      for l in lines:
+                                          if l.startswith("Status: "):
+                                              new_lines.append("Status: hold ok installed")
+                                              has_status = True
+                                          else:
+                                              new_lines.append(l)
+                                      if not has_status:
+                                          new_lines.insert(1, "Status: hold ok installed")
+                                      new_blocks.append("\n".join(new_lines))
+                                  else:
+                                      new_blocks.append(b)
+                              mod_bytes = ("\n\n".join(new_blocks)).encode("utf-8")
+                              m.size = len(mod_bytes)
+                              tout.addfile(m, io.BytesIO(mod_bytes))
+                              print(f"Set dpkg hold in {m.name}")
+                              continue
                           if f and ("ld-linux" in m.name or "libc.so" in m.name or "libc-" in m.name):
                               data = bytearray(f.read())
                               file_patched = 0
@@ -275,7 +308,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          VERSION="v1.24.60"
+          VERSION="v1.24.61"
           if [[ "${{ github.ref }}" == refs/tags/* ]]; then
             VERSION="${{ github.ref_name }}"
           fi
@@ -286,16 +319,16 @@ jobs:
           git push --delete origin "$VERSION" 2>/dev/null || true
 
           cat << 'EOFNOTES' > release-notes.md
-          ### Cortex Release v1.24.60 — Next-Gen Native Linux Terminal for Android
+          ### Cortex Release v1.24.61 — Glibc & APT Integrity Protection
 
           Cortex turns your Android device into a complete, native development powerhouse powered by **Ubuntu 24.04 LTS (Noble Numbat)** and **Glibc 2.39** — with **ZERO virtualization, ZERO PRoot, and ZERO containers**.
 
-          #### What's New in v1.24.60:
-          - **Nerd Fonts Integration**: Bundled official JetBrains Mono Nerd Font and Fira Code Nerd Font with full glyph and powerline symbol support for developer CLI tools including OpenCode, Neovim, Lazygit, and Starship prompt.
-          - **Popular Developer Color Schemes**: Added 6 built-in color schemes selectable from Settings with instant live terminal preview: Catppuccin Mocha, Tokyo Night, Dracula, Gruvbox Dark, One Dark, and Nord.
-          - **Custom Font Support**: Users can place any custom font file into `~/.cortex/font.ttf` and select Custom Font in Settings to render with their own typography.
-          - **Appearance Settings Category**: Enhanced the Settings screen with dedicated font and color scheme selectors that update the terminal viewport immediately upon selection.
-          - **Retained High-Performance Core**: Preserves zero-allocation text rendering, non-blocking background initialization, smooth OpenCode mouse wheel scrolling, and native Glibc execution.
+          #### What's New in v1.24.61:
+          - **Glibc & Dynamic Linker Protection**: Implemented strict APT pinning for core Glibc packages (`libc6`, `libc-bin`, `libc-dev-bin`, `locales`) with priority `-1` to permanently prevent upstream Ubuntu repository upgrades from overwriting patched Android SECCOMP linkers.
+          - **Dpkg Status Hold**: Marked all core system glibc packages with `hold ok installed` status in the dpkg database to ensure full protection across `apt upgrade`, `apt dist-upgrade`, and manual dpkg invocations.
+          - **Corrupted Installation Auto-Repair**: Bumped internal bootstrap version to trigger seamless auto-repair of the base system and dynamic linkers for devices impacted by aborted `apt upgrade` attempts.
+          - **Cache & Lock Cleanup**: Automated cleanup of downloaded glibc deb archives from `/var/cache/apt/archives/` and stale 0-byte lock files during initialization.
+          - **Preserved Feature Set**: Retained all appearance enhancements from v1.24.60, including JetBrains Mono & Fira Code Nerd Fonts, 6 developer color schemes, custom font support, and ultra-low latency native execution.
 
           #### Included Packages & Assets:
           - `Cortex-arm64-v8a-signed.apk` (64-bit ARM)

@@ -327,7 +327,7 @@ object BootstrapManager {
         ensureEssentialBinaries(root, home)
     }
 
-    private const val CURRENT_BOOTSTRAP_VERSION = 12414
+    private const val CURRENT_BOOTSTRAP_VERSION = 12461
 
     fun isBootstrapInstalled(context: Context): Boolean {
         val root = Environment.getCortexRoot(context)
@@ -851,6 +851,65 @@ object BootstrapManager {
             val dockerClean = File(aptConfDir, "docker-clean")
             dockerClean.writeText("# Disabled for Cortex\n")
 
+            val aptPrefDir = File(root, "etc/apt/preferences.d")
+            aptPrefDir.mkdirs()
+            File(aptPrefDir, "01cortex-pins").writeText(
+                "Explanation: Pin core glibc and linker packages to prevent upgrading to stock upstream packages that fail Android SECCOMP\n" +
+                "Package: libc6*\n" +
+                "Pin: release *\n" +
+                "Pin-Priority: -1\n\n" +
+                "Package: libc-bin\n" +
+                "Pin: release *\n" +
+                "Pin-Priority: -1\n\n" +
+                "Package: libc-dev-bin\n" +
+                "Pin: release *\n" +
+                "Pin-Priority: -1\n\n" +
+                "Package: locales\n" +
+                "Pin: release *\n" +
+                "Pin-Priority: -1\n"
+            )
+
+            val dpkgStatusFile = File(root, "var/lib/dpkg/status")
+            if (dpkgStatusFile.exists() && dpkgStatusFile.isFile) {
+                try {
+                    val content = dpkgStatusFile.readText()
+                    val packagesToHold = setOf(
+                        "libc6", "libc6:arm64", "libc6:armhf",
+                        "libc-bin", "libc-bin:arm64", "libc-bin:armhf",
+                        "libc-dev-bin", "libc-dev-bin:arm64", "libc-dev-bin:armhf",
+                        "locales", "locales:all"
+                    )
+                    var updated = false
+                    val blocks = content.split(Regex("\\n\\n+"))
+                    val newBlocks = blocks.map { block ->
+                        val pkgLine = block.lines().firstOrNull { it.startsWith("Package:") }
+                        val pkgName = pkgLine?.substringAfter(":")?.trim()
+                        if (pkgName != null && packagesToHold.contains(pkgName)) {
+                            val lines = block.lines().toMutableList()
+                            val statusIdx = lines.indexOfFirst { it.startsWith("Status:") }
+                            if (statusIdx != -1) {
+                                if (lines[statusIdx] != "Status: hold ok installed") {
+                                    lines[statusIdx] = "Status: hold ok installed"
+                                    updated = true
+                                }
+                            } else {
+                                val pkgIdx = lines.indexOfFirst { it.startsWith("Package:") }
+                                lines.add(pkgIdx + 1, "Status: hold ok installed")
+                                updated = true
+                            }
+                            lines.joinToString("\n")
+                        } else {
+                            block
+                        }
+                    }
+                    if (updated) {
+                        dpkgStatusFile.writeText(newBlocks.joinToString("\n\n") + "\n")
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("BootstrapManager", "Failed to update dpkg status holds", e)
+                }
+            }
+
             val dpkgCfgDir = File(root, "etc/dpkg/dpkg.cfg.d")
             dpkgCfgDir.mkdirs()
             File(dpkgCfgDir, "01cortex").writeText(
@@ -1059,6 +1118,35 @@ object BootstrapManager {
             val dockerClean = File(root, "etc/apt/apt.conf.d/docker-clean")
             if (dockerClean.exists()) {
                 dockerClean.delete()
+            }
+
+            // Remove any downloaded or corrupted glibc deb archives
+            listOf(
+                File(root, "var/cache/apt/archives"),
+                File(root, "var/cache/apt/archives/partial")
+            ).forEach { dir ->
+                if (dir.exists() && dir.isDirectory) {
+                    dir.listFiles()?.forEach { file ->
+                        val n = file.name
+                        if (file.isFile && n.endsWith(".deb")) {
+                            if (n.startsWith("libc6") || n.startsWith("libc-bin") || n.startsWith("locales") || n.startsWith("libc-dev-bin")) {
+                                file.delete()
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Clean stale lock files if 0 bytes
+            listOf(
+                File(root, "var/lib/dpkg/lock"),
+                File(root, "var/lib/dpkg/lock-frontend"),
+                File(root, "var/cache/apt/archives/lock"),
+                File(root, "var/lib/apt/lists/lock")
+            ).forEach { lockFile ->
+                if (lockFile.exists() && lockFile.length() == 0L) {
+                    try { lockFile.delete() } catch (e: Exception) {}
+                }
             }
         } catch (e: Exception) {
             android.util.Log.e("BootstrapManager", "Failed to cleanup apt artifacts", e)
