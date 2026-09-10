@@ -73,9 +73,9 @@ class TerminalSession(
                         if (read <= 0) break
                         emulator.processInput(buffer, 0, read)
                     }
-                } catch (e: IOException) {
+                } catch (e: Exception) {
                     if (isRunning) {
-                        Log.e(tag, "Error reading from PTY: ${e.message}")
+                        Log.e(tag, "Error reading from PTY: ${e.message}", e)
                     }
                 } finally {
                     val exitCode = ptyProcess?.waitFor() ?: 0

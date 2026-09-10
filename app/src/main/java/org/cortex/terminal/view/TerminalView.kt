@@ -115,6 +115,7 @@ class TerminalView @JvmOverloads constructor(
     }
 
     private var actionPopup: PopupWindow? = null
+    private val pinHandlePath = Path()
 
     var charWidth = 0f
         private set
@@ -381,12 +382,12 @@ class TerminalView @JvmOverloads constructor(
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
 
+        // Draw overall background
+        canvas.drawColor(TerminalColor.DEFAULT_BG)
+
         val currentSession = session ?: return
         val emulator = currentSession.emulator
         val buffer = emulator.buffer
-
-        // Draw overall background
-        canvas.drawColor(TerminalColor.DEFAULT_BG)
 
         if (!emulator.lock.tryLock()) {
             postInvalidateDelayed(16)
@@ -415,7 +416,7 @@ class TerminalView @JvmOverloads constructor(
                         textPaint.color = Color.BLACK
                         textPaint.isFakeBoldText = (style.toInt() and 1) != 0
                         textPaint.isUnderlineText = (style.toInt() and 2) != 0
-                        canvas.drawText(char.toString(), x, y + charBaseline, textPaint)
+                        canvas.drawText(row.chars, c, 1, x, y + charBaseline, textPaint)
                     } else {
                         val isInverse = (style.toInt() and 4) != 0
                         val drawBg = if (isInverse) fg else bg
@@ -432,7 +433,7 @@ class TerminalView @JvmOverloads constructor(
                             textPaint.color = drawFg
                             textPaint.isFakeBoldText = (style.toInt() and 1) != 0
                             textPaint.isUnderlineText = (style.toInt() and 2) != 0
-                            canvas.drawText(char.toString(), x, y + charBaseline, textPaint)
+                            canvas.drawText(row.chars, c, 1, x, y + charBaseline, textPaint)
                         }
                     }
                 }
@@ -477,7 +478,7 @@ class TerminalView @JvmOverloads constructor(
                     val char = if (cCol in 0 until row.chars.size) row.chars[cCol] else ' '
                     if (char != ' ') {
                         textPaint.color = TerminalColor.DEFAULT_BG
-                        canvas.drawText(char.toString(), cursorX, cursorY + charBaseline, textPaint)
+                        canvas.drawText(row.chars, cCol, 1, cursorX, cursorY + charBaseline, textPaint)
                     }
                 }
             }
@@ -490,13 +491,13 @@ class TerminalView @JvmOverloads constructor(
         val centerX = if (isStart) tipX - radius * 0.7f else tipX + radius * 0.7f
         val centerY = tipY + radius
 
-        val path = Path().apply {
-            moveTo(tipX, tipY)
-            lineTo(centerX, centerY - radius * 0.5f)
-            lineTo(if (isStart) tipX else tipX, centerY)
-            close()
-        }
-        canvas.drawPath(path, selectionHandlePaint)
+        pinHandlePath.reset()
+        pinHandlePath.moveTo(tipX, tipY)
+        pinHandlePath.lineTo(centerX, centerY - radius * 0.5f)
+        pinHandlePath.lineTo(if (isStart) tipX else tipX, centerY)
+        pinHandlePath.close()
+
+        canvas.drawPath(pinHandlePath, selectionHandlePaint)
         canvas.drawCircle(centerX, centerY, radius, selectionHandlePaint)
         canvas.drawCircle(centerX, centerY, radius, selectionHandleStroke)
     }

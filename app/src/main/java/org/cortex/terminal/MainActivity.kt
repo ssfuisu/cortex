@@ -268,6 +268,15 @@ class MainActivity : AppCompatActivity() {
             terminalView.post {
                 terminalView.showKeyboard()
             }
+
+            kotlin.concurrent.thread(name = "Cortex-BackgroundMaintenance") {
+                try {
+                    BootstrapManager.updateDnsConfiguration(this@MainActivity, root)
+                    BootstrapManager.fixAbsoluteSymlinks(root)
+                } catch (e: Exception) {
+                    android.util.Log.e("MainActivity", "Background maintenance error", e)
+                }
+            }
         }
     }
 
@@ -285,6 +294,8 @@ class MainActivity : AppCompatActivity() {
         val current = sessionManager.currentSession
         if (current != null) {
             terminalView.session = current
+        } else if (BootstrapManager.isBootstrapInstalled(this) && sessionManager.sessions.isEmpty()) {
+            createNewSession()
         }
         terminalView.requestLayout()
         terminalView.postInvalidate()
@@ -310,9 +321,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun createNewSession(): TerminalSession {
-        val root = Environment.getCortexRoot(this)
-        BootstrapManager.updateDnsConfiguration(this, root)
-        BootstrapManager.fixAbsoluteSymlinks(root)
         val session = sessionManager.newSession(
             rows = terminalView.rows,
             cols = terminalView.cols,
@@ -400,6 +408,8 @@ class MainActivity : AppCompatActivity() {
             }
         } catch (e: Exception) {}
         bootstrapDialog = null
+        sessionManager.onSessionChanged = null
+        terminalView.session = null
         if (instance == this) instance = null
         if (sessionManager.sessions.isEmpty()) {
             CortexService.stop(this)
