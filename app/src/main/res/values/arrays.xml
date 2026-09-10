@@ -16,4 +16,36 @@
         <item>16</item>
         <item>18</item>
     </string-array>
+
+    <string-array name="terminal_font_entries">
+        <item>JetBrains Mono Nerd Font (Default)</item>
+        <item>Fira Code Nerd Font</item>
+        <item>System Monospace</item>
+        <item>Custom Font (~/.cortex/font.ttf)</item>
+    </string-array>
+
+    <string-array name="terminal_font_values">
+        <item>jetbrains_mono</item>
+        <item>fira_code</item>
+        <item>monospace</item>
+        <item>custom</item>
+    </string-array>
+
+    <string-array name="terminal_theme_entries">
+        <item>Catppuccin Mocha (Default)</item>
+        <item>Tokyo Night</item>
+        <item>Dracula</item>
+        <item>Gruvbox Dark</item>
+        <item>One Dark</item>
+        <item>Nord</item>
+    </string-array>
+
+    <string-array name="terminal_theme_values">
+        <item>catppuccin</item>
+        <item>tokyo_night</item>
+        <item>dracula</item>
+        <item>gruvbox</item>
+        <item>one_dark</item>
+        <item>nord</item>
+    </string-array>
 </resources>

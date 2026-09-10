@@ -352,6 +352,60 @@ class TerminalView @JvmOverloads constructor(
         invalidate()
     }
 
+    private var currentFontKey: String = "jetbrains_mono"
+    private var cachedTypeface: Typeface? = null
+
+    fun setTerminalFont(fontKey: String) {
+        if (fontKey == currentFontKey && cachedTypeface != null) {
+            textPaint.typeface = cachedTypeface
+            measureCharDimensions()
+            updateTerminalDimensions()
+            invalidate()
+            return
+        }
+        val tf = when (fontKey) {
+            "jetbrains_mono" -> {
+                try {
+                    Typeface.createFromAsset(context.assets, "fonts/JetBrainsMono.ttf")
+                } catch (e: Exception) {
+                    Typeface.MONOSPACE
+                }
+            }
+            "fira_code" -> {
+                try {
+                    Typeface.createFromAsset(context.assets, "fonts/FiraCode.ttf")
+                } catch (e: Exception) {
+                    Typeface.MONOSPACE
+                }
+            }
+            "custom" -> {
+                val customFile = java.io.File(org.cortex.terminal.runtime.Environment.getHomeDir(context), ".cortex/font.ttf")
+                if (customFile.exists() && customFile.canRead()) {
+                    try {
+                        Typeface.createFromFile(customFile)
+                    } catch (e: Exception) {
+                        Typeface.MONOSPACE
+                    }
+                } else {
+                    Typeface.MONOSPACE
+                }
+            }
+            else -> Typeface.MONOSPACE
+        }
+        currentFontKey = fontKey
+        cachedTypeface = tf
+        textPaint.typeface = tf
+        measureCharDimensions()
+        updateTerminalDimensions()
+        invalidate()
+    }
+
+    fun applyTheme() {
+        cursorPaint.color = TerminalColor.CURSOR_COLOR
+        selectionHandlePaint.color = TerminalColor.CURSOR_COLOR
+        invalidate()
+    }
+
     private fun measureCharDimensions() {
         textPaint.getTextBounds("X", 0, 1, textBounds)
         charWidth = textPaint.measureText("M")

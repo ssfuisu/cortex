@@ -275,7 +275,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          VERSION="v1.24.59"
+          VERSION="v1.24.60"
           if [[ "${{ github.ref }}" == refs/tags/* ]]; then
             VERSION="${{ github.ref_name }}"
           fi
@@ -286,17 +286,16 @@ jobs:
           git push --delete origin "$VERSION" 2>/dev/null || true
 
           cat << 'EOFNOTES' > release-notes.md
-          ### Cortex Release v1.24.59 — Next-Gen Native Linux Terminal for Android
+          ### Cortex Release v1.24.60 — Next-Gen Native Linux Terminal for Android
 
           Cortex turns your Android device into a complete, native development powerhouse powered by **Ubuntu 24.04 LTS (Noble Numbat)** and **Glibc 2.39** — with **ZERO virtualization, ZERO PRoot, and ZERO containers**.
 
-          #### What's New in v1.24.59:
-          - **Background Resume Freeze & Blank Screen Fix**: Moved heavy symlink validation and filesystem checks off the Main UI thread onto an asynchronous background task. Eliminates the 5-second UI thread freeze and ANR blank screen that occurred when opening the app after minutes of background inactivity.
-          - **Session Resume Safeguard**: Added fallback session verification in onResume() so that returning to the app always displays a valid terminal viewport rather than an unpainted canvas.
-          - **Activity Lifecycle Memory Leak Cleanup**: Cleared session callbacks and view references on Activity onDestroy to prevent the static SessionManager service from retaining dead Activity instances and view hierarchies in memory.
-          - **Zero-Allocation Terminal Text Rendering**: Migrated onDraw() character rendering from dynamic String allocations to direct char array buffer rendering, eliminating over 100,000 transient heap allocations per second and preventing garbage collector stalls.
-          - **Safe PTY Exception Handling**: Extended reader thread error handling to catch unexpected exceptions safely without terminating the application process.
-          - **Retained All v1.24.56 Native Features**: Preserves maximized vertical terminal workspace, integrated drawer update manager, left-edge swipe gesture, tap-outside drawer dismissal, OpenCode/Bubble Tea mouse scrolling, and pure native Glibc execution.
+          #### What's New in v1.24.60:
+          - **Nerd Fonts Integration**: Bundled official JetBrains Mono Nerd Font and Fira Code Nerd Font with full glyph and powerline symbol support for developer CLI tools including OpenCode, Neovim, Lazygit, and Starship prompt.
+          - **Popular Developer Color Schemes**: Added 6 built-in color schemes selectable from Settings with instant live terminal preview: Catppuccin Mocha, Tokyo Night, Dracula, Gruvbox Dark, One Dark, and Nord.
+          - **Custom Font Support**: Users can place any custom font file into `~/.cortex/font.ttf` and select Custom Font in Settings to render with their own typography.
+          - **Appearance Settings Category**: Enhanced the Settings screen with dedicated font and color scheme selectors that update the terminal viewport immediately upon selection.
+          - **Retained High-Performance Core**: Preserves zero-allocation text rendering, non-blocking background initialization, smooth OpenCode mouse wheel scrolling, and native Glibc execution.
 
           #### Included Packages & Assets:
           - `Cortex-arm64-v8a-signed.apk` (64-bit ARM)

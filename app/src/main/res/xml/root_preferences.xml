@@ -1,6 +1,22 @@
 <PreferenceScreen xmlns:app="http://schemas.android.com/apk/res-auto">
 
-    <PreferenceCategory app:title="Display &amp; Font">
+    <PreferenceCategory app:title="Appearance &amp; Font">
+        <ListPreference
+            app:defaultValue="jetbrains_mono"
+            app:entries="@array/terminal_font_entries"
+            app:entryValues="@array/terminal_font_values"
+            app:key="terminal_font"
+            app:title="Terminal Font"
+            app:useSimpleSummaryProvider="true" />
+
+        <ListPreference
+            app:defaultValue="catppuccin"
+            app:entries="@array/terminal_theme_entries"
+            app:entryValues="@array/terminal_theme_values"
+            app:key="terminal_theme"
+            app:title="Color Scheme"
+            app:useSimpleSummaryProvider="true" />
+
         <ListPreference
             app:defaultValue="11"
             app:entries="@array/font_size_entries"
@@ -19,7 +35,7 @@
     <PreferenceCategory app:title="Environment">
         <Preference
             app:key="apt_install_pref"
-            app:summary="Debian GNU/Linux Glibc rootfs and APT package manager"
+            app:summary="Ubuntu 24.04 LTS Noble Glibc rootfs and APT package manager"
             app:title="APT Package Manager" />
 
         <Preference

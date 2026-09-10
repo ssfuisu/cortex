@@ -312,6 +312,13 @@ class MainActivity : AppCompatActivity() {
         val fontSize = fontSizeStr.toFloatOrNull() ?: 11f
         terminalView.setTerminalTextSize(fontSize)
 
+        val themeKey = prefs.getString("terminal_theme", "catppuccin") ?: "catppuccin"
+        org.cortex.terminal.emulator.TerminalColor.applyTheme(themeKey)
+        terminalView.applyTheme()
+
+        val fontKey = prefs.getString("terminal_font", "jetbrains_mono") ?: "jetbrains_mono"
+        terminalView.setTerminalFont(fontKey)
+
         val keepScreenOn = prefs.getBoolean("keep_screen_on", false)
         if (keepScreenOn) {
             window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
