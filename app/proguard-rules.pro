@@ -1,8 +1,12 @@
-# Cortex Terminal Proguard Rules
+# Cortex ProGuard Rules
 
--keepclassmembers class * {
+# Keep native methods and class structure for PtyNative JNI bindings
+-keep class org.cortex.terminal.pty.PtyNative {
     native <methods>;
+    *;
 }
 
--keep class org.cortex.terminal.pty.** { *; }
--keep class org.cortex.terminal.emulator.** { *; }
+# Keep DrawerLayout internal fields accessed via reflection in MainActivity
+-keepclassmembers class androidx.drawerlayout.widget.DrawerLayout {
+    private androidx.customview.widget.ViewDragHelper mLeftDragger;
+}
