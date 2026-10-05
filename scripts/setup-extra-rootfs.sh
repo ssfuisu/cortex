@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
 mkdir -p extra-rootfs/usr/local/bin extra-rootfs/etc/cortex/autostart extra-rootfs/run
 
@@ -565,5 +565,14 @@ for tool in $MAINT_TOOLS; do
 done
 chmod 0644 extra-rootfs/var/lib/dpkg/diversions
 
+# Enforce HTTPS for APT repositories and disallow unauthenticated packages
+if [ -d extra-rootfs/etc/apt ]; then
+    find extra-rootfs/etc/apt -type f \( -name "*.sources" -o -name "*.list" \) -exec sed -i 's|http://ports.ubuntu.com|https://ports.ubuntu.com|g; s|http://archive.ubuntu.com|https://archive.ubuntu.com|g' {} + 2>/dev/null || true
+    if [ -d extra-rootfs/etc/apt/apt.conf.d ]; then
+        find extra-rootfs/etc/apt/apt.conf.d -type f -exec sed -i '/AllowUnauthenticated/d; /AllowInsecureRepositories/d' {} + 2>/dev/null || true
+    fi
+fi
+
 chmod 0755 extra-rootfs/usr/local/bin/*
 echo "extra-rootfs service, browser, and root tools prepared successfully."
+
