@@ -16,6 +16,9 @@ import androidx.appcompat.app.AlertDialog
 import androidx.core.content.FileProvider
 import org.cortex.terminal.R
 import org.json.JSONObject
+import android.content.pm.PackageManager
+import android.content.pm.SigningInfo
+import android.util.Log
 import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
@@ -339,6 +342,9 @@ object UpdateManager {
 
                 while (true) {
                     val url = URL(currentUrl)
+                    if (!url.protocol.equals("https", ignoreCase = true)) {
+                        throw SecurityException("Insecure HTTP redirect rejected: $currentUrl")
+                    }
                     connection = url.openConnection() as HttpURLConnection
                     connection.instanceFollowRedirects = false
                     connection.connectTimeout = 15000
@@ -426,6 +432,14 @@ object UpdateManager {
                 inputStream.close()
                 inputStream = null
 
+                // Set owner-only permissions (0600) on downloaded APK
+                try {
+                    targetApk.setReadable(false, false)
+                    targetApk.setReadable(true, true)
+                    targetApk.setWritable(false, false)
+                    targetApk.setWritable(true, true)
+                } catch (_: Exception) {}
+
                 mainHandler.post {
                     if (!isCancelled && downloadDialog.isShowing) {
                         try {
@@ -442,22 +456,97 @@ object UpdateManager {
                 mainHandler.post {
                     if (!isCancelled && downloadDialog.isShowing) {
                         try { downloadDialog.dismiss() } catch (ex: Exception) {}
-                        Toast.makeText(
-                            activity,
-                            "Download failed: ${e.localizedMessage}",
-                            Toast.LENGTH_LONG
-                        ).show()
+                        AlertDialog.Builder(activity)
+                            .setTitle("Update Download Failed")
+                            .setMessage("Failed to download update: ${e.localizedMessage}\n\nWould you like to retry?")
+                            .setPositiveButton("Retry") { _, _ ->
+                                downloadAndInstall(activity, info)
+                            }
+                            .setNegativeButton("Cancel", null)
+                            .show()
                     }
                 }
             }
         }
     }
 
+    private fun verifyApkSignature(context: Context, apkFile: File): Boolean {
+        try {
+            val pm = context.packageManager
+            val currentPkg = context.packageName
+
+            val archiveInfo: android.content.pm.PackageInfo? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                pm.getPackageArchiveInfo(apkFile.path, PackageManager.PackageInfoFlags.of(PackageManager.GET_SIGNING_CERTIFICATES.toLong()))
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                @Suppress("DEPRECATION")
+                pm.getPackageArchiveInfo(apkFile.path, PackageManager.GET_SIGNING_CERTIFICATES)
+            } else {
+                @Suppress("DEPRECATION")
+                pm.getPackageArchiveInfo(apkFile.path, PackageManager.GET_SIGNATURES)
+            }
+            if (archiveInfo == null) return false
+
+            if (archiveInfo.packageName != currentPkg) {
+                Log.e("UpdateManager", "APK package mismatch: expected $currentPkg, found ${archiveInfo.packageName}")
+                return false
+            }
+
+            val currentInfo: android.content.pm.PackageInfo? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                pm.getPackageInfo(currentPkg, PackageManager.PackageInfoFlags.of(PackageManager.GET_SIGNING_CERTIFICATES.toLong()))
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                @Suppress("DEPRECATION")
+                pm.getPackageInfo(currentPkg, PackageManager.GET_SIGNING_CERTIFICATES)
+            } else {
+                @Suppress("DEPRECATION")
+                pm.getPackageInfo(currentPkg, PackageManager.GET_SIGNATURES)
+            }
+            if (currentInfo == null) return false
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                val currentSigning = currentInfo.signingInfo ?: return false
+                val archiveSigning = archiveInfo.signingInfo ?: return false
+
+                val currentSignatures = if (currentSigning.hasMultipleSigners()) currentSigning.apkContentsSigners else currentSigning.signingCertificateHistory
+                val archiveSignatures = if (archiveSigning.hasMultipleSigners()) archiveSigning.apkContentsSigners else archiveSigning.signingCertificateHistory
+
+                val currentSet = currentSignatures.map { it.toCharsString() }.toSet()
+                val archiveSet = archiveSignatures.map { it.toCharsString() }.toSet()
+                if (currentSet.intersect(archiveSet).isEmpty()) {
+                    Log.e("UpdateManager", "APK signing certificate does not match installed application")
+                    return false
+                }
+            } else {
+                @Suppress("DEPRECATION")
+                val currentSigs = currentInfo.signatures?.map { it.toCharsString() }?.toSet() ?: emptySet()
+                @Suppress("DEPRECATION")
+                val archiveSigs = archiveInfo.signatures?.map { it.toCharsString() }?.toSet() ?: emptySet()
+                if (currentSigs.intersect(archiveSigs).isEmpty()) {
+                    Log.e("UpdateManager", "APK signature does not match installed application")
+                    return false
+                }
+            }
+            return true
+        } catch (e: Exception) {
+            Log.e("UpdateManager", "Failed to verify downloaded APK signature", e)
+            return false
+        }
+    }
+
     private fun launchInstall(activity: Activity, apkFile: File) {
         if (activity.isFinishing || activity.isDestroyed) return
 
-        if (!apkFile.exists() || apkFile.length() == 0L) {
+        if (!apkFile.exists() || apkFile.length() <= 0L) {
             Toast.makeText(activity, "Downloaded APK file is missing or corrupted", Toast.LENGTH_SHORT).show()
+            cleanUpdates(activity)
+            return
+        }
+
+        if (!verifyApkSignature(activity, apkFile)) {
+            AlertDialog.Builder(activity)
+                .setTitle("Update Verification Failed")
+                .setMessage("The downloaded update could not be verified or its digital signature does not match this app.")
+                .setPositiveButton("OK", null)
+                .show()
             cleanUpdates(activity)
             return
         }
@@ -500,3 +589,4 @@ object UpdateManager {
         }
     }
 }
+
