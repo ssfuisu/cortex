@@ -31,13 +31,18 @@
 #include <grp.h>
 #include <pthread.h>
 
+#ifndef SYS_SECCOMP
+#define SYS_SECCOMP 1
+#endif
+
 // Intercept SECCOMP blocked syscalls (SIGSYS), resolve sandbox/landlock gracefully, and advance PC
 static void cortex_sigsys_handler(int sig, siginfo_t *info, void *ctx) {
     (void)sig;
-    if (!ctx) return;
+    if (!ctx || !info) return;
+    if (info->si_code != SYS_SECCOMP) return;
     ucontext_t *uctx = (ucontext_t *)ctx;
 
-    int sys_nr = (info != NULL) ? info->si_syscall : -1;
+    int sys_nr = info->si_syscall;
     long ret_val = -ENOSYS;
 
     // Handle Landlock, seccomp, namespaces, and clone3 traps on Android
@@ -63,54 +68,48 @@ static void cortex_sigsys_handler(int sig, siginfo_t *info, void *ctx) {
     }
 
 #if defined(__aarch64__)
-    uctx->uc_mcontext.regs[0] = ret_val;
     if (uctx->uc_mcontext.pc != 0) {
         uint32_t insn = 0;
         memcpy(&insn, (const void *)uctx->uc_mcontext.pc, sizeof(insn));
-        // In AArch64, svc instructions are 4 bytes: bits [31:21] == 1101 0100 000 (0xd4000000) and bits [4:0] == 00001 (0x1)
-        if ((insn & 0xffe0001f) == 0xd4000001) {
-            uctx->uc_mcontext.pc += 4;
-        } else {
-            // Unconditionally advance 4 bytes past trapped syscall to prevent infinite signal recursion
+        // In AArch64, svc #0 is 0xd4000001 (bits [31:21]=0xd40, imm16=0, bits [4:0]=1)
+        if (insn == 0xd4000001 || (insn & 0xffe0001f) == 0xd4000001) {
+            uctx->uc_mcontext.regs[0] = ret_val;
             uctx->uc_mcontext.pc += 4;
         }
     }
 #elif defined(__arm__)
-    uctx->uc_mcontext.arm_r0 = ret_val;
     if (uctx->uc_mcontext.arm_pc != 0) {
         if (uctx->uc_mcontext.arm_cpsr & 0x20) {
             uint16_t insn = 0;
             memcpy(&insn, (const void *)uctx->uc_mcontext.arm_pc, sizeof(insn));
-            if ((insn & 0xff00) == 0xdf00) {
-                uctx->uc_mcontext.arm_pc += 2;
-            } else {
+            if (insn == 0xdf00 || (insn & 0xff00) == 0xdf00) {
+                uctx->uc_mcontext.arm_r0 = ret_val;
                 uctx->uc_mcontext.arm_pc += 2;
             }
         } else {
             uint32_t insn = 0;
             memcpy(&insn, (const void *)uctx->uc_mcontext.arm_pc, sizeof(insn));
-            if ((insn & 0x0f000000) == 0x0f000000) {
-                uctx->uc_mcontext.arm_pc += 4;
-            } else {
+            if (insn == 0xef000000 || (insn & 0x0f000000) == 0x0f000000) {
+                uctx->uc_mcontext.arm_r0 = ret_val;
                 uctx->uc_mcontext.arm_pc += 4;
             }
         }
     }
 #elif defined(__x86_64__) && defined(REG_RAX)
-    uctx->uc_mcontext.gregs[REG_RAX] = ret_val;
     if (uctx->uc_mcontext.gregs[REG_RIP] != 0) {
         unsigned char insn[2] = {0};
         memcpy(insn, (const void *)uctx->uc_mcontext.gregs[REG_RIP], sizeof(insn));
         if (insn[0] == 0x0f && insn[1] == 0x05) { // syscall opcode
+            uctx->uc_mcontext.gregs[REG_RAX] = ret_val;
             uctx->uc_mcontext.gregs[REG_RIP] += 2;
         }
     }
 #elif defined(__i386__) && defined(REG_EAX)
-    uctx->uc_mcontext.gregs[REG_EAX] = ret_val;
     if (uctx->uc_mcontext.gregs[REG_EIP] != 0) {
         unsigned char insn[2] = {0};
         memcpy(insn, (const void *)uctx->uc_mcontext.gregs[REG_EIP], sizeof(insn));
         if (insn[0] == 0xcd && insn[1] == 0x80) { // int 0x80 opcode
+            uctx->uc_mcontext.gregs[REG_EAX] = ret_val;
             uctx->uc_mcontext.gregs[REG_EIP] += 2;
         }
     }
@@ -651,6 +650,14 @@ struct cortex_open_how {
 #define __NR_fchmodat2 452
 #endif
 
+static long call_orig_syscall(long number, unsigned long a1, unsigned long a2, unsigned long a3, unsigned long a4, unsigned long a5, unsigned long a6) {
+    static long (*orig_syscall)(long, unsigned long, unsigned long, unsigned long, unsigned long, unsigned long, unsigned long) = NULL;
+    if (!orig_syscall) {
+        orig_syscall = (long (*)(long, unsigned long, unsigned long, unsigned long, unsigned long, unsigned long, unsigned long))dlsym(RTLD_NEXT, "syscall");
+    }
+    return orig_syscall ? orig_syscall(number, a1, a2, a3, a4, a5, a6) : syscall(number, a1, a2, a3, a4, a5, a6);
+}
+
 // Hook openat2 (used by GNU tar 1.35+/gnulib for RESOLVE_BENEATH traversal).
 // Rewrites absolute paths like openat, then delegates; on ENOSYS (kernels
 // without openat2, e.g. Android < 5.6) emulates with plain openat instead of
@@ -674,18 +681,53 @@ int openat2(int dirfd, const char *pathname, struct cortex_open_how *how, size_t
     const char *target = (pathname[0] == '/') ? rewrite_path(pathname, buf, sizeof(buf)) : pathname;
     if (orig_openat2) {
         int ret = orig_openat2(dirfd, target, how, usize);
-        if (ret < 0 && errno == ENOSYS) {
-            // fall through to openat emulation below
-        } else {
-            return ret;
-        }
+        if (ret >= 0 || errno != ENOSYS) return ret;
     }
+#ifdef __NR_openat2
+    long sret = call_orig_syscall(__NR_openat2, (unsigned long)dirfd, (unsigned long)target, (unsigned long)how, (unsigned long)usize, 0, 0);
+    if (sret >= 0 || errno != ENOSYS) {
+        return (int)sret;
+    }
+#endif
     if (!how || usize < 16) {
         errno = EINVAL;
         return -1;
     }
     int flags = (int)(how->flags & 0xffffffffu);
     mode_t mode = (mode_t)(how->mode & 07777u);
+
+    // If resolve flags are specified on a kernel lacking openat2, ensure containment
+    if (how->resolve != 0) {
+        if ((how->resolve & 0x08 /* RESOLVE_BENEATH */) && target[0] == '/') {
+            errno = EXDEV;
+            return -1;
+        }
+        int depth = 0;
+        const char *p = target;
+        while (*p) {
+            while (*p == '/') p++;
+            if (!*p) break;
+            const char *end = p;
+            while (*end && *end != '/') end++;
+            size_t clen = end - p;
+            if (clen == 2 && p[0] == '.' && p[1] == '.') {
+                depth--;
+                if (depth < 0 && (how->resolve & 0x08 /* RESOLVE_BENEATH */)) {
+                    errno = EXDEV;
+                    return -1;
+                }
+            } else if (clen == 1 && p[0] == '.') {
+                // current dir
+            } else {
+                depth++;
+            }
+            p = end;
+        }
+        if (how->resolve & 0x04 /* RESOLVE_NO_SYMLINKS */) {
+            flags |= O_NOFOLLOW;
+        }
+    }
+
     if (open_needs_mode(flags)) {
         return openat(dirfd, target, flags, mode);
     }
@@ -741,40 +783,6 @@ FILE *freopen(const char *pathname, const char *mode, FILE *stream) {
 ssize_t write(int fd, const void *buf, size_t count) {
     static ssize_t (*orig_write)(int, const void *, size_t) = NULL;
     if (!orig_write) orig_write = (ssize_t (*)(int, const void *, size_t))dlsym(RTLD_NEXT, "write");
-    if (!buf || count == 0) return orig_write ? orig_write(fd, buf, count) : 0;
-
-    // Filter out [GNUPG:] ERROR add_keyblock_resource so apt update runs cleanly without warnings
-    if (count >= 20 && memmem(buf, count, "add_keyblock_resource", 21) != NULL) {
-        const char *p = (const char *)buf;
-        const char *match = (const char *)memmem(buf, count, "[GNUPG:] ERROR add_keyblock_resource", 36);
-        if (!match) match = (const char *)memmem(buf, count, "ERROR add_keyblock_resource", 27);
-        if (!match) match = (const char *)memmem(buf, count, "add_keyblock_resource", 21);
-        if (match) {
-            const char *line_start = match;
-            while (line_start > p && *(line_start - 1) != '\n') {
-                line_start--;
-            }
-            const char *line_end = (const char *)memchr(match, '\n', count - (match - p));
-            if (line_end) line_end++;
-            else line_end = p + count;
-
-            size_t prefix_len = line_start - p;
-            size_t suffix_len = (p + count) - line_end;
-            if (prefix_len == 0 && suffix_len == 0) {
-                return count;
-            }
-            char *filtered = (char *)malloc(prefix_len + suffix_len + 1);
-            if (filtered) {
-                if (prefix_len > 0) memcpy(filtered, p, prefix_len);
-                if (suffix_len > 0) memcpy(filtered + prefix_len, line_end, suffix_len);
-                ssize_t ret = orig_write ? orig_write(fd, filtered, prefix_len + suffix_len) : (prefix_len + suffix_len);
-                (void)ret;
-                free(filtered);
-                return count;
-            }
-            return count;
-        }
-    }
     return orig_write ? orig_write(fd, buf, count) : -1;
 }
 
@@ -2455,11 +2463,7 @@ long syscall(long number, ...) {
     }
 #endif
 
-    static long (*orig_syscall)(long, unsigned long, unsigned long, unsigned long, unsigned long, unsigned long, unsigned long) = NULL;
-    if (!orig_syscall) {
-        orig_syscall = (long (*)(long, unsigned long, unsigned long, unsigned long, unsigned long, unsigned long, unsigned long))dlsym(RTLD_NEXT, "syscall");
-    }
-    return orig_syscall ? orig_syscall(number, arg1, arg2, arg3, arg4, arg5, arg6) : -1;
+    return call_orig_syscall(number, arg1, arg2, arg3, arg4, arg5, arg6);
 }
 
 // Hook lzma multi-threaded routines to enforce single-threaded execution
@@ -2680,10 +2684,10 @@ static char **prepare_cortex_env(char *const envp[], const char *real_exe) {
         }
     }
     if (!has_tunables) {
-        new_env[dst++] = "GLIBC_TUNABLES=glibc.pthread.rseq=0";
+        new_env[dst++] = strdup("GLIBC_TUNABLES=glibc.pthread.rseq=0");
     }
     if (!has_path) {
-        new_env[dst++] = "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
+        new_env[dst++] = strdup("PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin");
     }
     if (!has_tmp && g_cortex_root[0] != '\0') {
         char *str = malloc(PATH_MAX + 16);
@@ -2693,29 +2697,52 @@ static char **prepare_cortex_env(char *const envp[], const char *real_exe) {
         }
     }
     if (!has_threads_max) {
-        new_env[dst++] = "DPKG_DEB_THREADS_MAX=1";
+        new_env[dst++] = strdup("DPKG_DEB_THREADS_MAX=1");
     }
     if (!has_xz_opt) {
-        new_env[dst++] = "XZ_OPT=-T1";
+        new_env[dst++] = strdup("XZ_OPT=-T1");
     }
     if (!has_xz_defaults) {
-        new_env[dst++] = "XZ_DEFAULTS=-T1";
+        new_env[dst++] = strdup("XZ_DEFAULTS=-T1");
     }
     if (!has_frontend) {
-        new_env[dst++] = "DEBIAN_FRONTEND=noninteractive";
+        new_env[dst++] = strdup("DEBIAN_FRONTEND=noninteractive");
     }
     if (!has_debconf_frontend) {
-        new_env[dst++] = "DEBCONF_FRONTEND=noninteractive";
+        new_env[dst++] = strdup("DEBCONF_FRONTEND=noninteractive");
     }
     if (!has_debconf_seen) {
-        new_env[dst++] = "DEBCONF_NONINTERACTIVE_SEEN=true";
+        new_env[dst++] = strdup("DEBCONF_NONINTERACTIVE_SEEN=true");
     }
     new_env[dst] = NULL;
     return new_env;
 }
 
+static void free_modified_env(char **modified_env, char *const orig_env[]) {
+    if (!modified_env) return;
+    for (int i = 0; modified_env[i] != NULL; i++) {
+        int is_orig = 0;
+        if (orig_env) {
+            for (int j = 0; orig_env[j] != NULL; j++) {
+                if (modified_env[i] == orig_env[j]) {
+                    is_orig = 1;
+                    break;
+                }
+            }
+        }
+        if (!is_orig) {
+            free(modified_env[i]);
+        }
+    }
+    free(modified_env);
+}
+
+static char s_cached_ld_so[PATH_MAX] = {0};
+static char s_cached_ld_root[PATH_MAX] = {0};
+static uint16_t s_cached_e_machine = 0;
+
 static int find_dynamic_linker(const char *cortex_root, const char *cmd, char *out_ld_so, size_t max_len) {
-    if (!cortex_root || cortex_root[0] == '\0') return 0;
+    if (!cortex_root || cortex_root[0] == '\0' || !out_ld_so || max_len == 0) return 0;
 
     uint16_t e_machine = 0;
     if (cmd && cmd[0] != '\0') {
@@ -2728,6 +2755,13 @@ static int find_dynamic_linker(const char *cortex_root, const char *cmd, char *o
                 e_machine = (uint16_t)(ehdr[18] | (ehdr[19] << 8));
             }
         }
+    }
+
+    if (s_cached_ld_so[0] != '\0' && strcmp(s_cached_ld_root, cortex_root) == 0 &&
+        (e_machine == 0 || e_machine == s_cached_e_machine)) {
+        strncpy(out_ld_so, s_cached_ld_so, max_len - 1);
+        out_ld_so[max_len - 1] = '\0';
+        return 1;
     }
 
     const char *aarch64_cands[] = {
@@ -2788,16 +2822,65 @@ static int find_dynamic_linker(const char *cortex_root, const char *cmd, char *o
     if (primary) {
         for (int i = 0; primary[i] != NULL; i++) {
             snprintf(out_ld_so, max_len, "%s%s", cortex_root, primary[i]);
-            if (access(out_ld_so, F_OK) == 0) return 1;
+            if (access(out_ld_so, F_OK) == 0) {
+                strncpy(s_cached_ld_so, out_ld_so, sizeof(s_cached_ld_so) - 1);
+                s_cached_ld_so[sizeof(s_cached_ld_so) - 1] = '\0';
+                strncpy(s_cached_ld_root, cortex_root, sizeof(s_cached_ld_root) - 1);
+                s_cached_ld_root[sizeof(s_cached_ld_root) - 1] = '\0';
+                s_cached_e_machine = e_machine;
+                return 1;
+            }
         }
     }
     if (secondary) {
         for (int i = 0; secondary[i] != NULL; i++) {
             snprintf(out_ld_so, max_len, "%s%s", cortex_root, secondary[i]);
-            if (access(out_ld_so, F_OK) == 0) return 1;
+            if (access(out_ld_so, F_OK) == 0) {
+                strncpy(s_cached_ld_so, out_ld_so, sizeof(s_cached_ld_so) - 1);
+                s_cached_ld_so[sizeof(s_cached_ld_so) - 1] = '\0';
+                strncpy(s_cached_ld_root, cortex_root, sizeof(s_cached_ld_root) - 1);
+                s_cached_ld_root[sizeof(s_cached_ld_root) - 1] = '\0';
+                s_cached_e_machine = e_machine;
+                return 1;
+            }
         }
     }
 
+    return 0;
+}
+
+static int check_elf_dynamic(int fd, const unsigned char *ehdr, ssize_t n) {
+    if (n < 52 || ehdr[0] != 0x7f || ehdr[1] != 'E' || ehdr[2] != 'L' || ehdr[3] != 'F') {
+        return 0;
+    }
+    int is_64 = (ehdr[4] == 2);
+    uint64_t phoff = 0;
+    uint16_t phentsize = 0;
+    uint16_t phnum = 0;
+    if (is_64) {
+        if (n < 64) return 0;
+        phoff = *(const uint64_t *)(ehdr + 32);
+        phentsize = *(const uint16_t *)(ehdr + 54);
+        phnum = *(const uint16_t *)(ehdr + 56);
+    } else {
+        phoff = *(const uint32_t *)(ehdr + 28);
+        phentsize = *(const uint16_t *)(ehdr + 42);
+        phnum = *(const uint16_t *)(ehdr + 44);
+    }
+    if (phoff == 0 || phentsize == 0 || phnum == 0) {
+        return 0;
+    }
+    if (lseek(fd, (off_t)phoff, SEEK_SET) < 0) {
+        return 0;
+    }
+    for (int i = 0; i < phnum && i < 128; i++) {
+        uint32_t p_type = 0;
+        if (read(fd, &p_type, sizeof(p_type)) != sizeof(p_type)) break;
+        if (p_type == 3 /* PT_INTERP */) {
+            return 1;
+        }
+        if (lseek(fd, (off_t)(phentsize - sizeof(p_type)), SEEK_CUR) < 0) break;
+    }
     return 0;
 }
 
@@ -2807,43 +2890,9 @@ static int has_pt_interp(const char *path) {
     if (fd < 0) return 0;
     unsigned char ehdr[64];
     ssize_t n = read(fd, ehdr, sizeof(ehdr));
-    if (n < 52 || ehdr[0] != 0x7f || ehdr[1] != 'E' || ehdr[2] != 'L' || ehdr[3] != 'F') {
-        close(fd);
-        return 0;
-    }
-    int is_64 = (ehdr[4] == 2);
-    uint64_t phoff = 0;
-    uint16_t phentsize = 0;
-    uint16_t phnum = 0;
-    if (is_64) {
-        if (n < 64) { close(fd); return 0; }
-        phoff = *(uint64_t *)(ehdr + 32);
-        phentsize = *(uint16_t *)(ehdr + 54);
-        phnum = *(uint16_t *)(ehdr + 56);
-    } else {
-        phoff = *(uint32_t *)(ehdr + 28);
-        phentsize = *(uint16_t *)(ehdr + 42);
-        phnum = *(uint16_t *)(ehdr + 44);
-    }
-    if (phoff == 0 || phentsize == 0 || phnum == 0) {
-        close(fd);
-        return 0;
-    }
-    if (lseek(fd, (off_t)phoff, SEEK_SET) < 0) {
-        close(fd);
-        return 0;
-    }
-    for (int i = 0; i < phnum && i < 128; i++) {
-        uint32_t p_type = 0;
-        if (read(fd, &p_type, sizeof(p_type)) != sizeof(p_type)) break;
-        if (p_type == 3 /* PT_INTERP */) {
-            close(fd);
-            return 1;
-        }
-        if (lseek(fd, (off_t)(phentsize - sizeof(p_type)), SEEK_CUR) < 0) break;
-    }
+    int ret = check_elf_dynamic(fd, ehdr, n);
     close(fd);
-    return 0;
+    return ret;
 }
 
 // Hook execve
@@ -2915,21 +2964,26 @@ int execve(const char *filename, char *const argv[], char *const envp[]) {
         if (fd >= 0) {
             char hdr[256];
             ssize_t n = read(fd, hdr, sizeof(hdr) - 1);
-            close(fd);
 
             // 1. Transparently route dynamically linked glibc ELF binaries through ld.so
             // Note: Statically linked binaries (PT_INTERP absent, e.g. Meta Muse Code) must execute directly!
             if (n >= 4 && (unsigned char)hdr[0] == 0x7f && hdr[1] == 'E' && hdr[2] == 'L' && hdr[3] == 'F') {
-                int is_dynamic = has_pt_interp(target);
+                int is_dynamic = check_elf_dynamic(fd, (const unsigned char *)hdr, n);
+                close(fd);
                 if (is_dynamic) {
                     char ld_so[PATH_MAX] = {0};
                     if (find_dynamic_linker(g_cortex_root, target, ld_so, sizeof(ld_so)) && strcmp(target, ld_so) != 0) {
-                        chmod(ld_so, 0755);
-                        chmod(target, 0755);
+                        static char s_last_chmoded_ld[PATH_MAX] = {0};
+                        if (strcmp(s_last_chmoded_ld, ld_so) != 0) {
+                            chmod(ld_so, 0755);
+                            strncpy(s_last_chmoded_ld, ld_so, sizeof(s_last_chmoded_ld) - 1);
+                        }
+                        if (access(target, X_OK) != 0) {
+                            chmod(target, 0755);
+                        }
 
                         strncpy(g_real_exe, target, sizeof(g_real_exe) - 1);
                         g_real_exe[sizeof(g_real_exe) - 1] = '\0';
-                        setenv("CORTEX_REAL_EXE", target, 1);
 
                         char *const *arg_ptr = argv;
                         int argc = 0;
@@ -2973,9 +3027,15 @@ int execve(const char *filename, char *const argv[], char *const envp[]) {
                             new_argv[nidx++] = (char *)argv[i];
                         }
                         new_argv[nidx] = NULL;
-                        return orig_execve(ld_so, new_argv, prepare_cortex_env(envp, target));
+                        char **new_env = prepare_cortex_env(envp, target);
+                        int ret = orig_execve(ld_so, new_argv, new_env);
+                        free(new_argv);
+                        free_modified_env(new_env, envp);
+                        return ret;
                     }
                 }
+            } else {
+                close(fd);
             }
 
             // 2. Handle scripts with shebang lines (e.g., #!/bin/sh, #!/usr/bin/perl)
@@ -3024,18 +3084,30 @@ int execve(const char *filename, char *const argv[], char *const envp[]) {
                 if (strncmp(rewritten_interp, "/system", 7) == 0 ||
                     (g_cortex_root[0] != '\0' && strncmp(rewritten_interp, g_cortex_root, strlen(g_cortex_root)) != 0)) {
                     char **sys_env = clean_env_for_system(envp);
-                    return orig_execve(rewritten_interp, new_argv, sys_env);
+                    int ret = orig_execve(rewritten_interp, new_argv, sys_env);
+                    free(new_argv);
+                    free_modified_env(sys_env, envp);
+                    return ret;
                 }
-                return execve(rewritten_interp, new_argv, prepare_cortex_env(envp, NULL));
+                char **cortex_env = prepare_cortex_env(envp, NULL);
+                int ret = execve(rewritten_interp, new_argv, cortex_env);
+                free(new_argv);
+                free_modified_env(cortex_env, envp);
+                return ret;
             }
         }
     } else {
         // Any binary outside CORTEX_ROOT is an Android host binary (e.g. /system/bin/su, /sbin/su, /data/adb/...)
         char **sys_env = clean_env_for_system(envp);
-        return orig_execve(target, argv, sys_env);
+        int ret = orig_execve(target, argv, sys_env);
+        free_modified_env(sys_env, envp);
+        return ret;
     }
 
-    return orig_execve(target, argv, prepare_cortex_env(envp, target));
+    char **cortex_env = prepare_cortex_env(envp, target);
+    int ret = orig_execve(target, argv, cortex_env);
+    free_modified_env(cortex_env, envp);
+    return ret;
 }
 
 extern char **environ;
@@ -3292,29 +3364,32 @@ int posix_spawn(pid_t *pid, const char *path,
     if (g_cortex_root[0] != '\0' && strncmp(target, g_cortex_root, strlen(g_cortex_root)) == 0) {
         int fd = open(target, O_RDONLY);
         if (fd >= 0) {
-            char hdr[4];
+            unsigned char hdr[256];
             ssize_t n = read(fd, hdr, sizeof(hdr));
-            close(fd);
-            if (n >= 4 && (unsigned char)hdr[0] == 0x7f && hdr[1] == 'E' && hdr[2] == 'L' && hdr[3] == 'F') {
+            if (n >= 4 && hdr[0] == 0x7f && hdr[1] == 'E' && hdr[2] == 'L' && hdr[3] == 'F') {
                 is_elf = 1;
-                is_dynamic = has_pt_interp(target);
+                is_dynamic = check_elf_dynamic(fd, hdr, n);
             }
+            close(fd);
         }
     }
 
     char ld_so[PATH_MAX] = {0};
     int has_ld_so = (is_elf && is_dynamic && g_cortex_root[0] != '\0') ? find_dynamic_linker(g_cortex_root, target, ld_so, sizeof(ld_so)) : 0;
 
-    if (target && target[0] != '\0') {
-        setenv("CORTEX_REAL_EXE", target, 1);
-    }
-
-    char **new_envp = prepare_cortex_env(envp ? envp : environ, target);
+    char *const *orig_ep = envp ? envp : environ;
+    char **new_envp = prepare_cortex_env((char *const *)orig_ep, target);
 
     int ret = -1;
     if (is_elf && has_ld_so && strcmp(target, ld_so) != 0) {
-        chmod(ld_so, 0755);
-        chmod(target, 0755);
+        static char s_last_chmoded_ld_spawn[PATH_MAX] = {0};
+        if (strcmp(s_last_chmoded_ld_spawn, ld_so) != 0) {
+            chmod(ld_so, 0755);
+            strncpy(s_last_chmoded_ld_spawn, ld_so, sizeof(s_last_chmoded_ld_spawn) - 1);
+        }
+        if (access(target, X_OK) != 0) {
+            chmod(target, 0755);
+        }
 
         int argc = 0;
         while (argv && argv[argc]) argc++;
@@ -3370,15 +3445,18 @@ int posix_spawn(pid_t *pid, const char *path,
     if (ret != 0) {
         pid_t child = fork();
         if (child < 0) {
+            free_modified_env(new_envp, (char *const *)orig_ep);
             return errno;
         } else if (child == 0) {
             execve(target, argv, new_envp);
             _exit(127);
         } else {
             if (pid) *pid = child;
+            free_modified_env(new_envp, (char *const *)orig_ep);
             return 0;
         }
     }
+    free_modified_env(new_envp, (char *const *)orig_ep);
     return ret;
 }
 
@@ -3449,6 +3527,47 @@ static void record_dns_redirect(int fd, in_addr_t orig_ip, in_port_t orig_port) 
     pthread_mutex_unlock(&g_dns_redirect_mutex);
 }
 
+static void clear_dns_redirect(int fd) {
+    if (fd < 0) return;
+    int target_idx = (fd >= 0 ? fd : -fd) % DNS_REDIRECT_MAX;
+    if (!g_dns_redirects[target_idx].active || g_dns_redirects[target_idx].fd != fd) {
+        return;
+    }
+    pthread_mutex_lock(&g_dns_redirect_mutex);
+    if (g_dns_redirects[target_idx].active && g_dns_redirects[target_idx].fd == fd) {
+        g_dns_redirects[target_idx].active = 0;
+        g_dns_redirects[target_idx].fd = -1;
+        g_dns_redirects[target_idx].orig_ip = 0;
+        g_dns_redirects[target_idx].orig_port = 0;
+    }
+    pthread_mutex_unlock(&g_dns_redirect_mutex);
+}
+
+int close(int fd) {
+    static int (*orig_close)(int) = NULL;
+    if (!orig_close) orig_close = (int (*)(int))dlsym(RTLD_NEXT, "close");
+    clear_dns_redirect(fd);
+    return orig_close ? orig_close(fd) : -1;
+}
+
+int dup2(int oldfd, int newfd) {
+    static int (*orig_dup2)(int, int) = NULL;
+    if (!orig_dup2) orig_dup2 = (int (*)(int, int))dlsym(RTLD_NEXT, "dup2");
+    if (oldfd != newfd) {
+        clear_dns_redirect(newfd);
+    }
+    return orig_dup2 ? orig_dup2(oldfd, newfd) : -1;
+}
+
+int dup3(int oldfd, int newfd, int flags) {
+    static int (*orig_dup3)(int, int, int) = NULL;
+    if (!orig_dup3) orig_dup3 = (int (*)(int, int, int))dlsym(RTLD_NEXT, "dup3");
+    if (oldfd != newfd) {
+        clear_dns_redirect(newfd);
+    }
+    return orig_dup3 ? orig_dup3(oldfd, newfd, flags) : -1;
+}
+
 static int get_dns_redirect(int fd, in_addr_t *orig_ip, in_port_t *orig_port) {
     if (fd < 0) return 0;
     int found = 0;
@@ -3471,9 +3590,29 @@ static inline int is_loopback_dns(const struct sockaddr *addr, socklen_t addrlen
 }
 
 static in_addr_t get_primary_dns(void) {
-    static in_addr_t primary_dns = 0;
-    if (primary_dns != 0) return primary_dns;
+    static in_addr_t cached_dns = 0;
+    static time_t last_check = 0;
+    static time_t last_resolv_mtime = 0;
+    static pthread_mutex_t dns_mutex = PTHREAD_MUTEX_INITIALIZER;
 
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    time_t now = ts.tv_sec;
+
+    // Fast path: cached value valid within 5s TTL
+    if (cached_dns != 0 && (now - last_check < 5)) {
+        return cached_dns;
+    }
+
+    pthread_mutex_lock(&dns_mutex);
+    if (cached_dns != 0 && (now - last_check < 5)) {
+        in_addr_t val = cached_dns;
+        pthread_mutex_unlock(&dns_mutex);
+        return val;
+    }
+    last_check = now;
+
+    in_addr_t new_dns = 0;
     init_cortex_hook();
 
     // 1. Check Android system property net.dns1 via Bionic libc
@@ -3489,8 +3628,7 @@ static in_addr_t get_primary_dns(void) {
             struct in_addr a;
             if (inet_aton(prop_val, &a)) {
                 if ((ntohl(a.s_addr) >> 24) != 127 && a.s_addr != 0) {
-                    primary_dns = a.s_addr;
-                    return primary_dns;
+                    new_dns = a.s_addr;
                 }
             }
         }
@@ -3504,34 +3642,44 @@ static in_addr_t get_primary_dns(void) {
         snprintf(resolv_path, sizeof(resolv_path), "/etc/resolv.conf");
     }
 
-    FILE *f = fopen(resolv_path, "r");
-    if (f) {
-        char line[256];
-        while (fgets(line, sizeof(line), f)) {
-            char *p = line;
-            while (*p == ' ' || *p == '\t') p++;
-            if (strncmp(p, "nameserver", 10) == 0) {
-                p += 10;
-                while (*p == ' ' || *p == '\t') p++;
-                char *end = p;
-                while (*end && *end != ' ' && *end != '\t' && *end != '\r' && *end != '\n') end++;
-                *end = '\0';
-                struct in_addr a;
-                if (inet_aton(p, &a)) {
-                    // Only accept valid, non-loopback DNS servers
-                    if ((ntohl(a.s_addr) >> 24) != 127 && a.s_addr != 0) {
-                        primary_dns = a.s_addr;
-                        break;
+    struct stat st;
+    if (stat(resolv_path, &st) == 0) {
+        last_resolv_mtime = st.st_mtime;
+        if (new_dns == 0) {
+            FILE *f = fopen(resolv_path, "r");
+            if (f) {
+                char line[256];
+                while (fgets(line, sizeof(line), f)) {
+                    char *p = line;
+                    while (*p == ' ' || *p == '\t') p++;
+                    if (strncmp(p, "nameserver", 10) == 0) {
+                        p += 10;
+                        while (*p == ' ' || *p == '\t') p++;
+                        char *end = p;
+                        while (*end && *end != ' ' && *end != '\t' && *end != '\r' && *end != '\n') end++;
+                        *end = '\0';
+                        struct in_addr a;
+                        if (inet_aton(p, &a)) {
+                            // Only accept valid, non-loopback DNS servers
+                            if ((ntohl(a.s_addr) >> 24) != 127 && a.s_addr != 0) {
+                                new_dns = a.s_addr;
+                                break;
+                            }
+                        }
                     }
                 }
+                fclose(f);
             }
         }
-        fclose(f);
     }
-    if (primary_dns == 0) {
-        primary_dns = inet_addr("8.8.8.8");
+
+    if (new_dns == 0) {
+        new_dns = inet_addr("8.8.8.8");
     }
-    return primary_dns;
+
+    cached_dns = new_dns;
+    pthread_mutex_unlock(&dns_mutex);
+    return cached_dns;
 }
 
 
@@ -3560,6 +3708,36 @@ static struct addrinfo *alloc_one_addrinfo(const char *node, const char *ip_str,
     return ai;
 }
 
+static uint16_t generate_dns_txid(void) {
+    uint16_t txid = 0;
+    static ssize_t (*libc_getrandom)(void *, size_t, unsigned int) = NULL;
+    static int getrandom_checked = 0;
+    if (!getrandom_checked) {
+        libc_getrandom = (ssize_t (*)(void *, size_t, unsigned int))dlsym(RTLD_DEFAULT, "getrandom");
+        getrandom_checked = 1;
+    }
+    if (libc_getrandom) {
+        if (libc_getrandom(&txid, sizeof(txid), 1 /* GRND_NONBLOCK */) == sizeof(txid) && txid != 0) {
+            return txid;
+        }
+    }
+#if defined(SYS_getrandom) || defined(__NR_getrandom)
+#ifndef __NR_getrandom
+#define __NR_getrandom SYS_getrandom
+#endif
+    long r = syscall(__NR_getrandom, &txid, sizeof(txid), 1 /* GRND_NONBLOCK */);
+    if (r == (long)sizeof(txid) && txid != 0) {
+        return txid;
+    }
+#endif
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    uint32_t val = (uint32_t)(ts.tv_nsec ^ (ts.tv_sec << 16) ^ (uintptr_t)&txid);
+    txid = (uint16_t)((val & 0xffff) ^ (val >> 16));
+    if (txid == 0) txid = 0x5a6b;
+    return txid;
+}
+
 static int dns_lookup_ipv4(const char *hostname, struct in_addr *out_addr) {
     if (!hostname || !out_addr) return -1;
 
@@ -3570,8 +3748,9 @@ static int dns_lookup_ipv4(const char *hostname, struct in_addr *out_addr) {
     unsigned char packet[512];
     memset(packet, 0, sizeof(packet));
 
-    packet[0] = 0x5a;
-    packet[1] = 0x6b;
+    uint16_t txid = generate_dns_txid();
+    packet[0] = (unsigned char)(txid >> 8);
+    packet[1] = (unsigned char)(txid & 0xff);
     packet[2] = 0x01;
     packet[3] = 0x00;
     packet[4] = 0x00;
@@ -3670,6 +3849,16 @@ static int dns_lookup_ipv4(const char *hostname, struct in_addr *out_addr) {
     return -1;
 }
 
+static int domain_matches(const char *node, const char *suffix) {
+    if (!node || !suffix) return 0;
+    size_t nlen = strlen(node);
+    size_t slen = strlen(suffix);
+    if (nlen < slen) return 0;
+    if (strcasecmp(node + (nlen - slen), suffix) != 0) return 0;
+    if (nlen == slen) return 1;
+    return (node[nlen - slen - 1] == '.');
+}
+
 static int synthesize_fallback_addrinfo(const char *node, const char *service,
                                         const struct addrinfo *hints,
                                         struct addrinfo **res) {
@@ -3706,7 +3895,7 @@ static int synthesize_fallback_addrinfo(const char *node, const char *service,
         }
     }
 
-    if (strstr(node, "ubuntu.com") != NULL) {
+    if (domain_matches(node, "ubuntu.com")) {
         struct addrinfo *ai1 = alloc_one_addrinfo(node, "91.189.91.103", port, socktype, protocol);
         if (!ai1) return EAI_MEMORY;
         struct addrinfo *ai2 = alloc_one_addrinfo(node, "91.189.92.21", port, socktype, protocol);
@@ -3717,7 +3906,7 @@ static int synthesize_fallback_addrinfo(const char *node, const char *service,
         return 0;
     }
 
-    if (strstr(node, "debian.org") != NULL) {
+    if (domain_matches(node, "debian.org")) {
         struct addrinfo *ai1 = alloc_one_addrinfo(node, "151.101.130.132", port, socktype, protocol);
         if (!ai1) return EAI_MEMORY;
         struct addrinfo *ai2 = alloc_one_addrinfo(node, "151.101.2.132", port, socktype, protocol);
@@ -3728,7 +3917,7 @@ static int synthesize_fallback_addrinfo(const char *node, const char *service,
         return 0;
     }
 
-    if (strstr(node, "opencode.ai") != NULL) {
+    if (domain_matches(node, "opencode.ai")) {
         struct addrinfo *ai1 = alloc_one_addrinfo(node, "172.65.90.22", port, socktype, protocol);
         if (!ai1) return EAI_MEMORY;
         struct addrinfo *ai2 = alloc_one_addrinfo(node, "172.65.90.23", port, socktype, protocol);
@@ -3739,7 +3928,7 @@ static int synthesize_fallback_addrinfo(const char *node, const char *service,
         return 0;
     }
 
-    if (strstr(node, "github.com") != NULL) {
+    if (domain_matches(node, "github.com")) {
         struct addrinfo *ai1 = alloc_one_addrinfo(node, "140.82.121.6", port, socktype, protocol);
         if (!ai1) return EAI_MEMORY;
         struct addrinfo *ai2 = alloc_one_addrinfo(node, "140.82.121.4", port, socktype, protocol);
@@ -3750,7 +3939,7 @@ static int synthesize_fallback_addrinfo(const char *node, const char *service,
         return 0;
     }
 
-    if (strstr(node, "githubusercontent.com") != NULL) {
+    if (domain_matches(node, "githubusercontent.com")) {
         struct addrinfo *ai1 = alloc_one_addrinfo(node, "185.199.110.133", port, socktype, protocol);
         if (!ai1) return EAI_MEMORY;
         struct addrinfo *ai2 = alloc_one_addrinfo(node, "185.199.108.133", port, socktype, protocol);
@@ -3761,7 +3950,7 @@ static int synthesize_fallback_addrinfo(const char *node, const char *service,
         return 0;
     }
 
-    if (strstr(node, "npmjs.org") != NULL || strstr(node, "npmjs.com") != NULL) {
+    if (domain_matches(node, "npmjs.org") || domain_matches(node, "npmjs.com")) {
         struct addrinfo *ai1 = alloc_one_addrinfo(node, "104.16.2.34", port, socktype, protocol);
         if (!ai1) return EAI_MEMORY;
         struct addrinfo *ai2 = alloc_one_addrinfo(node, "104.16.3.34", port, socktype, protocol);
@@ -3772,7 +3961,7 @@ static int synthesize_fallback_addrinfo(const char *node, const char *service,
         return 0;
     }
 
-    if (strstr(node, "googleapis.com") != NULL || strstr(node, "accounts.google.com") != NULL) {
+    if (domain_matches(node, "googleapis.com") || domain_matches(node, "accounts.google.com")) {
         struct addrinfo *ai1 = alloc_one_addrinfo(node, "142.251.127.95", port, socktype, protocol);
         if (!ai1) return EAI_MEMORY;
         struct addrinfo *ai2 = alloc_one_addrinfo(node, "142.251.127.84", port, socktype, protocol);
@@ -3783,8 +3972,8 @@ static int synthesize_fallback_addrinfo(const char *node, const char *service,
         return 0;
     }
 
-    if (strstr(node, "meta.ai") != NULL || strstr(node, "meta.com") != NULL || strstr(node, "facebook.com") != NULL) {
-        const char *ip = (strstr(node, "lookaside.facebook.com") != NULL) ? "57.144.36.128" : "57.144.36.141";
+    if (domain_matches(node, "meta.ai") || domain_matches(node, "meta.com") || domain_matches(node, "facebook.com")) {
+        const char *ip = domain_matches(node, "lookaside.facebook.com") ? "57.144.36.128" : "57.144.36.141";
         struct addrinfo *ai = alloc_one_addrinfo(node, ip, port, socktype, protocol);
         if (ai) {
             *res = ai;
@@ -4084,11 +4273,13 @@ ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
     if (ret > 0 && src_addr && addrlen && *addrlen >= sizeof(struct sockaddr_in)) {
         if (src_addr->sa_family == AF_INET) {
             struct sockaddr_in *sin = (struct sockaddr_in *)src_addr;
-            in_addr_t orig_ip;
-            in_port_t orig_port;
-            if (get_dns_redirect(sockfd, &orig_ip, &orig_port)) {
-                sin->sin_addr.s_addr = orig_ip;
-                sin->sin_port = orig_port;
+            if (sin->sin_port == htons(53)) {
+                in_addr_t orig_ip;
+                in_port_t orig_port;
+                if (get_dns_redirect(sockfd, &orig_ip, &orig_port)) {
+                    sin->sin_addr.s_addr = orig_ip;
+                    sin->sin_port = orig_port;
+                }
             }
         }
     }
@@ -4102,7 +4293,7 @@ ssize_t recvmsg(int sockfd, struct msghdr *msg, int flags) {
     ssize_t ret = orig_recvmsg ? orig_recvmsg(sockfd, msg, flags) : -1;
     if (ret > 0 && msg && msg->msg_name && msg->msg_namelen >= sizeof(struct sockaddr_in)) {
         struct sockaddr_in *sin = (struct sockaddr_in *)msg->msg_name;
-        if (sin->sin_family == AF_INET) {
+        if (sin->sin_family == AF_INET && sin->sin_port == htons(53)) {
             in_addr_t orig_ip;
             in_port_t orig_port;
             if (get_dns_redirect(sockfd, &orig_ip, &orig_port)) {
@@ -4122,11 +4313,13 @@ int getpeername(int sockfd, struct sockaddr *addr, socklen_t *addrlen) {
     if (ret == 0 && addr && addrlen && *addrlen >= sizeof(struct sockaddr_in)) {
         if (addr->sa_family == AF_INET) {
             struct sockaddr_in *sin = (struct sockaddr_in *)addr;
-            in_addr_t orig_ip;
-            in_port_t orig_port;
-            if (get_dns_redirect(sockfd, &orig_ip, &orig_port)) {
-                sin->sin_addr.s_addr = orig_ip;
-                sin->sin_port = orig_port;
+            if (sin->sin_port == htons(53)) {
+                in_addr_t orig_ip;
+                in_port_t orig_port;
+                if (get_dns_redirect(sockfd, &orig_ip, &orig_port)) {
+                    sin->sin_addr.s_addr = orig_ip;
+                    sin->sin_port = orig_port;
+                }
             }
         }
     }
