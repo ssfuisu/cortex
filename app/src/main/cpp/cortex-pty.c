@@ -14,6 +14,8 @@
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <limits.h>
+#include <elf.h>
+#include <dirent.h>
 #include <android/log.h>
 
 #define TAG "CortexPty"
@@ -125,45 +127,113 @@ static int has_pt_interp(const char *path) {
     if (!path || path[0] == '\0') return 0;
     int fd = open(path, O_RDONLY);
     if (fd < 0) return 0;
-    unsigned char ehdr[64];
-    ssize_t n = read(fd, ehdr, sizeof(ehdr));
-    if (n < 52 || ehdr[0] != 0x7f || ehdr[1] != 'E' || ehdr[2] != 'L' || ehdr[3] != 'F') {
+
+    unsigned char buf[sizeof(Elf64_Ehdr)];
+    ssize_t n = read(fd, buf, sizeof(buf));
+    if (n < (ssize_t)sizeof(Elf32_Ehdr)) {
         close(fd);
         return 0;
     }
-    int is_64 = (ehdr[4] == 2);
+
+    if (buf[EI_MAG0] != ELFMAG0 || buf[EI_MAG1] != ELFMAG1 ||
+        buf[EI_MAG2] != ELFMAG2 || buf[EI_MAG3] != ELFMAG3) {
+        close(fd);
+        return 0;
+    }
+
+    int is_64 = (buf[EI_CLASS] == ELFCLASS64);
     uint64_t phoff = 0;
     uint16_t phentsize = 0;
     uint16_t phnum = 0;
+
     if (is_64) {
-        if (n < 64) { close(fd); return 0; }
-        phoff = *(uint64_t *)(ehdr + 32);
-        phentsize = *(uint16_t *)(ehdr + 54);
-        phnum = *(uint16_t *)(ehdr + 56);
+        if (n < (ssize_t)sizeof(Elf64_Ehdr)) {
+            close(fd);
+            return 0;
+        }
+        Elf64_Ehdr ehdr64;
+        memcpy(&ehdr64, buf, sizeof(Elf64_Ehdr));
+        phoff = ehdr64.e_phoff;
+        phentsize = ehdr64.e_phentsize;
+        phnum = ehdr64.e_phnum;
+        if (phentsize < sizeof(Elf64_Phdr)) {
+            close(fd);
+            return 0;
+        }
+    } else if (buf[EI_CLASS] == ELFCLASS32) {
+        Elf32_Ehdr ehdr32;
+        memcpy(&ehdr32, buf, sizeof(Elf32_Ehdr));
+        phoff = ehdr32.e_phoff;
+        phentsize = ehdr32.e_phentsize;
+        phnum = ehdr32.e_phnum;
+        if (phentsize < sizeof(Elf32_Phdr)) {
+            close(fd);
+            return 0;
+        }
     } else {
-        phoff = *(uint32_t *)(ehdr + 28);
-        phentsize = *(uint16_t *)(ehdr + 42);
-        phnum = *(uint16_t *)(ehdr + 44);
+        close(fd);
+        return 0;
     }
+
     if (phoff == 0 || phentsize == 0 || phnum == 0) {
         close(fd);
         return 0;
     }
+
     if (lseek(fd, (off_t)phoff, SEEK_SET) < 0) {
         close(fd);
         return 0;
     }
+
     for (int i = 0; i < phnum && i < 128; i++) {
-        uint32_t p_type = 0;
-        if (read(fd, &p_type, sizeof(p_type)) != sizeof(p_type)) break;
-        if (p_type == 3 /* PT_INTERP */) {
-            close(fd);
-            return 1;
+        if (is_64) {
+            Elf64_Phdr phdr;
+            if (read(fd, &phdr, sizeof(Elf64_Phdr)) != (ssize_t)sizeof(Elf64_Phdr)) break;
+            if (phdr.p_type == PT_INTERP) {
+                close(fd);
+                return 1;
+            }
+            if (phentsize > sizeof(Elf64_Phdr)) {
+                if (lseek(fd, (off_t)(phentsize - sizeof(Elf64_Phdr)), SEEK_CUR) < 0) break;
+            }
+        } else {
+            Elf32_Phdr phdr;
+            if (read(fd, &phdr, sizeof(Elf32_Phdr)) != (ssize_t)sizeof(Elf32_Phdr)) break;
+            if (phdr.p_type == PT_INTERP) {
+                close(fd);
+                return 1;
+            }
+            if (phentsize > sizeof(Elf32_Phdr)) {
+                if (lseek(fd, (off_t)(phentsize - sizeof(Elf32_Phdr)), SEEK_CUR) < 0) break;
+            }
         }
-        if (lseek(fd, (off_t)(phentsize - sizeof(p_type)), SEEK_CUR) < 0) break;
     }
+
     close(fd);
     return 0;
+}
+
+static void close_all_inherited_fds(void) {
+    DIR *dir = opendir("/proc/self/fd");
+    if (dir != NULL) {
+        int dfd = dirfd(dir);
+        struct dirent *de;
+        while ((de = readdir(dir)) != NULL) {
+            if (de->d_name[0] == '.') continue;
+            char *endptr = NULL;
+            long fd = strtol(de->d_name, &endptr, 10);
+            if (endptr && *endptr == '\0' && fd > STDERR_FILENO && fd != dfd) {
+                close((int)fd);
+            }
+        }
+        closedir(dir);
+    } else {
+        long max_fd = sysconf(_SC_OPEN_MAX);
+        if (max_fd < 0 || max_fd > 65536) max_fd = 1024;
+        for (int fd = 3; fd < (int)max_fd; fd++) {
+            close(fd);
+        }
+    }
 }
 
 JNIEXPORT jintArray JNICALL
@@ -179,11 +249,15 @@ Java_org_cortex_terminal_pty_PtyNative_createPty(
     jint widthPx,
     jint heightPx
 ) {
-    int masterFd = posix_openpt(O_RDWR | O_NOCTTY);
+    int masterFd = posix_openpt(O_RDWR | O_NOCTTY | O_CLOEXEC);
+    if (masterFd < 0) {
+        masterFd = posix_openpt(O_RDWR | O_NOCTTY);
+    }
     if (masterFd < 0) {
         LOGE("Failed to open ptmx: %s", strerror(errno));
         return NULL;
     }
+    fcntl(masterFd, F_SETFD, FD_CLOEXEC);
 
     if (grantpt(masterFd) < 0) {
         LOGE("Failed to grantpt: %s", strerror(errno));
@@ -245,8 +319,18 @@ Java_org_cortex_terminal_pty_PtyNative_createPty(
     if (pid < 0) {
         LOGE("Failed to fork: %s", strerror(errno));
         close(masterFd);
-        free(argv);
-        free(envp);
+        if (argv) {
+            for (int i = 0; i <= argCount; i++) {
+                free(argv[i]);
+            }
+            free(argv);
+        }
+        if (envp) {
+            for (int i = 0; i < envCount; i++) {
+                free(envp[i]);
+            }
+            free(envp);
+        }
         (*env)->ReleaseStringUTFChars(env, cmdStr, cmd);
         if (cwd) (*env)->ReleaseStringUTFChars(env, cwdStr, cwd);
         return NULL;
@@ -273,6 +357,9 @@ Java_org_cortex_terminal_pty_PtyNative_createPty(
             close(slaveFd);
         }
         close(masterFd);
+
+        // Close all open file descriptors fd > 2 to prevent descriptor inheritance leaks
+        close_all_inherited_fds();
 
         // Set foreground process group to child process
         pid_t pgrp = getpid();
@@ -490,9 +577,26 @@ static void mkdirs_for_path(const char *path) {
     }
 }
 
+static int is_tar_path_unsafe(const char *path) {
+    if (!path || path[0] == '\0') return 0;
+    // Reject leading '/'
+    if (path[0] == '/') return 1;
+    // Reject any occurrence of ".."
+    if (strstr(path, "..") != NULL) return 1;
+    return 0;
+}
+
+#define TAR_COPY_BUF_SIZE 65536
+
 static int extract_tar_archive(const char *tar_path, const char *dest_dir) {
     int fd = open(tar_path, O_RDONLY);
     if (fd < 0) return -1;
+
+    char *copy_buf = malloc(TAR_COPY_BUF_SIZE);
+    if (!copy_buf) {
+        close(fd);
+        return -1;
+    }
 
     char block[512];
     char long_name[PATH_MAX] = {0};
@@ -578,6 +682,20 @@ static int extract_tar_archive(const char *tar_path, const char *dest_dir) {
             continue;
         }
 
+        // Tar-Slip path traversal protection: reject paths/symlink targets containing .. or leading /
+        if (is_tar_path_unsafe(name) ||
+            ((typeflag == '1' || typeflag == '2') && is_tar_path_unsafe(linkname))) {
+            LOGE("Tar-Slip security guard: rejecting unsafe entry: name='%s', link='%s'", name, linkname);
+            unsigned long long rem = ((size + 511) / 512) * 512;
+            while (rem > 0) {
+                size_t to_read = (rem < TAR_COPY_BUF_SIZE) ? (size_t)rem : TAR_COPY_BUF_SIZE;
+                ssize_t n = read(fd, copy_buf, to_read);
+                if (n <= 0) break;
+                rem -= (size_t)n;
+            }
+            continue;
+        }
+
         const char *rel = name;
         while (*rel == '.' || *rel == '/') rel++;
         if (*rel == '\0') continue;
@@ -608,18 +726,27 @@ static int extract_tar_archive(const char *tar_path, const char *dest_dir) {
             unlink(dest_path);
             rmdir(dest_path);
             int out_fd = open(dest_path, O_WRONLY | O_CREAT | O_TRUNC, (mode & 0777) | 0600);
-            unsigned long long rem = size;
-            while (rem > 0) {
-                char dblock[512];
-                ssize_t n = read(fd, dblock, 512);
+            unsigned long long rem_data = size;
+            unsigned long long total_to_read = ((size + 511) / 512) * 512;
+
+            while (total_to_read > 0) {
+                size_t to_read = (total_to_read < TAR_COPY_BUF_SIZE) ? (size_t)total_to_read : TAR_COPY_BUF_SIZE;
+                ssize_t n = read(fd, copy_buf, to_read);
                 if (n <= 0) break;
-                size_t chunk = (rem < 512) ? rem : 512;
-                if (out_fd >= 0) {
-                    ssize_t written = write(out_fd, dblock, chunk);
-                    (void)written;
+                total_to_read -= (size_t)n;
+
+                size_t to_write = (rem_data < (unsigned long long)n) ? (size_t)rem_data : (size_t)n;
+                if (out_fd >= 0 && to_write > 0) {
+                    size_t written = 0;
+                    while (written < to_write) {
+                        ssize_t w = write(out_fd, copy_buf + written, to_write - written);
+                        if (w <= 0) break;
+                        written += (size_t)w;
+                    }
                 }
-                rem -= (rem < 512) ? rem : 512;
+                rem_data -= to_write;
             }
+
             if (out_fd >= 0) {
                 close(out_fd);
                 chmod(dest_path, mode & 0777);
@@ -627,6 +754,7 @@ static int extract_tar_archive(const char *tar_path, const char *dest_dir) {
         }
     }
 
+    free(copy_buf);
     close(fd);
     return 0;
 }
