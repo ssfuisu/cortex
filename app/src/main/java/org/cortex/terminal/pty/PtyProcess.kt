@@ -48,8 +48,8 @@ class PtyProcess private constructor(
     fun destroy() {
         if (alive.compareAndSet(true, false)) {
             PtyNative.killProcess(pid, 1) // SIGHUP
-            closeMasterFdOnce()
         }
+        closeMasterFdOnce()
     }
 
     companion object {

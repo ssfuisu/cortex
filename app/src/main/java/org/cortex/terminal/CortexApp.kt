@@ -1,11 +1,11 @@
 package org.cortex.terminal
 
 import android.app.Application
-import org.cortex.terminal.runtime.CortexRuntime
+import org.cortex.terminal.runtime.BootstrapManager
 
 class CortexApp : Application() {
     override fun onCreate() {
         super.onCreate()
-        CortexRuntime.initialize(this)
+        BootstrapManager.initializeFileSystem(this)
     }
 }
