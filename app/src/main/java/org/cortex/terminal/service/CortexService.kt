@@ -133,11 +133,17 @@ class CortexService : Service() {
             android.util.Log.e("CortexService", "createNotificationChannel failed", e)
         }
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) { // API 34
                 startForeground(
                     NOTIFICATION_ID,
                     buildNotification(),
                     android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+                )
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(
+                    NOTIFICATION_ID,
+                    buildNotification(),
+                    0
                 )
             } else {
                 startForeground(NOTIFICATION_ID, buildNotification())
@@ -166,11 +172,17 @@ class CortexService : Service() {
         // kill or process death), make sure we are foreground again before
         // doing anything else.
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) { // API 34
                 startForeground(
                     NOTIFICATION_ID,
                     buildNotification(),
                     android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+                )
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(
+                    NOTIFICATION_ID,
+                    buildNotification(),
+                    0
                 )
             } else {
                 startForeground(NOTIFICATION_ID, buildNotification())
@@ -218,7 +230,8 @@ class CortexService : Service() {
             }
             wakeLock?.let {
                 if (!it.isHeld) {
-                    it.acquire()
+                    // Defensive 4-hour max timeout to prevent battery drain if app is orphaned
+                    it.acquire(4 * 60 * 60 * 1000L)
                     isWakeLockHeld = true
                 }
             }
