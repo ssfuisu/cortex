@@ -85,7 +85,7 @@ class TerminalSearchBar @JvmOverloads constructor(
         }
         addView(countText)
 
-        val btnSize = (36 * resources.displayMetrics.density).toInt()
+        val btnSize = (48 * resources.displayMetrics.density).toInt()
         val btnPrev = ImageButton(context).apply {
             layoutParams = LayoutParams(btnSize, btnSize).apply {
                 marginEnd = (4 * resources.displayMetrics.density).toInt()

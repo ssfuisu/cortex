@@ -30,6 +30,12 @@
             app:key="keep_screen_on"
             app:summary="Prevent the display from turning off while terminal is active"
             app:title="Keep Screen On" />
+
+        <SwitchPreferenceCompat
+            app:defaultValue="false"
+            app:key="secure_screen"
+            app:summary="Block screenshots and hide app content in recent tasks (FLAG_SECURE)"
+            app:title="Secure Screen" />
     </PreferenceCategory>
 
     <PreferenceCategory app:title="Community &amp; Support">

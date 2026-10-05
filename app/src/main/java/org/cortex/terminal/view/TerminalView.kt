@@ -20,6 +20,7 @@ import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.accessibility.AccessibilityNodeInfo
 import android.view.inputmethod.BaseInputConnection
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
@@ -778,12 +779,7 @@ class TerminalView @JvmOverloads constructor(
         var endC = col
 
         emulator.lock.withLock {
-            val row = if (bufferRow < 0) {
-                val hIdx = buffer.history.size + bufferRow
-                if (hIdx in 0 until buffer.history.size) buffer.history[hIdx] else null
-            } else if (bufferRow in 0 until rows && bufferRow in 0 until buffer.screen.size) {
-                buffer.screen[bufferRow]
-            } else null
+            val row = buffer.rowForIndex(bufferRow)
 
             if (row != null && col in 0 until row.cols) {
                 val isWordChar = { c: Char -> c.isLetterOrDigit() || c == '_' || c == '-' || c == '/' || c == '.' }
@@ -966,12 +962,16 @@ class TerminalView @JvmOverloads constructor(
                 else -> ".png"
             }
 
-            val picturesDir = File("/sdcard/Pictures")
-            val destDir = if (picturesDir.exists() || picturesDir.mkdirs()) {
-                picturesDir
-            } else {
-                val extDir = File(android.os.Environment.getExternalStorageDirectory(), "Pictures")
-                if (extDir.exists() || extDir.mkdirs()) extDir else File(context.filesDir, "pictures").apply { mkdirs() }
+            val destDir = File(context.cacheDir, "images").apply {
+                if (!exists()) {
+                    mkdirs()
+                    setReadable(false, false)
+                    setReadable(true, true)
+                    setWritable(false, false)
+                    setWritable(true, true)
+                    setExecutable(false, false)
+                    setExecutable(true, true)
+                }
             }
 
             val timeStamp = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US).format(java.util.Date())
@@ -983,7 +983,10 @@ class TerminalView @JvmOverloads constructor(
                 }
             } ?: return null
 
-            targetFile.setReadable(true, false)
+            targetFile.setReadable(false, false)
+            targetFile.setReadable(true, true)
+            targetFile.setWritable(false, false)
+            targetFile.setWritable(true, true)
             return targetFile.absolutePath + " "
         } catch (e: Exception) {
             android.util.Log.e("TerminalView", "Failed to save clipboard image", e)
@@ -1331,5 +1334,32 @@ class TerminalView @JvmOverloads constructor(
         }
 
         return super.onKeyDown(keyCode, event)
+    }
+
+    override fun onInitializeAccessibilityNodeInfo(info: AccessibilityNodeInfo) {
+        super.onInitializeAccessibilityNodeInfo(info)
+        info.className = "android.widget.EditText"
+        info.isFocusable = true
+        info.isFocused = isFocused
+        info.isScrollable = true
+
+        val emulator = session?.emulator
+        if (emulator != null) {
+            val visibleText = StringBuilder()
+            emulator.lock.withLock {
+                val buffer = emulator.buffer
+                for (r in 0 until rows) {
+                    val row = buffer.getVisibleRow(r, scrollOffset)
+                    val text = row.getText()
+                    if (text.isNotEmpty()) {
+                        visibleText.append(text).append("\n")
+                    }
+                }
+            }
+            info.text = visibleText.toString().trimEnd()
+            info.contentDescription = "Terminal Screen, ${cols} columns by ${rows} rows"
+        } else {
+            info.contentDescription = "Terminal Screen (Inactive)"
+        }
     }
 }

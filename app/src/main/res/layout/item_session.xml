@@ -44,13 +44,14 @@
 
     <TextView
         android:id="@+id/btnSessionClose"
-        android:layout_width="34dp"
-        android:layout_height="34dp"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
         android:gravity="center"
         android:text="✕"
         android:textColor="@color/cortex_accent"
         android:textSize="16sp"
         android:textStyle="bold"
-        android:background="@drawable/icon_circle_bg" />
+        android:background="@drawable/icon_circle_bg"
+        android:contentDescription="Close session" />
 
 </LinearLayout>
