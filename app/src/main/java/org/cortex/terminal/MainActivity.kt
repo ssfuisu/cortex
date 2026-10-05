@@ -11,6 +11,7 @@ import android.view.animation.DecelerateInterpolator
 import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
@@ -20,6 +21,7 @@ import androidx.drawerlayout.widget.DrawerLayout
 import androidx.preference.PreferenceManager
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import org.cortex.terminal.databinding.ActivityMainBinding
 import org.cortex.terminal.runtime.BootstrapManager
 import org.cortex.terminal.runtime.Environment
 import org.cortex.terminal.service.CortexService
@@ -38,19 +40,21 @@ class MainActivity : AppCompatActivity() {
             private set
     }
 
-    private lateinit var drawerLayout: DrawerLayout
-    private lateinit var terminalView: TerminalView
-    private lateinit var extraKeysView: ExtraKeysView
-    private lateinit var searchBar: TerminalSearchBar
-    private lateinit var drawerTitle: TextView
-    private lateinit var btnDrawerSettings: ImageView
-    private lateinit var layoutUpdateBadge: android.widget.FrameLayout
-    private lateinit var updateRedDot: android.view.View
+    private lateinit var binding: ActivityMainBinding
 
-    private lateinit var sessionRecyclerView: RecyclerView
+    private val drawerLayout: DrawerLayout get() = binding.drawerLayout
+    private val terminalView: TerminalView get() = binding.terminalView
+    private val extraKeysView: ExtraKeysView get() = binding.extraKeysView
+    private val searchBar: TerminalSearchBar get() = binding.searchBar
+    private val drawerTitle: TextView get() = binding.drawerTitle
+    private val btnDrawerSettings: ImageView get() = binding.btnDrawerSettings
+    private val layoutUpdateBadge: android.widget.FrameLayout get() = binding.layoutUpdateBadge
+    private val updateRedDot: android.view.View get() = binding.updateRedDot
+
+    private val sessionRecyclerView: RecyclerView get() = binding.sessionRecyclerView
     private lateinit var sessionAdapter: SessionAdapter
-    private lateinit var btnDrawerKeyboard: TextView
-    private lateinit var btnDrawerNewSession: TextView
+    private val btnDrawerKeyboard: TextView get() = binding.btnDrawerKeyboard
+    private val btnDrawerNewSession: TextView get() = binding.btnDrawerNewSession
 
     private lateinit var sessionManager: SessionManager
     private var isBootstrapping = false
@@ -58,9 +62,10 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
+        binding = ActivityMainBinding.inflate(layoutInflater)
+        setContentView(binding.root)
 
-        drawerLayout = findViewById(R.id.drawerLayout)
+        setupBackPressedDispatcher()
         drawerLayout.setDrawerLockMode(DrawerLayout.LOCK_MODE_UNLOCKED)
         try {
             val mLeftDraggerField = DrawerLayout::class.java.getDeclaredField("mLeftDragger")
@@ -71,14 +76,6 @@ class MainActivity : AppCompatActivity() {
             val density = resources.displayMetrics.density
             edgeSizeField.setInt(leftDragger, (40 * density).toInt())
         } catch (e: Exception) {}
-
-        terminalView = findViewById(R.id.terminalView)
-        extraKeysView = findViewById(R.id.extraKeysView)
-        searchBar = findViewById(R.id.searchBar)
-        drawerTitle = findViewById(R.id.drawerTitle)
-        btnDrawerSettings = findViewById(R.id.btnDrawerSettings)
-        layoutUpdateBadge = findViewById(R.id.layoutUpdateBadge)
-        updateRedDot = findViewById(R.id.updateRedDot)
 
         layoutUpdateBadge.setOnClickListener {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
@@ -118,10 +115,6 @@ class MainActivity : AppCompatActivity() {
                 updateRedDot.visibility = if (isAvailable) android.view.View.VISIBLE else android.view.View.GONE
             }
         }
-
-        sessionRecyclerView = findViewById(R.id.sessionRecyclerView)
-        btnDrawerKeyboard = findViewById(R.id.btnDrawerKeyboard)
-        btnDrawerNewSession = findViewById(R.id.btnDrawerNewSession)
 
         terminalView.onTerminalTouchWhenDrawerOpen = {
             if (drawerLayout.isDrawerOpen(GravityCompat.START)) {
@@ -424,6 +417,13 @@ class MainActivity : AppCompatActivity() {
         } else {
             window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         }
+
+        val secureScreen = prefs.getBoolean("secure_screen", false)
+        if (secureScreen) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        }
     }
 
     private fun createNewSession(): TerminalSession {
@@ -547,36 +547,40 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    override fun onBackPressed() {
-        if (searchBar.visibility == View.VISIBLE) {
-            hideTerminalSearch(animated = true)
-            return
-        }
-        if (drawerLayout.isDrawerOpen(GravityCompat.START)) {
-            drawerLayout.closeDrawer(GravityCompat.START)
-            return
-        }
-
-        if (sessionManager.sessions.size > 1) {
-            val current = sessionManager.currentSession
-            if (current != null) {
-                sessionManager.removeSession(current)
-                sessionAdapter.notifyDataSetChanged()
-                return
-            }
-        }
-
-        AlertDialog.Builder(this)
-            .setTitle(R.string.exit_confirm_title)
-            .setMessage(R.string.exit_confirm_message)
-            .setPositiveButton(R.string.yes) { _, _ ->
-                CortexService.instance?.exitAll() ?: run {
-                    sessionManager.destroyAll()
-                    super.onBackPressed()
+    private fun setupBackPressedDispatcher() {
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (searchBar.visibility == View.VISIBLE) {
+                    hideTerminalSearch(animated = true)
+                    return
                 }
+                if (drawerLayout.isDrawerOpen(GravityCompat.START)) {
+                    drawerLayout.closeDrawer(GravityCompat.START)
+                    return
+                }
+
+                if (sessionManager.sessions.size > 1) {
+                    val current = sessionManager.currentSession
+                    if (current != null) {
+                        sessionManager.removeSession(current)
+                        sessionAdapter.notifyDataSetChanged()
+                        return
+                    }
+                }
+
+                AlertDialog.Builder(this@MainActivity)
+                    .setTitle(R.string.exit_confirm_title)
+                    .setMessage(R.string.exit_confirm_message)
+                    .setPositiveButton(R.string.yes) { _, _ ->
+                        CortexService.instance?.exitAll() ?: run {
+                            sessionManager.destroyAll()
+                            finish()
+                        }
+                    }
+                    .setNegativeButton(R.string.no, null)
+                    .show()
             }
-            .setNegativeButton(R.string.no, null)
-            .show()
+        })
     }
 
     private fun checkAndRequestStoragePermission() {

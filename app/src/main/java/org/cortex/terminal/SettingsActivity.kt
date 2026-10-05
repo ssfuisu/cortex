@@ -23,6 +23,16 @@ class SettingsActivity : AppCompatActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        val prefs = androidx.preference.PreferenceManager.getDefaultSharedPreferences(this)
+        if (prefs.getBoolean("secure_screen", false)) {
+            window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+        } else {
+            window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+        }
+    }
+
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         if (item.itemId == android.R.id.home) {
             finish()

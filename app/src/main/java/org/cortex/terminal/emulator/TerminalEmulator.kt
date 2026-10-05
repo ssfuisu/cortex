@@ -85,24 +85,30 @@ class TerminalEmulator(
         onScreenUpdate?.invoke()
     }
 
+    private val utf8ByteBuffer: ByteBuffer = ByteBuffer.allocate(16384)
+
     fun processInput(bytes: ByteArray, offset: Int, length: Int) {
         lock.withLock {
-            val byteBuffer = ByteBuffer.wrap(bytes, offset, length)
-            if (charBuffer.capacity() < length) {
-                charBuffer = CharBuffer.allocate(length * 2)
+            if (utf8ByteBuffer.remaining() < length) {
+                utf8ByteBuffer.compact()
             }
-            while (byteBuffer.hasRemaining()) {
-                charBuffer.clear()
-                val result = utf8Decoder.decode(byteBuffer, charBuffer, false)
-                charBuffer.flip()
-                while (charBuffer.hasRemaining()) {
-                    processChar(charBuffer.get())
-                }
-                if (result.isUnderflow) {
-                    // Incomplete multi-byte sequence remains in byteBuffer for next call
-                    break
-                }
+            val toPut = minOf(length, utf8ByteBuffer.remaining())
+            utf8ByteBuffer.put(bytes, offset, toPut)
+            utf8ByteBuffer.flip()
+
+            if (charBuffer.capacity() < utf8ByteBuffer.remaining() * 2) {
+                charBuffer = CharBuffer.allocate(utf8ByteBuffer.remaining() * 2 + 1024)
             }
+
+            charBuffer.clear()
+            utf8Decoder.decode(utf8ByteBuffer, charBuffer, false)
+            charBuffer.flip()
+
+            while (charBuffer.hasRemaining()) {
+                processChar(charBuffer.get())
+            }
+
+            utf8ByteBuffer.compact()
         }
         onScreenUpdate?.invoke()
     }

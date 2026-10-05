@@ -105,6 +105,12 @@ android {
         }
     }
 
+    testOptions {
+        unitTests {
+            isReturnDefaultValues = true
+        }
+    }
+
     lint {
         checkReleaseBuilds = true
         abortOnError = true
