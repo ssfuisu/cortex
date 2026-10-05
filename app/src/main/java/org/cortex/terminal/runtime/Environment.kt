@@ -138,7 +138,9 @@ object Environment {
             "TERMINFO=$terminfo",
             "TERMINFO_DIRS=$terminfoDirs",
             "GODEBUG=netdns=cgo",
-            "BROWSER=/usr/local/bin/xdg-open"
+            "BROWSER=/usr/local/bin/xdg-open",
+            "CORTEX_URL_PORT=${UrlOpenerServer.PORT}",
+            "CORTEX_URL_TOKEN=${UrlOpenerServer.getOrCreateToken(context)}"
         )
 
         if (preloadStr.isNotEmpty()) {
