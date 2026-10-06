@@ -1,6 +1,11 @@
 package org.cortex.terminal.emulator
 
 import android.graphics.Color
+import java.nio.ByteBuffer
+import java.nio.CharBuffer
+import java.nio.charset.CharsetDecoder
+import java.nio.charset.CodingErrorAction
+import java.nio.charset.StandardCharsets
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 
@@ -11,6 +16,11 @@ class TerminalEmulator(
 ) {
     val lock = ReentrantLock()
     val buffer = TerminalBuffer(rows, cols)
+
+    private val utf8Decoder: CharsetDecoder = StandardCharsets.UTF_8.newDecoder()
+        .onMalformedInput(CodingErrorAction.REPLACE)
+        .onUnmappableCharacter(CodingErrorAction.REPLACE)
+    private var charBuffer: CharBuffer = CharBuffer.allocate(4096)
 
     private enum class State {
         NORMAL, ESCAPE, CSI, OSC, CHARSET, STRING_IGNORE
@@ -75,12 +85,30 @@ class TerminalEmulator(
         onScreenUpdate?.invoke()
     }
 
+    private val utf8ByteBuffer: ByteBuffer = ByteBuffer.allocate(16384)
+
     fun processInput(bytes: ByteArray, offset: Int, length: Int) {
         lock.withLock {
-            val text = String(bytes, offset, length, Charsets.UTF_8)
-            for (ch in text) {
-                processChar(ch)
+            if (utf8ByteBuffer.remaining() < length) {
+                utf8ByteBuffer.compact()
             }
+            val toPut = minOf(length, utf8ByteBuffer.remaining())
+            utf8ByteBuffer.put(bytes, offset, toPut)
+            utf8ByteBuffer.flip()
+
+            if (charBuffer.capacity() < utf8ByteBuffer.remaining() * 2) {
+                charBuffer = CharBuffer.allocate(utf8ByteBuffer.remaining() * 2 + 1024)
+            }
+
+            charBuffer.clear()
+            utf8Decoder.decode(utf8ByteBuffer, charBuffer, false)
+            charBuffer.flip()
+
+            while (charBuffer.hasRemaining()) {
+                processChar(charBuffer.get())
+            }
+
+            utf8ByteBuffer.compact()
         }
         onScreenUpdate?.invoke()
     }

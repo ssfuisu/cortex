@@ -1,6 +1,8 @@
 package org.cortex.terminal.runtime
 
 import android.content.Context
+import android.os.Process
+import android.util.Log
 import org.cortex.terminal.pty.PtyNative
 import org.cortex.terminal.pty.PtyProcess
 import java.io.File
@@ -9,6 +11,8 @@ import java.io.PushbackInputStream
 import java.util.zip.GZIPInputStream
 
 object BootstrapManager {
+    private const val TAG = "BootstrapManager"
+    const val CURRENT_BOOTSTRAP_VERSION = 12523
 
     fun initializeFileSystem(context: Context) {
         val root = Environment.getCortexRoot(context)
@@ -19,9 +23,13 @@ object BootstrapManager {
             if (!dir.exists()) {
                 dir.mkdirs()
             }
+            dir.setReadable(true, true)
+            dir.setWritable(true, true)
+            dir.setExecutable(true, true)
+            try { android.system.Os.chmod(dir.absolutePath, 448) } catch (e: Exception) {} // 0700
         }
-        ensureRootTools(root)
-        ensureBrowserOpener(root)
+        ensureRootTools(root, context)
+        ensureBrowserOpener(root, context)
 
         val d = "$"
         val certExportSnippet = "if [ -z \"" + d + "CORTEX_ROOT\" ]; then\n" +
@@ -159,11 +167,12 @@ object BootstrapManager {
 
             if (changed) {
                 bashrc.writeText(bashrcText.trim() + "\n")
-                bashrc.setReadable(true, false)
-                bashrc.setWritable(true, false)
+                bashrc.setReadable(true, true)
+                bashrc.setWritable(true, true)
+                try { android.system.Os.chmod(bashrc.absolutePath, 384) } catch (e: Exception) {} // 0600
             }
         } catch (e: Exception) {
-            android.util.Log.e("BootstrapManager", "Failed to ensure .bashrc", e)
+            Log.e(TAG, "Failed to ensure .bashrc", e)
         }
 
         try {
@@ -262,8 +271,9 @@ object BootstrapManager {
 
             if (changed) {
                 profile.writeText(profileText.trim() + "\n")
-                profile.setReadable(true, false)
-                profile.setWritable(true, false)
+                profile.setReadable(true, true)
+                profile.setWritable(true, true)
+                try { android.system.Os.chmod(profile.absolutePath, 384) } catch (e: Exception) {} // 0600
             }
 
             // Clean up any unhidden bashrc, profile, or ubuntu directory in home
@@ -275,17 +285,19 @@ object BootstrapManager {
             localBin.mkdirs()
             val localBinBashrc = File(localBin, "bashrc")
             localBinBashrc.writeText("#!/bin/bash\n. \"" + d + "HOME/.bashrc\"\n")
-            localBinBashrc.setExecutable(true, false)
-            localBinBashrc.setReadable(true, false)
-            try { android.system.Os.chmod(localBinBashrc.absolutePath, 493) } catch (e: Exception) {}
+            localBinBashrc.setExecutable(true, true)
+            localBinBashrc.setReadable(true, true)
+            localBinBashrc.setWritable(true, true)
+            try { android.system.Os.chmod(localBinBashrc.absolutePath, 448) } catch (e: Exception) {} // 0700
 
             val localBinProfile = File(localBin, "profile")
             localBinProfile.writeText("#!/bin/bash\n. \"" + d + "HOME/.profile\"\n")
-            localBinProfile.setExecutable(true, false)
-            localBinProfile.setReadable(true, false)
-            try { android.system.Os.chmod(localBinProfile.absolutePath, 493) } catch (e: Exception) {}
+            localBinProfile.setExecutable(true, true)
+            localBinProfile.setReadable(true, true)
+            localBinProfile.setWritable(true, true)
+            try { android.system.Os.chmod(localBinProfile.absolutePath, 448) } catch (e: Exception) {} // 0700
         } catch (e: Exception) {
-            android.util.Log.e("BootstrapManager", "Failed to ensure .profile", e)
+            Log.e(TAG, "Failed to ensure .profile", e)
         }
 
         val etcProfile = File(root, "etc/profile")
@@ -295,6 +307,9 @@ object BootstrapManager {
                 if (pText.contains("`id -u`") || pText.contains("$(id -u)")) {
                     etcProfile.writeText(pText.replace("`id -u`", "\${EUID:-0}").replace("$(id -u)", "\${EUID:-0}"))
                 }
+                etcProfile.setReadable(true, true)
+                etcProfile.setWritable(true, true)
+                try { android.system.Os.chmod(etcProfile.absolutePath, 384) } catch (e: Exception) {}
             } catch (e: Exception) {}
         }
 
@@ -309,7 +324,7 @@ object BootstrapManager {
         ensureCaCertificates(root, context)
         ensureKeyrings(root, context)
         ensurePasswd(root, home)
-        ensureReloadScripts(root, home)
+        ensureReloadScripts(root, home, context)
         updateTimezone(context, root)
 
         val storageLink = File(home, "storage")
@@ -325,95 +340,21 @@ object BootstrapManager {
         listOf("boot", "media", "mnt", "srv", "opt").forEach {
             val d = File(root, it)
             if (!d.exists()) d.mkdirs()
+            d.setReadable(true, true)
+            d.setWritable(true, true)
+            d.setExecutable(true, true)
+            try { android.system.Os.chmod(d.absolutePath, 448) } catch (e: Exception) {}
         }
 
-        // File system structure initialized
-        ensureEssentialBinaries(root, home)
+        ensureEssentialBinaries(root, home, context)
     }
 
-    const val CURRENT_BOOTSTRAP_VERSION = 12523
-
     fun hasDynamicLinker(root: File): Boolean {
-        val candidates = listOf(
-            "usr/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1",
-            "usr/lib/aarch64-linux-gnu/ld-2.39.so",
-            "lib/ld-linux-aarch64.so.1",
-            "lib/aarch64-linux-gnu/ld-linux-aarch64.so.1",
-            "usr/lib/ld-linux-aarch64.so.1",
-            "usr/lib64/ld-linux-aarch64.so.1",
-            "lib64/ld-linux-aarch64.so.1",
-            "usr/lib/arm-linux-gnueabihf/ld-linux-armhf.so.3",
-            "usr/lib/arm-linux-gnueabihf/ld-2.39.so",
-            "lib/ld-linux-armhf.so.3",
-            "lib/arm-linux-gnueabihf/ld-linux-armhf.so.3",
-            "usr/lib/ld-linux-armhf.so.3"
-        )
-        return candidates.any { File(root, it).exists() }
+        return ElfLinkerPatcher.hasDynamicLinker(root)
     }
 
     fun ensureDynamicLinkerSymlinks(root: File) {
-        try {
-            // Check arm64
-            val ld64Real = File(root, "usr/lib/aarch64-linux-gnu/ld-2.39.so")
-            val ld64Link = File(root, "usr/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1")
-            if (ld64Real.exists()) {
-                ld64Real.setExecutable(true, false)
-                if (!ld64Link.exists()) {
-                    try {
-                        android.system.Os.symlink("ld-2.39.so", ld64Link.absolutePath)
-                    } catch (e: Exception) {
-                        try { ld64Real.copyTo(ld64Link, overwrite = true) } catch (e2: Exception) {}
-                    }
-                }
-                ld64Link.setExecutable(true, false)
-            }
-
-            // Check arm32
-            val ld32Real = File(root, "usr/lib/arm-linux-gnueabihf/ld-2.39.so")
-            val ld32Link = File(root, "usr/lib/arm-linux-gnueabihf/ld-linux-armhf.so.3")
-            if (ld32Real.exists()) {
-                ld32Real.setExecutable(true, false)
-                if (!ld32Link.exists()) {
-                    try {
-                        android.system.Os.symlink("ld-2.39.so", ld32Link.absolutePath)
-                    } catch (e: Exception) {
-                        try { ld32Real.copyTo(ld32Link, overwrite = true) } catch (e2: Exception) {}
-                    }
-                }
-                ld32Link.setExecutable(true, false)
-            }
-
-            // Ensure /lib has a direct link or copy to dynamic linker if /lib is not already symlinked
-            val libDir = File(root, "lib")
-            if (libDir.exists() && !java.nio.file.Files.isSymbolicLink(libDir.toPath())) {
-                val direct64 = File(libDir, "ld-linux-aarch64.so.1")
-                if (!direct64.exists()) {
-                    val src = if (ld64Link.exists()) ld64Link else if (ld64Real.exists()) ld64Real else null
-                    if (src != null) {
-                        try {
-                            android.system.Os.symlink(src.absolutePath, direct64.absolutePath)
-                        } catch (e: Exception) {
-                            try { src.copyTo(direct64, overwrite = true) } catch (e2: Exception) {}
-                        }
-                        direct64.setExecutable(true, false)
-                    }
-                }
-                val direct32 = File(libDir, "ld-linux-armhf.so.3")
-                if (!direct32.exists()) {
-                    val src = if (ld32Link.exists()) ld32Link else if (ld32Real.exists()) ld32Real else null
-                    if (src != null) {
-                        try {
-                            android.system.Os.symlink(src.absolutePath, direct32.absolutePath)
-                        } catch (e: Exception) {
-                            try { src.copyTo(direct32, overwrite = true) } catch (e2: Exception) {}
-                        }
-                        direct32.setExecutable(true, false)
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            android.util.Log.e("BootstrapManager", "Failed to ensure dynamic linker symlinks", e)
-        }
+        ElfLinkerPatcher.ensureDynamicLinkerSymlinks(root)
     }
 
     fun isBootstrapInstalled(context: Context): Boolean {
@@ -426,7 +367,6 @@ object BootstrapManager {
             val ver = versionFile.readText().trim().toIntOrNull() ?: 0
             if (ver < CURRENT_BOOTSTRAP_VERSION) {
                 // Non-destructive update: refresh hook library and version marker
-                // Never re-extract base bootstrap archive over user-installed packages
                 try {
                     ensureHookLibrary(context, root)
                     restoreGpgv(root)
@@ -444,11 +384,14 @@ object BootstrapManager {
                         File(root, "var/lib/apt/lists/partial").listFiles()?.forEach { it.delete() }
                     } catch (e: Exception) {}
                     ensureMachineId(root)
-                    ensureEssentialBinaries(root, Environment.getHomeDir(context))
+                    ensureEssentialBinaries(root, Environment.getHomeDir(context), context)
                     ensureDynamicLinkerSymlinks(root)
                     versionFile.writeText(CURRENT_BOOTSTRAP_VERSION.toString())
+                    versionFile.setReadable(true, true)
+                    versionFile.setWritable(true, true)
+                    try { android.system.Os.chmod(versionFile.absolutePath, 384) } catch (e: Exception) {}
                 } catch (e: Exception) {
-                    android.util.Log.e("BootstrapManager", "Failed to perform non-destructive bootstrap update", e)
+                    Log.e(TAG, "Failed to perform non-destructive bootstrap update", e)
                 }
             }
             return true
@@ -457,7 +400,7 @@ object BootstrapManager {
     }
 
     fun findBootstrapAsset(context: Context): String? {
-        val is64 = CortexRuntime.is64Bit
+        val is64 = Process.is64Bit()
         val candidates = if (is64) {
             listOf("bootstrap-arm64.tar", "bootstrap-arm64.tar.gz", "bootstrap-arm.tar", "bootstrap-arm.tar.gz")
         } else {
@@ -538,12 +481,22 @@ object BootstrapManager {
 
             // Fix executable permissions on extracted binary directories and dynamic linkers
             root.walkTopDown().forEach { file ->
-                if (file.isFile) {
+                if (file.isDirectory) {
+                    file.setReadable(true, true)
+                    file.setWritable(true, true)
+                    file.setExecutable(true, true)
+                    try { android.system.Os.chmod(file.absolutePath, 448) } catch (e: Exception) {}
+                } else if (file.isFile) {
                     val pName = file.parentFile?.name
                     if (pName in listOf("bin", "sbin") || file.name.startsWith("ld-linux") || file.name.startsWith("ld-2.")) {
-                        file.setExecutable(true, false)
-                        file.setReadable(true, false)
-                        try { android.system.Os.chmod(file.absolutePath, 493) } catch (e: Exception) {}
+                        file.setExecutable(true, true)
+                        file.setReadable(true, true)
+                        file.setWritable(true, true)
+                        try { android.system.Os.chmod(file.absolutePath, 448) } catch (e: Exception) {}
+                    } else {
+                        file.setReadable(true, true)
+                        file.setWritable(true, true)
+                        try { android.system.Os.chmod(file.absolutePath, 384) } catch (e: Exception) {}
                     }
                 }
             }
@@ -565,11 +518,14 @@ object BootstrapManager {
                 if (pText.contains("`id -u`") || pText.contains("$(id -u)")) {
                     etcProfile.writeText(pText.replace("`id -u`", "\${EUID:-0}").replace("$(id -u)", "\${EUID:-0}"))
                 }
+                etcProfile.setReadable(true, true)
+                etcProfile.setWritable(true, true)
+                try { android.system.Os.chmod(etcProfile.absolutePath, 384) } catch (e: Exception) {}
             }
 
             // Ensure /etc/passwd and /etc/group exist with root and cortex user definitions
             ensurePasswd(root, Environment.getHomeDir(context))
-            ensureReloadScripts(root, Environment.getHomeDir(context))
+            ensureReloadScripts(root, Environment.getHomeDir(context), context)
 
             // Ensure user homes exist
             File(root, "root").mkdirs()
@@ -578,7 +534,7 @@ object BootstrapManager {
             File(homeDir, "ubuntu").deleteRecursively()
             listOf("boot", "media", "mnt", "srv", "opt").forEach { File(root, it).mkdirs() }
 
-            // Configure APT sandbox so APT operates without superuser privilege drop
+            // Configure APT sandbox so APT operates with owner permissions
             ensureAptSandbox(root)
             ensureUbuntuSources(root)
 
@@ -589,6 +545,9 @@ object BootstrapManager {
             if (!statusFile.exists()) {
                 statusFile.createNewFile()
             }
+            statusFile.setReadable(true, true)
+            statusFile.setWritable(true, true)
+            try { android.system.Os.chmod(statusFile.absolutePath, 384) } catch (e: Exception) {}
 
             ensureAptSandbox(root)
             ensureDpkgTables(root)
@@ -605,14 +564,18 @@ object BootstrapManager {
 
             // Mark bootstrap version only if dynamic linker is present and functional
             if (hasDynamicLinker(root)) {
-                File(root, ".cortex_version").writeText(CURRENT_BOOTSTRAP_VERSION.toString())
+                val versionFile = File(root, ".cortex_version")
+                versionFile.writeText(CURRENT_BOOTSTRAP_VERSION.toString())
+                versionFile.setReadable(true, true)
+                versionFile.setWritable(true, true)
+                try { android.system.Os.chmod(versionFile.absolutePath, 384) } catch (e: Exception) {}
                 true
             } else {
-                android.util.Log.e("BootstrapManager", "Bootstrap extraction finished but dynamic linker not found!")
+                Log.e(TAG, "Bootstrap extraction finished but dynamic linker not found!")
                 false
             }
         } catch (e: Exception) {
-            android.util.Log.e("BootstrapManager", "Error extracting bootstrap from APK", e)
+            Log.e(TAG, "Error extracting bootstrap from APK", e)
             false
         } finally {
             if (tmpTar.exists()) {
@@ -625,180 +588,32 @@ object BootstrapManager {
         val root = Environment.getCortexRoot(context)
         val debianBash = File(root, "usr/bin/bash")
         if (debianBash.exists() && hasDynamicLinker(root)) {
-            debianBash.setExecutable(true, false)
+            debianBash.setExecutable(true, true)
             return debianBash.absolutePath
         }
         val customBash = File(root, "bin/bash")
         if (customBash.exists() && hasDynamicLinker(root)) {
-            customBash.setExecutable(true, false)
+            customBash.setExecutable(true, true)
             return customBash.absolutePath
         }
         val customSh = File(root, "bin/sh")
         if (customSh.exists() && hasDynamicLinker(root)) {
-            customSh.setExecutable(true, false)
+            customSh.setExecutable(true, true)
             return customSh.absolutePath
         }
         return if (File("/system/bin/sh").exists()) "/system/bin/sh" else "/bin/sh"
     }
 
     fun patchAllDynamicLinkers(root: File) {
-        if (!root.exists() || !root.isDirectory) return
-        try {
-            root.walkTopDown().forEach { file ->
-                val name = file.name
-                if (file.isFile && (name.startsWith("ld-linux") || name.startsWith("libc.so") || name.startsWith("libc-"))) {
-                    val target = if (java.nio.file.Files.isSymbolicLink(file.toPath())) {
-                        try { file.canonicalFile } catch (e: Exception) { file }
-                    } else {
-                        file
-                    }
-                    if (target.exists() && target.isFile) {
-                        patchDynamicLinker(target)
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            android.util.Log.e("BootstrapManager", "Error walking root to patch dynamic linkers and libc", e)
-        }
+        ElfLinkerPatcher.patchAllDynamicLinkers(root)
     }
 
     fun fixAbsoluteSymlinks(root: File) {
-        if (!root.exists() || !root.isDirectory) return
-        try {
-            val candidateDirs = listOf(
-                File(root, "etc/alternatives"),
-                File(root, "usr/bin"),
-                File(root, "usr/sbin"),
-                File(root, "bin"),
-                File(root, "sbin")
-            )
-            for (dir in candidateDirs) {
-                if (!dir.exists() || !dir.isDirectory) continue
-                // Crucial: Skip directories that are themselves symlinks (e.g. root/bin -> usr/bin in merged-usr)
-                // Relativizing against a symlinked directory produces incorrect relative targets and clobbers valid links!
-                if (java.nio.file.Files.isSymbolicLink(dir.toPath())) continue
-
-                dir.listFiles()?.forEach { file ->
-                    try {
-                        val path = file.toPath()
-                        if (java.nio.file.Files.isSymbolicLink(path)) {
-                            val target = java.nio.file.Files.readSymbolicLink(path).toString()
-                            if (target.startsWith("/")) {
-                                val targetClean = target.trimStart('/')
-                                val targetInRoot = File(root, targetClean)
-                                val relTarget = file.parentFile?.toPath()?.relativize(targetInRoot.toPath())?.toString()
-                                if (relTarget != null) {
-                                    val tmpLink = File(file.parentFile, "${file.name}.ctx_link_tmp")
-                                    val tmpPath = tmpLink.toPath()
-                                    java.nio.file.Files.deleteIfExists(tmpPath)
-                                    java.nio.file.Files.createSymbolicLink(tmpPath, java.nio.file.Paths.get(relTarget))
-                                    try {
-                                        java.nio.file.Files.move(
-                                            tmpPath,
-                                            path,
-                                            java.nio.file.StandardCopyOption.REPLACE_EXISTING,
-                                            java.nio.file.StandardCopyOption.ATOMIC_MOVE
-                                        )
-                                    } catch (e: Exception) {
-                                        java.nio.file.Files.move(
-                                            tmpPath,
-                                            path,
-                                            java.nio.file.StandardCopyOption.REPLACE_EXISTING
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    } catch (e: Exception) {
-                        // ignore individual link error
-                    }
-                }
-            }
-
-            ensureEssentialBinaries(root, File(root, "home"))
-        } catch (e: Exception) {
-            android.util.Log.e("BootstrapManager", "Error in fixAbsoluteSymlinks", e)
-        }
+        ElfLinkerPatcher.fixAbsoluteSymlinks(root)
     }
 
     fun patchDynamicLinker(file: File) {
-        if (!file.exists() || !file.isFile) {
-            return
-        }
-        try {
-            val bytes = file.readBytes()
-            var modified = false
-
-            // AArch64 syscall patterns
-            val svcAarch64 = byteArrayOf(0x01.toByte(), 0x00.toByte(), 0x00.toByte(), 0xd4.toByte())
-            val nopAarch64 = byteArrayOf(0x1f.toByte(), 0x20.toByte(), 0x03.toByte(), 0xd5.toByte())
-            val movEnosysAarch64 = byteArrayOf(0xa0.toByte(), 0x04.toByte(), 0x80.toByte(), 0x92.toByte()) // mov x0, #-38
-
-            // mov x8, #0x63 (syscall 99 set_robust_list)
-            val movX8Syscall99 = byteArrayOf(0x68.toByte(), 0x0c.toByte(), 0x80.toByte(), 0xd2.toByte())
-            // mov x8, #0x1b3 (syscall 435 clone3)
-            val movX8Syscall435 = byteArrayOf(0x68.toByte(), 0x36.toByte(), 0x80.toByte(), 0xd2.toByte())
-            // mov x8, #0x125 (syscall 293 rseq)
-            val movX8Syscall293 = byteArrayOf(0xa8.toByte(), 0x24.toByte(), 0x80.toByte(), 0xd2.toByte())
-
-            var pos = 0
-            while (pos <= bytes.size - 4) {
-                val isSyscall99 = (bytes[pos] == movX8Syscall99[0] && bytes[pos + 1] == movX8Syscall99[1] &&
-                                   bytes[pos + 2] == movX8Syscall99[2] && bytes[pos + 3] == movX8Syscall99[3])
-                val isSyscall435 = (bytes[pos] == movX8Syscall435[0] && bytes[pos + 1] == movX8Syscall435[1] &&
-                                    bytes[pos + 2] == movX8Syscall435[2] && bytes[pos + 3] == movX8Syscall435[3])
-                val isSyscall293 = (bytes[pos] == movX8Syscall293[0] && bytes[pos + 1] == movX8Syscall293[1] &&
-                                    bytes[pos + 2] == movX8Syscall293[2] && bytes[pos + 3] == movX8Syscall293[3])
-
-                if (isSyscall99 || isSyscall435 || isSyscall293) {
-                    val replacement = if (isSyscall99) nopAarch64 else movEnosysAarch64
-                    val scName = if (isSyscall99) "99 set_robust_list" else if (isSyscall435) "435 clone3" else "293 rseq"
-                    val searchEnd = minOf(bytes.size - 4, pos + 64)
-                    for (i in (pos + 4)..searchEnd step 4) {
-                        if (bytes[i] == svcAarch64[0] &&
-                            bytes[i + 1] == svcAarch64[1] &&
-                            bytes[i + 2] == svcAarch64[2] &&
-                            bytes[i + 3] == svcAarch64[3]) {
-
-                            replacement.copyInto(bytes, destinationOffset = i)
-                            modified = true
-                            android.util.Log.i("BootstrapManager", "Patched syscall $scName svc #0 at 0x${Integer.toHexString(i)} in ${file.name}")
-                            break
-                        }
-                    }
-                }
-                pos += 4
-            }
-
-            if (modified) {
-                val parent = file.parentFile ?: return
-                val tmp = File(parent, "${file.name}.ctx_patch_tmp")
-                tmp.outputStream().use { it.write(bytes) }
-                tmp.setExecutable(true, false)
-                tmp.setReadable(true, false)
-                try { android.system.Os.chmod(tmp.absolutePath, 493) } catch (e: Exception) {}
-                try {
-                    java.nio.file.Files.move(
-                        tmp.toPath(),
-                        file.toPath(),
-                        java.nio.file.StandardCopyOption.REPLACE_EXISTING,
-                        java.nio.file.StandardCopyOption.ATOMIC_MOVE
-                    )
-                } catch (e: Exception) {
-                    java.nio.file.Files.move(
-                        tmp.toPath(),
-                        file.toPath(),
-                        java.nio.file.StandardCopyOption.REPLACE_EXISTING
-                    )
-                }
-                file.setExecutable(true, false)
-                file.setReadable(true, false)
-                try { android.system.Os.chmod(file.absolutePath, 493) } catch (e: Exception) {}
-                android.util.Log.i("BootstrapManager", "Successfully wrote patched linker atomically: ${file.absolutePath}")
-            }
-        } catch (e: Exception) {
-            android.util.Log.e("BootstrapManager", "Failed to patch dynamic linker: ${file.absolutePath}", e)
-        }
+        ElfLinkerPatcher.patchDynamicLinker(file)
     }
 
     private fun ensureDpkgTables(root: File) {
@@ -847,6 +662,8 @@ object BootstrapManager {
                     "sparc\tsparc\tsparc\t32\tbig\n" +
                     "sparc64\tsparc64\tsparc64\t64\tbig\n"
                 )
+                cpuTable.setReadable(true, true)
+                cpuTable.setWritable(true, true)
             }
 
             val tupleTable = File(dpkgShare, "tupletable")
@@ -901,10 +718,14 @@ object BootstrapManager {
 
             if (!tupleTable.exists() || tupleTable.length() == 0L) {
                 tupleTable.writeText(tupleContent)
+                tupleTable.setReadable(true, true)
+                tupleTable.setWritable(true, true)
             }
             val tripletTable = File(dpkgShare, "triplettable")
             if (!tripletTable.exists() || tripletTable.length() == 0L) {
                 tripletTable.writeText(tupleContent)
+                tripletTable.setReadable(true, true)
+                tripletTable.setWritable(true, true)
             }
 
             val ostable = File(dpkgShare, "ostable")
@@ -935,6 +756,8 @@ object BootstrapManager {
                     "base-sysv-solaris\tsolaris\tsolaris[^-]*\n" +
                     "base-tos-mint\tmint\tmint[^-]*\n"
                 )
+                ostable.setReadable(true, true)
+                ostable.setWritable(true, true)
             }
 
             val abitable = File(dpkgShare, "abitable")
@@ -944,9 +767,11 @@ object BootstrapManager {
                     "abin32\t32\n" +
                     "x32\t32\n"
                 )
+                abitable.setReadable(true, true)
+                abitable.setWritable(true, true)
             }
         } catch (e: Exception) {
-            android.util.Log.e("BootstrapManager", "Failed to ensure dpkg tables", e)
+            Log.e(TAG, "Failed to ensure dpkg tables", e)
         }
     }
 
@@ -961,233 +786,36 @@ object BootstrapManager {
             if (cUtf8.exists() && !cUTF8.exists()) {
                 try {
                     android.system.Os.symlink("C.utf8", cUTF8.absolutePath)
-                } catch (e: Exception) {
-                    // Ignore symlink failure
-                }
+                } catch (e: Exception) {}
             } else if (!cUtf8.exists() && cUTF8.exists()) {
                 try {
                     android.system.Os.symlink("C.UTF-8", cUtf8.absolutePath)
-                } catch (e: Exception) {
-                    // Ignore symlink failure
-                }
+                } catch (e: Exception) {}
             }
 
             val baseLocale = if (cUtf8.exists()) "C.utf8" else if (cUTF8.exists()) "C.UTF-8" else null
             if (baseLocale != null && !enUtf8.exists()) {
                 try {
                     android.system.Os.symlink(baseLocale, enUtf8.absolutePath)
-                } catch (e: Exception) {
-                    // Ignore symlink failure
-                }
+                } catch (e: Exception) {}
             }
         } catch (e: Exception) {
-            android.util.Log.e("BootstrapManager", "Failed to ensure locale", e)
+            Log.e(TAG, "Failed to ensure locale", e)
         }
     }
 
     fun ensureAptSandbox(root: File) {
-        try {
-            val aptConfDir = File(root, "etc/apt/apt.conf.d")
-            aptConfDir.mkdirs()
-            val sbFile = File(aptConfDir, "01sandbox")
-            sbFile.writeText(
-                "APT::Sandbox::User \"root\";\n" +
-                "APT::Sandbox::Seccomp \"false\";\n" +
-                "Acquire::ForceIPv4 \"true\";\n" +
-                "Acquire::Connect::AddrConfig \"false\";\n" +
-                "Acquire::SRV \"false\";\n" +
-                "Acquire::Languages \"none\";\n" +
-                "Acquire::GzipIndexes \"true\";\n" +
-                "Acquire::AllowInsecureRepositories \"true\";\n" +
-                "Acquire::AllowDowngradeToInsecureRepositories \"true\";\n" +
-                "APT::Get::AllowUnauthenticated \"true\";\n" +
-                "Dir::dpkg::cputable \"/usr/share/dpkg/cputable\";\n" +
-                "Dir::dpkg::tupletable \"/usr/share/dpkg/tupletable\";\n" +
-                "Dir::dpkg::triplettable \"/usr/share/dpkg/triplettable\";\n" +
-                "DPkg::Install::Recursive \"false\";\n" +
-                "Dpkg::Progress-Fancy \"false\";\n" +
-                "APT::Color \"false\";\n" +
-                "DPkg::Options {\n" +
-                "   \"--force-confdef\";\n" +
-                "   \"--force-confold\";\n" +
-                "   \"--force-unsafe-io\";\n" +
-                "};\n"
-            )
-            sbFile.setReadable(true, false)
-            try { android.system.Os.chmod(sbFile.absolutePath, 420) } catch (e: Exception) {}
-            val dockerClean = File(aptConfDir, "docker-clean")
-            dockerClean.writeText("# Disabled for Cortex\n")
-            dockerClean.setReadable(true, false)
-
-            val aptPrefDir = File(root, "etc/apt/preferences.d")
-            aptPrefDir.mkdirs()
-            File(aptPrefDir, "01cortex-pins").writeText(
-                "Explanation: Pin core glibc and linker packages to prevent upgrading to stock upstream packages that fail Android SECCOMP\n" +
-                "Package: libc6*\n" +
-                "Pin: release *\n" +
-                "Pin-Priority: -1\n\n" +
-                "Package: libc-bin\n" +
-                "Pin: release *\n" +
-                "Pin-Priority: -1\n\n" +
-                "Package: libc-dev-bin\n" +
-                "Pin: release *\n" +
-                "Pin-Priority: -1\n\n" +
-                "Package: locales\n" +
-                "Pin: release *\n" +
-                "Pin-Priority: -1\n"
-            )
-
-            val dpkgStatusFile = File(root, "var/lib/dpkg/status")
-            if (dpkgStatusFile.exists() && dpkgStatusFile.isFile) {
-                try {
-                    val content = dpkgStatusFile.readText()
-                    val packagesToHold = setOf(
-                        "libc6", "libc6:arm64", "libc6:armhf",
-                        "libc-bin", "libc-bin:arm64", "libc-bin:armhf",
-                        "libc-dev-bin", "libc-dev-bin:arm64", "libc-dev-bin:armhf",
-                        "locales", "locales:all"
-                    )
-                    var updated = false
-                    val blocks = content.split(Regex("\\n\\n+"))
-                    val newBlocks = blocks.map { block ->
-                        val pkgLine = block.lines().firstOrNull { it.startsWith("Package:") }
-                        val pkgName = pkgLine?.substringAfter(":")?.trim()
-                        if (pkgName != null && packagesToHold.contains(pkgName)) {
-                            val lines = block.lines().toMutableList()
-                            val statusIdx = lines.indexOfFirst { it.startsWith("Status:") }
-                            if (statusIdx != -1) {
-                                if (lines[statusIdx] != "Status: hold ok installed") {
-                                    lines[statusIdx] = "Status: hold ok installed"
-                                    updated = true
-                                }
-                            } else {
-                                val pkgIdx = lines.indexOfFirst { it.startsWith("Package:") }
-                                lines.add(pkgIdx + 1, "Status: hold ok installed")
-                                updated = true
-                            }
-                            lines.joinToString("\n")
-                        } else {
-                            block
-                        }
-                    }
-                    if (updated) {
-                        dpkgStatusFile.writeText(newBlocks.joinToString("\n\n") + "\n")
-                    }
-                } catch (e: Exception) {
-                    android.util.Log.e("BootstrapManager", "Failed to update dpkg status holds", e)
-                }
-            }
-
-            val dpkgCfgDir = File(root, "etc/dpkg/dpkg.cfg.d")
-            dpkgCfgDir.mkdirs()
-            File(dpkgCfgDir, "01cortex").writeText(
-                "force-confdef\n" +
-                "force-confold\n" +
-                "force-unsafe-io\n" +
-                "no-debsig\n"
-            )
-
-            val profileD = File(root, "etc/profile.d")
-            profileD.mkdirs()
-            File(profileD, "01cortex.sh").writeText(
-                "export DPKG_DEB_THREADS_MAX=1\n" +
-                "export XZ_OPT=-T1\n" +
-                "export XZ_DEFAULTS=-T1\n" +
-                "export DEBIAN_FRONTEND=noninteractive\n" +
-                "export DEBCONF_FRONTEND=noninteractive\n" +
-                "export DEBCONF_NONINTERACTIVE_SEEN=true\n" +
-                "if [ -n \"\$CORTEX_ROOT\" ]; then\n" +
-                "    export SSL_CERT_FILE=\"\$CORTEX_ROOT/etc/ssl/certs/ca-certificates.crt\"\n" +
-                "    export SSL_CERT_DIR=\"\$CORTEX_ROOT/etc/ssl/certs:/system/etc/security/cacerts\"\n" +
-                "    export CURL_CA_BUNDLE=\"\$CORTEX_ROOT/etc/ssl/certs/ca-certificates.crt\"\n" +
-                "    export NODE_EXTRA_CA_CERTS=\"\$CORTEX_ROOT/etc/ssl/certs/ca-certificates.crt\"\n" +
-                "    export REQUESTS_CA_BUNDLE=\"\$CORTEX_ROOT/etc/ssl/certs/ca-certificates.crt\"\n" +
-                "else\n" +
-                "    export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt\n" +
-                "    export CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt\n" +
-                "fi\n" +
-                "export TZDIR=/usr/share/zoneinfo\n"
-            )
-
-            val usrSbinDir = File(root, "usr/sbin")
-            usrSbinDir.mkdirs()
-
-            val policyScript = "#!/bin/sh\nexit 101\n"
-            val dummyExitZero = "#!/bin/sh\nexit 0\n"
-
-            val policyFile = File(usrSbinDir, "policy-rc.d")
-            policyFile.writeText(policyScript)
-            policyFile.setReadable(true, false)
-            policyFile.setExecutable(true, false)
-            try {
-                android.system.Os.chmod(policyFile.absolutePath, 493)
-            } catch (e: Exception) {}
-
-            listOf("ldconfig", "start-stop-daemon").forEach { name ->
-                val f = File(usrSbinDir, name)
-                f.writeText(dummyExitZero)
-                f.setReadable(true, false)
-                f.setExecutable(true, false)
-                try {
-                    android.system.Os.chmod(f.absolutePath, 493)
-                } catch (e: Exception) {}
-            }
-
-            val sbinDir = File(root, "sbin")
-            if (sbinDir.exists() && !java.nio.file.Files.isSymbolicLink(sbinDir.toPath())) {
-                listOf("policy-rc.d", "ldconfig", "start-stop-daemon").forEach { name ->
-                    try {
-                        val src = File(usrSbinDir, name)
-                        val dst = File(sbinDir, name)
-                        src.copyTo(dst, overwrite = true)
-                        dst.setReadable(true, false)
-                        dst.setExecutable(true, false)
-                        android.system.Os.chmod(dst.absolutePath, 493)
-                    } catch (e: Exception) {}
-                }
-            }
-
-            File(root, "var/cache/apt/archives/partial").mkdirs()
-            File(root, "var/lib/apt/lists/partial").mkdirs()
-            File(root, "tmp").mkdirs()
-            ensureCaCertificates(root)
-        } catch (e: Exception) {
-            android.util.Log.e("BootstrapManager", "Failed to ensure apt sandbox config", e)
-        }
+        AptConfigurator.ensureAptSandbox(root)
     }
 
     fun ensureUbuntuSources(root: File) {
-        try {
-            val sourcesDir = File(root, "etc/apt/sources.list.d")
-            sourcesDir.mkdirs()
-            val ubuntuSources = File(sourcesDir, "ubuntu.sources")
-            ubuntuSources.writeText(
-                "Types: deb\n" +
-                "URIs: http://ports.ubuntu.com/ubuntu-ports/\n" +
-                "Suites: noble noble-updates noble-backports\n" +
-                "Components: main restricted universe multiverse\n" +
-                "Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n\n" +
-                "Types: deb\n" +
-                "URIs: http://ports.ubuntu.com/ubuntu-ports/\n" +
-                "Suites: noble-security\n" +
-                "Components: main restricted universe multiverse\n" +
-                "Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n"
-            )
-            ubuntuSources.setReadable(true, false)
-            try { android.system.Os.chmod(ubuntuSources.absolutePath, 420) } catch (e: Exception) {}
-
-            val sourcesList = File(root, "etc/apt/sources.list")
-            if (sourcesList.exists()) {
-                sourcesList.delete()
-            }
-        } catch (e: Exception) {
-            android.util.Log.e("BootstrapManager", "Failed to ensure ubuntu.sources", e)
-        }
+        AptConfigurator.ensureUbuntuSources(root)
     }
 
     fun ensureHookLibrary(context: Context, root: File) {
         try {
-            val hookAssetName = if (CortexRuntime.is64Bit) "libcortex-hook-arm64.so" else "libcortex-hook-arm.so"
+            val is64 = Process.is64Bit()
+            val hookAssetName = if (is64) "libcortex-hook-arm64.so" else "libcortex-hook-arm.so"
             val targetHook = File(root, "usr/lib/libcortex-hook.so")
             targetHook.parentFile?.mkdirs()
 
@@ -1209,9 +837,10 @@ object BootstrapManager {
                 }
             }
             if (tmpHook.exists() && tmpHook.length() > 0) {
-                tmpHook.setExecutable(true, false)
-                tmpHook.setReadable(true, false)
-                try { android.system.Os.chmod(tmpHook.absolutePath, 493) } catch (e: Exception) {}
+                tmpHook.setExecutable(true, true)
+                tmpHook.setReadable(true, true)
+                tmpHook.setWritable(true, true)
+                try { android.system.Os.chmod(tmpHook.absolutePath, 448) } catch (e: Exception) {}
 
                 try {
                     java.nio.file.Files.move(
@@ -1227,14 +856,12 @@ object BootstrapManager {
                         java.nio.file.StandardCopyOption.REPLACE_EXISTING
                     )
                 }
-                targetHook.setExecutable(true, false)
-                targetHook.setReadable(true, false)
-                try { android.system.Os.chmod(targetHook.absolutePath, 493) } catch (e: Exception) {}
+                targetHook.setExecutable(true, true)
+                targetHook.setReadable(true, true)
+                targetHook.setWritable(true, true)
+                try { android.system.Os.chmod(targetHook.absolutePath, 448) } catch (e: Exception) {}
             }
 
-            // Only link root/lib/libcortex-hook.so if root/lib is a real directory (legacy/non-merged-usr systems)
-            // On modern Ubuntu (merged-usr), root/lib is a symlink to usr/lib, so root/lib/libcortex-hook.so
-            // already resolves directly to targetHook. Deleting or symlinking inside root/lib would clobber targetHook itself!
             val libDir = File(root, "lib")
             if (libDir.exists() && !java.nio.file.Files.isSymbolicLink(libDir.toPath())) {
                 val libHook = File(libDir, "libcortex-hook.so")
@@ -1250,7 +877,7 @@ object BootstrapManager {
                 } catch (e: Exception) {}
             }
         } catch (e: Exception) {
-            android.util.Log.e("BootstrapManager", "Failed to update hook library from assets", e)
+            Log.e(TAG, "Failed to update hook library from assets", e)
         }
     }
 
@@ -1273,7 +900,7 @@ object BootstrapManager {
                 tmpDir.mkdirs()
             }
             try {
-                android.system.Os.chmod(tmpDir.absolutePath, 1023) // 01777 (rwxrwxrwt sticky)
+                android.system.Os.chmod(tmpDir.absolutePath, 448) // 0700
             } catch (e: Exception) {}
 
             val opencodeDataDir = File(home, ".local/share/opencode")
@@ -1301,7 +928,7 @@ object BootstrapManager {
                 }
             }
         } catch (e: Exception) {
-            android.util.Log.e("BootstrapManager", "Failed to cleanup stale sockets and locks", e)
+            Log.e(TAG, "Failed to cleanup stale sockets and locks", e)
         }
     }
 
@@ -1315,14 +942,20 @@ object BootstrapManager {
 
             if (!hostsFile.exists()) {
                 hostsFile.writeText(defaultHosts)
+                hostsFile.setReadable(true, true)
+                hostsFile.setWritable(true, true)
+                try { android.system.Os.chmod(hostsFile.absolutePath, 384) } catch (e: Exception) {}
             } else {
                 val currentText = hostsFile.readText()
                 if (currentText.contains("ports.ubuntu.com") || currentText.contains("api.meta.ai")) {
                     hostsFile.writeText(defaultHosts)
+                    hostsFile.setReadable(true, true)
+                    hostsFile.setWritable(true, true)
+                    try { android.system.Os.chmod(hostsFile.absolutePath, 384) } catch (e: Exception) {}
                 }
             }
         } catch (e: Exception) {
-            android.util.Log.e("BootstrapManager", "Failed to ensure hosts", e)
+            Log.e(TAG, "Failed to ensure hosts", e)
         }
     }
 
@@ -1344,9 +977,12 @@ object BootstrapManager {
                     "ethers:         db files\n" +
                     "rpc:            db files\n"
                 )
+                nssFile.setReadable(true, true)
+                nssFile.setWritable(true, true)
+                try { android.system.Os.chmod(nssFile.absolutePath, 384) } catch (e: Exception) {}
             }
         } catch (e: Exception) {
-            android.util.Log.e("BootstrapManager", "Failed to ensure nsswitch.conf", e)
+            Log.e(TAG, "Failed to ensure nsswitch.conf", e)
         }
     }
 
@@ -1381,107 +1017,19 @@ object BootstrapManager {
             }
             val resolvConf = selectedDns.joinToString("\n") { "nameserver $it" } + "\noptions timeout:1 attempts:2 rotate\n"
             resolvFile.writeText(resolvConf)
-            resolvFile.setReadable(true, false)
-            try { android.system.Os.chmod(resolvFile.absolutePath, 420) } catch (_: Exception) {}
+            resolvFile.setReadable(true, true)
+            resolvFile.setWritable(true, true)
+            try { android.system.Os.chmod(resolvFile.absolutePath, 384) } catch (_: Exception) {}
 
             ensureHosts(root)
             ensureNsswitch(root)
         } catch (e: Exception) {
-            android.util.Log.e("BootstrapManager", "Failed to update resolv.conf", e)
+            Log.e(TAG, "Failed to update resolv.conf", e)
         }
     }
 
     fun cleanupAptArtifacts(root: File) {
-        try {
-            val debianSources = File(root, "etc/apt/sources.list.d/debian.sources")
-            val ubuntuSources = File(root, "etc/apt/sources.list.d/ubuntu.sources")
-            val sourcesList = File(root, "etc/apt/sources.list")
-            if ((debianSources.exists() || ubuntuSources.exists()) && sourcesList.exists()) {
-                sourcesList.delete()
-            }
-
-            val dockerClean = File(root, "etc/apt/apt.conf.d/docker-clean")
-            if (dockerClean.exists()) {
-                dockerClean.delete()
-            }
-
-            // Remove any downloaded or corrupted glibc deb archives
-            listOf(
-                File(root, "var/cache/apt/archives"),
-                File(root, "var/cache/apt/archives/partial")
-            ).forEach { dir ->
-                if (dir.exists() && dir.isDirectory) {
-                    dir.listFiles()?.forEach { file ->
-                        val n = file.name
-                        if (file.isFile && n.endsWith(".deb")) {
-                            if (n.startsWith("libc6") || n.startsWith("libc-bin") || n.startsWith("locales") || n.startsWith("libc-dev-bin")) {
-                                file.delete()
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Clean stale lock files if 0 bytes
-            listOf(
-                File(root, "var/lib/dpkg/lock"),
-                File(root, "var/lib/dpkg/lock-frontend"),
-                File(root, "var/cache/apt/archives/lock"),
-                File(root, "var/lib/apt/lists/lock")
-            ).forEach { lockFile ->
-                if (lockFile.exists() && lockFile.length() == 0L) {
-                    try { lockFile.delete() } catch (e: Exception) {}
-                }
-            }
-
-            // Clean any corrupted MergeList package lists missing the "Package:" header or truncated
-            val listsDir = File(root, "var/lib/apt/lists")
-            if (listsDir.exists() && listsDir.isDirectory) {
-                listsDir.listFiles()?.forEach { file ->
-                    if (file.isFile && file.name.endsWith("_Packages")) {
-                        var isCorrupted = false
-                        try {
-                            file.bufferedReader().use { reader ->
-                                var inSection = false
-                                var hasPackageHeader = false
-                                var line: String?
-                                while (reader.readLine().also { line = it } != null) {
-                                    val l = line!!
-                                    if (l.isEmpty()) {
-                                        if (inSection && !hasPackageHeader) {
-                                            isCorrupted = true
-                                            break
-                                        }
-                                        inSection = false
-                                        hasPackageHeader = false
-                                    } else {
-                                        if (!inSection) {
-                                            inSection = true
-                                            if (l.startsWith("Package:")) {
-                                                hasPackageHeader = true
-                                            } else {
-                                                isCorrupted = true
-                                                break
-                                            }
-                                        }
-                                    }
-                                }
-                                if (inSection && !hasPackageHeader) {
-                                    isCorrupted = true
-                                }
-                            }
-                        } catch (e: Exception) {
-                            isCorrupted = true
-                        }
-                        if (isCorrupted) {
-                            file.delete()
-                        }
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            android.util.Log.e("BootstrapManager", "Failed to cleanup apt artifacts", e)
-        }
+        AptConfigurator.cleanupAptArtifacts(root)
     }
 
     fun ensureCaCertificates(root: File, context: Context? = null) {
@@ -1497,10 +1045,12 @@ object BootstrapManager {
                             input.copyTo(output)
                         }
                     }
-                    caBundle.setReadable(true, false)
-                    android.util.Log.i("BootstrapManager", "Copied bundled cacert.pem from assets (${caBundle.length()} bytes)")
+                    caBundle.setReadable(true, true)
+                    caBundle.setWritable(true, true)
+                    try { android.system.Os.chmod(caBundle.absolutePath, 384) } catch (e: Exception) {}
+                    Log.i(TAG, "Copied bundled cacert.pem from assets (${caBundle.length()} bytes)")
                 } catch (e: Exception) {
-                    android.util.Log.e("BootstrapManager", "Failed to extract bundled cacert.pem", e)
+                    Log.e(TAG, "Failed to extract bundled cacert.pem", e)
                 }
             }
 
@@ -1523,7 +1073,9 @@ object BootstrapManager {
                                 val targetFile = File(certsDir, f.name)
                                 if (!targetFile.exists() || targetFile.length() == 0L) {
                                     f.copyTo(targetFile, overwrite = true)
-                                    targetFile.setReadable(true, false)
+                                    targetFile.setReadable(true, true)
+                                    targetFile.setWritable(true, true)
+                                    try { android.system.Os.chmod(targetFile.absolutePath, 384) } catch (e: Exception) {}
                                 }
                             } catch (e: Exception) {}
                             try {
@@ -1558,10 +1110,9 @@ object BootstrapManager {
                 }
             }
 
-            caBundle.setReadable(true, false)
-            try {
-                android.system.Os.chmod(caBundle.absolutePath, 420)
-            } catch (e: Exception) {}
+            caBundle.setReadable(true, true)
+            caBundle.setWritable(true, true)
+            try { android.system.Os.chmod(caBundle.absolutePath, 384) } catch (e: Exception) {}
 
             val certAliases = listOf(
                 File(root, "etc/ssl/cert.pem"),
@@ -1582,140 +1133,22 @@ object BootstrapManager {
                             android.system.Os.symlink(caBundle.absolutePath, aliasFile.absolutePath)
                         } catch (symEx: Exception) {
                             aliasFile.writeBytes(caBundle.readBytes())
+                            aliasFile.setReadable(true, true)
+                            aliasFile.setWritable(true, true)
+                            try { android.system.Os.chmod(aliasFile.absolutePath, 384) } catch (e: Exception) {}
                         }
                     }
                 } catch (e: Exception) {}
             }
-            android.util.Log.i("BootstrapManager", "ensureCaCertificates finished (${caBundle.length()} bytes)")
+            Log.i(TAG, "ensureCaCertificates finished (${caBundle.length()} bytes)")
         } catch (e: Exception) {
-            android.util.Log.e("BootstrapManager", "Failed to ensure CA certificates", e)
+            Log.e(TAG, "Failed to ensure CA certificates", e)
         }
     }
-
-    private const val UBUNTU_ARCHIVE_KEYRING_BASE64 = "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"
 
     fun ensureKeyrings(root: File, context: Context? = null) {
-        try {
-            val shareKeyrings = File(root, "usr/share/keyrings")
-            shareKeyrings.mkdirs()
-            val trustedD = File(root, "etc/apt/trusted.gpg.d")
-            trustedD.mkdirs()
-            val aptKeyrings = File(root, "etc/apt/keyrings")
-            aptKeyrings.mkdirs()
-
-            // 1. Get official verified keyring bytes
-            val keyBytes: ByteArray = try {
-                context?.assets?.open("ubuntu-archive-keyring.gpg")?.use { it.readBytes() }
-            } catch (e: Exception) {
-                null
-            }?.takeIf { it.isNotEmpty() } ?: android.util.Base64.decode(UBUNTU_ARCHIVE_KEYRING_BASE64, android.util.Base64.DEFAULT)
-
-            // Signing key ID: 871920D1991BC93C (Ubuntu Archive Automatic Signing Key 2018)
-            val keyIdPattern = byteArrayOf(
-                0x87.toByte(), 0x19.toByte(), 0x20.toByte(), 0xd1.toByte(),
-                0x99.toByte(), 0x1b.toByte(), 0xc9.toByte(), 0x3c.toByte()
-            )
-
-            fun containsKeyId(f: File): Boolean {
-                if (!f.exists() || f.length() < keyIdPattern.size) return false
-                return try {
-                    val content = f.readBytes()
-                    var found = false
-                    for (i in 0..(content.size - keyIdPattern.size)) {
-                        var match = true
-                        for (j in keyIdPattern.indices) {
-                            if (content[i + j] != keyIdPattern[j]) {
-                                match = false
-                                break
-                            }
-                        }
-                        if (match) {
-                            found = true
-                            break
-                        }
-                    }
-                    found
-                } catch (e: Exception) {
-                    false
-                }
-            }
-
-            val targetKeyrings = listOf(
-                File(shareKeyrings, "ubuntu-archive-keyring.gpg"),
-                File(shareKeyrings, "ubuntu-keyring-2018-archive.gpg"),
-                File(aptKeyrings, "ubuntu-archive-keyring.gpg"),
-                File(aptKeyrings, "ubuntu-keyring-2018-archive.gpg"),
-                File(trustedD, "ubuntu-archive-keyring.gpg"),
-                File(trustedD, "ubuntu-keyring-2018-archive.gpg"),
-                File(root, "etc/apt/trusted.gpg"),
-                File(root, "etc/gnupg/trustedkeys.gpg"),
-                File(root, "home/.gnupg/trustedkeys.gpg"),
-                File(root, "root/.gnupg/trustedkeys.gpg")
-            )
-
-            for (target in targetKeyrings) {
-                if (!containsKeyId(target)) {
-                    try {
-                        target.parentFile?.mkdirs()
-                        target.outputStream().use { it.write(keyBytes) }
-                        target.setReadable(true, false)
-                        try { android.system.Os.chmod(target.absolutePath, 420) } catch (e: Exception) {}
-                        android.util.Log.i("BootstrapManager", "Wrote verified Ubuntu archive keyring to ${target.absolutePath}")
-                    } catch (e: Exception) {
-                        android.util.Log.e("BootstrapManager", "Failed writing keyring to ${target.absolutePath}", e)
-                    }
-                }
-            }
-
-            // Clean up any obsolete/corrupted keyrings from trusted.gpg.d that trigger gpgv add_keyblock_resource errors
-            try {
-                trustedD.listFiles()?.forEach { file ->
-                    if (!containsKeyId(file)) {
-                        file.delete()
-                    }
-                }
-            } catch (e: Exception) {}
-
-            // Copy secondary keyrings from assets if available to usr/share/keyrings and etc/apt/keyrings
-            if (context != null) {
-                val assetKeyrings = listOf(
-                    "ubuntu-master-keyring.gpg",
-                    "ubuntu-archive-removed-keys.gpg",
-                    "ubuntu-keyring-2012-cdimage.gpg",
-                    "ubuntu-cloudimage-keyring.gpg"
-                )
-                for (name in assetKeyrings) {
-                    try {
-                        val targets = listOf(File(shareKeyrings, name), File(aptKeyrings, name))
-                        context.assets.open(name).use { inStream ->
-                            val bytes = inStream.readBytes()
-                            if (bytes.isNotEmpty()) {
-                                for (target in targets) {
-                                    if (!target.exists() || target.length() != bytes.size.toLong()) {
-                                        target.parentFile?.mkdirs()
-                                        target.outputStream().use { it.write(bytes) }
-                                        target.setReadable(true, false)
-                                        try { android.system.Os.chmod(target.absolutePath, 420) } catch (e: Exception) {}
-                                    }
-                                }
-                            }
-                        }
-                    } catch (e: Exception) {}
-                }
-            }
-
-            // Clear any stale partial lists that may have cached failed signature downloads
-            val partialLists = File(root, "var/lib/apt/lists/partial")
-            if (partialLists.exists()) {
-                try {
-                    partialLists.listFiles()?.forEach { it.delete() }
-                } catch (e: Exception) {}
-            }
-        } catch (e: Exception) {
-            android.util.Log.e("BootstrapManager", "Failed to ensure keyrings", e)
-        }
+        AptConfigurator.ensureKeyrings(root, context)
     }
-
 
     private fun ensurePasswd(root: File, home: File) {
         try {
@@ -1735,6 +1168,9 @@ object BootstrapManager {
                 passwdText = passwdText.replace(Regex("cortex:x:0:0:Cortex:[^:]+:/bin/bash"), "cortex:x:0:0:Cortex:$homePath:/bin/bash")
             }
             passwdFile.writeText(passwdText)
+            passwdFile.setReadable(true, true)
+            passwdFile.setWritable(true, true)
+            try { android.system.Os.chmod(passwdFile.absolutePath, 384) } catch (e: Exception) {}
 
             val groupFile = File(etcDir, "group")
             var groupText = if (groupFile.exists()) groupFile.readText() else ""
@@ -1745,35 +1181,19 @@ object BootstrapManager {
                 groupText += "cortex:x:0:\n"
             }
             groupFile.writeText(groupText)
+            groupFile.setReadable(true, true)
+            groupFile.setWritable(true, true)
+            try { android.system.Os.chmod(groupFile.absolutePath, 384) } catch (e: Exception) {}
         } catch (e: Exception) {
-            android.util.Log.e("BootstrapManager", "Failed to ensure passwd/group", e)
+            Log.e(TAG, "Failed to ensure passwd/group", e)
         }
     }
 
-    private fun ensureReloadScripts(root: File, home: File) {
-        try {
-            val reloadScript = "#!/bin/bash\n" +
-                "set --\n" +
-                "if [ -f \"\$HOME/.bashrc\" ]; then . \"\$HOME/.bashrc\"; fi\n" +
-                "if [ -f \"\$HOME/.profile\" ]; then . \"\$HOME/.profile\"; fi\n" +
-                "if [ -f \"\$HOME/.bash_profile\" ]; then . \"\$HOME/.bash_profile\"; fi\n" +
-                "echo \"Environment reloaded.\"\n"
-            val reloadDirs = listOf(File(root, "usr/bin"), File(root, "bin"), File(home, ".local/bin"))
-            reloadDirs.forEach { dir ->
-                if (dir.exists()) {
-                    val rFile = File(dir, "reload")
-                    rFile.writeText(reloadScript)
-                    rFile.setExecutable(true, false)
-                    rFile.setReadable(true, false)
-                    try { android.system.Os.chmod(rFile.absolutePath, 493) } catch (e: Exception) {}
-                }
-            }
-        } catch (e: Exception) {
-            android.util.Log.e("BootstrapManager", "Failed to create reload scripts", e)
-        }
+    private fun ensureReloadScripts(root: File, home: File, context: Context? = null) {
+        ShellScriptsInstaller.ensureReloadScripts(root, home, context)
     }
 
-    fun ensureEssentialBinaries(root: File, home: File) {
+    fun ensureEssentialBinaries(root: File, home: File, context: Context? = null) {
         try {
             val localBin = File(home, ".local/bin")
             localBin.mkdirs()
@@ -1805,9 +1225,10 @@ object BootstrapManager {
                         }
                         val tmp = File(target.parentFile ?: continue, "${target.name}.ctx_tmp")
                         realAwk.copyTo(tmp, overwrite = true)
-                        tmp.setReadable(true, false)
-                        tmp.setExecutable(true, false)
-                        try { android.system.Os.chmod(tmp.absolutePath, 493) } catch (e: Exception) {}
+                        tmp.setReadable(true, true)
+                        tmp.setWritable(true, true)
+                        tmp.setExecutable(true, true)
+                        try { android.system.Os.chmod(tmp.absolutePath, 448) } catch (e: Exception) {}
                         try {
                             java.nio.file.Files.move(
                                 tmp.toPath(),
@@ -1822,11 +1243,12 @@ object BootstrapManager {
                                 java.nio.file.StandardCopyOption.REPLACE_EXISTING
                             )
                         }
-                        target.setReadable(true, false)
-                        target.setExecutable(true, false)
-                        try { android.system.Os.chmod(target.absolutePath, 493) } catch (e: Exception) {}
+                        target.setReadable(true, true)
+                        target.setWritable(true, true)
+                        target.setExecutable(true, true)
+                        try { android.system.Os.chmod(target.absolutePath, 448) } catch (e: Exception) {}
                     } catch (e: Exception) {
-                        android.util.Log.e("BootstrapManager", "Failed to copy awk to ${target.absolutePath}", e)
+                        Log.e(TAG, "Failed to copy awk to ${target.absolutePath}", e)
                     }
                 }
             }
@@ -1856,9 +1278,10 @@ object BootstrapManager {
                     } else {
                         tmp.writeText("#!/bin/sh\ncommand -v \"\$@\"\n")
                     }
-                    tmp.setReadable(true, false)
-                    tmp.setExecutable(true, false)
-                    try { android.system.Os.chmod(tmp.absolutePath, 493) } catch (e: Exception) {}
+                    tmp.setReadable(true, true)
+                    tmp.setWritable(true, true)
+                    tmp.setExecutable(true, true)
+                    try { android.system.Os.chmod(tmp.absolutePath, 448) } catch (e: Exception) {}
                     try {
                         java.nio.file.Files.move(
                             tmp.toPath(),
@@ -1873,16 +1296,17 @@ object BootstrapManager {
                             java.nio.file.StandardCopyOption.REPLACE_EXISTING
                         )
                     }
-                    target.setReadable(true, false)
-                    target.setExecutable(true, false)
-                    try { android.system.Os.chmod(target.absolutePath, 493) } catch (e: Exception) {}
+                    target.setReadable(true, true)
+                    target.setWritable(true, true)
+                    target.setExecutable(true, true)
+                    try { android.system.Os.chmod(target.absolutePath, 448) } catch (e: Exception) {}
                 } catch (e: Exception) {
-                    android.util.Log.e("BootstrapManager", "Failed to setup which at ${target.absolutePath}", e)
+                    Log.e(TAG, "Failed to setup which at ${target.absolutePath}", e)
                 }
             }
-            ensureServiceManager(root)
-            ensureBrowserOpener(root)
-            ensureRootTools(root)
+            ensureServiceManager(root, context)
+            ensureBrowserOpener(root, context)
+            ensureRootTools(root, context)
             restoreGpgv(root)
             ensureMachineId(root)
             ensureShm(root)
@@ -1892,7 +1316,7 @@ object BootstrapManager {
             cleanupAutoLaunchers(root)
             ensureProfileEnvironment(root)
         } catch (e: Exception) {
-            android.util.Log.e("BootstrapManager", "Failed in ensureEssentialBinaries", e)
+            Log.e(TAG, "Failed in ensureEssentialBinaries", e)
         }
     }
 
@@ -1902,14 +1326,15 @@ object BootstrapManager {
             val gpgvOrig = File(root, "usr/bin/gpgv.orig")
             if (gpgvOrig.exists()) {
                 gpgvOrig.copyTo(gpgv, overwrite = true)
-                gpgv.setExecutable(true, false)
-                gpgv.setReadable(true, false)
-                try { android.system.Os.chmod(gpgv.absolutePath, 493) } catch (e: Exception) {}
+                gpgv.setExecutable(true, true)
+                gpgv.setReadable(true, true)
+                gpgv.setWritable(true, true)
+                try { android.system.Os.chmod(gpgv.absolutePath, 448) } catch (e: Exception) {}
                 gpgvOrig.delete()
-                android.util.Log.i("BootstrapManager", "Restored native gpgv binary from gpgv.orig")
+                Log.i(TAG, "Restored native gpgv binary from gpgv.orig")
             }
         } catch (e: Exception) {
-            android.util.Log.e("BootstrapManager", "Failed to restore gpgv", e)
+            Log.e(TAG, "Failed to restore gpgv", e)
         }
     }
 
@@ -1920,8 +1345,9 @@ object BootstrapManager {
                 machineId.parentFile?.mkdirs()
                 val uuid = java.util.UUID.randomUUID().toString().replace("-", "")
                 machineId.writeText("$uuid\n")
-                machineId.setReadable(true, false)
-                try { android.system.Os.chmod(machineId.absolutePath, 420) } catch (e: Exception) {}
+                machineId.setReadable(true, true)
+                machineId.setWritable(true, true)
+                try { android.system.Os.chmod(machineId.absolutePath, 384) } catch (e: Exception) {}
             }
             val dbusDir = File(root, "var/lib/dbus")
             dbusDir.mkdirs()
@@ -1947,9 +1373,10 @@ object BootstrapManager {
                         val tb = File(bDir, tool)
                         tb.parentFile?.mkdirs()
                         tb.writeText(scriptContent)
-                        tb.setReadable(true, false)
-                        tb.setExecutable(true, false)
-                        try { android.system.Os.chmod(tb.absolutePath, 493) } catch (_: Exception) {}
+                        tb.setReadable(true, true)
+                        tb.setWritable(true, true)
+                        tb.setExecutable(true, true)
+                        try { android.system.Os.chmod(tb.absolutePath, 448) } catch (_: Exception) {}
                     } catch (_: Exception) {}
                 }
             }
@@ -1981,11 +1408,12 @@ object BootstrapManager {
             }
             if (newDivBuilder.toString() != currentDivText) {
                 diversionsFile.writeText(newDivBuilder.toString())
-                diversionsFile.setReadable(true, false)
-                try { android.system.Os.chmod(diversionsFile.absolutePath, 420) } catch (_: Exception) {}
+                diversionsFile.setReadable(true, true)
+                diversionsFile.setWritable(true, true)
+                try { android.system.Os.chmod(diversionsFile.absolutePath, 384) } catch (_: Exception) {}
             }
         } catch (e: Exception) {
-            android.util.Log.e("BootstrapManager", "Failed to ensure machine-id", e)
+            Log.e(TAG, "Failed to ensure machine-id", e)
         }
     }
 
@@ -2007,12 +1435,12 @@ object BootstrapManager {
                         text.contains("opencode.ai") ||
                         text.contains("dev.meta.ai")) {
                         cand.delete()
-                        android.util.Log.i("BootstrapManager", "Removed auto-installer wrapper: ${cand.absolutePath}")
+                        Log.i(TAG, "Removed auto-installer wrapper: ${cand.absolutePath}")
                     }
                 }
             }
         } catch (e: Exception) {
-            android.util.Log.e("BootstrapManager", "Failed to cleanup auto-launchers", e)
+            Log.e(TAG, "Failed to cleanup auto-launchers", e)
         }
     }
 
@@ -2020,7 +1448,10 @@ object BootstrapManager {
         try {
             val tmpShm = File(root, "tmp/shm")
             tmpShm.mkdirs()
-            try { android.system.Os.chmod(tmpShm.absolutePath, 1023) } catch (_: Exception) {}
+            tmpShm.setReadable(true, true)
+            tmpShm.setWritable(true, true)
+            tmpShm.setExecutable(true, true)
+            try { android.system.Os.chmod(tmpShm.absolutePath, 448) } catch (_: Exception) {}
 
             val devDir = File(root, "dev")
             devDir.mkdirs()
@@ -2030,11 +1461,14 @@ object BootstrapManager {
                     android.system.Os.symlink("/tmp/shm", devShm.absolutePath)
                 } catch (_: Exception) {
                     devShm.mkdirs()
-                    try { android.system.Os.chmod(devShm.absolutePath, 1023) } catch (_: Exception) {}
+                    devShm.setReadable(true, true)
+                    devShm.setWritable(true, true)
+                    devShm.setExecutable(true, true)
+                    try { android.system.Os.chmod(devShm.absolutePath, 448) } catch (_: Exception) {}
                 }
             }
         } catch (e: Exception) {
-            android.util.Log.e("BootstrapManager", "Failed to ensure shm", e)
+            Log.e(TAG, "Failed to ensure shm", e)
         }
     }
 
@@ -2082,7 +1516,7 @@ object BootstrapManager {
                 } catch (_: Exception) {}
             }
         } catch (e: Exception) {
-            android.util.Log.e("BootstrapManager", "Failed to ensure systemd shared libs", e)
+            Log.e(TAG, "Failed to ensure systemd shared libs", e)
         }
     }
 
@@ -2109,14 +1543,15 @@ object BootstrapManager {
                     try {
                         t.parentFile?.mkdirs()
                         t.writeText(script)
-                        t.setExecutable(true, false)
-                        t.setReadable(true, false)
-                        try { android.system.Os.chmod(t.absolutePath, 493) } catch (_: Exception) {}
+                        t.setExecutable(true, true)
+                        t.setReadable(true, true)
+                        t.setWritable(true, true)
+                        try { android.system.Os.chmod(t.absolutePath, 448) } catch (_: Exception) {}
                     } catch (_: Exception) {}
                 }
             }
         } catch (e: Exception) {
-            android.util.Log.e("BootstrapManager", "Failed to ensure mountpoint", e)
+            Log.e(TAG, "Failed to ensure mountpoint", e)
         }
     }
 
@@ -2127,7 +1562,7 @@ object BootstrapManager {
             val etcJava = File(root, "etc/.java/.systemPrefs")
             etcJava.mkdirs()
         } catch (e: Exception) {
-            android.util.Log.e("BootstrapManager", "Failed to ensure Java CA dirs", e)
+            Log.e(TAG, "Failed to ensure Java CA dirs", e)
         }
     }
 
@@ -2147,637 +1582,24 @@ object BootstrapManager {
                 "export LD_PRELOAD=\"\$CORTEX_ROOT/usr/lib/libcortex-hook.so\"\n" +
                 "export PATH=\"/home/.local/bin:\$HOME/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:\$PATH\"\n"
             envSh.writeText(envContent)
-            envSh.setReadable(true, false)
-            try { android.system.Os.chmod(envSh.absolutePath, 420) } catch (e: Exception) {}
+            envSh.setReadable(true, true)
+            envSh.setWritable(true, true)
+            try { android.system.Os.chmod(envSh.absolutePath, 384) } catch (e: Exception) {}
         } catch (e: Exception) {
-            android.util.Log.e("BootstrapManager", "Failed to ensure profile environment", e)
+            Log.e(TAG, "Failed to ensure profile environment", e)
         }
     }
 
-    fun ensureServiceManager(root: File) {
-        try {
-            File(root, "run").mkdirs()
-            File(root, "var/run").mkdirs()
-            File(root, "var/lock").mkdirs()
-            File(root, "etc/init.d").mkdirs()
-            File(root, "etc/cortex/autostart").mkdirs()
-
-            val localBin = File(root, "usr/local/bin")
-            localBin.mkdirs()
-
-            val serviceScript = """
-#!/bin/bash
-# Cortex Service Manager for Ubuntu on Android
-SERVICE="${'$'}1"
-ACTION="${'$'}2"
-shift 2 2>/dev/null
-
-if [ -z "${'$'}SERVICE" ]; then
-    echo "Usage: service <service-name> {start|stop|restart|status}"
-    echo "       service --status-all"
-    exit 1
-fi
-
-if [ "${'$'}SERVICE" = "--status-all" ]; then
-    echo " [ + ] Running services"
-    echo " [ - ] Stopped services"
-    for initscript in /etc/init.d/*; do
-        if [ -f "${'$'}initscript" ] && [ -x "${'$'}initscript" ]; then
-            sname="${'$'}(basename "${'$'}initscript")"
-            if [ "${'$'}sname" != "skeleton" ] && [ "${'$'}sname" != "rc" ]; then
-                if "${'$'}initscript" status >/dev/null 2>&1; then
-                    echo " [ + ]  ${'$'}sname"
-                else
-                    echo " [ - ]  ${'$'}sname"
-                fi
-            fi
-        fi
-    done
-    exit 0
-fi
-
-PIDFILE="/run/${'$'}SERVICE.pid"
-mkdir -p /run /var/run
-
-if [ -x "/etc/init.d/${'$'}SERVICE" ]; then
-    exec "/etc/init.d/${'$'}SERVICE" "${'$'}ACTION" "${'$'}@"
-fi
-
-case "${'$'}ACTION" in
-    start)
-        if [ -f "${'$'}PIDFILE" ] && kill -0 "${'$'}(cat "${'$'}PIDFILE")" 2>/dev/null; then
-            echo "Service ${'$'}SERVICE is already running (PID ${'$'}(cat "${'$'}PIDFILE"))."
-            exit 0
-        fi
-        DAEMON=""
-        for p in "/usr/sbin/${'$'}SERVICE" "/usr/bin/${'$'}SERVICE"; do
-            if [ -x "${'$'}p" ]; then DAEMON="${'$'}p"; break; fi
-        done
-        if [ -n "${'$'}DAEMON" ]; then
-            echo "Starting ${'$'}SERVICE..."
-            "${'$'}DAEMON" "${'$'}@" &
-            echo ${'$'}! > "${'$'}PIDFILE"
-            echo "${'$'}SERVICE started with PID ${'$'}!"
-        else
-            echo "service: unrecognized service ${'$'}SERVICE"
-            exit 1
-        fi
-        ;;
-    stop)
-        if [ -f "${'$'}PIDFILE" ]; then
-            PID=${'$'}(cat "${'$'}PIDFILE")
-            if kill -0 "${'$'}PID" 2>/dev/null; then
-                echo "Stopping ${'$'}SERVICE (PID ${'$'}PID)..."
-                kill "${'$'}PID" 2>/dev/null
-                rm -f "${'$'}PIDFILE"
-                echo "${'$'}SERVICE stopped."
-            else
-                rm -f "${'$'}PIDFILE"
-            fi
-        else
-            pkill -f "${'$'}SERVICE" 2>/dev/null && echo "Stopped ${'$'}SERVICE." || echo "${'$'}SERVICE is not running."
-        fi
-        ;;
-    status)
-        if [ -f "${'$'}PIDFILE" ] && kill -0 "${'$'}(cat "${'$'}PIDFILE")" 2>/dev/null; then
-            echo "* ${'$'}SERVICE is running (PID ${'$'}(cat "${'$'}PIDFILE"))"
-            exit 0
-        elif pgrep -f "${'$'}SERVICE" >/dev/null 2>&1; then
-            echo "* ${'$'}SERVICE is running"
-            exit 0
-        else
-            echo "* ${'$'}SERVICE is not running"
-            exit 3
-        fi
-        ;;
-    restart)
-        "${'$'}0" "${'$'}SERVICE" stop
-        sleep 1
-        "${'$'}0" "${'$'}SERVICE" start "${'$'}@"
-        ;;
-    *)
-        echo "Usage: service ${'$'}SERVICE {start|stop|restart|status}"
-        exit 1
-        ;;
-esac
-""".trimIndent() + "\n"
-
-            val systemctlScript = """
-#!/bin/bash
-# Cortex systemctl compatibility shim
-ACTION="${'$'}1"
-SERVICE="${'$'}{2%.service}"
-shift 2 2>/dev/null
-
-case "${'$'}ACTION" in
-    daemon-reload|reset-failed)
-        exit 0
-        ;;
-    is-system-running)
-        echo "running"
-        exit 0
-        ;;
-    is-active)
-        if [ -z "${'$'}SERVICE" ]; then exit 1; fi
-        if service "${'$'}SERVICE" status >/dev/null 2>&1; then
-            echo "active"
-            exit 0
-        else
-            echo "inactive"
-            exit 3
-        fi
-        ;;
-    is-enabled)
-        if [ -f "/etc/cortex/autostart/${'$'}SERVICE" ]; then
-            echo "enabled"
-            exit 0
-        else
-            echo "disabled"
-            exit 1
-        fi
-        ;;
-    enable)
-        mkdir -p /etc/cortex/autostart
-        touch "/etc/cortex/autostart/${'$'}SERVICE"
-        echo "Enabled ${'$'}SERVICE for automatic startup."
-        exit 0
-        ;;
-    disable)
-        rm -f "/etc/cortex/autostart/${'$'}SERVICE"
-        echo "Disabled ${'$'}SERVICE from automatic startup."
-        exit 0
-        ;;
-    start|stop|restart|status|reload|force-reload)
-        if [ -z "${'$'}SERVICE" ]; then
-            echo "Usage: systemctl ${'$'}ACTION <service>"
-            exit 1
-        fi
-        exec service "${'$'}SERVICE" "${'$'}ACTION" "${'$'}@"
-        ;;
-    list-units|list-unit-files)
-        exec service --status-all
-        ;;
-    *)
-        if [ -n "${'$'}SERVICE" ]; then
-            exec service "${'$'}SERVICE" "${'$'}ACTION" "${'$'}@"
-        fi
-        exit 0
-        ;;
-esac
-""".trimIndent() + "\n"
-
-            val serviceFile = File(localBin, "service")
-            serviceFile.writeText(serviceScript)
-            serviceFile.setReadable(true, false)
-            serviceFile.setExecutable(true, false)
-            try { android.system.Os.chmod(serviceFile.absolutePath, 493) } catch (e: Exception) {}
-
-            val systemctlFile = File(localBin, "systemctl")
-            systemctlFile.writeText(systemctlScript)
-            systemctlFile.setReadable(true, false)
-            systemctlFile.setExecutable(true, false)
-            try { android.system.Os.chmod(systemctlFile.absolutePath, 493) } catch (e: Exception) {}
-
-            val cortexServiceFile = File(localBin, "cortex-service")
-            cortexServiceFile.writeText("#!/bin/sh\nexec service \"${'$'}@\"\n")
-            cortexServiceFile.setReadable(true, false)
-            cortexServiceFile.setExecutable(true, false)
-            try { android.system.Os.chmod(cortexServiceFile.absolutePath, 493) } catch (e: Exception) {}
-        } catch (e: Exception) {
-            android.util.Log.e("BootstrapManager", "Failed to ensure service manager", e)
-        }
+    fun ensureServiceManager(root: File, context: Context? = null) {
+        ShellScriptsInstaller.ensureServiceManager(root, context)
     }
 
-    fun ensureBrowserOpener(root: File) {
-        try {
-            val localBin = File(root, "usr/local/bin")
-            localBin.mkdirs()
-
-            // Remove deprecated audio files if they exist
-            val oldAudioFiles = listOf("play-audio", "cortex-play", "speaker-test", "aplay", "paplay")
-            for (fname in oldAudioFiles) {
-                val f = File(localBin, fname)
-                if (f.exists()) {
-                    try { f.delete() } catch (e: Exception) {}
-                }
-            }
-
-            val xdgOpenScript = """
-#!/bin/sh
-# Cortex URL & Browser Opener for Android Chrome / Default Browser
-if [ -z "${'$'}1" ]; then
-    echo "Usage: xdg-open <url>" >&2
-    exit 1
-fi
-
-TARGET=""
-for arg in "${'$'}@"; do
-    case "${'$'}arg" in
-        http://*|https://*|ftp://*|file://*)
-            TARGET="${'$'}arg"
-            break
-            ;;
-        --*|-*)
-            ;;
-        *)
-            if [ -z "${'$'}TARGET" ]; then
-                TARGET="${'$'}arg"
-            fi
-            ;;
-    esac
-done
-
-if [ -z "${'$'}TARGET" ]; then
-    TARGET="${'$'}1"
-fi
-
-# 1. Try bash /dev/tcp if bash is available
-if [ -x /bin/bash ] || [ -x /usr/bin/bash ]; then
-    BASH_BIN="${'$'}([ -x /bin/bash ] && echo /bin/bash || echo /usr/bin/bash)"
-    if "${'$'}BASH_BIN" -c "exec 3<>/dev/tcp/127.0.0.1/4715 && printf 'OPEN %s\n' \"${'$'}1\" >&3 && exec 3<&- && exec 3>&-" _ "${'$'}TARGET" 2>/dev/null; then
-        exit 0
-    fi
-fi
-
-# 2. Try netcat (nc)
-if command -v nc >/dev/null 2>&1; then
-    if printf "OPEN %s\n" "${'$'}TARGET" | nc -w 2 127.0.0.1 4715 >/dev/null 2>&1; then
-        exit 0
-    fi
-fi
-
-# 3. Try curl (HTTP GET /open?url=...)
-if command -v curl >/dev/null 2>&1; then
-    if curl -s -m 2 -G "http://127.0.0.1:4715/open" --data-urlencode "url=${'$'}TARGET" >/dev/null 2>&1; then
-        exit 0
-    fi
-fi
-
-# 4. Try python3
-if command -v python3 >/dev/null 2>&1; then
-    if python3 -c '
-import sys, socket
-s = socket.socket()
-s.settimeout(2.0)
-s.connect(("127.0.0.1", 4715))
-s.sendall(f"OPEN {sys.argv[1]}\n".encode("utf-8"))
-s.close()
-' "${'$'}TARGET" 2>/dev/null; then
-        exit 0
-    fi
-fi
-
-# 5. Try python (if python2 or aliased)
-if command -v python >/dev/null 2>&1; then
-    if python -c '
-import sys, socket
-s = socket.socket()
-s.settimeout(2.0)
-s.connect(("127.0.0.1", 4715))
-s.sendall(b"OPEN " + sys.argv[1].encode("utf-8") + b"\n")
-s.close()
-' "${'$'}TARGET" 2>/dev/null; then
-        exit 0
-    fi
-fi
-
-# 6. Fallback to Android am command
-for am_path in /system/bin/am /system/xbin/am; do
-    if [ -x "${'$'}am_path" ]; then
-        if env -u LD_PRELOAD -u LD_LIBRARY_PATH "${'$'}am_path" start -a android.intent.action.VIEW -d "${'$'}TARGET" >/dev/null 2>&1; then
-            exit 0
-        fi
-    fi
-done
-
-echo "xdg-open: Unable to open browser for: ${'$'}TARGET" >&2
-exit 1
-""".trimIndent() + "\n"
-
-            val xdgOpenFile = File(localBin, "xdg-open")
-            xdgOpenFile.writeText(xdgOpenScript)
-            xdgOpenFile.setReadable(true, false)
-            xdgOpenFile.setExecutable(true, false)
-            try { android.system.Os.chmod(xdgOpenFile.absolutePath, 493) } catch (e: Exception) {}
-
-            val browserAliases = listOf(
-                "sensible-browser",
-                "x-www-browser",
-                "google-chrome",
-                "google-chrome-stable",
-                "chromium",
-                "chromium-browser",
-                "firefox",
-                "open"
-            )
-
-            val wrapperScript = """
-#!/bin/sh
-exec /usr/local/bin/xdg-open "${'$'}@"
-""".trimIndent() + "\n"
-
-            for (alias in browserAliases) {
-                val aliasFile = File(localBin, alias)
-                aliasFile.writeText(wrapperScript)
-                aliasFile.setReadable(true, false)
-                aliasFile.setExecutable(true, false)
-                try { android.system.Os.chmod(aliasFile.absolutePath, 493) } catch (e: Exception) {}
-            }
-        } catch (e: Exception) {
-            android.util.Log.e("BootstrapManager", "Failed to ensure browser opener", e)
-        }
+    fun ensureBrowserOpener(root: File, context: Context? = null) {
+        ShellScriptsInstaller.ensureBrowserOpener(root, context)
     }
 
-    fun ensureRootTools(root: File) {
-        try {
-            val rootHome = File(root, "root")
-            if (!rootHome.exists()) {
-                rootHome.mkdirs()
-            }
-            val rootBashrc = File(rootHome, ".bashrc")
-            if (!rootBashrc.exists()) {
-                rootBashrc.writeText(
-                    "# Root profile for Cortex Terminal\n" +
-                    "export PS1='\\[\\033[01;31m\\]\\u@\\h\\[\\033[00m\\]:\\[\\033[01;34m\\]\\w\\[\\033[00m\\]# '\n" +
-                    "alias ll='ls -la'\n" +
-                    "alias la='ls -A'\n" +
-                    "alias l='ls -CF'\n" +
-                    "alias cls='clear'\n"
-                )
-            }
-
-            val localBin = File(root, "usr/local/bin")
-            if (!localBin.exists()) localBin.mkdirs()
-
-            val suScript = """
-#!/bin/bash
-# Cortex Root Switcher (su / tsu / sudo)
-
-find_host_su() {
-    for cand in \
-        /system/bin/su \
-        /system/xbin/su \
-        /sbin/su \
-        /data/adb/ksu/bin/su \
-        /data/adb/ap/bin/su \
-        /data/adb/ap/su \
-        /data/adb/magisk/su \
-        /vendor/bin/su \
-        /system_ext/bin/su \
-        /product/bin/su \
-        /apex/com.android.runtime/bin/su; do
-        if [ -f "${'$'}cand" ] || [ -x "${'$'}cand" ] || [ -L "${'$'}cand" ]; then
-            echo "${'$'}cand"
-            return 0
-        fi
-    done
-
-    local host_which
-    host_which=${'$'}(env -u LD_PRELOAD -u LD_LIBRARY_PATH -u GLIBC_TUNABLES PATH=/system/bin:/system/xbin:/sbin:/vendor/bin ANDROID_ROOT=/system ANDROID_DATA=/data /system/bin/sh -c 'command -v su 2>/dev/null || which su 2>/dev/null' 2>/dev/null)
-    if [ -n "${'$'}host_which" ]; then
-        echo "${'$'}host_which"
-        return 0
-    fi
-
-    for cand in /system/bin/su /system/xbin/su /sbin/su /data/adb/ap/bin/su /data/adb/ksu/bin/su /data/adb/magisk/su; do
-        if env -u LD_PRELOAD -u LD_LIBRARY_PATH -u GLIBC_TUNABLES PATH=/system/bin:/system/xbin:/sbin:/vendor/bin ANDROID_ROOT=/system ANDROID_DATA=/data ${'$'}cand -v >/dev/null 2>&1 || \
-           env -u LD_PRELOAD -u LD_LIBRARY_PATH -u GLIBC_TUNABLES PATH=/system/bin:/system/xbin:/sbin:/vendor/bin ANDROID_ROOT=/system ANDROID_DATA=/data /system/bin/sh -c "${'$'}cand -v" >/dev/null 2>&1; then
-            echo "${'$'}cand"
-            return 0
-        fi
-    done
-
-    for p in /system/bin /system/xbin /sbin /vendor/bin /system_ext/bin /product/bin; do
-        if [ -x "${'$'}p/su" ] || [ -f "${'$'}p/su" ] || [ -L "${'$'}p/su" ]; then
-            echo "${'$'}p/su"
-            return 0
-        fi
-    done
-
-    if [ -x "/data/adb/magisk/magisk" ] || [ -f "/data/adb/magisk/magisk" ]; then
-        echo "/data/adb/magisk/magisk su"
-        return 0
-    fi
-
-    echo "su"
-    return 0
-}
-
-HOST_SU=${'$'}(find_host_su)
-
-if [ -z "${'$'}HOST_SU" ]; then
-    echo "root not found" >&2
-    exit 1
-fi
-
-RUN_ANDROID_SU() {
-    if [ -x "${'$'}HOST_SU" ] || [ -f "${'$'}HOST_SU" ]; then
-        env -u LD_PRELOAD -u LD_LIBRARY_PATH -u GLIBC_TUNABLES \
-          PATH=/system/bin:/system/xbin:/sbin:/vendor/bin \
-          ANDROID_ROOT=/system \
-          ANDROID_DATA=/data \
-          TERM="${'$'}{TERM:-xterm-256color}" \
-          COLORTERM="${'$'}{COLORTERM:-truecolor}" \
-          ${'$'}HOST_SU "${'$'}@"
-    else
-        env -u LD_PRELOAD -u LD_LIBRARY_PATH -u GLIBC_TUNABLES \
-          PATH=/system/bin:/system/xbin:/sbin:/vendor/bin \
-          ANDROID_ROOT=/system \
-          ANDROID_DATA=/data \
-          TERM="${'$'}{TERM:-xterm-256color}" \
-          COLORTERM="${'$'}{COLORTERM:-truecolor}" \
-          /system/bin/sh -c "exec ${'$'}HOST_SU \"\$@\"" _ "${'$'}@"
-    fi
-}
-
-CHECK_ROOT() {
-    local uid
-    uid=${'$'}(RUN_ANDROID_SU -c 'id -u 2>/dev/null || /system/bin/id -u 2>/dev/null || /system/xbin/id -u 2>/dev/null || /system/bin/toybox id -u 2>/dev/null || echo "${'$'}UID" || echo "${'$'}USER_ID"' 2>/dev/null)
-    if [ -n "${'$'}uid" ] && [ "${'$'}uid" -eq 0 ] 2>/dev/null; then
-        return 0
-    fi
-
-    uid=${'$'}(env -u LD_PRELOAD -u LD_LIBRARY_PATH -u GLIBC_TUNABLES PATH=/system/bin:/system/xbin:/sbin:/vendor/bin ANDROID_ROOT=/system ANDROID_DATA=/data /system/bin/sh -c "${'$'}HOST_SU -c 'id -u 2>/dev/null || /system/bin/id -u 2>/dev/null || /system/xbin/id -u 2>/dev/null || /system/bin/toybox id -u 2>/dev/null || echo \${'$'}UID || echo \${'$'}USER_ID'" 2>/dev/null)
-    if [ -n "${'$'}uid" ] && [ "${'$'}uid" -eq 0 ] 2>/dev/null; then
-        return 0
-    fi
-
-    if RUN_ANDROID_SU -c 'true' 2>/dev/null; then
-        return 0
-    fi
-
-    if env -u LD_PRELOAD -u LD_LIBRARY_PATH -u GLIBC_TUNABLES PATH=/system/bin:/system/xbin:/sbin:/vendor/bin ANDROID_ROOT=/system ANDROID_DATA=/data /system/bin/sh -c "${'$'}HOST_SU -c 'true'" 2>/dev/null; then
-        return 0
-    fi
-
-    return 1
-}
-
-if ! CHECK_ROOT; then
-    echo "root not found" >&2
-    exit 1
-fi
-
-if [ -z "${'$'}CORTEX_ROOT" ]; then
-    if [ -d "/data/user/0/org.cortex.terminal/files/cortex" ]; then
-        CORTEX_ROOT="/data/user/0/org.cortex.terminal/files/cortex"
-    elif [ -d "/data/data/org.cortex.terminal/files/cortex" ]; then
-        CORTEX_ROOT="/data/data/org.cortex.terminal/files/cortex"
-    fi
-fi
-
-ROOT_HOME="${'$'}CORTEX_ROOT/root"
-if [ ! -d "${'$'}ROOT_HOME" ]; then
-    mkdir -p "${'$'}ROOT_HOME" 2>/dev/null || ROOT_HOME="${'$'}CORTEX_ROOT/home"
-fi
-
-CORTEX_SHELL=""
-for s in "${'$'}CORTEX_ROOT/bin/bash" "${'$'}CORTEX_ROOT/usr/bin/bash" "${'$'}CORTEX_ROOT/bin/sh" "${'$'}CORTEX_ROOT/usr/bin/sh"; do
-    if [ -x "${'$'}s" ]; then
-        CORTEX_SHELL="${'$'}s"
-        break
-    fi
-done
-[ -z "${'$'}CORTEX_SHELL" ] && CORTEX_SHELL="/system/bin/sh"
-
-CORTEX_PATH="${'$'}CORTEX_ROOT/usr/local/sbin:${'$'}CORTEX_ROOT/usr/sbin:${'$'}CORTEX_ROOT/sbin:${'$'}CORTEX_ROOT/usr/local/bin:${'$'}CORTEX_ROOT/bin:${'$'}CORTEX_ROOT/usr/bin:/system/bin:/system/xbin"
-CORTEX_LD="${'$'}CORTEX_ROOT/lib:${'$'}CORTEX_ROOT/usr/lib:${'$'}CORTEX_ROOT/lib/aarch64-linux-gnu:${'$'}CORTEX_ROOT/usr/lib/aarch64-linux-gnu:${'$'}CORTEX_ROOT/lib/arm-linux-gnueabihf:${'$'}CORTEX_ROOT/usr/lib/arm-linux-gnueabihf:${'$'}CORTEX_ROOT/usr/local/lib:${'$'}CORTEX_ROOT/usr/lib/systemd:${'$'}CORTEX_ROOT/lib/systemd:${'$'}CORTEX_ROOT/usr/lib/aarch64-linux-gnu/systemd:${'$'}CORTEX_ROOT/lib/aarch64-linux-gnu/systemd:${'$'}CORTEX_ROOT/usr/lib/arm-linux-gnueabihf/systemd:${'$'}CORTEX_ROOT/lib/arm-linux-gnueabihf/systemd"
-CORTEX_PRELOAD=""
-if [ -f "${'$'}CORTEX_ROOT/usr/lib/libcortex-hook.so" ]; then
-    CORTEX_PRELOAD="${'$'}CORTEX_ROOT/usr/lib/libcortex-hook.so"
-elif [ -f "${'$'}CORTEX_ROOT/lib/libcortex-hook.so" ]; then
-    CORTEX_PRELOAD="${'$'}CORTEX_ROOT/lib/libcortex-hook.so"
-fi
-
-CERT_FILE="${'$'}CORTEX_ROOT/etc/ssl/certs/ca-certificates.crt"
-CERT_DIR="${'$'}CORTEX_ROOT/etc/ssl/certs:/system/etc/security/cacerts"
-CURRENT_DIR="${'$'}PWD"
-
-ENV_SETUP="export CORTEX_ROOT='${'$'}CORTEX_ROOT'; \
-export PATH='${'$'}CORTEX_PATH'; \
-export LD_LIBRARY_PATH='${'$'}CORTEX_LD'; \
-export GLIBC_TUNABLES='glibc.pthread.rseq=0'; \
-export LANG='C.UTF-8'; \
-export LC_ALL='C.UTF-8'; \
-export LOCPATH='${'$'}CORTEX_ROOT/usr/lib/locale'; \
-export USER='root'; \
-export LOGNAME='root'; \
-export HOSTNAME='cortex-android'; \
-export TERM='${'$'}{TERM:-xterm-256color}'; \
-export COLORTERM='${'$'}{COLORTERM:-truecolor}'; \
-export SSL_CERT_FILE='${'$'}CERT_FILE'; \
-export SSL_CERT_DIR='${'$'}CERT_DIR'; \
-export CURL_CA_BUNDLE='${'$'}CERT_FILE'; \
-export NODE_EXTRA_CA_CERTS='${'$'}CERT_FILE'; \
-export REQUESTS_CA_BUNDLE='${'$'}CERT_FILE'; \
-export TZDIR='${'$'}CORTEX_ROOT/usr/share/zoneinfo'; \
-export TERMINFO='${'$'}CORTEX_ROOT/usr/share/terminfo'; \
-export TERMINFO_DIRS='${'$'}CORTEX_ROOT/usr/share/terminfo:${'$'}CORTEX_ROOT/lib/terminfo:${'$'}CORTEX_ROOT/etc/terminfo:/usr/share/terminfo'; \
-export GODEBUG='netdns=cgo'; \
-export BROWSER='/usr/local/bin/xdg-open'; \
-export PS1='\[\033[01;31m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]# ';"
-
-if [ -n "${'$'}CORTEX_PRELOAD" ]; then
-    ENV_SETUP="${'$'}ENV_SETUP export LD_PRELOAD='${'$'}CORTEX_PRELOAD';"
-fi
-
-CORTEX_LD_SO=""
-for cand_ld in \
-    "${'$'}CORTEX_ROOT/usr/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1" \
-    "${'$'}CORTEX_ROOT/usr/lib/aarch64-linux-gnu/ld-2.39.so" \
-    "${'$'}CORTEX_ROOT/lib/ld-linux-aarch64.so.1" \
-    "${'$'}CORTEX_ROOT/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1" \
-    "${'$'}CORTEX_ROOT/usr/lib/ld-linux-aarch64.so.1" \
-    "${'$'}CORTEX_ROOT/usr/lib64/ld-linux-aarch64.so.1" \
-    "${'$'}CORTEX_ROOT/lib64/ld-linux-aarch64.so.1" \
-    "${'$'}CORTEX_ROOT/usr/lib/arm-linux-gnueabihf/ld-linux-armhf.so.3" \
-    "${'$'}CORTEX_ROOT/usr/lib/arm-linux-gnueabihf/ld-2.39.so" \
-    "${'$'}CORTEX_ROOT/lib/ld-linux-armhf.so.3" \
-    "${'$'}CORTEX_ROOT/lib/arm-linux-gnueabihf/ld-linux-armhf.so.3" \
-    "${'$'}CORTEX_ROOT/usr/lib/ld-linux-armhf.so.3"; do
-    if [ -f "${'$'}cand_ld" ] || [ -x "${'$'}cand_ld" ] || [ -L "${'$'}cand_ld" ]; then
-        CORTEX_LD_SO="${'$'}cand_ld"
-        break
-    fi
-done
-
-if [ -n "${'$'}CORTEX_LD_SO" ]; then
-    LAUNCH_SHELL="'${'$'}CORTEX_LD_SO' --library-path '${'$'}CORTEX_LD' '${'$'}CORTEX_SHELL'"
-else
-    LAUNCH_SHELL="'${'$'}CORTEX_SHELL'"
-fi
-
-if [ -x "${'$'}HOST_SU" ] || [ -f "${'$'}HOST_SU" ]; then
-    RUN_SU="env -u LD_PRELOAD -u LD_LIBRARY_PATH -u GLIBC_TUNABLES PATH=/system/bin:/system/xbin:/sbin:/vendor/bin ANDROID_ROOT=/system ANDROID_DATA=/data TERM='${'$'}{TERM:-xterm-256color}' COLORTERM='${'$'}{COLORTERM:-truecolor}' ${'$'}HOST_SU"
-else
-    RUN_SU="env -u LD_PRELOAD -u LD_LIBRARY_PATH -u GLIBC_TUNABLES PATH=/system/bin:/system/xbin:/sbin:/vendor/bin ANDROID_ROOT=/system ANDROID_DATA=/data TERM='${'$'}{TERM:-xterm-256color}' COLORTERM='${'$'}{COLORTERM:-truecolor}' /system/bin/sh -c \"exec ${'$'}HOST_SU \\\"\\\$@\\\"\" _"
-fi
-
-if [ "${'$'}1" = "-c" ]; then
-    shift
-    exec ${'$'}RUN_SU -c "${'$'}ENV_SETUP export HOME='${'$'}ROOT_HOME'; cd '${'$'}CURRENT_DIR' 2>/dev/null || cd '${'$'}ROOT_HOME' 2>/dev/null; exec ${'$'}LAUNCH_SHELL -c \"\$@\"" _ "${'$'}@"
-elif [ "${'$'}1" = "-" ] || [ "${'$'}1" = "-l" ] || [ "${'$'}1" = "--login" ]; then
-    exec ${'$'}RUN_SU -c "${'$'}ENV_SETUP export HOME='${'$'}ROOT_HOME'; cd '${'$'}ROOT_HOME' 2>/dev/null; exec ${'$'}LAUNCH_SHELL -l -i"
-elif [ "${'$'}1" = "root" ]; then
-    shift
-    if [ "${'$'}#" -eq 0 ]; then
-        exec ${'$'}RUN_SU -c "${'$'}ENV_SETUP export HOME='${'$'}ROOT_HOME'; cd '${'$'}CURRENT_DIR' 2>/dev/null || cd '${'$'}ROOT_HOME' 2>/dev/null; exec ${'$'}LAUNCH_SHELL -i"
-    else
-        exec ${'$'}RUN_SU -c "${'$'}ENV_SETUP export HOME='${'$'}ROOT_HOME'; cd '${'$'}CURRENT_DIR' 2>/dev/null || cd '${'$'}ROOT_HOME' 2>/dev/null; exec ${'$'}LAUNCH_SHELL -c \"\$*\"" _ "${'$'}@"
-    fi
-elif [ "${'$'}#" -eq 0 ]; then
-    exec ${'$'}RUN_SU -c "${'$'}ENV_SETUP export HOME='${'$'}ROOT_HOME'; cd '${'$'}CURRENT_DIR' 2>/dev/null || cd '${'$'}ROOT_HOME' 2>/dev/null; exec ${'$'}LAUNCH_SHELL -i"
-else
-    exec ${'$'}RUN_SU -c "${'$'}ENV_SETUP export HOME='${'$'}ROOT_HOME'; cd '${'$'}CURRENT_DIR' 2>/dev/null || cd '${'$'}ROOT_HOME' 2>/dev/null; exec ${'$'}LAUNCH_SHELL -c \"\$*\"" _ "${'$'}@"
-fi
-""".trimIndent() + "\n"
-
-            val suFile = File(localBin, "su")
-            suFile.writeText(suScript)
-            suFile.setReadable(true, false)
-            suFile.setExecutable(true, false)
-            try { android.system.Os.chmod(suFile.absolutePath, 493) } catch (e: Exception) {}
-
-            val tsuScript = """
-#!/bin/sh
-SCRIPT_DIR="${'$'}(cd "${'$'}(dirname "${'$'}0")" && pwd)"
-if [ -x "${'$'}SCRIPT_DIR/su" ]; then
-    exec "${'$'}SCRIPT_DIR/su" "${'$'}@"
-elif [ -x /usr/local/bin/su ]; then
-    exec /usr/local/bin/su "${'$'}@"
-else
-    exec su "${'$'}@"
-fi
-""".trimIndent() + "\n"
-
-            val tsuFile = File(localBin, "tsu")
-            tsuFile.writeText(tsuScript)
-            tsuFile.setReadable(true, false)
-            tsuFile.setExecutable(true, false)
-            try { android.system.Os.chmod(tsuFile.absolutePath, 493) } catch (e: Exception) {}
-
-            val sudoFile = File(localBin, "sudo")
-            sudoFile.writeText(tsuScript)
-            sudoFile.setReadable(true, false)
-            sudoFile.setExecutable(true, false)
-            try { android.system.Os.chmod(sudoFile.absolutePath, 493) } catch (e: Exception) {}
-
-            val rootFile = File(localBin, "root")
-            rootFile.writeText(tsuScript)
-            rootFile.setReadable(true, false)
-            rootFile.setExecutable(true, false)
-            try { android.system.Os.chmod(rootFile.absolutePath, 493) } catch (e: Exception) {}
-
-            val nanoDir = File(root, "usr/share/nano")
-            if (!nanoDir.exists()) nanoDir.mkdirs()
-            val defaultNanorc = File(nanoDir, "default.nanorc")
-            if (!defaultNanorc.exists()) {
-                defaultNanorc.writeText("## Default syntax highlighting\nsyntax \"default\"\n")
-                defaultNanorc.setReadable(true, false)
-            }
-        } catch (e: Exception) {
-            android.util.Log.e("BootstrapManager", "Failed to ensure root tools", e)
-        }
+    fun ensureRootTools(root: File, context: Context? = null) {
+        ShellScriptsInstaller.ensureRootTools(root, context)
     }
 
     fun updateTimezone(context: Context, root: File) {
@@ -2835,76 +1657,35 @@ fi
                         localTimeFile.delete()
                     }
                     zoneinfoFile.copyTo(localTimeFile, overwrite = true)
-                    localTimeFile.setReadable(true, false)
+                    localTimeFile.setReadable(true, true)
+                    localTimeFile.setWritable(true, true)
+                    try { android.system.Os.chmod(localTimeFile.absolutePath, 384) } catch (e: Exception) {}
                 } catch (e: Exception) {
-                    android.util.Log.e("BootstrapManager", "Failed to copy zoneinfo to localtime", e)
+                    Log.e(TAG, "Failed to copy zoneinfo to localtime", e)
                 }
             } else {
-                val tzifBytes = createTzifBytes(offsetSeconds, abbr, posixTz)
+                val tzifBytes = TzifGenerator.createTzifBytes(offsetSeconds, abbr, posixTz)
                 try {
                     if (localTimeFile.exists()) {
                         localTimeFile.delete()
                     }
                     localTimeFile.writeBytes(tzifBytes)
-                    localTimeFile.setReadable(true, false)
+                    localTimeFile.setReadable(true, true)
+                    localTimeFile.setWritable(true, true)
+                    try { android.system.Os.chmod(localTimeFile.absolutePath, 384) } catch (e: Exception) {}
                 } catch (e: Exception) {
-                    android.util.Log.e("BootstrapManager", "Failed to write generated localtime", e)
+                    Log.e(TAG, "Failed to write generated localtime", e)
                 }
             }
 
             val effectiveTz = if (zoneinfoFile.exists() && zoneinfoFile.isFile) tzId else posixTz
             tzFile.writeText(effectiveTz + "\n")
-            tzFile.setReadable(true, false)
+            tzFile.setReadable(true, true)
+            tzFile.setWritable(true, true)
+            try { android.system.Os.chmod(tzFile.absolutePath, 384) } catch (e: Exception) {}
         } catch (e: Exception) {
-            android.util.Log.e("BootstrapManager", "Failed to update timezone", e)
+            Log.e(TAG, "Failed to update timezone", e)
         }
-    }
-
-    private fun createTzifBytes(offsetSeconds: Int, tzAbbr: String, posixStr: String): ByteArray {
-        val abbrBytes = tzAbbr.toByteArray(Charsets.US_ASCII) + byteArrayOf(0)
-        val charcnt = abbrBytes.size
-
-        val bb = java.nio.ByteBuffer.allocate(256).order(java.nio.ByteOrder.BIG_ENDIAN)
-
-        // Header 1 (32-bit v1)
-        bb.put("TZif2".toByteArray(Charsets.US_ASCII))
-        bb.put(ByteArray(15))
-        bb.putInt(0) // ttisgmtcnt
-        bb.putInt(0) // ttisstdcnt
-        bb.putInt(0) // leapcnt
-        bb.putInt(0) // timecnt
-        bb.putInt(1) // typecnt
-        bb.putInt(charcnt) // charcnt
-
-        // ttinfo 1
-        bb.putInt(offsetSeconds)
-        bb.put(0.toByte()) // isdst
-        bb.put(0.toByte()) // abbridx
-        bb.put(abbrBytes)
-
-        // Header 2 (64-bit v2)
-        bb.put("TZif2".toByteArray(Charsets.US_ASCII))
-        bb.put(ByteArray(15))
-        bb.putInt(0)
-        bb.putInt(0)
-        bb.putInt(0)
-        bb.putInt(0)
-        bb.putInt(1)
-        bb.putInt(charcnt)
-
-        // ttinfo 2
-        bb.putInt(offsetSeconds)
-        bb.put(0.toByte())
-        bb.put(0.toByte())
-        bb.put(abbrBytes)
-
-        // Footer
-        bb.put("\n$posixStr\n".toByteArray(Charsets.US_ASCII))
-
-        bb.flip()
-        val out = ByteArray(bb.remaining())
-        bb.get(out)
-        return out
     }
 
     fun runBackgroundCommand(context: Context, command: String, onProgress: ((String) -> Unit)? = null): Int {
@@ -2932,9 +1713,8 @@ fi
                 onProgress?.invoke(str)
             }
         } catch (e: Exception) {
-            android.util.Log.e("BootstrapManager", "Background command stream error", e)
+            Log.e(TAG, "Background command stream error", e)
         }
         return pty.waitFor()
     }
 }
-

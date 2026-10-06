@@ -57,28 +57,20 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
 
-      - name: Prepare Gradle Wrapper
-        run: |
-          if [ ! -f gradle/wrapper/gradle-wrapper.jar ]; then
-            curl -sLo gradle/wrapper/gradle-wrapper.jar https://raw.githubusercontent.com/gradle/gradle/v8.7.0/gradle/wrapper/gradle-wrapper.jar || gradle wrapper --gradle-version 8.7 || true
-          fi
-          chmod +x gradlew
+      - name: Make Gradle Wrapper Executable
+        run: chmod +x gradlew
 
-      - name: Verify or Generate Release Signing Key
+      - name: Setup Release Signing Key
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
         run: |
-          if [ ! -f app/cortex-release.keystore ]; then
-            echo "Generating release signing keystore..."
-            keytool -genkeypair -v \
-              -keystore app/cortex-release.keystore \
-              -alias cortex \
-              -keyalg RSA \
-              -keysize 2048 \
-              -validity 10000 \
-              -storepass cortexpassword \
-              -keypass cortexpassword \
-              -dname "CN=Cortex, OU=Terminal, O=Cortex, C=US"
+          if [ -n "$RELEASE_KEYSTORE_BASE64" ]; then
+            echo "Restoring release keystore from secrets..."
+            echo "$RELEASE_KEYSTORE_BASE64" | base64 -d > app/cortex-release.keystore
+          elif [ -f app/cortex-release.keystore ]; then
+            echo "Existing keystore found on disk."
           else
-            echo "Committed permanent release keystore found, using existing keystore."
+            echo "No release keystore secret configured; assembleRelease will use debug fallback for unauthenticated builds."
           fi
 
       - name: Cache cortex-hook Libraries
@@ -95,8 +87,8 @@ jobs:
           sudo apt-get update -o Acquire::Retries=3 -qq || true
           sudo apt-get install -y --no-install-recommends gcc-aarch64-linux-gnu gcc-arm-linux-gnueabihf libc6-dev-arm64-cross libc6-dev-armhf-cross dpkg-dev
           mkdir -p hook-libs
-          aarch64-linux-gnu-gcc -std=gnu11 -shared -fPIC -O3 -Wall -Wno-nonnull-compare -o hook-libs/libcortex-hook-arm64.so app/src/main/cpp/cortex-hook.c -ldl
-          arm-linux-gnueabihf-gcc -std=gnu11 -shared -fPIC -O3 -Wall -Wno-nonnull-compare -o hook-libs/libcortex-hook-arm.so app/src/main/cpp/cortex-hook.c -ldl
+          aarch64-linux-gnu-gcc -std=gnu11 -shared -fPIC -O3 -Wall -Wno-nonnull-compare -Wl,-z,max-page-size=16384 -o hook-libs/libcortex-hook-arm64.so app/src/main/cpp/cortex-hook.c -ldl
+          arm-linux-gnueabihf-gcc -std=gnu11 -shared -fPIC -O3 -Wall -Wno-nonnull-compare -Wl,-z,max-page-size=16384 -o hook-libs/libcortex-hook-arm.so app/src/main/cpp/cortex-hook.c -ldl
 
           echo "Verifying Glibc version requirements in hook libraries..."
           if readelf -V hook-libs/*.so | grep -E "GLIBC_2\.([4-9][0-9])"; then
@@ -113,7 +105,7 @@ jobs:
             app/src/main/assets/bootstrap-arm64.tar.gz
             app/src/main/assets/bootstrap-arm.tar.gz
             app/src/main/assets/cacert.pem
-          key: bootstrap-rootfs-v4-${{ hashFiles('scripts/setup-extra-rootfs.sh') }}
+          key: bootstrap-rootfs-v4-${{ hashFiles('scripts/setup-extra-rootfs.sh', 'app/src/main/cpp/cortex-hook.c', '.github/workflows/build-release.yml') }}
 
       - name: Set up QEMU for multi-arch containers
         if: steps.cache-bootstrap.outputs.cache-hit != 'true'
@@ -131,7 +123,7 @@ jobs:
           else
             echo "Preparing dpkg tables, APT sandbox, hosts, and DNS config for bootstrap..."
           mkdir -p extra-rootfs/usr/share/dpkg extra-rootfs/etc/apt/apt.conf.d extra-rootfs/var/cache/apt/archives/partial extra-rootfs/var/lib/apt/lists/partial extra-rootfs/tmp extra-rootfs/etc extra-rootfs/etc/alternatives extra-rootfs/var/lib/dpkg/alternatives extra-rootfs/etc/dpkg/dpkg.cfg.d extra-rootfs/etc/profile.d extra-rootfs/usr/sbin extra-rootfs/etc/ssl/certs
-          curl -sLo extra-rootfs/etc/ssl/certs/ca-certificates.crt https://curl.se/ca/cacert.pem || true
+          curl -sSLo extra-rootfs/etc/ssl/certs/ca-certificates.crt https://curl.se/ca/cacert.pem
           cp extra-rootfs/etc/ssl/certs/ca-certificates.crt app/src/main/assets/cacert.pem
           mkdir -p extra-rootfs/usr/lib/ssl extra-rootfs/etc/pki/tls/certs
           cp extra-rootfs/etc/ssl/certs/ca-certificates.crt extra-rootfs/etc/ssl/cert.pem
@@ -157,10 +149,10 @@ jobs:
             mkdir -p extra-rootfs/usr/share
             cp -r /usr/share/zoneinfo extra-rootfs/usr/share/
           fi
-          printf 'APT::Sandbox::User "root";\nAPT::Sandbox::Seccomp "false";\nAcquire::ForceIPv4 "true";\nAcquire::Connect::AddrConfig "false";\nAcquire::SRV "false";\nAcquire::Languages "none";\nAcquire::GzipIndexes "true";\nAcquire::AllowInsecureRepositories "true";\nAcquire::AllowDowngradeToInsecureRepositories "true";\nAPT::Get::AllowUnauthenticated "true";\nDir::dpkg::cputable "/usr/share/dpkg/cputable";\nDir::dpkg::tupletable "/usr/share/dpkg/tupletable";\nDir::dpkg::triplettable "/usr/share/dpkg/triplettable";\nDPkg::Install::Recursive "false";\nDpkg::Progress-Fancy "false";\nAPT::Color "false";\nDPkg::Options {\n   "--force-confdef";\n   "--force-confold";\n   "--force-unsafe-io";\n};\n' > extra-rootfs/etc/apt/apt.conf.d/01sandbox
+          printf 'APT::Sandbox::User "root";\nAPT::Sandbox::Seccomp "false";\nAcquire::ForceIPv4 "true";\nAcquire::Connect::AddrConfig "false";\nAcquire::SRV "false";\nAcquire::Languages "none";\nAcquire::GzipIndexes "true";\nDir::dpkg::cputable "/usr/share/dpkg/cputable";\nDir::dpkg::tupletable "/usr/share/dpkg/tupletable";\nDir::dpkg::triplettable "/usr/share/dpkg/triplettable";\nDPkg::Install::Recursive "false";\nDpkg::Progress-Fancy "false";\nAPT::Color "false";\nDPkg::Options {\n   "--force-confdef";\n   "--force-confold";\n   "--force-unsafe-io";\n};\n' > extra-rootfs/etc/apt/apt.conf.d/01sandbox
           mkdir -p extra-rootfs/etc/apt/sources.list.d
           rm -f extra-rootfs/etc/apt/sources.list
-          printf 'Types: deb\nURIs: http://ports.ubuntu.com/ubuntu-ports/\nSuites: noble noble-updates noble-backports\nComponents: main restricted universe multiverse\nSigned-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n\nTypes: deb\nURIs: http://ports.ubuntu.com/ubuntu-ports/\nSuites: noble-security\nComponents: main restricted universe multiverse\nSigned-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n' > extra-rootfs/etc/apt/sources.list.d/ubuntu.sources
+          printf 'Types: deb\nURIs: https://ports.ubuntu.com/ubuntu-ports/\nSuites: noble noble-updates noble-backports\nComponents: main restricted universe multiverse\nSigned-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n\nTypes: deb\nURIs: https://ports.ubuntu.com/ubuntu-ports/\nSuites: noble-security\nComponents: main restricted universe multiverse\nSigned-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n' > extra-rootfs/etc/apt/sources.list.d/ubuntu.sources
           chmod 0644 extra-rootfs/etc/apt/sources.list.d/ubuntu.sources
           echo "# Disabled for Cortex" > extra-rootfs/etc/apt/apt.conf.d/docker-clean
           mkdir -p extra-rootfs/etc/apt/preferences.d
@@ -227,20 +219,129 @@ jobs:
 
           echo "Patching dynamic linkers in bootstrap archives for Android seccomp compliance..."
           python3 - << 'EOF'
-          import tarfile, io, os
+          import tarfile, io, os, struct
+
+          def patch_elf_bytes(data, filename):
+              if len(data) < 52 or data[:4] != b"\x7fELF":
+                  return data, 0
+              ei_class = data[4]
+              ei_data = data[5]
+              if ei_data != 1:  # Only Little Endian is supported
+                  return data, 0
+              e_machine = struct.unpack_from("<H", data, 18)[0]
+              EM_ARM = 40
+              EM_AARCH64 = 183
+              if e_machine not in (EM_ARM, EM_AARCH64):
+                  return data, 0
+
+              segments = []
+              if ei_class == 2:  # 64-bit ELF
+                  if len(data) >= 64:
+                      e_phoff = struct.unpack_from("<Q", data, 32)[0]
+                      e_phentsize = struct.unpack_from("<H", data, 54)[0]
+                      e_phnum = struct.unpack_from("<H", data, 56)[0]
+                      for i in range(e_phnum):
+                          off = e_phoff + i * e_phentsize
+                          if off + 40 > len(data): break
+                          p_type, p_flags = struct.unpack_from("<II", data, off)
+                          p_offset = struct.unpack_from("<Q", data, off + 8)[0]
+                          p_filesz = struct.unpack_from("<Q", data, off + 32)[0]
+                          if p_type == 1 and (p_flags & 1):  # PT_LOAD and PF_X
+                              segments.append((p_offset, p_offset + p_filesz))
+                      if not segments:
+                          e_shoff = struct.unpack_from("<Q", data, 40)[0]
+                          e_shentsize = struct.unpack_from("<H", data, 58)[0]
+                          e_shnum = struct.unpack_from("<H", data, 60)[0]
+                          for i in range(e_shnum):
+                              off = e_shoff + i * e_shentsize
+                              if off + 48 > len(data): break
+                              sh_flags = struct.unpack_from("<Q", data, off + 8)[0]
+                              sh_offset = struct.unpack_from("<Q", data, off + 24)[0]
+                              sh_size = struct.unpack_from("<Q", data, off + 32)[0]
+                              if sh_flags & 4:  # SHF_EXECINSTR
+                                  segments.append((sh_offset, sh_offset + sh_size))
+              elif ei_class == 1:  # 32-bit ELF
+                  if len(data) >= 52:
+                      e_phoff = struct.unpack_from("<I", data, 28)[0]
+                      e_phentsize = struct.unpack_from("<H", data, 42)[0]
+                      e_phnum = struct.unpack_from("<H", data, 44)[0]
+                      for i in range(e_phnum):
+                          off = e_phoff + i * e_phentsize
+                          if off + 28 > len(data): break
+                          p_type = struct.unpack_from("<I", data, off)[0]
+                          p_offset = struct.unpack_from("<I", data, off + 4)[0]
+                          p_filesz = struct.unpack_from("<I", data, off + 16)[0]
+                          p_flags = struct.unpack_from("<I", data, off + 24)[0]
+                          if p_type == 1 and (p_flags & 1):  # PT_LOAD and PF_X
+                              segments.append((p_offset, p_offset + p_filesz))
+                      if not segments:
+                          e_shoff = struct.unpack_from("<I", data, 32)[0]
+                          e_shentsize = struct.unpack_from("<H", data, 46)[0]
+                          e_shnum = struct.unpack_from("<H", data, 48)[0]
+                          for i in range(e_shnum):
+                              off = e_shoff + i * e_shentsize
+                              if off + 24 > len(data): break
+                              sh_flags = struct.unpack_from("<I", data, off + 8)[0]
+                              sh_offset = struct.unpack_from("<I", data, off + 16)[0]
+                              sh_size = struct.unpack_from("<I", data, off + 20)[0]
+                              if sh_flags & 4:  # SHF_EXECINSTR
+                                  segments.append((sh_offset, sh_offset + sh_size))
+
+              if not segments:
+                  return data, 0
+
+              patched_count = 0
+              if e_machine == EM_AARCH64:
+                  svc = b"\x01\x00\x00\xd4"          # svc #0
+                  nop = b"\x1f\x20\x03\xd5"          # nop
+                  mov_enosys = b"\xa0\x04\x80\x92"   # mov x0, #-38
+                  patches = [
+                      ("set_robust_list", b"\x68\x0c\x80\xd2", nop),        # mov x8, #0x63 (99) -> nop
+                      ("clone3",          b"\x68\x36\x80\xd2", mov_enosys), # mov x8, #0x1b3 (435) -> mov x0, #-38
+                      ("rseq",            b"\xa8\x24\x80\xd2", mov_enosys), # mov x8, #0x125 (293) -> mov x0, #-38
+                  ]
+                  for seg_start, seg_end in segments:
+                      seg_start = max(0, seg_start)
+                      seg_end = min(len(data), seg_end)
+                      start_aligned = (seg_start + 3) & ~3
+                      end_aligned = seg_end & ~3
+                      for pos in range(start_aligned, end_aligned - 4, 4):
+                          for sc_name, pat, repl in patches:
+                              if data[pos:pos+4] == pat:
+                                  for s_pos in range(pos + 4, min(end_aligned, pos + 68), 4):
+                                      if data[s_pos:s_pos+4] == svc:
+                                          data[s_pos:s_pos+4] = repl
+                                          patched_count += 1
+                                          print(f"Patched AArch64 {sc_name} at 0x{s_pos:x} in {filename}")
+                                          break
+              elif e_machine == EM_ARM:
+                  svc_arm = b"\x00\x00\x00\xef"        # svc #0 in ARM mode
+                  nop_arm = b"\x00\xf0\x20\xe3"        # nop in ARM mode
+                  mov_enosys_arm = b"\x25\x00\xe0\xe3" # mvn r0, #37 (-38)
+                  patches_arm = [
+                      ("set_robust_list", b"\x52\x71\x00\xe3", nop_arm),        # movw r7, #0x152 (338)
+                      ("clone3",          b"\xb3\x71\x00\xe3", mov_enosys_arm), # movw r7, #0x1b3 (435)
+                      ("rseq",            b"\x8e\x71\x00\xe3", mov_enosys_arm), # movw r7, #0x18e (398)
+                  ]
+                  for seg_start, seg_end in segments:
+                      seg_start = max(0, seg_start)
+                      seg_end = min(len(data), seg_end)
+                      start_aligned = (seg_start + 3) & ~3
+                      end_aligned = seg_end & ~3
+                      for pos in range(start_aligned, end_aligned - 4, 4):
+                          for sc_name, pat, repl in patches_arm:
+                              if data[pos:pos+4] == pat:
+                                  for s_pos in range(pos + 4, min(end_aligned, pos + 68), 4):
+                                      if data[s_pos:s_pos+4] == svc_arm:
+                                          data[s_pos:s_pos+4] = repl
+                                          patched_count += 1
+                                          print(f"Patched ARM {sc_name} at 0x{s_pos:x} in {filename}")
+                                          break
+
+              return data, patched_count
 
           def patch_tar_ld(tar_path):
               print(f"Checking and patching dynamic linkers and libc in {tar_path}...")
-              svc = b"\x01\x00\x00\xd4"          # svc #0
-              nop = b"\x1f\x20\x03\xd5"          # nop
-              mov_enosys = b"\xa0\x04\x80\x92"   # mov x0, #-38
-
-              patches = [
-                  ("set_robust_list", b"\x68\x0c\x80\xd2", nop),        # mov x8, #0x63 (99) -> nop
-                  ("clone3",          b"\x68\x36\x80\xd2", mov_enosys), # mov x8, #0x1b3 (435) -> mov x0, #-38
-                  ("rseq",            b"\xa8\x24\x80\xd2", mov_enosys), # mov x8, #0x125 (293) -> mov x0, #-38
-              ]
-
               count = 0
               with tarfile.open(tar_path, "r") as tin:
                   members = tin.getmembers()
@@ -289,22 +390,9 @@ jobs:
                               continue
                           if f and ("ld-linux" in m.name or "libc.so" in m.name or "libc-" in m.name):
                               data = bytearray(f.read())
-                              file_patched = 0
-                              for sc_name, pat, repl in patches:
-                                  pos = 0
-                                  while True:
-                                      idx = data.find(pat, pos)
-                                      if idx == -1: break
-                                      sub = data[idx:idx+64]
-                                      s_idx = sub.find(svc)
-                                      if s_idx != -1:
-                                          target = idx + s_idx
-                                          data[target:target+4] = repl
-                                          file_patched += 1
-                                          count += 1
-                                          print(f"Patched {sc_name} at 0x{target:x} in {m.name}")
-                                      pos = idx + 4
+                              data, file_patched = patch_elf_bytes(data, m.name)
                               if file_patched > 0:
+                                  count += file_patched
                                   print(f"Total patched in {m.name}: {file_patched}")
                               m.size = len(data)
                               tout.addfile(m, io.BytesIO(data))
@@ -332,16 +420,25 @@ jobs:
           fi
 
           if [ ! -f app/src/main/assets/cacert.pem ]; then
-            curl -sLo app/src/main/assets/cacert.pem https://curl.se/ca/cacert.pem || true
+            curl -sSLo app/src/main/assets/cacert.pem https://curl.se/ca/cacert.pem
           fi
 
           ls -lh app/src/main/assets/
 
       - name: Build Release APKs
+        env:
+          RELEASE_KEYSTORE_PATH: app/cortex-release.keystore
+          RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
         run: |
           ./gradlew assembleRelease --build-cache --parallel --stacktrace
 
       - name: Prepare and Verify Signed APKs
+        env:
+          RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
         run: |
           BUILD_TOOLS_DIR=$(ls -d $ANDROID_HOME/build-tools/* | tail -n 1)
           APKSIGNER="$BUILD_TOOLS_DIR/apksigner"
@@ -355,14 +452,40 @@ jobs:
           echo "Found 64-bit APK: $ARM64_RAW"
           echo "Found 32-bit APK: $ARM32_RAW"
 
+          # Determine keystore and signing credentials
+          if [ -f app/cortex-release.keystore ] && [ -n "$RELEASE_STORE_PASSWORD" ]; then
+            echo "Using release keystore for signing..."
+            KS_FILE="app/cortex-release.keystore"
+            KS_PASS="$RELEASE_STORE_PASSWORD"
+            KEY_ALIAS="${RELEASE_KEY_ALIAS:-cortex}"
+            KEY_PASS="${RELEASE_KEY_PASSWORD:-$RELEASE_STORE_PASSWORD}"
+          elif [ -f "$HOME/.android/debug.keystore" ]; then
+            echo "Using debug keystore fallback for signing..."
+            KS_FILE="$HOME/.android/debug.keystore"
+            KS_PASS="android"
+            KEY_ALIAS="androiddebugkey"
+            KEY_PASS="android"
+          else
+            echo "Searching for generated debug keystore..."
+            KS_FILE=$(find "$HOME/.android" -name "debug.keystore" 2>/dev/null | head -n 1)
+            if [ -z "$KS_FILE" ]; then
+              echo "ERROR: Neither release nor debug keystore found."
+              exit 1
+            fi
+            KS_PASS="android"
+            KEY_ALIAS="androiddebugkey"
+            KEY_PASS="android"
+          fi
+
           # 1. Strip opposite arch assets from 64-bit APK to minimize download size
           echo "Optimizing 64-bit APK size: stripping 32-bit assets..."
           zip -d "$ARM64_RAW" "assets/bootstrap-arm.tar*" "assets/libcortex-hook-arm.so" || true
           $ZIPALIGN -f -p 4 "$ARM64_RAW" release-apks/arm64-aligned.apk
           $APKSIGNER sign \
-            --ks app/cortex-release.keystore \
-            --ks-pass pass:cortexpassword \
-            --key-pass pass:cortexpassword \
+            --ks "$KS_FILE" \
+            --ks-pass "pass:$KS_PASS" \
+            --ks-key-alias "$KEY_ALIAS" \
+            --key-pass "pass:$KEY_PASS" \
             --out release-apks/Cortex-arm64-v8a-signed.apk \
             release-apks/arm64-aligned.apk
           rm -f release-apks/arm64-aligned.apk
@@ -372,9 +495,10 @@ jobs:
           zip -d "$ARM32_RAW" "assets/bootstrap-arm64.tar*" "assets/libcortex-hook-arm64.so" || true
           $ZIPALIGN -f -p 4 "$ARM32_RAW" release-apks/arm32-aligned.apk
           $APKSIGNER sign \
-            --ks app/cortex-release.keystore \
-            --ks-pass pass:cortexpassword \
-            --key-pass pass:cortexpassword \
+            --ks "$KS_FILE" \
+            --ks-pass "pass:$KS_PASS" \
+            --ks-key-alias "$KEY_ALIAS" \
+            --key-pass "pass:$KEY_PASS" \
             --out release-apks/Cortex-armeabi-v7a-signed.apk \
             release-apks/arm32-aligned.apk
           rm -f release-apks/arm32-aligned.apk
@@ -398,42 +522,35 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          VERSION="v1.25.24"
+          GRADLE_VER=$(sed -n 's/.*versionName = "\(.*\)".*/\1/p' app/build.gradle.kts | head -n 1)
+          if [ -z "$GRADLE_VER" ]; then
+            GRADLE_VER="1.25.25"
+          fi
+          VERSION="v${GRADLE_VER#v}"
           if [[ "${{ github.ref }}" == refs/tags/* ]]; then
             VERSION="${{ github.ref_name }}"
           fi
 
-          # Purge buggy v1.25.23 release as requested
-          gh release delete "v1.25.23" --yes --cleanup-tag 2>/dev/null || true
-          git tag -d "v1.25.23" 2>/dev/null || true
-          git push --delete origin "v1.25.23" 2>/dev/null || true
+          echo "Preparing release $VERSION..."
 
           # Delete existing release/tag with same version if present so update succeeds cleanly
           gh release delete "$VERSION" --yes --cleanup-tag 2>/dev/null || true
           git tag -d "$VERSION" 2>/dev/null || true
           git push --delete origin "$VERSION" 2>/dev/null || true
 
-          cat << 'EOFNOTES' > release-notes.md
-          ### Cortex Release v1.25.24 — 100% Zero-Warning APT Update & Clean Session Drawer UI
+          cat << EOFNOTES > release-notes.md
+          ### Cortex Release $VERSION
 
           Cortex turns your Android device into a complete, native development powerhouse powered by **Ubuntu 24.04 LTS (Noble Numbat)** and **Glibc 2.39** — with **ZERO virtualization, ZERO PRoot, and ZERO containers**.
 
-          #### What's New in v1.25.24:
-          - **100% Elimination of APT Signature Verification Warnings & Notices**:
-            - Fully resolved `NO_PUBKEY 871920D1991BC93C` by fixing `faccessat` and `access` libc hooks to ensure `gpgv` execution and `/usr/share/keyrings/ubuntu-archive-keyring.gpg` readability.
-            - Restored standard deb822 `Signed-By` directive in `ubuntu.sources` to permanently eradicate `N: Missing Signed-By` notices.
-            - `apt update` now completes with **0 warnings, 0 notices, and 0 errors** across all Ubuntu noble repositories.
-          - **Critical Fix for File Deletion / Temporary Directory Cleanup**:
-            - Eliminated infinite recursion in `unlink_mapped_unix_socket` when unlinking long-path temporary directories in unprivileged Android storage.
-          - **Navigation Drawer UI Polish**:
-            - Removed the blue vertical indicator bar to the left of the active session in the drawer menu for a cleaner, unified layout.
-          - **Preserved All Features & Compact Footprint**:
-            - Ultra-compact ~75 MB APK size with genuine Glibc 2.39 & Ubuntu 24.04 runtime.
-            - Native OpenCode, Meta Muse Code, and OpenJDK 17 support.
+          #### Features & Assets:
+          - Ultra-compact APK size with genuine Glibc 2.39 & Ubuntu 24.04 runtime.
+          - Native OpenCode, Meta Muse Code, and OpenJDK 17 support.
+          - High-speed native terminal emulator with hardware acceleration.
 
           #### Included Packages & Assets:
-          - `Cortex-arm64-v8a-signed.apk` (64-bit ARM, ~75 MB)
-          - `Cortex-armeabi-v7a-signed.apk` (32-bit ARM, ~64 MB)
+          - \`Cortex-arm64-v8a-signed.apk\` (64-bit ARM)
+          - \`Cortex-armeabi-v7a-signed.apk\` (32-bit ARM)
           EOFNOTES
 
           sed -i 's/^          //' release-notes.md

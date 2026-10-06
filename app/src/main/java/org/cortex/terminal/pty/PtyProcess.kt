@@ -6,6 +6,8 @@ import java.io.FileOutputStream
 import java.io.InputStream
 import java.io.OutputStream
 
+import java.util.concurrent.atomic.AtomicBoolean
+
 class PtyProcess private constructor(
     val masterFd: Int,
     val pid: Int,
@@ -14,7 +16,19 @@ class PtyProcess private constructor(
     val inputStream: InputStream = FileInputStream(pfd.fileDescriptor)
     val outputStream: OutputStream = FileOutputStream(pfd.fileDescriptor)
 
-    private var isAlive = true
+    private val alive = AtomicBoolean(true)
+    private val fdClosed = AtomicBoolean(false)
+
+    val isAlive: Boolean
+        get() = alive.get()
+
+    private fun closeMasterFdOnce() {
+        if (fdClosed.compareAndSet(false, true)) {
+            try {
+                pfd.close()
+            } catch (_: Exception) {}
+        }
+    }
 
     fun resize(rows: Int, cols: Int, widthPx: Int, heightPx: Int) {
         if (isAlive && masterFd >= 0) {
@@ -23,19 +37,19 @@ class PtyProcess private constructor(
     }
 
     fun waitFor(): Int {
-        val exitCode = PtyNative.waitForProcess(pid)
-        isAlive = false
-        return exitCode
+        try {
+            return PtyNative.waitForProcess(pid)
+        } finally {
+            alive.set(false)
+            closeMasterFdOnce()
+        }
     }
 
     fun destroy() {
-        if (isAlive) {
-            PtyNative.killProcess(pid, 15) // SIGTERM
-            try {
-                pfd.close()
-            } catch (_: Exception) {}
-            isAlive = false
+        if (alive.compareAndSet(true, false)) {
+            PtyNative.killProcess(pid, 1) // SIGHUP
         }
+        closeMasterFdOnce()
     }
 
     companion object {

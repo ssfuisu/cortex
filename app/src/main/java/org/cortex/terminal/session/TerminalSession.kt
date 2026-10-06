@@ -8,6 +8,7 @@ import org.cortex.terminal.runtime.BootstrapManager
 import org.cortex.terminal.runtime.Environment
 import java.io.File
 import java.io.IOException
+import java.util.concurrent.Executors
 import kotlin.concurrent.thread
 
 class TerminalSession(
@@ -110,15 +111,24 @@ class TerminalSession(
         }
     }
 
+    private val writeExecutor = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "Cortex-PtyWriter").apply { isDaemon = true }
+    }
+
     fun write(bytes: ByteArray) {
         if (!isRunning) return
-        try {
-            ptyProcess?.outputStream?.let { os ->
-                os.write(bytes)
-                os.flush()
+        writeExecutor.execute {
+            if (!isRunning) return@execute
+            try {
+                ptyProcess?.outputStream?.let { os ->
+                    os.write(bytes)
+                    os.flush()
+                }
+            } catch (e: IOException) {
+                if (isRunning) {
+                    Log.e(tag, "Error writing to PTY: ${e.message}")
+                }
             }
-        } catch (e: IOException) {
-            Log.e(tag, "Error writing to PTY: ${e.message}")
         }
     }
 
@@ -139,7 +149,16 @@ class TerminalSession(
 
     fun destroy() {
         isRunning = false
-        ptyProcess?.destroy()
+        writeExecutor.shutdownNow()
+        ptyProcess?.let { process ->
+            try {
+                process.outputStream.close()
+            } catch (_: Exception) {}
+            try {
+                process.inputStream.close()
+            } catch (_: Exception) {}
+            process.destroy()
+        }
         try {
             readerThread?.interrupt()
         } catch (_: Exception) {}

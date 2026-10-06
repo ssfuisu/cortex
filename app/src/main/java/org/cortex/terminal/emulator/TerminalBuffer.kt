@@ -1,9 +1,22 @@
 package org.cortex.terminal.emulator
 
-import java.util.LinkedList
+import java.util.ArrayDeque
 
 class TerminalBuffer(var rows: Int, var cols: Int, private val maxHistory: Int = 5000) {
-    val history = LinkedList<TerminalRow>()
+    val history = ArrayDeque<TerminalRow>()
+    private var historyArrayCache: Array<TerminalRow>? = null
+    private var historyArrayCacheSize = -1
+
+    private fun getHistoryRow(index: Int): TerminalRow? {
+        if (index !in 0 until history.size) return null
+        var cache = historyArrayCache
+        if (cache == null || historyArrayCacheSize != history.size) {
+            cache = history.toTypedArray()
+            historyArrayCache = cache
+            historyArrayCacheSize = history.size
+        }
+        return if (index in cache.indices) cache[index] else null
+    }
     var screen = Array(rows) { TerminalRow(cols) }
         private set
 
@@ -255,11 +268,7 @@ class TerminalBuffer(var rows: Int, var cols: Int, private val maxHistory: Int =
         val effectiveIndex = screenRowIndex - scrollOffset
         return if (effectiveIndex < 0) {
             val historyIndex = totalHistory + effectiveIndex
-            if (historyIndex in 0 until totalHistory) {
-                history[historyIndex]
-            } else {
-                TerminalRow(cols)
-            }
+            getHistoryRow(historyIndex) ?: TerminalRow(cols)
         } else if (effectiveIndex in 0 until rows) {
             screen[effectiveIndex]
         } else {
@@ -372,7 +381,7 @@ class TerminalBuffer(var rows: Int, var cols: Int, private val maxHistory: Int =
         for (r in startRow..endRow) {
             val row = (if (r < 0) {
                 val hIdx = history.size + r
-                if (hIdx in 0 until history.size) history[hIdx] else null
+                getHistoryRow(hIdx)
             } else if (r in 0 until rows) {
                 screen[r]
             } else null) ?: continue

@@ -159,6 +159,7 @@ class ExtraKeysView @JvmOverloads constructor(
                         }
                         MotionEvent.ACTION_UP -> {
                             v.isPressed = false
+                            v.performClick()
                             // Fire immediately if the tap ended before the deferral elapsed.
                             // The manual run may arm repeat; UP always disarms, so taps
                             // never repeat while holds keep ticking until release.
@@ -294,5 +295,11 @@ class ExtraKeysView @JvmOverloads constructor(
                 btn.setTextColor(Color.parseColor("#f5f5f7"))
             }
         }
+    }
+
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        cancelPendingKey()
+        cancelRepeat()
     }
 }

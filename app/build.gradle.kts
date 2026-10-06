@@ -1,6 +1,6 @@
 plugins {
-    id("com.android.application")
-    id("org.jetbrains.kotlin.android")
+    alias(libs.plugins.android.application)
+    alias(libs.plugins.kotlin.android)
 }
 
 android {
@@ -11,24 +11,25 @@ android {
 
     defaultConfig {
         applicationId = "org.cortex.terminal"
-        minSdk = 24
+        minSdk = 26
+        // Target SDK 28 is required to allow direct execve of binaries and glibc dynamic linker
+        // from the app's writable data directory (filesDir). Android 10+ (targetSdk >= 29)
+        // enforces SELinux W^X restrictions preventing execution from writable app data storage.
         targetSdk = 28
-        versionCode = 12525
-        versionName = "1.25.25"
-
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        versionCode = 12526
+        versionName = "1.25.26"
 
         externalNativeBuild {
             cmake {
-                arguments("-DANDROID_STL=c++_static")
-                cFlags("-Wall", "-O3")
-                cppFlags("-std=c++17", "-Wall", "-O3")
+                arguments("-DANDROID_STL=none")
+                cFlags("-std=c11", "-Wall", "-O3")
             }
         }
     }
 
     buildFeatures {
         buildConfig = true
+        viewBinding = true
     }
 
     splits {
@@ -44,28 +45,37 @@ android {
         noCompress += listOf("gz", "tgz", "gpg")
     }
 
+    val releaseStoreFile = System.getenv("RELEASE_STORE_FILE")
+    val releaseStorePassword = System.getenv("RELEASE_STORE_PASSWORD")
+    val releaseKeyAlias = System.getenv("RELEASE_KEY_ALIAS")
+    val releaseKeyPassword = System.getenv("RELEASE_KEY_PASSWORD")
+    val hasReleaseSigning = !releaseStoreFile.isNullOrEmpty() &&
+        !releaseStorePassword.isNullOrEmpty() &&
+        !releaseKeyAlias.isNullOrEmpty() &&
+        !releaseKeyPassword.isNullOrEmpty()
+
     signingConfigs {
         create("release") {
-            val ksFile = file("cortex-release.keystore")
-            if (ksFile.exists()) {
-                storeFile = ksFile
-                storePassword = "cortexpassword"
-                keyAlias = "cortex"
-                keyPassword = "cortexpassword"
-            } else {
-                initWith(getByName("debug"))
+            if (hasReleaseSigning) {
+                storeFile = file(releaseStoreFile)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
             }
         }
     }
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            signingConfig = signingConfigs.getByName("release")
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
         debug {
             applicationIdSuffix = ".debug"
@@ -89,29 +99,33 @@ android {
         }
     }
 
-    buildFeatures {
-        viewBinding = true
-    }
-
     packaging {
         jniLibs {
             useLegacyPackaging = true
         }
     }
 
+    testOptions {
+        unitTests {
+            isReturnDefaultValues = true
+        }
+    }
+
     lint {
-        checkReleaseBuilds = false
-        abortOnError = false
+        checkReleaseBuilds = true
+        abortOnError = true
         disable.addAll(listOf("ExpiredTargetSdkVersion"))
     }
 }
 
 dependencies {
-    implementation("androidx.core:core-ktx:1.12.0")
-    implementation("androidx.appcompat:appcompat:1.6.1")
-    implementation("com.google.android.material:material:1.11.0")
-    implementation("androidx.preference:preference-ktx:1.2.1")
-    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
-    implementation("androidx.drawerlayout:drawerlayout:1.2.0")
-    implementation("androidx.recyclerview:recyclerview:1.3.2")
+    implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.appcompat)
+    implementation(libs.material)
+    implementation(libs.androidx.preference)
+    implementation(libs.androidx.drawerlayout)
+    implementation(libs.androidx.recyclerview)
+    implementation(libs.androidx.viewpager2)
+
+    testImplementation(libs.junit)
 }

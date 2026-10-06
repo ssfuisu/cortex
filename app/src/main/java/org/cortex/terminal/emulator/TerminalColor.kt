@@ -29,7 +29,7 @@ object TerminalColor {
                 Color.rgb(0xcb, 0xa6, 0xf7), // 5: Magenta
                 Color.rgb(0x89, 0xdc, 0xeb), // 6: Cyan
                 Color.rgb(0xba, 0xc2, 0xde), // 7: White
-                Color.rgb(0x58, 0x5b, 0x70), // 8: Bright Black
+                Color.rgb(0x7f, 0x84, 0x9c), // 8: Bright Black (WCAG AA >= 4.5:1 against #181825)
                 Color.rgb(0xf3, 0x8b, 0xa8), // 9: Bright Red
                 Color.rgb(0xa6, 0xe3, 0xa1), // 10: Bright Green
                 Color.rgb(0xf9, 0xe2, 0xaf), // 11: Bright Yellow
