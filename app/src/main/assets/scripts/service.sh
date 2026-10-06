@@ -149,6 +149,16 @@ find_service_pids() {
     done
 }
 
+proc_start_ticks() {
+    local pid="$1"
+    local stat_line="" rest=""
+    [ -r "/proc/$pid/stat" ] || return 1
+    IFS= read -r stat_line < "/proc/$pid/stat" 2>/dev/null || return 1
+    rest="${stat_line##*) }"
+    set -- $rest
+    printf '%s\n' "${20:-}"
+}
+
 case "$ACTION" in
     start)
         if [ -f "$PIDFILE" ]; then
@@ -161,11 +171,23 @@ case "$ACTION" in
         fi
         if [ -n "$DAEMON" ]; then
             echo "Starting $SERVICE..."
+            PRE_PIDS=" $(find_service_pids "$SERVICE" "$DAEMON" | tr '\n' ' ') "
+            LAUNCH_TICKS="$(proc_start_ticks "${BASHPID:-$$}" 2>/dev/null || true)"
             "$DAEMON" "$@" &
             DAEMON_PID=$!
             sleep 0.1
             if ! is_service_process "$DAEMON_PID" "$SERVICE" "$DAEMON"; then
-                FORKED_PID="$(find_service_pids "$SERVICE" "$DAEMON" | head -n 1)"
+                FORKED_PID=""
+                for cand_pid in $(find_service_pids "$SERVICE" "$DAEMON"); do
+                    case "$PRE_PIDS" in
+                        *" $cand_pid "*) continue ;;
+                    esac
+                    cand_ticks="$(proc_start_ticks "$cand_pid" 2>/dev/null || true)"
+                    if [ -z "$LAUNCH_TICKS" ] || [ -z "$cand_ticks" ] || [ "$cand_ticks" -ge "$LAUNCH_TICKS" ] 2>/dev/null; then
+                        FORKED_PID="$cand_pid"
+                        break
+                    fi
+                done
                 if [ -n "$FORKED_PID" ]; then
                     DAEMON_PID="$FORKED_PID"
                 else

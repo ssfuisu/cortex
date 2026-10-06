@@ -132,8 +132,18 @@ else
 fi
 
 # 2c. Substring process isolation (unrelated process with service name in args must not match or be killed)
-bash -c 'sleep 30' _ " fake_argument_containing_mytestsvc " &
+# Use a compound command ('sleep 30; :') so bash does not exec-optimize into sleep and drop the positional argument from /proc/$pid/cmdline.
+bash -c 'sleep 30; :' _ " fake_argument_containing_mytestsvc " &
 BYSTANDER_PID=$!
+
+if [ -r "/proc/$BYSTANDER_PID/cmdline" ]; then
+    BYSTANDER_CMDLINE="$(tr '\0' ' ' < "/proc/$BYSTANDER_PID/cmdline" 2>/dev/null || true)"
+    if [[ "$BYSTANDER_CMDLINE" == *"mytestsvc"* ]]; then
+        pass "bystander process retains 'mytestsvc' substring in /proc/\$pid/cmdline"
+    else
+        fail "bystander process cmdline did not retain 'mytestsvc' substring: '$BYSTANDER_CMDLINE'"
+    fi
+fi
 
 cat > "$SVC_ROOT/bin/mytestsvc" << 'EOF'
 #!/usr/bin/env bash
@@ -170,6 +180,29 @@ else
 fi
 kill "$BYSTANDER_PID" 2>/dev/null || true
 wait "$BYSTANDER_PID" 2>/dev/null || true
+
+# 2e. Fork adoption ownership: start must NOT adopt a pre-existing instance when the new launch exits immediately
+cat > "$SVC_ROOT/bin/forkguardsvc" << 'EOF'
+#!/usr/bin/env bash
+if [ "${1:-}" = "--hold" ]; then
+    sleep 30
+    exit 0
+fi
+exit 1
+EOF
+chmod +x "$SVC_ROOT/bin/forkguardsvc"
+
+"$SVC_ROOT/bin/forkguardsvc" --hold &
+PRE_SVC_PID=$!
+sleep 0.05
+
+if bash "$SERVICE_SH" forkguardsvc start >/dev/null 2>&1 || [ -f "$SVC_ROOT/run/forkguardsvc.pid" ]; then
+    fail "service.sh start falsely adopted pre-existing process after new daemon exited immediately"
+else
+    pass "service.sh start does not adopt pre-existing process when new launch fails"
+fi
+kill "$PRE_SVC_PID" 2>/dev/null || true
+wait "$PRE_SVC_PID" 2>/dev/null || true
 
 echo "=== 3. Testing su.sh ==="
 SU_SH="$ASSETS_SCRIPTS/su.sh"
