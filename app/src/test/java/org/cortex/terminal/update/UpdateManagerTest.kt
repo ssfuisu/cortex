@@ -110,4 +110,42 @@ class UpdateManagerTest {
             tempCache.deleteRecursively()
         }
     }
+
+    @Test
+    fun testFinalizeDownloadAttemptHoldsLockUntilCleanupCompletes() {
+        val tempCache = File(System.getProperty("java.io.tmpdir"), "cortex_test_finalize_${System.nanoTime()}")
+        val updatesDir = File(tempCache, "updates")
+        updatesDir.mkdirs()
+        val stagedApk = File(updatesDir, "cortex_update_failed.apk")
+        stagedApk.writeText("partial-apk")
+
+        val testContext = object : ContextWrapper(null) {
+            override fun getCacheDir(): File = tempCache
+        }
+
+        val field = UpdateManager::class.java.getDeclaredField("isDownloading")
+        field.isAccessible = true
+        val isDownloading = field.get(UpdateManager) as AtomicBoolean
+
+        try {
+            isDownloading.set(true)
+            var lockHeldAfterCleanup = false
+            var dirDeletedBeforeUnlock = false
+            UpdateManager.finalizeDownloadAttempt(
+                context = testContext,
+                targetApk = stagedApk,
+                downloadSucceeded = false,
+                cancelled = false
+            ) {
+                lockHeldAfterCleanup = isDownloading.get()
+                dirDeletedBeforeUnlock = !updatesDir.exists() && !stagedApk.exists()
+            }
+            assertTrue("isDownloading must remain true until cleanup finishes", lockHeldAfterCleanup)
+            assertTrue("targetApk and updates directory must be deleted before isDownloading is released", dirDeletedBeforeUnlock)
+            assertFalse("isDownloading must be false after finalizeDownloadAttempt returns", isDownloading.get())
+        } finally {
+            isDownloading.set(false)
+            tempCache.deleteRecursively()
+        }
+    }
 }

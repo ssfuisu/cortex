@@ -531,12 +531,26 @@ object UpdateManager {
                 try { outputStream?.close() } catch (_: Exception) {}
                 try { inputStream?.close() } catch (_: Exception) {}
                 try { activeConnection.get()?.disconnect() } catch (_: Exception) {}
-                isDownloading.set(false)
-                if (!downloadSucceeded || isCancelled.get()) {
-                    try { targetApk.delete() } catch (_: Exception) {}
-                    cleanUpdatesForce(activity)
-                }
+                finalizeDownloadAttempt(activity, targetApk, downloadSucceeded, isCancelled.get())
             }
+        }
+    }
+
+    internal fun finalizeDownloadAttempt(
+        context: Context,
+        targetApk: File,
+        downloadSucceeded: Boolean,
+        cancelled: Boolean,
+        onBeforeUnlock: (() -> Unit)? = null
+    ) {
+        try {
+            if (!downloadSucceeded || cancelled) {
+                try { targetApk.delete() } catch (_: Exception) {}
+                cleanUpdatesForce(context)
+            }
+            onBeforeUnlock?.invoke()
+        } finally {
+            isDownloading.set(false)
         }
     }
 

@@ -117,23 +117,32 @@ class UrlOpenerServerTest {
 
         val stalledSockets = mutableListOf<Socket>()
         try {
-            // 1. Open 2 concurrent stalled connections that send no data.
-            // Because workerPool scales up to 4 threads (and accept loop is on its own dedicated thread),
-            // a valid authenticated request must still be served immediately without waiting for timeout.
-            repeat(2) {
+            // 1. Open 3 concurrent stalled connections that send no data (exceeding old corePoolSize=2).
+            // With corePoolSize=4, maximumPoolSize=4 and allowCoreThreadTimeOut(true), the 4th worker
+            // serves a valid authenticated request immediately without waiting for clientSoTimeoutMs.
+            UrlOpenerServer.clientSoTimeoutMs = 2500
+            repeat(3) {
                 val s = Socket()
                 s.connect(InetSocketAddress("127.0.0.1", port), 1000)
                 stalledSockets.add(s)
             }
+            // Give the accept loop a moment to dispatch the 3 stalled connections to workers
+            Thread.sleep(50)
 
             Socket().use { client ->
-                client.soTimeout = 2000
+                client.soTimeout = 600
                 client.connect(InetSocketAddress("127.0.0.1", port), 1000)
                 client.getOutputStream().write("OPEN $token https://example.com/active\n".toByteArray(Charsets.UTF_8))
                 client.getOutputStream().flush()
                 val resp = client.getInputStream().bufferedReader(Charsets.UTF_8).readLine()
                 assertEquals("OK", resp)
             }
+
+            UrlOpenerServer.clientSoTimeoutMs = 300
+            stalledSockets.forEach {
+                try { it.close() } catch (_: Exception) {}
+            }
+            stalledSockets.clear()
 
             // 2. Flood the server with 25 additional stalled connections (exceeding 4 max threads + 16 queue capacity).
             // Excess connections are rejected and closed immediately without stalling the accept thread.
@@ -194,6 +203,40 @@ class UrlOpenerServerTest {
             client.soTimeout = 2000
             client.connect(InetSocketAddress("127.0.0.1", secondPort), 1000)
             client.getOutputStream().write("OPEN $token https://example.com/restarted\n".toByteArray(Charsets.UTF_8))
+            client.getOutputStream().flush()
+            val resp = client.getInputStream().bufferedReader(Charsets.UTF_8).readLine()
+            assertEquals("OK", resp)
+        }
+    }
+
+    @Test
+    fun testStartRecoversCleanlyAfterBindFailureAndLifecycleRaces() {
+        val token = UrlOpenerServer.getOrCreateToken(fakeContext)
+        // Occupy an ephemeral port on 127.0.0.1 so UrlOpenerServer.start() fails to bind
+        java.net.ServerSocket().use { blocker ->
+            blocker.reuseAddress = true
+            blocker.bind(InetSocketAddress("127.0.0.1", 0))
+            val occupiedPort = blocker.localPort
+
+            UrlOpenerServer.start(fakeContext, port = occupiedPort)
+            // Wait briefly for the failed accept thread's finally block to clean up
+            Thread.sleep(50)
+            assertEquals("activePort must be -1 after bind failure", -1, UrlOpenerServer.activePort)
+        }
+
+        // Subsequent start() must NOT be wedged by stale isRunning=true
+        UrlOpenerServer.start(fakeContext, port = 0)
+        val boundPort = UrlOpenerServer.activePort
+        assertTrue("Expected retry start() after bind failure to bind valid port, got $boundPort", boundPort > 0)
+
+        // Calling start() again while already running must be a safe no-op keeping the same port
+        UrlOpenerServer.start(fakeContext, port = 0)
+        assertEquals(boundPort, UrlOpenerServer.activePort)
+
+        Socket().use { client ->
+            client.soTimeout = 2000
+            client.connect(InetSocketAddress("127.0.0.1", boundPort), 1000)
+            client.getOutputStream().write("OPEN $token https://example.com/after-bind-retry\n".toByteArray(Charsets.UTF_8))
             client.getOutputStream().flush()
             val resp = client.getInputStream().bufferedReader(Charsets.UTF_8).readLine()
             assertEquals("OK", resp)

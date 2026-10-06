@@ -46,21 +46,64 @@ class ShellScriptsInstallerTest {
     }
 
     @Test
-    fun ensureRootTools_installsFunctionalTsuFallbackAndDoesNotWriteNoOpSuStub() {
+    fun ensureRootTools_doesNotInstallOrKeepBrokenWrappersWhenSuIsAbsent() {
         val root = tempFolder.newFolder("root")
+        val localBin = File(root, "usr/local/bin").apply { mkdirs() }
+        File(localBin, "tsu").writeText("stale")
+        File(localBin, "sudo").writeText("stale")
+        File(localBin, "root").writeText("stale")
 
         ShellScriptsInstaller.ensureRootTools(root, null)
 
-        val tsuFile = File(root, "usr/local/bin/tsu")
-        val sudoFile = File(root, "usr/local/bin/sudo")
-        val rootCmdFile = File(root, "usr/local/bin/root")
-        val suFile = File(root, "usr/local/bin/su")
+        val tsuFile = File(localBin, "tsu")
+        val sudoFile = File(localBin, "sudo")
+        val rootCmdFile = File(localBin, "root")
+        val suFile = File(localBin, "su")
 
-        assertTrue("tsu must be installed with functional fallback", tsuFile.exists())
-        assertTrue(tsuFile.readText().contains("exec /usr/local/bin/su \"\$@\""))
-        assertTrue("sudo must be installed with functional fallback", sudoFile.exists())
-        assertTrue(sudoFile.readText().contains("exec /usr/local/bin/su \"\$@\""))
-        assertTrue("root wrapper must be installed with functional fallback", rootCmdFile.exists())
         assertFalse("su must not be installed as a broken 1-line shebang stub when asset is absent", suFile.exists())
+        assertFalse("tsu must not exist when su is absent", tsuFile.exists())
+        assertFalse("sudo must not exist when su is absent", sudoFile.exists())
+        assertFalse("root wrapper must not exist when su is absent", rootCmdFile.exists())
+    }
+
+    @Test
+    fun ensureRootTools_installsFunctionalWrappersWhenSuExists() {
+        val root = tempFolder.newFolder("root")
+        val localBin = File(root, "usr/local/bin").apply { mkdirs() }
+        val suFile = File(localBin, "su").apply {
+            writeText("#!/bin/sh\nexec /bin/bash \"\$@\"\n")
+            setExecutable(true, true)
+        }
+
+        ShellScriptsInstaller.ensureRootTools(root, null)
+
+        val tsuFile = File(localBin, "tsu")
+        val sudoFile = File(localBin, "sudo")
+        val rootCmdFile = File(localBin, "root")
+
+        assertTrue("su must still exist", suFile.exists())
+        assertTrue("tsu must be installed when su exists", tsuFile.exists())
+        assertTrue(tsuFile.readText().contains("exec /usr/local/bin/su \"\$@\""))
+        assertTrue("sudo must be installed when su exists", sudoFile.exists())
+        assertTrue(sudoFile.readText().contains("exec /usr/local/bin/su \"\$@\""))
+        assertTrue("root wrapper must be installed when su exists", rootCmdFile.exists())
+        assertTrue(rootCmdFile.readText().contains("exec /usr/local/bin/su \"\$@\""))
+    }
+
+    @Test
+    fun ensureMachineId_replacesEmptyDbusMachineIdFile() {
+        val root = tempFolder.newFolder("root")
+        val dbusDir = File(root, "var/lib/dbus").apply { mkdirs() }
+        val emptyDbusMachineId = File(dbusDir, "machine-id").apply { writeText("") }
+
+        BootstrapManager.ensureMachineId(root)
+
+        val etcMachineId = File(root, "etc/machine-id")
+        assertTrue("etc/machine-id must be created with >= 32 chars", etcMachineId.exists() && etcMachineId.length() >= 32L)
+        val isSymlink = ElfLinkerPatcher.isSymlink(emptyDbusMachineId)
+        assertTrue(
+            "var/lib/dbus/machine-id must be replaced with symlink to /etc/machine-id or populated with valid 32-char ID",
+            isSymlink || emptyDbusMachineId.length() >= 32L
+        )
     }
 }

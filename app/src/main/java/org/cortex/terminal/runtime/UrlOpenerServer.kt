@@ -132,7 +132,7 @@ object UrlOpenerServer {
             getOrCreateToken(appContext)
 
             val pool = ThreadPoolExecutor(
-                2,
+                4,
                 4,
                 30L,
                 TimeUnit.SECONDS,
@@ -140,7 +140,9 @@ object UrlOpenerServer {
                 ThreadFactory { r ->
                     Thread(r, "Cortex-UrlOpenerWorker").apply { isDaemon = true }
                 }
-            )
+            ).apply {
+                allowCoreThreadTimeOut(true)
+            }
             workerPool = pool
             isRunning = true
 
@@ -151,7 +153,7 @@ object UrlOpenerServer {
                     server.reuseAddress = true
                     server.bind(InetSocketAddress(InetAddress.getByName("127.0.0.1"), port), 50)
                     synchronized(this@UrlOpenerServer) {
-                        if (!isRunning) {
+                        if (!isRunning || acceptThread !== Thread.currentThread()) {
                             try { server.close() } catch (_: Exception) {}
                             return@Thread
                         }
@@ -185,10 +187,15 @@ object UrlOpenerServer {
                     try {
                         server?.close()
                     } catch (_: Exception) {}
+                    pool.shutdownNow()
                     synchronized(this@UrlOpenerServer) {
-                        if (serverSocket === server) {
+                        if (acceptThread === Thread.currentThread()) {
                             serverSocket = null
+                            acceptThread = null
                             isRunning = false
+                            activePort = -1
+                            workerPool?.shutdownNow()
+                            workerPool = null
                         }
                     }
                 }
@@ -208,6 +215,7 @@ object UrlOpenerServer {
     @Synchronized
     fun stop() {
         isRunning = false
+        activePort = -1
         try {
             serverSocket?.close()
         } catch (_: Exception) {}

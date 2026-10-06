@@ -198,9 +198,9 @@ object ShellScriptsInstaller {
             val localBin = File(root, "usr/local/bin")
             if (!localBin.exists()) localBin.mkdirs()
 
+            val suFile = File(localBin, "su")
             try {
                 val suScript = loadAssetScript(context, "su.sh", "#!/bin/bash\n")
-                val suFile = File(localBin, "su")
                 suFile.writeText(suScript)
                 suFile.setReadable(true, true)
                 suFile.setWritable(true, true)
@@ -210,28 +210,36 @@ object ShellScriptsInstaller {
                 Log.e(TAG, "Skipping su script install: ${e.message}")
             }
 
-            val tsuFallback = "#!/bin/sh\nexec /usr/local/bin/su \"\$@\"\n"
-            val tsuScript = loadAssetScript(context, "tsu.sh", tsuFallback)
             val tsuFile = File(localBin, "tsu")
-            tsuFile.writeText(tsuScript)
-            tsuFile.setReadable(true, true)
-            tsuFile.setWritable(true, true)
-            tsuFile.setExecutable(true, true)
-            try { Os.chmod(tsuFile.absolutePath, 448) } catch (_: Exception) {}
-
             val sudoFile = File(localBin, "sudo")
-            sudoFile.writeText(tsuScript)
-            sudoFile.setReadable(true, true)
-            sudoFile.setWritable(true, true)
-            sudoFile.setExecutable(true, true)
-            try { Os.chmod(sudoFile.absolutePath, 448) } catch (_: Exception) {}
-
             val rootFile = File(localBin, "root")
-            rootFile.writeText(tsuScript)
-            rootFile.setReadable(true, true)
-            rootFile.setWritable(true, true)
-            rootFile.setExecutable(true, true)
-            try { Os.chmod(rootFile.absolutePath, 448) } catch (_: Exception) {}
+            if (suFile.exists()) {
+                val tsuFallback = "#!/bin/sh\nexec /usr/local/bin/su \"\$@\"\n"
+                val tsuScript = loadAssetScript(context, "tsu.sh", tsuFallback)
+                tsuFile.writeText(tsuScript)
+                tsuFile.setReadable(true, true)
+                tsuFile.setWritable(true, true)
+                tsuFile.setExecutable(true, true)
+                try { Os.chmod(tsuFile.absolutePath, 448) } catch (_: Exception) {}
+
+                sudoFile.writeText(tsuScript)
+                sudoFile.setReadable(true, true)
+                sudoFile.setWritable(true, true)
+                sudoFile.setExecutable(true, true)
+                try { Os.chmod(sudoFile.absolutePath, 448) } catch (_: Exception) {}
+
+                rootFile.writeText(tsuScript)
+                rootFile.setReadable(true, true)
+                rootFile.setWritable(true, true)
+                rootFile.setExecutable(true, true)
+                try { Os.chmod(rootFile.absolutePath, 448) } catch (_: Exception) {}
+            } else {
+                for (wrapper in listOf(tsuFile, sudoFile, rootFile)) {
+                    if (wrapper.exists()) {
+                        try { wrapper.delete() } catch (_: Exception) {}
+                    }
+                }
+            }
 
             val nanoDir = File(root, "usr/share/nano")
             if (!nanoDir.exists()) nanoDir.mkdirs()
