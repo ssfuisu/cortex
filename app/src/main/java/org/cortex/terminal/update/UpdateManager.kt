@@ -18,13 +18,16 @@ import org.cortex.terminal.R
 import org.json.JSONObject
 import android.content.pm.PackageManager
 import android.content.pm.SigningInfo
+import android.system.Os
 import android.util.Log
 import java.io.File
 import java.io.FileOutputStream
+import java.io.IOException
 import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicBoolean
 
 object UpdateManager {
 
@@ -52,6 +55,9 @@ object UpdateManager {
         private set
 
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val isDownloading = AtomicBoolean(false)
+    @Volatile
+    private var pendingInstallUri: Uri? = null
 
     fun isNewerVersion(current: String, latest: String): Boolean {
         val cleanCurrent = current.trim().removePrefix("v").removePrefix("V")
@@ -86,7 +92,19 @@ object UpdateManager {
     }
 
     fun cleanUpdates(context: Context) {
+        if (isDownloading.get()) return
+        cleanUpdatesForce(context)
+    }
+
+    private fun cleanUpdatesForce(context: Context) {
         try {
+            val uri = pendingInstallUri
+            if (uri != null) {
+                pendingInstallUri = null
+                try {
+                    context.revokeUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                } catch (_: Exception) {}
+            }
             val updatesDir = File(context.cacheDir, "updates")
             if (updatesDir.exists()) {
                 updatesDir.deleteRecursively()
@@ -299,12 +317,35 @@ object UpdateManager {
             return
         }
 
-        cleanUpdates(activity)
+        if (!isDownloading.compareAndSet(false, true)) {
+            return
+        }
+
+        cleanUpdatesForce(activity)
 
         val updatesDir = File(activity.cacheDir, "updates")
         if (!updatesDir.exists()) updatesDir.mkdirs()
+        updatesDir.setReadable(false, false)
+        updatesDir.setReadable(true, true)
+        updatesDir.setWritable(false, false)
+        updatesDir.setWritable(true, true)
+        updatesDir.setExecutable(false, false)
+        updatesDir.setExecutable(true, true)
+        try { Os.chmod(updatesDir.absolutePath, 448) } catch (_: Exception) {}
 
-        val targetApk = File(updatesDir, info.asset.name)
+        val targetApk = try {
+            File.createTempFile("cortex_update_", ".apk", updatesDir).apply {
+                setReadable(false, false)
+                setReadable(true, true)
+                setWritable(false, false)
+                setWritable(true, true)
+                try { Os.chmod(absolutePath, 384) } catch (_: Exception) {}
+            }
+        } catch (e: Exception) {
+            isDownloading.set(false)
+            Toast.makeText(activity, "Failed to create temporary update file", Toast.LENGTH_SHORT).show()
+            return
+        }
 
         val dialogView = LayoutInflater.from(activity).inflate(R.layout.dialog_update_download, null)
         val statusText = dialogView.findViewById<TextView>(R.id.downloadStatusText)
@@ -314,19 +355,18 @@ object UpdateManager {
         statusText.text = "Connecting to download server..."
         progressBar.isIndeterminate = true
 
-        var isCancelled = false
-        var activeConnection: HttpURLConnection? = null
+        val isCancelled = AtomicBoolean(false)
+        val activeConnection = java.util.concurrent.atomic.AtomicReference<HttpURLConnection?>(null)
 
         val downloadDialog = AlertDialog.Builder(activity)
             .setTitle("Downloading Update")
             .setView(dialogView)
             .setCancelable(false)
             .setNegativeButton("Cancel") { _, _ ->
-                isCancelled = true
+                isCancelled.set(true)
                 try {
-                    activeConnection?.disconnect()
+                    activeConnection.get()?.disconnect()
                 } catch (e: Exception) {}
-                cleanUpdates(activity)
             }
             .create()
 
@@ -335,6 +375,7 @@ object UpdateManager {
         kotlin.concurrent.thread(name = "Cortex-ApkDownloader") {
             var inputStream: InputStream? = null
             var outputStream: FileOutputStream? = null
+            var downloadSucceeded = false
             try {
                 var currentUrl = info.asset.downloadUrl
                 var redirects = 0
@@ -352,40 +393,47 @@ object UpdateManager {
                     connection.setRequestProperty("User-Agent", "Cortex-Terminal-App")
                     connection.setRequestProperty("Accept", "*/*")
 
-                    activeConnection = connection
+                    activeConnection.set(connection)
                     val responseCode = connection.responseCode
 
                     if (responseCode in 300..399) {
                         val newLocation = connection.getHeaderField("Location")
                         connection.disconnect()
                         if (newLocation.isNullOrEmpty() || ++redirects > 5) {
-                            throw Exception("Too many redirects or missing Location header")
+                            throw IOException("Too many redirects or missing Location header")
                         }
                         currentUrl = newLocation
                     } else if (responseCode == HttpURLConnection.HTTP_OK) {
                         break
                     } else {
-                        throw Exception("HTTP download error: $responseCode")
+                        throw IOException("HTTP download error: $responseCode")
                     }
                 }
 
-                if (isCancelled) {
-                    cleanUpdates(activity)
+                if (isCancelled.get()) {
                     return@thread
                 }
 
-                val totalBytes = connection.contentLength.toLong().let {
-                    if (it > 0) it else info.asset.size
-                }
+                val contentLength = connection.contentLengthLong
+                val totalBytes = if (contentLength > 0L) contentLength else info.asset.size
 
                 mainHandler.post {
-                    if (!isCancelled && downloadDialog.isShowing) {
+                    if (!isCancelled.get() && downloadDialog.isShowing) {
                         progressBar.isIndeterminate = false
                         progressBar.max = 100
                         progressBar.progress = 0
                         statusText.text = "Downloading ${info.asset.name}..."
                     }
                 }
+
+                // Ensure 0600 permissions on targetApk BEFORE writing downloaded bytes
+                try {
+                    targetApk.setReadable(false, false)
+                    targetApk.setReadable(true, true)
+                    targetApk.setWritable(false, false)
+                    targetApk.setWritable(true, true)
+                    Os.chmod(targetApk.absolutePath, 384)
+                } catch (_: Exception) {}
 
                 inputStream = connection.inputStream
                 outputStream = FileOutputStream(targetApk)
@@ -396,10 +444,7 @@ object UpdateManager {
                 var lastUpdate = System.currentTimeMillis()
 
                 while (inputStream.read(buffer).also { bytesRead = it } != -1) {
-                    if (isCancelled) {
-                        outputStream.close()
-                        inputStream.close()
-                        cleanUpdates(activity)
+                    if (isCancelled.get()) {
                         return@thread
                     }
 
@@ -418,7 +463,7 @@ object UpdateManager {
                         val totalMB = String.format(Locale.US, "%.1f", totalBytes / (1024.0 * 1024.0))
 
                         mainHandler.post {
-                            if (!isCancelled && downloadDialog.isShowing) {
+                            if (!isCancelled.get() && downloadDialog.isShowing) {
                                 progressBar.progress = percent
                                 percentText.text = "$percent% ($downloadedMB MB / $totalMB MB)"
                             }
@@ -432,29 +477,45 @@ object UpdateManager {
                 inputStream.close()
                 inputStream = null
 
-                // Set owner-only permissions (0600) on downloaded APK
+                if (isCancelled.get()) {
+                    return@thread
+                }
+
+                if (totalRead <= 0L) {
+                    throw IOException("Downloaded APK is empty")
+                }
+                if (info.asset.size > 0L && totalRead != info.asset.size) {
+                    throw IOException("Downloaded APK size ($totalRead bytes) does not match release asset size (${info.asset.size} bytes)")
+                }
+                if (totalBytes > 0L && totalRead != totalBytes) {
+                    throw IOException("Incomplete APK download ($totalRead of $totalBytes bytes)")
+                }
+
+                // Enforce owner-only permissions (0600) on downloaded APK
                 try {
                     targetApk.setReadable(false, false)
                     targetApk.setReadable(true, true)
                     targetApk.setWritable(false, false)
                     targetApk.setWritable(true, true)
+                    Os.chmod(targetApk.absolutePath, 384)
                 } catch (_: Exception) {}
 
+                downloadSucceeded = true
+
                 mainHandler.post {
-                    if (!isCancelled && downloadDialog.isShowing) {
+                    if (!isCancelled.get() && downloadDialog.isShowing) {
                         try {
                             downloadDialog.dismiss()
                         } catch (e: Exception) {}
                         launchInstall(activity, targetApk)
+                    } else {
+                        try { targetApk.delete() } catch (_: Exception) {}
+                        cleanUpdates(activity)
                     }
                 }
             } catch (e: Exception) {
-                try { outputStream?.close() } catch (ex: Exception) {}
-                try { inputStream?.close() } catch (ex: Exception) {}
-                cleanUpdates(activity)
-
                 mainHandler.post {
-                    if (!isCancelled && downloadDialog.isShowing) {
+                    if (!isCancelled.get() && downloadDialog.isShowing) {
                         try { downloadDialog.dismiss() } catch (ex: Exception) {}
                         AlertDialog.Builder(activity)
                             .setTitle("Update Download Failed")
@@ -466,7 +527,50 @@ object UpdateManager {
                             .show()
                     }
                 }
+            } finally {
+                try { outputStream?.close() } catch (_: Exception) {}
+                try { inputStream?.close() } catch (_: Exception) {}
+                try { activeConnection.get()?.disconnect() } catch (_: Exception) {}
+                isDownloading.set(false)
+                if (!downloadSucceeded || isCancelled.get()) {
+                    try { targetApk.delete() } catch (_: Exception) {}
+                    cleanUpdatesForce(activity)
+                }
             }
+        }
+    }
+
+    internal fun isVersionUpgrade(installedVersionCode: Long, archiveVersionCode: Long): Boolean =
+        archiveVersionCode > installedVersionCode
+
+    internal fun isAuthorizedSigner(
+        currentActiveSigners: Set<String>,
+        archiveActiveSigners: Set<String>,
+        archiveLineageSigners: List<String>,
+        hasMultipleSigners: Boolean
+    ): Boolean {
+        if (hasMultipleSigners) {
+            return currentActiveSigners.isNotEmpty() && currentActiveSigners == archiveActiveSigners
+        }
+        if (currentActiveSigners.size != 1 || archiveActiveSigners.size != 1) {
+            return false
+        }
+        if (currentActiveSigners == archiveActiveSigners) {
+            return true
+        }
+        val currentActive = currentActiveSigners.first()
+        val archiveActive = archiveActiveSigners.first()
+        return archiveLineageSigners.isNotEmpty() &&
+            archiveLineageSigners.last() == archiveActive &&
+            currentActive in archiveLineageSigners
+    }
+
+    private fun getPackageVersionCode(info: android.content.pm.PackageInfo): Long {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            info.longVersionCode
+        } else {
+            @Suppress("DEPRECATION")
+            info.versionCode.toLong()
         }
     }
 
@@ -502,17 +606,33 @@ object UpdateManager {
             }
             if (currentInfo == null) return false
 
+            val currentVerCode = getPackageVersionCode(currentInfo)
+            val archiveVerCode = getPackageVersionCode(archiveInfo)
+            if (!isVersionUpgrade(currentVerCode, archiveVerCode)) {
+                Log.e("UpdateManager", "APK version downgrade/replay rejected: installed=$currentVerCode, archive=$archiveVerCode")
+                return false
+            }
+
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 val currentSigning = currentInfo.signingInfo ?: return false
                 val archiveSigning = archiveInfo.signingInfo ?: return false
 
-                val currentSignatures = if (currentSigning.hasMultipleSigners()) currentSigning.apkContentsSigners else currentSigning.signingCertificateHistory
-                val archiveSignatures = if (archiveSigning.hasMultipleSigners()) archiveSigning.apkContentsSigners else archiveSigning.signingCertificateHistory
+                if (currentSigning.hasMultipleSigners() != archiveSigning.hasMultipleSigners()) {
+                    Log.e("UpdateManager", "APK multi-signer state mismatch")
+                    return false
+                }
 
-                val currentSet = currentSignatures.map { it.toCharsString() }.toSet()
-                val archiveSet = archiveSignatures.map { it.toCharsString() }.toSet()
-                if (currentSet.intersect(archiveSet).isEmpty()) {
-                    Log.e("UpdateManager", "APK signing certificate does not match installed application")
+                val hasMulti = currentSigning.hasMultipleSigners()
+                val currentActive = currentSigning.apkContentsSigners?.map { it.toCharsString() }?.toSet()?.takeIf { it.isNotEmpty() }
+                    ?: currentSigning.signingCertificateHistory?.lastOrNull()?.let { setOf(it.toCharsString()) }
+                    ?: emptySet()
+                val archiveActive = archiveSigning.apkContentsSigners?.map { it.toCharsString() }?.toSet()?.takeIf { it.isNotEmpty() }
+                    ?: archiveSigning.signingCertificateHistory?.lastOrNull()?.let { setOf(it.toCharsString()) }
+                    ?: emptySet()
+                val archiveLineage = archiveSigning.signingCertificateHistory?.map { it.toCharsString() } ?: emptyList()
+
+                if (!isAuthorizedSigner(currentActive, archiveActive, archiveLineage, hasMulti)) {
+                    Log.e("UpdateManager", "APK signing certificate is not authorized for installed application")
                     return false
                 }
             } else {
@@ -520,7 +640,7 @@ object UpdateManager {
                 val currentSigs = currentInfo.signatures?.map { it.toCharsString() }?.toSet() ?: emptySet()
                 @Suppress("DEPRECATION")
                 val archiveSigs = archiveInfo.signatures?.map { it.toCharsString() }?.toSet() ?: emptySet()
-                if (currentSigs.intersect(archiveSigs).isEmpty()) {
+                if (currentSigs.isEmpty() || currentSigs != archiveSigs) {
                     Log.e("UpdateManager", "APK signature does not match installed application")
                     return false
                 }
@@ -533,21 +653,27 @@ object UpdateManager {
     }
 
     private fun launchInstall(activity: Activity, apkFile: File) {
-        if (activity.isFinishing || activity.isDestroyed) return
+        if (activity.isFinishing || activity.isDestroyed) {
+            try { apkFile.delete() } catch (_: Exception) {}
+            cleanUpdatesForce(activity)
+            return
+        }
 
         if (!apkFile.exists() || apkFile.length() <= 0L) {
             Toast.makeText(activity, "Downloaded APK file is missing or corrupted", Toast.LENGTH_SHORT).show()
-            cleanUpdates(activity)
+            try { apkFile.delete() } catch (_: Exception) {}
+            cleanUpdatesForce(activity)
             return
         }
 
         if (!verifyApkSignature(activity, apkFile)) {
+            try { apkFile.delete() } catch (_: Exception) {}
+            cleanUpdatesForce(activity)
             AlertDialog.Builder(activity)
                 .setTitle("Update Verification Failed")
                 .setMessage("The downloaded update could not be verified or its digital signature does not match this app.")
                 .setPositiveButton("OK", null)
                 .show()
-            cleanUpdates(activity)
             return
         }
 
@@ -560,10 +686,12 @@ object UpdateManager {
                         openUnknownAppSourcesSettings(activity)
                     }
                     .setNegativeButton("Cancel") { _, _ ->
-                        cleanUpdates(activity)
+                        try { apkFile.delete() } catch (_: Exception) {}
+                        cleanUpdatesForce(activity)
                     }
                     .setOnCancelListener {
-                        cleanUpdates(activity)
+                        try { apkFile.delete() } catch (_: Exception) {}
+                        cleanUpdatesForce(activity)
                     }
                     .show()
                 return
@@ -576,6 +704,7 @@ object UpdateManager {
                 "${activity.packageName}.fileprovider",
                 apkFile
             )
+            pendingInstallUri = apkUri
 
             val installIntent = Intent(Intent.ACTION_VIEW).apply {
                 setDataAndType(apkUri, "application/vnd.android.package-archive")
@@ -585,7 +714,8 @@ object UpdateManager {
             activity.startActivity(installIntent)
         } catch (e: Exception) {
             Toast.makeText(activity, "Failed to launch installer: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
-            cleanUpdates(activity)
+            try { apkFile.delete() } catch (_: Exception) {}
+            cleanUpdatesForce(activity)
         }
     }
 }

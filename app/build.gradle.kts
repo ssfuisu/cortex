@@ -11,7 +11,7 @@ android {
 
     defaultConfig {
         applicationId = "org.cortex.terminal"
-        minSdk = 26
+        minSdk = 24
         // Target SDK 28 is required to allow direct execve of binaries and glibc dynamic linker
         // from the app's writable data directory (filesDir). Android 10+ (targetSdk >= 29)
         // enforces SELinux W^X restrictions preventing execution from writable app data storage.
@@ -49,15 +49,34 @@ android {
     val releaseStorePassword = System.getenv("RELEASE_STORE_PASSWORD")
     val releaseKeyAlias = System.getenv("RELEASE_KEY_ALIAS")
     val releaseKeyPassword = System.getenv("RELEASE_KEY_PASSWORD")
-    val hasReleaseSigning = !releaseStoreFile.isNullOrEmpty() &&
+    val resolvedKeystoreFile = if (!releaseStoreFile.isNullOrEmpty()) {
+        val candidate = file(releaseStoreFile)
+        if (candidate.exists()) candidate else rootProject.file(releaseStoreFile)
+    } else {
+        null
+    }
+    val hasReleaseSigning = resolvedKeystoreFile != null &&
+        resolvedKeystoreFile.exists() &&
         !releaseStorePassword.isNullOrEmpty() &&
         !releaseKeyAlias.isNullOrEmpty() &&
         !releaseKeyPassword.isNullOrEmpty()
 
+    val isReleaseTaskRequested = gradle.startParameter.taskNames.any { taskName ->
+        taskName.contains("Release", ignoreCase = true) &&
+            (taskName.contains("assemble", ignoreCase = true) ||
+                taskName.contains("bundle", ignoreCase = true) ||
+                taskName.contains("package", ignoreCase = true))
+    }
+    if (isReleaseTaskRequested && !hasReleaseSigning) {
+        throw GradleException(
+            "Release build requires valid RELEASE_STORE_FILE, RELEASE_STORE_PASSWORD, RELEASE_KEY_ALIAS, and RELEASE_KEY_PASSWORD"
+        )
+    }
+
     signingConfigs {
         create("release") {
-            if (hasReleaseSigning) {
-                storeFile = file(releaseStoreFile)
+            if (hasReleaseSigning && resolvedKeystoreFile != null) {
+                storeFile = resolvedKeystoreFile
                 storePassword = releaseStorePassword
                 keyAlias = releaseKeyAlias
                 keyPassword = releaseKeyPassword
