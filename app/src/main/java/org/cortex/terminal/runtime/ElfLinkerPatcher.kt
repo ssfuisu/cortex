@@ -396,6 +396,46 @@ object ElfLinkerPatcher {
             bytes[offset + 3] == pattern[3]
     }
 
+    private fun matchesHalfword(bytes: ByteArray, offset: Int, pattern: ByteArray): Boolean {
+        return bytes[offset] == pattern[0] &&
+            bytes[offset + 1] == pattern[1]
+    }
+
+    private fun decodeThumbBlTarget(bytes: ByteArray, offset: Int): Int? {
+        if (offset < 0 || offset + 4 > bytes.size) return null
+        val hw1 = readU16Le(bytes, offset)
+        val hw2 = readU16Le(bytes, offset + 2)
+        if ((hw1 and 0xf800) != 0xf000 || (hw2 and 0xd000) != 0xd000) return null
+        val s = (hw1 ushr 10) and 1
+        val imm10 = hw1 and 0x3ff
+        val j1 = (hw2 ushr 13) and 1
+        val j2 = (hw2 ushr 11) and 1
+        val imm11 = hw2 and 0x7ff
+        val i1 = (j1 xor s) xor 1
+        val i2 = (j2 xor s) xor 1
+        var imm25 = (s shl 24) or (i1 shl 23) or (i2 shl 22) or (imm10 shl 12) or (imm11 shl 1)
+        if (s != 0) {
+            imm25 -= (1 shl 25)
+        }
+        return offset + 4 + imm25
+    }
+
+    private fun isThumbLibcDoSyscallStub(
+        bytes: ByteArray,
+        targetOffset: Int,
+        segStart: Int,
+        segEnd: Int
+    ): Boolean {
+        if (targetOffset < segStart || targetOffset + 6 > segEnd) return false
+        // push {r7, lr} (80 b5); mov r7, r12 (67 46); svc #0 (00 df)
+        return bytes[targetOffset] == 0x80.toByte() &&
+            bytes[targetOffset + 1] == 0xb5.toByte() &&
+            bytes[targetOffset + 2] == 0x67.toByte() &&
+            bytes[targetOffset + 3] == 0x46.toByte() &&
+            bytes[targetOffset + 4] == 0x00.toByte() &&
+            bytes[targetOffset + 5] == 0xdf.toByte()
+    }
+
     fun patchDynamicLinker(file: File) {
         if (!file.exists() || !file.isFile || isSymlink(file)) {
             return
@@ -527,21 +567,39 @@ object ElfLinkerPatcher {
                 val nopArm = byteArrayOf(0x00.toByte(), 0xf0.toByte(), 0x20.toByte(), 0xe3.toByte())
                 val mvnEnosysArm = byteArrayOf(0x25.toByte(), 0x00.toByte(), 0xe0.toByte(), 0xe3.toByte()) // mvn r0, #37 (-38)
 
-                // movw r7, #0x152 (syscall 338 set_robust_list)
+                // A32: movw r7, #0x152 (syscall 338 set_robust_list)
                 val movR7Syscall338 = byteArrayOf(0x52.toByte(), 0x71.toByte(), 0x00.toByte(), 0xe3.toByte())
-                // movw r7, #0x1b3 (syscall 435 clone3)
+                // A32: movw r7, #0x1b3 (syscall 435 clone3)
                 val movR7Syscall435 = byteArrayOf(0xb3.toByte(), 0x71.toByte(), 0x00.toByte(), 0xe3.toByte())
-                // movw r7, #0x18e (syscall 398 rseq)
+                // A32: movw r7, #0x18e (syscall 398 rseq)
                 val movR7Syscall398 = byteArrayOf(0x8e.toByte(), 0x71.toByte(), 0x00.toByte(), 0xe3.toByte())
+
+                // Thumb-2: svc #0 (00 df), 16-bit nop (00 bf)
+                val svcThumb = byteArrayOf(0x00.toByte(), 0xdf.toByte())
+                val nopThumb16 = byteArrayOf(0x00.toByte(), 0xbf.toByte())
+                // Thumb-2: mov.w r0, #0 (4f f0 00 00) and mvn.w r0, #37 (-38 = -ENOSYS: 6f f0 25 00)
+                val movR0ZeroThumb = byteArrayOf(0x4f.toByte(), 0xf0.toByte(), 0x00.toByte(), 0x00.toByte())
+                val mvnEnosysThumb = byteArrayOf(0x6f.toByte(), 0xf0.toByte(), 0x25.toByte(), 0x00.toByte())
+
+                // Thumb-2: movw r7, #338 (40 f2 52 17), movw r7, #435 (40 f2 b3 17), movw r7, #398 (40 f2 8e 17)
+                val thumbMovwR7Syscall338 = byteArrayOf(0x40.toByte(), 0xf2.toByte(), 0x52.toByte(), 0x17.toByte())
+                val thumbMovwR7Syscall435 = byteArrayOf(0x40.toByte(), 0xf2.toByte(), 0xb3.toByte(), 0x17.toByte())
+                val thumbMovwR7Syscall398 = byteArrayOf(0x40.toByte(), 0xf2.toByte(), 0x8e.toByte(), 0x17.toByte())
+
+                // Thumb-2: mov.w r12, #338 (4f f4 a9 7c), mov.w r12, #398 (4f f4 c7 7c), movw r12, #435 (40 f2 b3 1c)
+                val thumbMovR12Syscall338 = byteArrayOf(0x4f.toByte(), 0xf4.toByte(), 0xa9.toByte(), 0x7c.toByte())
+                val thumbMovR12Syscall398 = byteArrayOf(0x4f.toByte(), 0xf4.toByte(), 0xc7.toByte(), 0x7c.toByte())
+                val thumbMovR12Syscall435 = byteArrayOf(0x40.toByte(), 0xf2.toByte(), 0xb3.toByte(), 0x1c.toByte())
 
                 for ((segStartRaw, segEndRaw) in execSegments) {
                     val segStart = maxOf(0, segStartRaw)
                     val segEnd = minOf(bytes.size, segEndRaw)
-                    val startAligned = (segStart + 3) and 3.inv()
-                    val endAligned = segEnd and 3.inv()
+                    val startAligned4 = (segStart + 3) and 3.inv()
+                    val endAligned4 = segEnd and 3.inv()
 
-                    var pos = startAligned
-                    while (pos <= endAligned - 4) {
+                    // 1. A32 4-byte aligned scan
+                    var pos = startAligned4
+                    while (pos <= endAligned4 - 4) {
                         val isSyscall338 = matchesWord(bytes, pos, movR7Syscall338)
                         val isSyscall435 = matchesWord(bytes, pos, movR7Syscall435)
                         val isSyscall398 = matchesWord(bytes, pos, movR7Syscall398)
@@ -553,7 +611,7 @@ object ElfLinkerPatcher {
                                 isSyscall435 -> "435 clone3"
                                 else -> "398 rseq"
                             }
-                            val searchEnd = minOf(endAligned - 4, pos + 64)
+                            val searchEnd = minOf(endAligned4 - 4, pos + 64)
                             for (i in (pos + 4)..searchEnd step 4) {
                                 if (matchesWord(bytes, i, svcArm)) {
                                     replacement.copyInto(bytes, destinationOffset = i)
@@ -564,6 +622,63 @@ object ElfLinkerPatcher {
                             }
                         }
                         pos += 4
+                    }
+
+                    // 2. Thumb-2 2-byte aligned scan
+                    val startAligned2 = (segStart + 1) and 1.inv()
+                    val endAligned2 = segEnd and 1.inv()
+                    var tPos = startAligned2
+                    while (tPos <= endAligned2 - 4) {
+                        val isThumbR7_338 = matchesWord(bytes, tPos, thumbMovwR7Syscall338)
+                        val isThumbR7_435 = matchesWord(bytes, tPos, thumbMovwR7Syscall435)
+                        val isThumbR7_398 = matchesWord(bytes, tPos, thumbMovwR7Syscall398)
+
+                        if (isThumbR7_338 || isThumbR7_435 || isThumbR7_398) {
+                            val scName = when {
+                                isThumbR7_338 -> "338 set_robust_list"
+                                isThumbR7_435 -> "435 clone3"
+                                else -> "398 rseq"
+                            }
+                            val searchEnd = minOf(endAligned2 - 2, tPos + 64)
+                            for (i in (tPos + 4)..searchEnd step 2) {
+                                if (matchesHalfword(bytes, i, svcThumb)) {
+                                    if (isThumbR7_338) {
+                                        nopThumb16.copyInto(bytes, destinationOffset = i)
+                                    } else {
+                                        // movw r7, #imm (4B) + svc #0 (2B) -> mvn.w r0, #37 (4B) at movw, nop (2B) at svc
+                                        mvnEnosysThumb.copyInto(bytes, destinationOffset = tPos)
+                                        nopThumb16.copyInto(bytes, destinationOffset = i)
+                                    }
+                                    modified = true
+                                    Log.i(TAG, "Patched Thumb-2 syscall $scName svc #0 at 0x${Integer.toHexString(i)} in ${file.name}")
+                                    break
+                                }
+                            }
+                        } else {
+                            val isThumbR12_338 = matchesWord(bytes, tPos, thumbMovR12Syscall338)
+                            val isThumbR12_398 = matchesWord(bytes, tPos, thumbMovR12Syscall398)
+                            val isThumbR12_435 = matchesWord(bytes, tPos, thumbMovR12Syscall435)
+
+                            if (isThumbR12_338 || isThumbR12_398 || isThumbR12_435) {
+                                val replacement = if (isThumbR12_338) movR0ZeroThumb else mvnEnosysThumb
+                                val scName = when {
+                                    isThumbR12_338 -> "338 set_robust_list"
+                                    isThumbR12_435 -> "435 clone3"
+                                    else -> "398 rseq"
+                                }
+                                val searchEnd = minOf(endAligned2 - 4, tPos + 48)
+                                for (i in (tPos + 4)..searchEnd step 2) {
+                                    val blTarget = decodeThumbBlTarget(bytes, i)
+                                    if (blTarget != null && isThumbLibcDoSyscallStub(bytes, blTarget, segStart, segEnd)) {
+                                        replacement.copyInto(bytes, destinationOffset = i)
+                                        modified = true
+                                        Log.i(TAG, "Patched Thumb-2 syscall $scName bl __libc_do_syscall at 0x${Integer.toHexString(i)} in ${file.name}")
+                                        break
+                                    }
+                                }
+                            }
+                        }
+                        tPos += 2
                     }
                 }
             }

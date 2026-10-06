@@ -532,8 +532,7 @@ chmod 0644 extra-rootfs/etc/profile.d/00-env.sh
 mkdir -p extra-rootfs/etc extra-rootfs/var/lib/dbus
 : > extra-rootfs/etc/machine-id
 chmod 0644 extra-rootfs/etc/machine-id
-: > extra-rootfs/var/lib/dbus/machine-id
-chmod 0644 extra-rootfs/var/lib/dbus/machine-id
+ln -sf /etc/machine-id extra-rootfs/var/lib/dbus/machine-id
 
 rm -rf extra-rootfs/bin extra-rootfs/sbin 2>/dev/null || true
 MAINT_TOOLS="systemd-machine-id-setup systemd-sysusers systemd-tmpfiles mandb update-mime-database update-desktop-database install-info install-sgmlcatalog"

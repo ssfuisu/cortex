@@ -147,6 +147,147 @@ class ElfLinkerPatcherTest {
     }
 
     @Test
+    fun patchDynamicLinker_patchesArmThumb2InlineAndBlDoSyscallSequences() {
+        val totalSize = 512
+        val buf = ByteBuffer.allocate(totalSize).order(ByteOrder.LITTLE_ENDIAN)
+        buf.put(0, 0x7f.toByte())
+        buf.put(1, 'E'.code.toByte())
+        buf.put(2, 'L'.code.toByte())
+        buf.put(3, 'F'.code.toByte())
+        buf.put(4, 1.toByte()) // ELFCLASS32
+        buf.put(5, 1.toByte()) // ELFDATA2LSB
+        buf.put(6, 1.toByte()) // EV_CURRENT
+        buf.putShort(16, 3.toShort()) // ET_DYN
+        buf.putShort(18, 40.toShort()) // EM_ARM
+        buf.putInt(20, 1) // EV_CURRENT
+        buf.putInt(28, 52) // e_phoff
+        buf.putShort(40, 52.toShort()) // e_ehsize
+        buf.putShort(42, 32.toShort()) // e_phentsize
+        buf.putShort(44, 1.toShort()) // e_phnum
+
+        // Place executable PT_LOAD segment at 0x80..0x180
+        buf.putInt(52 + 0, 1) // PT_LOAD
+        buf.putInt(52 + 4, 0x80) // p_offset
+        buf.putInt(52 + 8, 0x80) // p_vaddr
+        buf.putInt(52 + 12, 0x80) // p_paddr
+        buf.putInt(52 + 16, 0x100) // p_filesz
+        buf.putInt(52 + 20, 0x100) // p_memsz
+        buf.putInt(52 + 24, 0x5) // PF_R | PF_X
+        buf.putInt(52 + 28, 0x1000) // p_align
+
+        val arr = buf.array()
+
+        // 1. At odd halfword offset 0x82: Thumb-2 movw r7, #338 (40 f2 52 17) + svc #0 (00 df)
+        byteArrayOf(0x40, 0xf2.toByte(), 0x52, 0x17, 0x00, 0xdf.toByte()).copyInto(arr, 0x82)
+
+        // 2. At offset 0x90: Thumb-2 movw r7, #435 (40 f2 b3 17) + svc #0 (00 df) (exact Ubuntu 24.04 armhf clone3 sequence)
+        byteArrayOf(0x40, 0xf2.toByte(), 0xb3.toByte(), 0x17, 0x00, 0xdf.toByte()).copyInto(arr, 0x90)
+
+        // 3. At offset 0xa0: Thumb-2 movw r7, #398 (40 f2 8e 17) + svc #0 (00 df)
+        byteArrayOf(0x40, 0xf2.toByte(), 0x8e.toByte(), 0x17, 0x00, 0xdf.toByte()).copyInto(arr, 0xa0)
+
+        // 4. At offset 0x100: glibc __libc_do_syscall Thumb stub: push {r7, lr}; mov r7, r12; svc #0; pop {r7, pc}
+        val libcDoSyscallStub = byteArrayOf(
+            0x80.toByte(), 0xb5.toByte(),
+            0x67, 0x46,
+            0x00, 0xdf.toByte(),
+            0x80.toByte(), 0xbd.toByte()
+        )
+        libcDoSyscallStub.copyInto(arr, 0x100)
+
+        // Helper to encode 32-bit Thumb BL from `fromOffset` to `targetOffset`
+        fun encodeThumbBl(fromOffset: Int, targetOffset: Int): ByteArray {
+            val rel = targetOffset - (fromOffset + 4)
+            val s = (rel ushr 24) and 1
+            val i1 = (rel ushr 23) and 1
+            val i2 = (rel ushr 22) and 1
+            val j1 = (i1 xor 1) xor s
+            val j2 = (i2 xor 1) xor s
+            val imm10 = (rel ushr 12) and 0x3ff
+            val imm11 = (rel ushr 1) and 0x7ff
+            val hw1 = 0xf000 or (s shl 10) or imm10
+            val hw2 = 0xd000 or (j1 shl 13) or (j2 shl 11) or imm11
+            return byteArrayOf(
+                (hw1 and 0xff).toByte(),
+                ((hw1 ushr 8) and 0xff).toByte(),
+                (hw2 and 0xff).toByte(),
+                ((hw2 ushr 8) and 0xff).toByte()
+            )
+        }
+
+        // 5. At offset 0xb0: mov.w r12, #338 (4f f4 a9 7c) followed at 0xb4 by BL 0x100 (__libc_do_syscall)
+        byteArrayOf(0x4f, 0xf4.toByte(), 0xa9.toByte(), 0x7c).copyInto(arr, 0xb0)
+        encodeThumbBl(0xb4, 0x100).copyInto(arr, 0xb4)
+
+        // 6. At offset 0xc0: mov.w r12, #398 (4f f4 c7 7c) followed at 0xc4 by BL 0x100 (__libc_do_syscall)
+        byteArrayOf(0x4f, 0xf4.toByte(), 0xc7.toByte(), 0x7c).copyInto(arr, 0xc0)
+        encodeThumbBl(0xc4, 0x100).copyInto(arr, 0xc4)
+
+        // 7. At offset 0xd0: mov.w r12, #338 followed by BL to non-stub function at 0x120 (must NOT be patched)
+        byteArrayOf(0x00, 0xbf.toByte(), 0x70, 0x47).copyInto(arr, 0x120) // nop; bx lr
+        byteArrayOf(0x4f, 0xf4.toByte(), 0xa9.toByte(), 0x7c).copyInto(arr, 0xd0)
+        val blToNonStub = encodeThumbBl(0xd4, 0x120)
+        blToNonStub.copyInto(arr, 0xd4)
+
+        val file = File(tempFolder.root, "libc.so.6")
+        file.writeBytes(arr)
+
+        ElfLinkerPatcher.patchDynamicLinker(file)
+
+        val patched = file.readBytes()
+
+        // 1. set_robust_list (338) inline: movw r7, #338 preserved, svc #0 (00 df) -> nop (00 bf)
+        assertArrayEquals(
+            "Thumb-2 set_robust_list svc #0 must become Thumb nop (00 bf)",
+            byteArrayOf(0x40, 0xf2.toByte(), 0x52, 0x17, 0x00, 0xbf.toByte()),
+            patched.sliceArray(0x82 until 0x88)
+        )
+
+        // 2. clone3 (435) inline: movw r7, #435 + svc #0 (6 bytes) -> mvn.w r0, #37; nop (6f f0 25 00 00 bf)
+        val thumbEnosys6 = byteArrayOf(0x6f, 0xf0.toByte(), 0x25, 0x00, 0x00, 0xbf.toByte())
+        assertArrayEquals(
+            "Thumb-2 clone3 movw+svc must become mvn.w r0, #37; nop",
+            thumbEnosys6,
+            patched.sliceArray(0x90 until 0x96)
+        )
+
+        // 3. rseq (398) inline: movw r7, #398 + svc #0 (6 bytes) -> mvn.w r0, #37; nop
+        assertArrayEquals(
+            "Thumb-2 rseq movw+svc must become mvn.w r0, #37; nop",
+            thumbEnosys6,
+            patched.sliceArray(0xa0 until 0xa6)
+        )
+
+        // 4. set_robust_list (338) via BL __libc_do_syscall -> BL replaced with mov.w r0, #0 (4f f0 00 00)
+        assertArrayEquals(
+            "Thumb-2 BL __libc_do_syscall for set_robust_list must become mov.w r0, #0",
+            byteArrayOf(0x4f, 0xf0.toByte(), 0x00, 0x00),
+            patched.sliceArray(0xb4 until 0xb8)
+        )
+
+        // 5. rseq (398) via BL __libc_do_syscall -> BL replaced with mvn.w r0, #37 (6f f0 25 00)
+        assertArrayEquals(
+            "Thumb-2 BL __libc_do_syscall for rseq must become mvn.w r0, #37",
+            byteArrayOf(0x6f, 0xf0.toByte(), 0x25, 0x00),
+            patched.sliceArray(0xc4 until 0xc8)
+        )
+
+        // 6. Shared __libc_do_syscall stub itself at 0x100 must NOT be corrupted (used by other syscalls!)
+        assertArrayEquals(
+            "Shared __libc_do_syscall stub must remain intact",
+            libcDoSyscallStub,
+            patched.sliceArray(0x100 until 0x108)
+        )
+
+        // 7. BL to non-stub function must remain untouched
+        assertArrayEquals(
+            "BL to non-stub target must remain untouched",
+            blToNonStub,
+            patched.sliceArray(0xd4 until 0xd8)
+        )
+    }
+
+    @Test
     fun patchDynamicLinker_doesNotModifyNonExecutablePtLoadSegment() {
         val movX8_435 = byteArrayOf(0x68, 0x36, 0x80.toByte(), 0xd2.toByte())
         val svc0 = byteArrayOf(0x01, 0x00, 0x00, 0xd4.toByte())

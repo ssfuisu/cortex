@@ -357,20 +357,85 @@ jobs:
                       ("clone3",          b"\xb3\x71\x00\xe3", mov_enosys_arm), # movw r7, #0x1b3 (435)
                       ("rseq",            b"\x8e\x71\x00\xe3", mov_enosys_arm), # movw r7, #0x18e (398)
                   ]
+                  svc_thumb = b"\x00\xdf"              # svc #0 in Thumb mode
+                  nop_thumb16 = b"\x00\xbf"            # 16-bit nop in Thumb mode
+                  mov_r0_zero_thumb = b"\x4f\xf0\x00\x00" # mov.w r0, #0
+                  mvn_enosys_thumb = b"\x6f\xf0\x25\x00"  # mvn.w r0, #37 (-38)
+                  patches_thumb_r7 = [
+                      ("set_robust_list", b"\x40\xf2\x52\x17", True),  # movw r7, #0x152 (338)
+                      ("clone3",          b"\x40\xf2\xb3\x17", False), # movw r7, #0x1b3 (435)
+                      ("rseq",            b"\x40\xf2\x8e\x17", False), # movw r7, #0x18e (398)
+                  ]
+                  patches_thumb_r12 = [
+                      ("set_robust_list", b"\x4f\xf4\xa9\x7c", mov_r0_zero_thumb), # mov.w r12, #0x152 (338)
+                      ("rseq",            b"\x4f\xf4\xc7\x7c", mvn_enosys_thumb),  # mov.w r12, #0x18e (398)
+                      ("clone3",          b"\x40\xf2\xb3\x1c", mvn_enosys_thumb),  # movw r12, #0x1b3 (435)
+                  ]
+                  libc_do_syscall_stub = b"\x80\xb5\x67\x46\x00\xdf" # push {r7, lr}; mov r7, r12; svc #0
+
+                  def decode_thumb_bl(buf, off):
+                      if off < 0 or off + 4 > len(buf):
+                          return None
+                      hw1, hw2 = struct.unpack_from("<HH", buf, off)
+                      if (hw1 & 0xf800) != 0xf000 or (hw2 & 0xd000) != 0xd000:
+                          return None
+                      s = (hw1 >> 10) & 1
+                      imm10 = hw1 & 0x3ff
+                      j1 = (hw2 >> 13) & 1
+                      j2 = (hw2 >> 11) & 1
+                      imm11 = hw2 & 0x7ff
+                      i1 = (j1 ^ s) ^ 1
+                      i2 = (j2 ^ s) ^ 1
+                      imm25 = (s << 24) | (i1 << 23) | (i2 << 22) | (imm10 << 12) | (imm11 << 1)
+                      if s:
+                          imm25 -= (1 << 25)
+                      return off + 4 + imm25
+
                   for seg_start, seg_end in segments:
                       seg_start = max(0, seg_start)
                       seg_end = min(len(data), seg_end)
-                      start_aligned = (seg_start + 3) & ~3
-                      end_aligned = seg_end & ~3
-                      for pos in range(start_aligned, end_aligned - 4, 4):
+                      start_aligned4 = (seg_start + 3) & ~3
+                      end_aligned4 = seg_end & ~3
+                      for pos in range(start_aligned4, end_aligned4 - 4, 4):
                           for sc_name, pat, repl in patches_arm:
                               if data[pos:pos+4] == pat:
-                                  for s_pos in range(pos + 4, min(end_aligned, pos + 68), 4):
+                                  for s_pos in range(pos + 4, min(end_aligned4, pos + 68), 4):
                                       if data[s_pos:s_pos+4] == svc_arm:
                                           data[s_pos:s_pos+4] = repl
                                           patched_count += 1
                                           print(f"Patched ARM {sc_name} at 0x{s_pos:x} in {filename}")
                                           break
+
+                      start_aligned2 = (seg_start + 1) & ~1
+                      end_aligned2 = seg_end & ~1
+                      for t_pos in range(start_aligned2, end_aligned2 - 4, 2):
+                          matched_r7 = False
+                          for sc_name, pat, is_nop_only in patches_thumb_r7:
+                              if data[t_pos:t_pos+4] == pat:
+                                  matched_r7 = True
+                                  for s_pos in range(t_pos + 4, min(end_aligned2 - 2, t_pos + 64) + 2, 2):
+                                      if data[s_pos:s_pos+2] == svc_thumb:
+                                          if is_nop_only:
+                                              data[s_pos:s_pos+2] = nop_thumb16
+                                          else:
+                                              data[t_pos:t_pos+4] = mvn_enosys_thumb
+                                              data[s_pos:s_pos+2] = nop_thumb16
+                                          patched_count += 1
+                                          print(f"Patched Thumb-2 {sc_name} svc #0 at 0x{s_pos:x} in {filename}")
+                                          break
+                                  break
+                          if not matched_r7:
+                              for sc_name, pat, repl in patches_thumb_r12:
+                                  if data[t_pos:t_pos+4] == pat:
+                                      for s_pos in range(t_pos + 4, min(end_aligned2 - 4, t_pos + 48) + 2, 2):
+                                          bl_target = decode_thumb_bl(data, s_pos)
+                                          if bl_target is not None and seg_start <= bl_target <= seg_end - 6:
+                                              if data[bl_target:bl_target+6] == libc_do_syscall_stub:
+                                                  data[s_pos:s_pos+4] = repl
+                                                  patched_count += 1
+                                                  print(f"Patched Thumb-2 {sc_name} bl __libc_do_syscall at 0x{s_pos:x} in {filename}")
+                                                  break
+                                      break
 
               return data, patched_count
 

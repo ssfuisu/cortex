@@ -1319,10 +1319,12 @@ object BootstrapManager {
             val dbusDir = File(root, "var/lib/dbus")
             dbusDir.mkdirs()
             val dbusMachineId = File(dbusDir, "machine-id")
-            if (!dbusMachineId.exists()) {
-                try {
-                    android.system.Os.symlink("/etc/machine-id", dbusMachineId.absolutePath)
-                } catch (e: Exception) {
+            val isDbusSymlink = ElfLinkerPatcher.isSymlink(dbusMachineId)
+            if (!dbusMachineId.exists() || (!isDbusSymlink && dbusMachineId.length() < 32)) {
+                if (dbusMachineId.exists() || isDbusSymlink) {
+                    ElfLinkerPatcher.deleteIfExists(dbusMachineId)
+                }
+                if (!ElfLinkerPatcher.createSymlink("/etc/machine-id", dbusMachineId)) {
                     machineId.copyTo(dbusMachineId, overwrite = true)
                 }
             }
