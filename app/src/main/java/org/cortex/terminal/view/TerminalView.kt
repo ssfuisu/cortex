@@ -33,6 +33,8 @@ import android.widget.OverScroller
 import android.widget.PopupWindow
 import android.widget.TextView
 import android.widget.Toast
+import android.system.Os
+import org.cortex.terminal.R
 import org.cortex.terminal.emulator.KeyMapper
 import org.cortex.terminal.emulator.TerminalBuffer
 import org.cortex.terminal.emulator.TerminalColor
@@ -947,6 +949,26 @@ class TerminalView @JvmOverloads constructor(
         clearSelection()
     }
 
+    private fun pruneClipboardImages(dir: File) {
+        val files = dir.listFiles()?.filter { it.isFile } ?: return
+        val cutoff = System.currentTimeMillis() - 86_400_000L // 24 hours
+        val remaining = ArrayList<File>(files.size)
+        for (f in files) {
+            if (f.lastModified() < cutoff) {
+                try { f.delete() } catch (_: Exception) {}
+            } else {
+                remaining.add(f)
+            }
+        }
+        if (remaining.size > 32) {
+            remaining.sortBy { it.lastModified() }
+            val toRemove = remaining.size - 32
+            for (i in 0 until toRemove) {
+                try { remaining[i].delete() } catch (_: Exception) {}
+            }
+        }
+    }
+
     private fun saveImageFromUri(uri: Uri, mimeType: String?): String? {
         try {
             if (uri.scheme == "file" && uri.path != null) {
@@ -962,31 +984,49 @@ class TerminalView @JvmOverloads constructor(
                 else -> ".png"
             }
 
-            val destDir = File(context.cacheDir, "images").apply {
+            val destDir = File(context.filesDir, "clipboard_images").apply {
                 if (!exists()) {
                     mkdirs()
-                    setReadable(false, false)
-                    setReadable(true, true)
-                    setWritable(false, false)
-                    setWritable(true, true)
-                    setExecutable(false, false)
-                    setExecutable(true, true)
                 }
+                setReadable(false, false)
+                setReadable(true, true)
+                setWritable(false, false)
+                setWritable(true, true)
+                setExecutable(false, false)
+                setExecutable(true, true)
+                try { Os.chmod(absolutePath, 448) } catch (_: Exception) {}
             }
 
-            val timeStamp = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US).format(java.util.Date())
-            val targetFile = File(destDir, "cortex_img_${timeStamp}${ext}")
+            pruneClipboardImages(destDir)
 
-            context.contentResolver.openInputStream(uri)?.use { inStream ->
+            val timeStamp = java.text.SimpleDateFormat("yyyyMMdd_HHmmss_SSS", java.util.Locale.US).format(java.util.Date())
+            val uniqueSuffix = System.nanoTime() and 0xFFFF
+            val targetFile = File(destDir, "cortex_img_${timeStamp}_${uniqueSuffix}${ext}")
+            if (!targetFile.exists()) {
+                targetFile.createNewFile()
+            }
+            targetFile.setReadable(false, false)
+            targetFile.setReadable(true, true)
+            targetFile.setWritable(false, false)
+            targetFile.setWritable(true, true)
+            try { Os.chmod(targetFile.absolutePath, 384) } catch (_: Exception) {}
+
+            val copied = context.contentResolver.openInputStream(uri)?.use { inStream ->
                 targetFile.outputStream().use { outStream ->
                     inStream.copyTo(outStream)
                 }
-            } ?: return null
+                true
+            } ?: false
+            if (!copied) {
+                try { targetFile.delete() } catch (_: Exception) {}
+                return null
+            }
 
             targetFile.setReadable(false, false)
             targetFile.setReadable(true, true)
             targetFile.setWritable(false, false)
             targetFile.setWritable(true, true)
+            try { Os.chmod(targetFile.absolutePath, 384) } catch (_: Exception) {}
             return targetFile.absolutePath + " "
         } catch (e: Exception) {
             android.util.Log.e("TerminalView", "Failed to save clipboard image", e)
@@ -1357,9 +1397,9 @@ class TerminalView @JvmOverloads constructor(
                 }
             }
             info.text = visibleText.toString().trimEnd()
-            info.contentDescription = "Terminal Screen, ${cols} columns by ${rows} rows"
+            info.contentDescription = context.getString(R.string.terminal_screen_desc, cols, rows)
         } else {
-            info.contentDescription = "Terminal Screen (Inactive)"
+            info.contentDescription = context.getString(R.string.terminal_screen_inactive_desc)
         }
     }
 }

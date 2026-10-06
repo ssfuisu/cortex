@@ -25,6 +25,7 @@ class TerminalSession(
     }
     private var ptyProcess: PtyProcess? = null
     private var readerThread: Thread? = null
+    @Volatile
     var isRunning = false
         private set
 
@@ -116,19 +117,23 @@ class TerminalSession(
     }
 
     fun write(bytes: ByteArray) {
-        if (!isRunning) return
-        writeExecutor.execute {
-            if (!isRunning) return@execute
-            try {
-                ptyProcess?.outputStream?.let { os ->
-                    os.write(bytes)
-                    os.flush()
-                }
-            } catch (e: IOException) {
-                if (isRunning) {
-                    Log.e(tag, "Error writing to PTY: ${e.message}")
+        if (!isRunning || writeExecutor.isShutdown) return
+        try {
+            writeExecutor.execute {
+                if (!isRunning) return@execute
+                try {
+                    ptyProcess?.outputStream?.let { os ->
+                        os.write(bytes)
+                        os.flush()
+                    }
+                } catch (e: IOException) {
+                    if (isRunning) {
+                        Log.e(tag, "Error writing to PTY: ${e.message}")
+                    }
                 }
             }
+        } catch (_: java.util.concurrent.RejectedExecutionException) {
+            // Executor shut down concurrently during destroy()
         }
     }
 
@@ -150,15 +155,7 @@ class TerminalSession(
     fun destroy() {
         isRunning = false
         writeExecutor.shutdownNow()
-        ptyProcess?.let { process ->
-            try {
-                process.outputStream.close()
-            } catch (_: Exception) {}
-            try {
-                process.inputStream.close()
-            } catch (_: Exception) {}
-            process.destroy()
-        }
+        ptyProcess?.destroy()
         try {
             readerThread?.interrupt()
         } catch (_: Exception) {}
