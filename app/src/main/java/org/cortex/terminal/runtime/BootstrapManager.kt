@@ -284,14 +284,28 @@ object BootstrapManager {
             val localBin = File(home, ".local/bin")
             localBin.mkdirs()
             val localBinBashrc = File(localBin, "bashrc")
-            localBinBashrc.writeText("#!/bin/bash\n. \"" + d + "HOME/.bashrc\"\n")
+            localBinBashrc.writeText(
+                "#!/bin/bash\n" +
+                "if (return 0 2>/dev/null); then\n" +
+                "    . \"" + d + "HOME/.bashrc\"\n" +
+                "else\n" +
+                "    exec \"" + d + "{SHELL:-/bin/bash}\" -l\n" +
+                "fi\n"
+            )
             localBinBashrc.setExecutable(true, true)
             localBinBashrc.setReadable(true, true)
             localBinBashrc.setWritable(true, true)
             try { android.system.Os.chmod(localBinBashrc.absolutePath, 448) } catch (e: Exception) {} // 0700
 
             val localBinProfile = File(localBin, "profile")
-            localBinProfile.writeText("#!/bin/bash\n. \"" + d + "HOME/.profile\"\n")
+            localBinProfile.writeText(
+                "#!/bin/bash\n" +
+                "if (return 0 2>/dev/null); then\n" +
+                "    . \"" + d + "HOME/.profile\"\n" +
+                "else\n" +
+                "    exec \"" + d + "{SHELL:-/bin/bash}\" -l\n" +
+                "fi\n"
+            )
             localBinProfile.setExecutable(true, true)
             localBinProfile.setReadable(true, true)
             localBinProfile.setWritable(true, true)
@@ -443,7 +457,7 @@ object BootstrapManager {
                 val f = File(root, sub)
                 if (f.exists() && f.isDirectory) {
                     try {
-                        if (!java.nio.file.Files.isSymbolicLink(f.toPath())) {
+                        if (!ElfLinkerPatcher.isSymlink(f)) {
                             f.deleteRecursively()
                         }
                     } catch (e: Exception) {
@@ -819,16 +833,14 @@ object BootstrapManager {
             val targetHook = File(root, "usr/lib/libcortex-hook.so")
             targetHook.parentFile?.mkdirs()
 
-            val targetPath = targetHook.toPath()
             // Clean up any broken/circular symlinks created by older buggy releases
-            if (java.nio.file.Files.isSymbolicLink(targetPath)) {
-                java.nio.file.Files.deleteIfExists(targetPath)
+            if (ElfLinkerPatcher.isSymlink(targetHook)) {
+                ElfLinkerPatcher.deleteIfExists(targetHook)
             }
 
             val tmpHook = File(root, "usr/lib/libcortex-hook.so.tmp")
-            val tmpPath = tmpHook.toPath()
-            if (java.nio.file.Files.isSymbolicLink(tmpPath)) {
-                java.nio.file.Files.deleteIfExists(tmpPath)
+            if (ElfLinkerPatcher.isSymlink(tmpHook)) {
+                ElfLinkerPatcher.deleteIfExists(tmpHook)
             }
 
             context.assets.open(hookAssetName).use { inStream ->
@@ -842,20 +854,7 @@ object BootstrapManager {
                 tmpHook.setWritable(true, true)
                 try { android.system.Os.chmod(tmpHook.absolutePath, 448) } catch (e: Exception) {}
 
-                try {
-                    java.nio.file.Files.move(
-                        tmpPath,
-                        targetPath,
-                        java.nio.file.StandardCopyOption.REPLACE_EXISTING,
-                        java.nio.file.StandardCopyOption.ATOMIC_MOVE
-                    )
-                } catch (e: Exception) {
-                    java.nio.file.Files.move(
-                        tmpPath,
-                        targetPath,
-                        java.nio.file.StandardCopyOption.REPLACE_EXISTING
-                    )
-                }
+                ElfLinkerPatcher.atomicReplace(tmpHook, targetHook)
                 targetHook.setExecutable(true, true)
                 targetHook.setReadable(true, true)
                 targetHook.setWritable(true, true)
@@ -863,17 +862,13 @@ object BootstrapManager {
             }
 
             val libDir = File(root, "lib")
-            if (libDir.exists() && !java.nio.file.Files.isSymbolicLink(libDir.toPath())) {
+            if (libDir.exists() && !ElfLinkerPatcher.isSymlink(libDir)) {
                 val libHook = File(libDir, "libcortex-hook.so")
-                val libHookPath = libHook.toPath()
                 try {
-                    if (java.nio.file.Files.isSymbolicLink(libHookPath)) {
-                        java.nio.file.Files.deleteIfExists(libHookPath)
+                    if (ElfLinkerPatcher.isSymlink(libHook) || libHook.exists()) {
+                        ElfLinkerPatcher.deleteIfExists(libHook)
                     }
-                    if (libHook.exists()) {
-                        libHook.delete()
-                    }
-                    android.system.Os.symlink(targetHook.absolutePath, libHook.absolutePath)
+                    ElfLinkerPatcher.createSymlink(targetHook.absolutePath, libHook)
                 } catch (e: Exception) {}
             }
         } catch (e: Exception) {
@@ -1010,9 +1005,7 @@ object BootstrapManager {
             val etcDir = File(root, "etc")
             etcDir.mkdirs()
             val resolvFile = File(etcDir, "resolv.conf")
-            try {
-                java.nio.file.Files.deleteIfExists(resolvFile.toPath())
-            } catch (_: Exception) {
+            if (!ElfLinkerPatcher.deleteIfExists(resolvFile)) {
                 resolvFile.delete()
             }
             val resolvConf = selectedDns.joinToString("\n") { "nameserver $it" } + "\noptions timeout:1 attempts:2 rotate\n"
@@ -1199,7 +1192,7 @@ object BootstrapManager {
             localBin.mkdirs()
 
             val binDir = File(root, "bin")
-            val isBinDirSymlink = binDir.exists() && java.nio.file.Files.isSymbolicLink(binDir.toPath())
+            val isBinDirSymlink = binDir.exists() && ElfLinkerPatcher.isSymlink(binDir)
 
             // 1. awk guarantee: find mawk or gawk and copy as real ELF executable
             val mawkCandidates = listOf(
@@ -1229,20 +1222,7 @@ object BootstrapManager {
                         tmp.setWritable(true, true)
                         tmp.setExecutable(true, true)
                         try { android.system.Os.chmod(tmp.absolutePath, 448) } catch (e: Exception) {}
-                        try {
-                            java.nio.file.Files.move(
-                                tmp.toPath(),
-                                target.toPath(),
-                                java.nio.file.StandardCopyOption.REPLACE_EXISTING,
-                                java.nio.file.StandardCopyOption.ATOMIC_MOVE
-                            )
-                        } catch (e: Exception) {
-                            java.nio.file.Files.move(
-                                tmp.toPath(),
-                                target.toPath(),
-                                java.nio.file.StandardCopyOption.REPLACE_EXISTING
-                            )
-                        }
+                        ElfLinkerPatcher.atomicReplace(tmp, target)
                         target.setReadable(true, true)
                         target.setWritable(true, true)
                         target.setExecutable(true, true)
@@ -1282,20 +1262,7 @@ object BootstrapManager {
                     tmp.setWritable(true, true)
                     tmp.setExecutable(true, true)
                     try { android.system.Os.chmod(tmp.absolutePath, 448) } catch (e: Exception) {}
-                    try {
-                        java.nio.file.Files.move(
-                            tmp.toPath(),
-                            target.toPath(),
-                            java.nio.file.StandardCopyOption.REPLACE_EXISTING,
-                            java.nio.file.StandardCopyOption.ATOMIC_MOVE
-                        )
-                    } catch (e: Exception) {
-                        java.nio.file.Files.move(
-                            tmp.toPath(),
-                            target.toPath(),
-                            java.nio.file.StandardCopyOption.REPLACE_EXISTING
-                        )
-                    }
+                    ElfLinkerPatcher.atomicReplace(tmp, target)
                     target.setReadable(true, true)
                     target.setWritable(true, true)
                     target.setExecutable(true, true)
