@@ -6,17 +6,22 @@ import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
-import java.io.BufferedReader
 import java.io.File
-import java.io.InputStreamReader
 import java.io.OutputStreamWriter
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
+import java.net.URI
 import java.net.URLDecoder
+import java.security.MessageDigest
 import java.security.SecureRandom
-import java.util.concurrent.Executors
+import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.RejectedExecutionException
+import java.util.concurrent.ThreadFactory
+import java.util.concurrent.ThreadPoolExecutor
+import java.util.concurrent.TimeUnit
 
 /**
  * UrlOpenerServer listens on localhost:4715 for browser redirection requests from CLI tools
@@ -27,7 +32,18 @@ import java.util.concurrent.Executors
  *   OPEN <url> (if token passed or authenticated)
  *   HTTP requests: Authorization: Bearer <token> or query param token=<token>
  *
- * When received and authenticated, Cortex dispatches an Android Intent to Chrome or the system default browser.
+ * Threat Model (`CORTEX_URL_TOKEN`):
+ * - On Android, the loopback interface (`127.0.0.1`) is shared across all installed applications
+ *   that hold the `INTERNET` permission as well as local browser tabs. `CORTEX_URL_TOKEN` protects
+ *   this localhost TCP IPC endpoint against unauthorized cross-app requests and browser-based
+ *   localhost CSRF attacks.
+ * - Because `CORTEX_URL_TOKEN` is exported into the Cortex terminal session environment and persisted
+ *   in `filesDir/cortex_url_token` (mode `0600`, owned by the app UID), it functions as a session
+ *   capability token rather than an isolation boundary between processes executing inside the same
+ *   Cortex terminal session.
+ *
+ * When a request is received and authenticated, Cortex validates that the URL uses `http` or `https`
+ * and dispatches an Android `ACTION_VIEW` Intent to Chrome or the system default browser.
  */
 object UrlOpenerServer {
     private const val TAG = "UrlOpenerServer"
@@ -36,12 +52,35 @@ object UrlOpenerServer {
     private const val TOKEN_FILE_NAME = "cortex_url_token"
 
     @Volatile
-    private var authToken: String? = null
+    internal var authToken: String? = null
+
+    @Volatile
+    internal var activePort: Int = PORT
+        private set
+
+    @Volatile
+    internal var clientSoTimeoutMs: Int = 5000
 
     private var serverSocket: ServerSocket? = null
+    private var acceptThread: Thread? = null
+    private var workerPool: ThreadPoolExecutor? = null
+
+    @Volatile
     private var isRunning = false
-    private val threadPool = Executors.newFixedThreadPool(2)
-    private val mainHandler = Handler(Looper.getMainLooper())
+
+    private val mainHandler: Handler? = try {
+        Looper.getMainLooper()?.let { Handler(it) }
+    } catch (_: Throwable) {
+        null
+    }
+
+    internal fun tokensMatch(candidate: String?, expected: String): Boolean {
+        if (candidate.isNullOrEmpty() || expected.isEmpty()) return false
+        return MessageDigest.isEqual(
+            candidate.toByteArray(Charsets.UTF_8),
+            expected.toByteArray(Charsets.UTF_8)
+        )
+    }
 
     @Synchronized
     fun getOrCreateToken(context: Context): String {
@@ -81,36 +120,88 @@ object UrlOpenerServer {
         return newToken
     }
 
-    @Synchronized
     fun start(context: Context) {
-        if (isRunning) return
-        val appContext = context.applicationContext
-        getOrCreateToken(appContext)
+        start(context, PORT)
+    }
 
-        threadPool.execute {
-            try {
-                val server = ServerSocket()
-                server.reuseAddress = true
-                server.bind(InetSocketAddress(InetAddress.getByName("127.0.0.1"), PORT), 50)
-                serverSocket = server
-                isRunning = true
-                Log.i(TAG, "UrlOpenerServer started on 127.0.0.1:$PORT")
+    internal fun start(context: Context, port: Int) {
+        val bindLatch = CountDownLatch(1)
+        synchronized(this) {
+            if (isRunning) return
+            val appContext = context.applicationContext ?: context
+            getOrCreateToken(appContext)
 
-                while (isRunning && !server.isClosed) {
-                    val client = try {
-                        server.accept()
-                    } catch (e: Exception) {
-                        break
+            val pool = ThreadPoolExecutor(
+                2,
+                4,
+                30L,
+                TimeUnit.SECONDS,
+                ArrayBlockingQueue(16),
+                ThreadFactory { r ->
+                    Thread(r, "Cortex-UrlOpenerWorker").apply { isDaemon = true }
+                }
+            )
+            workerPool = pool
+            isRunning = true
+
+            val thread = Thread({
+                var server: ServerSocket? = null
+                try {
+                    server = ServerSocket()
+                    server.reuseAddress = true
+                    server.bind(InetSocketAddress(InetAddress.getByName("127.0.0.1"), port), 50)
+                    synchronized(this@UrlOpenerServer) {
+                        if (!isRunning) {
+                            try { server.close() } catch (_: Exception) {}
+                            return@Thread
+                        }
+                        serverSocket = server
+                        activePort = server.localPort
                     }
-                    threadPool.execute {
-                        handleClient(appContext, client)
+                    bindLatch.countDown()
+                    Log.i(TAG, "UrlOpenerServer started on 127.0.0.1:${server.localPort}")
+
+                    while (isRunning && !server.isClosed) {
+                        val client = try {
+                            server.accept()
+                        } catch (e: Exception) {
+                            break
+                        }
+                        try {
+                            pool.execute {
+                                handleClient(appContext, client)
+                            }
+                        } catch (e: RejectedExecutionException) {
+                            Log.w(TAG, "UrlOpenerServer worker queue full; closing client socket")
+                            try {
+                                client.close()
+                            } catch (_: Exception) {}
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error running UrlOpenerServer", e)
+                } finally {
+                    bindLatch.countDown()
+                    try {
+                        server?.close()
+                    } catch (_: Exception) {}
+                    synchronized(this@UrlOpenerServer) {
+                        if (serverSocket === server) {
+                            serverSocket = null
+                            isRunning = false
+                        }
                     }
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error running UrlOpenerServer", e)
-            } finally {
-                isRunning = false
+            }, "Cortex-UrlOpenerAccept").apply {
+                isDaemon = true
             }
+            acceptThread = thread
+            thread.start()
+        }
+        try {
+            bindLatch.await(2, TimeUnit.SECONDS)
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
         }
     }
 
@@ -119,14 +210,18 @@ object UrlOpenerServer {
         isRunning = false
         try {
             serverSocket?.close()
-        } catch (e: Exception) {}
+        } catch (_: Exception) {}
         serverSocket = null
+        acceptThread?.interrupt()
+        acceptThread = null
+        workerPool?.shutdownNow()
+        workerPool = null
         Log.i(TAG, "UrlOpenerServer stopped")
     }
 
     private fun handleClient(context: Context, socket: Socket) {
         try {
-            socket.soTimeout = 5000
+            socket.soTimeout = clientSoTimeoutMs
             val input = socket.getInputStream()
             val writer = OutputStreamWriter(socket.getOutputStream(), Charsets.UTF_8)
 
@@ -192,7 +287,7 @@ object UrlOpenerServer {
                         if (headerName.equals("Authorization", ignoreCase = true)) {
                             if (headerValue.startsWith("Bearer ", ignoreCase = true)) {
                                 val token = headerValue.substring(7).trim()
-                                if (token == expectedToken) {
+                                if (tokensMatch(token, expectedToken)) {
                                     authenticated = true
                                 }
                             }
@@ -203,7 +298,7 @@ object UrlOpenerServer {
                 // Check query param token=<token>
                 if (!authenticated && path.contains("token=")) {
                     val tokenInQuery = path.substringAfter("token=").substringBefore("&")
-                    if (tokenInQuery == expectedToken) {
+                    if (tokensMatch(tokenInQuery, expectedToken)) {
                         authenticated = true
                     }
                 }
@@ -221,10 +316,10 @@ object UrlOpenerServer {
             } else if (rawLine.startsWith("OPEN ", ignoreCase = true)) {
                 val rest = rawLine.substring(5).trim()
                 val parts = rest.split("\\s+".toRegex(), limit = 2)
-                if (parts.size == 2 && parts[0] == expectedToken) {
+                if (parts.size == 2 && tokensMatch(parts[0], expectedToken)) {
                     authenticated = true
                     targetUrl = parts[1]
-                } else if (parts.size == 1 && parts[0] == expectedToken) {
+                } else if (parts.size == 1 && tokensMatch(parts[0], expectedToken)) {
                     authenticated = true
                     targetUrl = ""
                 } else {
@@ -232,7 +327,7 @@ object UrlOpenerServer {
                 }
             } else {
                 val parts = rawLine.split("\\s+".toRegex(), limit = 2)
-                if (parts.size == 2 && parts[0] == expectedToken) {
+                if (parts.size == 2 && tokensMatch(parts[0], expectedToken)) {
                     authenticated = true
                     targetUrl = parts[1]
                 }
@@ -278,13 +373,54 @@ object UrlOpenerServer {
         }
     }
 
-    fun openUrlInBrowser(context: Context, rawUrl: String): Boolean {
+    internal fun normalizeAndValidateUrl(rawUrl: String): String? {
         var cleanUrl = rawUrl.trim().trim('\"', '\'')
-        if (cleanUrl.isEmpty()) return false
+        if (cleanUrl.isEmpty()) return null
+        if (cleanUrl.any { it.isWhitespace() || it.code < 0x20 }) return null
 
-        // Normalize URL scheme if scheme is missing
         if (!cleanUrl.contains("://")) {
+            val colonIdx = cleanUrl.indexOf(':')
+            val slashIdx = cleanUrl.indexOfAny(charArrayOf('/', '?', '#'))
+            val hasColonBeforePath = colonIdx != -1 && (slashIdx == -1 || colonIdx < slashIdx)
+            if (hasColonBeforePath) {
+                val afterColon = cleanUrl.substring(colonIdx + 1)
+                val isHostPort = colonIdx > 0 && afterColon.matches(Regex("^\\d+([/?#].*)?$"))
+                if (!isHostPort) {
+                    return null
+                }
+            }
             cleanUrl = "https://$cleanUrl"
+        }
+
+        val jUri = try {
+            URI(cleanUrl)
+        } catch (_: Exception) {
+            null
+        }
+        val aUri = try {
+            Uri.parse(cleanUrl)
+        } catch (_: Throwable) {
+            null
+        }
+
+        val scheme = (aUri?.scheme ?: jUri?.scheme)?.lowercase()
+        if (scheme != "http" && scheme != "https") {
+            return null
+        }
+
+        val host = aUri?.host ?: jUri?.host
+        if (host.isNullOrBlank()) {
+            return null
+        }
+
+        return cleanUrl
+    }
+
+    fun openUrlInBrowser(context: Context, rawUrl: String): Boolean {
+        val cleanUrl = normalizeAndValidateUrl(rawUrl)
+        if (cleanUrl == null) {
+            Log.w(TAG, "Rejected disallowed or malformed URL: $rawUrl")
+            return false
         }
 
         val uri = try {
@@ -295,49 +431,53 @@ object UrlOpenerServer {
         }
 
         // Strictly validate URLs: only allow http:// and https:// schemes.
-        // Reject file://, content://, javascript:, ftp://, and null/empty schemes.
-        val scheme = uri.scheme?.lowercase()
-        if (scheme != "http" && scheme != "https") {
-            Log.w(TAG, "Rejected disallowed URL scheme '$scheme': $cleanUrl")
-            return false
+        // Reject file://, content://, javascript:, intent:, ftp://, and null/empty schemes.
+        if (uri != null) {
+            val scheme = uri.scheme?.lowercase()
+            if (scheme != "http" && scheme != "https") {
+                Log.w(TAG, "Rejected disallowed URL scheme '$scheme': $cleanUrl")
+                return false
+            }
         }
 
-        mainHandler.post {
-            val pm = context.packageManager
-            val browserPackages = listOf(
-                "com.android.chrome",
-                "com.chrome.beta",
-                "com.chrome.dev",
-                "com.chrome.canary",
-                "org.mozilla.firefox",
-                "com.brave.browser",
-                "com.opera.browser",
-                "com.microsoft.emmx",
-                "com.sec.android.app.sbrowser"
-            )
+        if (uri != null) {
+            mainHandler?.post {
+                val pm = context.packageManager
+                val browserPackages = listOf(
+                    "com.android.chrome",
+                    "com.chrome.beta",
+                    "com.chrome.dev",
+                    "com.chrome.canary",
+                    "org.mozilla.firefox",
+                    "com.brave.browser",
+                    "com.opera.browser",
+                    "com.microsoft.emmx",
+                    "com.sec.android.app.sbrowser"
+                )
 
-            for (pkg in browserPackages) {
+                for (pkg in browserPackages) {
+                    try {
+                        pm.getPackageInfo(pkg, 0)
+                        val intent = Intent(Intent.ACTION_VIEW, uri).apply {
+                            setPackage(pkg)
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                        }
+                        context.startActivity(intent)
+                        return@post
+                    } catch (e: Exception) {
+                        // Try next browser
+                    }
+                }
+
+                // Fallback to default browser / system handler
                 try {
-                    pm.getPackageInfo(pkg, 0)
-                    val intent = Intent(Intent.ACTION_VIEW, uri).apply {
-                        setPackage(pkg)
+                    val fallbackIntent = Intent(Intent.ACTION_VIEW, uri).apply {
                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
                     }
-                    context.startActivity(intent)
-                    return@post
+                    context.startActivity(fallbackIntent)
                 } catch (e: Exception) {
-                    // Try next browser
+                    Log.e(TAG, "Failed to launch default browser for $cleanUrl", e)
                 }
-            }
-
-            // Fallback to default browser / system handler
-            try {
-                val fallbackIntent = Intent(Intent.ACTION_VIEW, uri).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                }
-                context.startActivity(fallbackIntent)
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to launch default browser for $cleanUrl", e)
             }
         }
         return true
