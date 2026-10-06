@@ -455,6 +455,69 @@ static void test_nss_fallback_semantics(void) {
                 "getgrnam('messagebus') must return NULL when absent from /etc/group");
     ASSERT_TRUE(hook_getgrgid(100) == NULL,
                 "getgrgid(100) must return NULL when absent from /etc/group");
+
+    /* 7b. Real errors (ERANGE, EIO) from underlying libc *_r must propagate and NOT be masked by synthetic root or 0 */
+    struct group grp_buf;
+    struct group *gr_res = &grp_buf;
+    g_test_orig_nss_r_ret = ERANGE;
+    g_test_orig_nss_r_found = 0;
+
+    pw_res = &pwd_buf;
+    ASSERT_EQ(hook_getpwnam_r("root", &pwd_buf, str_buf, sizeof(str_buf), &pw_res), ERANGE,
+              "getpwnam_r('root') must propagate ERANGE from orig_getpwnam_r instead of returning synthetic root");
+    ASSERT_TRUE(pw_res == NULL, "getpwnam_r('root') *result must be NULL on ERANGE");
+
+    pw_res = &pwd_buf;
+    ASSERT_EQ(hook_getpwnam_r("messagebus", &pwd_buf, str_buf, sizeof(str_buf), &pw_res), ERANGE,
+              "getpwnam_r('messagebus') must propagate ERANGE instead of masking as not-found 0");
+    ASSERT_TRUE(pw_res == NULL, "getpwnam_r('messagebus') *result must be NULL on ERANGE");
+
+    pw_res = &pwd_buf;
+    ASSERT_EQ(hook_getpwuid_r(0, &pwd_buf, str_buf, sizeof(str_buf), &pw_res), ERANGE,
+              "getpwuid_r(0) must propagate ERANGE from orig_getpwuid_r");
+    ASSERT_TRUE(pw_res == NULL, "getpwuid_r(0) *result must be NULL on ERANGE");
+
+    gr_res = &grp_buf;
+    ASSERT_EQ(hook_getgrnam_r("root", &grp_buf, str_buf, sizeof(str_buf), &gr_res), ERANGE,
+              "getgrnam_r('root') must propagate ERANGE from orig_getgrnam_r");
+    ASSERT_TRUE(gr_res == NULL, "getgrnam_r('root') *result must be NULL on ERANGE");
+
+    gr_res = &grp_buf;
+    ASSERT_EQ(hook_getgrgid_r(0, &grp_buf, str_buf, sizeof(str_buf), &gr_res), ERANGE,
+              "getgrgid_r(0) must propagate ERANGE from orig_getgrgid_r");
+    ASSERT_TRUE(gr_res == NULL, "getgrgid_r(0) *result must be NULL on ERANGE");
+
+    g_test_orig_nss_r_ret = EIO;
+    pw_res = &pwd_buf;
+    ASSERT_EQ(hook_getpwnam_r("root", &pwd_buf, str_buf, sizeof(str_buf), &pw_res), EIO,
+              "getpwnam_r('root') must propagate EIO from orig_getpwnam_r");
+    ASSERT_TRUE(pw_res == NULL, "getpwnam_r('root') *result must be NULL on EIO");
+
+    /* Restore ENOENT (not-found) and verify root fallback still works */
+    g_test_orig_nss_r_ret = ENOENT;
+    ASSERT_EQ(hook_getpwnam_r("root", &pwd_buf, str_buf, sizeof(str_buf), &pw_res), 0,
+              "getpwnam_r('root') must fall back to synthetic root on ENOENT");
+    ASSERT_TRUE(pw_res == &pwd_buf, "getpwnam_r('root') *result must point to pwd_buf on ENOENT");
+    g_test_orig_nss_r_ret = 0;
+}
+
+/* 8. Test SIGSYS Linux 5.1+ range (424..511) and close_all_inherited_fds */
+static void test_sigsys_and_close_fds(void) {
+    ASSERT_EQ(is_handled_sigsys_syscall(424), 1, "pidfd_send_signal (424) must be handled");
+    ASSERT_EQ(is_handled_sigsys_syscall(435), 1, "clone3 (435) must be handled");
+    ASSERT_EQ(is_handled_sigsys_syscall(439), 1, "faccessat2 (439) must be handled");
+    ASSERT_EQ(is_handled_sigsys_syscall(449), 1, "futex_waitv (449) must be handled");
+    ASSERT_EQ(is_handled_sigsys_syscall(462), 1, "mseal (462) must be handled");
+    ASSERT_EQ(is_handled_sigsys_syscall(511), 1, "upper bound 511 must be handled");
+    ASSERT_EQ(is_handled_sigsys_syscall(512), 0, "512 must not be handled");
+    ASSERT_EQ(is_handled_sigsys_syscall(423), 0, "423 must not be handled");
+    ASSERT_EQ(is_handled_sigsys_syscall(1), 0, "syscall 1 must not be handled");
+
+    int dup_fd = dup(2);
+    ASSERT_TRUE(dup_fd >= 3, "dup(2) must return fd >= 3");
+    close_all_inherited_fds(dup_fd + 1);
+    ASSERT_EQ(fcntl(dup_fd, F_GETFD), -1, "dup_fd must be closed by close_all_inherited_fds");
+    ASSERT_TRUE(fcntl(2, F_GETFD) != -1, "stderr (fd 2) must remain open");
 }
 
 int main(void) {
@@ -465,6 +528,7 @@ int main(void) {
     test_check_elf_dynamic();
     test_find_dynamic_linker();
     test_nss_fallback_semantics();
+    test_sigsys_and_close_fds();
 
     if (g_tests_failed > 0) {
         fprintf(stderr, "FAILED: %d/%d assertions failed\n", g_tests_failed, g_tests_run);

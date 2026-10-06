@@ -27,10 +27,6 @@
 #include <elf.h>
 #include <dirent.h>
 
-#ifndef __NR_close_range
-#define __NR_close_range 436
-#endif
-
 static char **clean_env_for_system(char *const envp[], int envCount) {
     char **new_env = malloc(sizeof(char *) * (envCount + 1));
     if (!new_env) return (char **)envp;
@@ -228,9 +224,6 @@ static int has_pt_interp(const char *path) {
 }
 
 static void close_all_inherited_fds(int max_fd) {
-    if (syscall(__NR_close_range, 3U, ~0U, 0) >= 0) {
-        return;
-    }
     if (max_fd < 3) max_fd = 1024;
     for (int fd = 3; fd < max_fd; fd++) {
         close(fd);

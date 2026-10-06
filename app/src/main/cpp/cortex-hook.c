@@ -31,6 +31,57 @@
 #include <grp.h>
 #include <pthread.h>
 
+static int is_handled_sigsys_syscall(int sys_nr) {
+    // Unified Linux 5.1+ syscall numbers across architectures
+    if (sys_nr >= 424 && sys_nr < 512) {
+        return 1;
+    }
+
+    // Architecture-specific syscall numbers guarded per target ABI
+#if defined(__aarch64__)
+    if (sys_nr == 97  /* __NR_unshare */ ||
+        sys_nr == 217 /* __NR_add_key */ ||
+        sys_nr == 218 /* __NR_request_key */ ||
+        sys_nr == 219 /* __NR_keyctl */ ||
+        sys_nr == 268 /* __NR_setns */ ||
+        sys_nr == 277 /* __NR_seccomp */ ||
+        sys_nr == 293 /* __NR_rseq */) {
+        return 1;
+    }
+#elif defined(__arm__)
+    if (sys_nr == 309 /* __NR_add_key */ ||
+        sys_nr == 310 /* __NR_request_key */ ||
+        sys_nr == 311 /* __NR_keyctl */ ||
+        sys_nr == 337 /* __NR_unshare */ ||
+        sys_nr == 375 /* __NR_setns */ ||
+        sys_nr == 383 /* __NR_seccomp */ ||
+        sys_nr == 398 /* __NR_rseq */) {
+        return 1;
+    }
+#elif defined(__x86_64__)
+    if (sys_nr == 248 /* __NR_add_key */ ||
+        sys_nr == 249 /* __NR_request_key */ ||
+        sys_nr == 250 /* __NR_keyctl */ ||
+        sys_nr == 272 /* __NR_unshare */ ||
+        sys_nr == 308 /* __NR_setns */ ||
+        sys_nr == 317 /* __NR_seccomp */ ||
+        sys_nr == 334 /* __NR_rseq */) {
+        return 1;
+    }
+#elif defined(__i386__)
+    if (sys_nr == 286 /* __NR_add_key */ ||
+        sys_nr == 287 /* __NR_request_key */ ||
+        sys_nr == 288 /* __NR_keyctl */ ||
+        sys_nr == 310 /* __NR_unshare */ ||
+        sys_nr == 346 /* __NR_setns */ ||
+        sys_nr == 354 /* __NR_seccomp */ ||
+        sys_nr == 386 /* __NR_rseq */) {
+        return 1;
+    }
+#endif
+    return 0;
+}
+
 #ifndef CORTEX_HOST_TEST
 
 #ifndef SYS_SECCOMP
@@ -47,69 +98,7 @@ static void cortex_sigsys_handler(int sig, siginfo_t *info, void *ctx) {
 
     int sys_nr = info->si_syscall;
     long ret_val = -ENOSYS;
-    int handled = 0;
-
-    // Unified Linux 5.1+ syscall numbers across architectures
-    if (sys_nr == 424 /* __NR_pidfd_send_signal */ ||
-        sys_nr == 425 /* __NR_io_uring_setup */ ||
-        sys_nr == 426 /* __NR_io_uring_enter */ ||
-        sys_nr == 427 /* __NR_io_uring_register */ ||
-        sys_nr == 434 /* __NR_pidfd_open */ ||
-        sys_nr == 435 /* __NR_clone3 */ ||
-        sys_nr == 438 /* __NR_pidfd_getfd */ ||
-        sys_nr == 444 /* __NR_landlock_create_ruleset */ ||
-        sys_nr == 445 /* __NR_landlock_add_rule */ ||
-        sys_nr == 446 /* __NR_landlock_restrict_self */) {
-        ret_val = -ENOSYS;
-        handled = 1;
-    }
-
-    // Architecture-specific syscall numbers guarded per target ABI
-#if defined(__aarch64__)
-    if (sys_nr == 97  /* __NR_unshare */ ||
-        sys_nr == 217 /* __NR_add_key */ ||
-        sys_nr == 218 /* __NR_request_key */ ||
-        sys_nr == 219 /* __NR_keyctl */ ||
-        sys_nr == 268 /* __NR_setns */ ||
-        sys_nr == 277 /* __NR_seccomp */ ||
-        sys_nr == 293 /* __NR_rseq */) {
-        ret_val = -ENOSYS;
-        handled = 1;
-    }
-#elif defined(__arm__)
-    if (sys_nr == 309 /* __NR_add_key */ ||
-        sys_nr == 310 /* __NR_request_key */ ||
-        sys_nr == 311 /* __NR_keyctl */ ||
-        sys_nr == 337 /* __NR_unshare */ ||
-        sys_nr == 375 /* __NR_setns */ ||
-        sys_nr == 383 /* __NR_seccomp */ ||
-        sys_nr == 398 /* __NR_rseq */) {
-        ret_val = -ENOSYS;
-        handled = 1;
-    }
-#elif defined(__x86_64__)
-    if (sys_nr == 248 /* __NR_add_key */ ||
-        sys_nr == 249 /* __NR_request_key */ ||
-        sys_nr == 250 /* __NR_keyctl */ ||
-        sys_nr == 272 /* __NR_unshare */ ||
-        sys_nr == 308 /* __NR_setns */ ||
-        sys_nr == 317 /* __NR_seccomp */ ||
-        sys_nr == 334 /* __NR_rseq */) {
-        ret_val = -ENOSYS;
-        handled = 1;
-    }
-#elif defined(__i386__)
-    if (sys_nr == 286 /* __NR_add_key */ ||
-        sys_nr == 287 /* __NR_request_key */ ||
-        sys_nr == 288 /* __NR_keyctl */ ||
-        sys_nr == 310 /* __NR_unshare */ ||
-        sys_nr == 346 /* __NR_setns */ ||
-        sys_nr == 354 /* __NR_seccomp */ ||
-        sys_nr == 386 /* __NR_rseq */) {
-        ret_val = -ENOSYS;
-        handled = 1;
-    }
-#endif
+    int handled = is_handled_sigsys_syscall(sys_nr);
 
     if (!handled) {
         int (*real_sig)(int, const struct sigaction *, struct sigaction *) = get_real_sigaction();
@@ -1873,6 +1862,8 @@ static gid_t real_gid(void) {
 
 #ifdef CORTEX_HOST_TEST
 #define CORTEX_NSS_SYM(name) hook_##name
+static int g_test_orig_nss_r_ret = 0;
+static int g_test_orig_nss_r_found = 0;
 #else
 #define CORTEX_NSS_SYM(name) name
 #endif
@@ -1923,9 +1914,16 @@ int CORTEX_NSS_SYM(getgrgid_r)(gid_t gid, struct group *grp, char *buf, size_t b
 #ifndef CORTEX_HOST_TEST
     static int (*orig_getgrgid_r)(gid_t, struct group *, char *, size_t, struct group **) = NULL;
     if (!orig_getgrgid_r) orig_getgrgid_r = (int (*)(gid_t, struct group *, char *, size_t, struct group **))dlsym(RTLD_NEXT, "getgrgid_r");
-    int ret = orig_getgrgid_r ? orig_getgrgid_r(gid, grp, buf, buflen, result) : -1;
-    if (ret == 0 && result && *result != NULL) return 0;
+    int ret = orig_getgrgid_r ? orig_getgrgid_r(gid, grp, buf, buflen, result) : ENOENT;
+#else
+    int ret = g_test_orig_nss_r_ret;
+    if (result) *result = (ret == 0 && g_test_orig_nss_r_found) ? grp : NULL;
 #endif
+    if (ret == 0 && result && *result != NULL) return 0;
+    if (ret != 0 && ret != ENOENT) {
+        if (result) *result = NULL;
+        return ret;
+    }
 
     if (gid != 0 && gid != real_gid()) {
         if (result) *result = NULL;
@@ -1950,9 +1948,16 @@ int CORTEX_NSS_SYM(getgrnam_r)(const char *name, struct group *grp, char *buf, s
 #ifndef CORTEX_HOST_TEST
     static int (*orig_getgrnam_r)(const char *, struct group *, char *, size_t, struct group **) = NULL;
     if (!orig_getgrnam_r) orig_getgrnam_r = (int (*)(const char *, struct group *, char *, size_t, struct group **))dlsym(RTLD_NEXT, "getgrnam_r");
-    int ret = orig_getgrnam_r ? orig_getgrnam_r(name, grp, buf, buflen, result) : -1;
-    if (ret == 0 && result && *result != NULL) return 0;
+    int ret = orig_getgrnam_r ? orig_getgrnam_r(name, grp, buf, buflen, result) : ENOENT;
+#else
+    int ret = g_test_orig_nss_r_ret;
+    if (result) *result = (ret == 0 && g_test_orig_nss_r_found) ? grp : NULL;
 #endif
+    if (ret == 0 && result && *result != NULL) return 0;
+    if (ret != 0 && ret != ENOENT) {
+        if (result) *result = NULL;
+        return ret;
+    }
 
     if (!name || strcmp(name, "root") != 0) {
         if (result) *result = NULL;
@@ -2023,9 +2028,16 @@ int CORTEX_NSS_SYM(getpwuid_r)(uid_t uid, struct passwd *pwd, char *buf, size_t 
 #ifndef CORTEX_HOST_TEST
     static int (*orig_getpwuid_r)(uid_t, struct passwd *, char *, size_t, struct passwd **) = NULL;
     if (!orig_getpwuid_r) orig_getpwuid_r = (int (*)(uid_t, struct passwd *, char *, size_t, struct passwd **))dlsym(RTLD_NEXT, "getpwuid_r");
-    int ret = orig_getpwuid_r ? orig_getpwuid_r(uid, pwd, buf, buflen, result) : -1;
-    if (ret == 0 && result && *result != NULL) return 0;
+    int ret = orig_getpwuid_r ? orig_getpwuid_r(uid, pwd, buf, buflen, result) : ENOENT;
+#else
+    int ret = g_test_orig_nss_r_ret;
+    if (result) *result = (ret == 0 && g_test_orig_nss_r_found) ? pwd : NULL;
 #endif
+    if (ret == 0 && result && *result != NULL) return 0;
+    if (ret != 0 && ret != ENOENT) {
+        if (result) *result = NULL;
+        return ret;
+    }
 
     if (uid != 0 && uid != real_uid()) {
         if (result) *result = NULL;
@@ -2052,9 +2064,16 @@ int CORTEX_NSS_SYM(getpwnam_r)(const char *name, struct passwd *pwd, char *buf, 
 #ifndef CORTEX_HOST_TEST
     static int (*orig_getpwnam_r)(const char *, struct passwd *, char *, size_t, struct passwd **) = NULL;
     if (!orig_getpwnam_r) orig_getpwnam_r = (int (*)(const char *, struct passwd *, char *, size_t, struct passwd **))dlsym(RTLD_NEXT, "getpwnam_r");
-    int ret = orig_getpwnam_r ? orig_getpwnam_r(name, pwd, buf, buflen, result) : -1;
-    if (ret == 0 && result && *result != NULL) return 0;
+    int ret = orig_getpwnam_r ? orig_getpwnam_r(name, pwd, buf, buflen, result) : ENOENT;
+#else
+    int ret = g_test_orig_nss_r_ret;
+    if (result) *result = (ret == 0 && g_test_orig_nss_r_found) ? pwd : NULL;
 #endif
+    if (ret == 0 && result && *result != NULL) return 0;
+    if (ret != 0 && ret != ENOENT) {
+        if (result) *result = NULL;
+        return ret;
+    }
 
     if (!name || strcmp(name, "root") != 0) {
         if (result) *result = NULL;
