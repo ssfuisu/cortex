@@ -31,85 +31,151 @@
 #include <grp.h>
 #include <pthread.h>
 
+static int is_handled_sigsys_syscall(int sys_nr) {
+    // Unified Linux 5.1+ syscall numbers across architectures
+    if (sys_nr >= 424 && sys_nr < 512) {
+        return 1;
+    }
+
+    // Architecture-specific syscall numbers guarded per target ABI
+#if defined(__aarch64__)
+    if (sys_nr == 97  /* __NR_unshare */ ||
+        sys_nr == 217 /* __NR_add_key */ ||
+        sys_nr == 218 /* __NR_request_key */ ||
+        sys_nr == 219 /* __NR_keyctl */ ||
+        sys_nr == 268 /* __NR_setns */ ||
+        sys_nr == 277 /* __NR_seccomp */ ||
+        sys_nr == 293 /* __NR_rseq */) {
+        return 1;
+    }
+#elif defined(__arm__)
+    if (sys_nr == 309 /* __NR_add_key */ ||
+        sys_nr == 310 /* __NR_request_key */ ||
+        sys_nr == 311 /* __NR_keyctl */ ||
+        sys_nr == 337 /* __NR_unshare */ ||
+        sys_nr == 375 /* __NR_setns */ ||
+        sys_nr == 383 /* __NR_seccomp */ ||
+        sys_nr == 398 /* __NR_rseq */) {
+        return 1;
+    }
+#elif defined(__x86_64__)
+    if (sys_nr == 248 /* __NR_add_key */ ||
+        sys_nr == 249 /* __NR_request_key */ ||
+        sys_nr == 250 /* __NR_keyctl */ ||
+        sys_nr == 272 /* __NR_unshare */ ||
+        sys_nr == 308 /* __NR_setns */ ||
+        sys_nr == 317 /* __NR_seccomp */ ||
+        sys_nr == 334 /* __NR_rseq */) {
+        return 1;
+    }
+#elif defined(__i386__)
+    if (sys_nr == 286 /* __NR_add_key */ ||
+        sys_nr == 287 /* __NR_request_key */ ||
+        sys_nr == 288 /* __NR_keyctl */ ||
+        sys_nr == 310 /* __NR_unshare */ ||
+        sys_nr == 346 /* __NR_setns */ ||
+        sys_nr == 354 /* __NR_seccomp */ ||
+        sys_nr == 386 /* __NR_rseq */) {
+        return 1;
+    }
+#endif
+    return 0;
+}
+
+#ifndef CORTEX_HOST_TEST
+
 #ifndef SYS_SECCOMP
 #define SYS_SECCOMP 1
 #endif
 
+static int (*get_real_sigaction(void))(int, const struct sigaction *, struct sigaction *);
+
 // Intercept SECCOMP blocked syscalls (SIGSYS), resolve sandbox/landlock gracefully, and advance PC
 static void cortex_sigsys_handler(int sig, siginfo_t *info, void *ctx) {
-    (void)sig;
     if (!ctx || !info) return;
     if (info->si_code != SYS_SECCOMP) return;
     ucontext_t *uctx = (ucontext_t *)ctx;
 
     int sys_nr = info->si_syscall;
     long ret_val = -ENOSYS;
+    int handled = is_handled_sigsys_syscall(sys_nr);
 
-    // Handle Landlock, seccomp, namespaces, and clone3 traps on Android
-    if (sys_nr == 444 /* __NR_landlock_create_ruleset */ ||
-        sys_nr == 445 /* __NR_landlock_add_rule */ ||
-        sys_nr == 446 /* __NR_landlock_restrict_self */) {
-        // Honest ENOSYS for all Landlock syscalls: returning ABI version 1 causes
-        // callers to assume Landlock is active, try to create rulesets, and either
-        // fail with unexpected errors or close fake fds causing EBADF cascades.
-        // Returning -ENOSYS allows callers (GNU tar, npm, audit, systemd) to cleanly
-        // skip sandboxing and take their normal standard code paths.
-        ret_val = -ENOSYS;
-    } else if (sys_nr == 277 /* __NR_seccomp (arm64) */ ||
-               sys_nr == 317 /* __NR_seccomp (x86_64) */ ||
-               sys_nr == 383 /* __NR_seccomp (arm32) */) {
-        ret_val = 0;
-    } else if (sys_nr == 97  /* __NR_unshare (arm64) */ ||
-               sys_nr == 272 /* __NR_unshare (x86_64) */ ||
-               sys_nr == 337 /* __NR_unshare (arm32) */) {
-        ret_val = 0;
-    } else if (sys_nr == 435 /* __NR_clone3 */) {
-        ret_val = -ENOSYS;
+    if (!handled) {
+        int (*real_sig)(int, const struct sigaction *, struct sigaction *) = get_real_sigaction();
+        if (real_sig) {
+            struct sigaction sa_dfl;
+            memset(&sa_dfl, 0, sizeof(sa_dfl));
+            sa_dfl.sa_handler = SIG_DFL;
+            sigemptyset(&sa_dfl.sa_mask);
+            real_sig(sig, &sa_dfl, NULL);
+        }
+        raise(sig);
+        return;
     }
 
 #if defined(__aarch64__)
-    if (uctx->uc_mcontext.pc != 0) {
-        uint32_t insn = 0;
-        memcpy(&insn, (const void *)uctx->uc_mcontext.pc, sizeof(insn));
-        // In AArch64, svc #0 is 0xd4000001 (bits [31:21]=0xd40, imm16=0, bits [4:0]=1)
-        if (insn == 0xd4000001 || (insn & 0xffe0001f) == 0xd4000001) {
-            uctx->uc_mcontext.regs[0] = ret_val;
+    uctx->uc_mcontext.regs[0] = (uint64_t)ret_val;
+    if (uctx->uc_mcontext.pc >= 4) {
+        uint32_t insn_at_pc = 0;
+        uint32_t insn_before_pc = 0;
+        memcpy(&insn_at_pc, (const void *)uctx->uc_mcontext.pc, sizeof(insn_at_pc));
+        memcpy(&insn_before_pc, (const void *)(uctx->uc_mcontext.pc - 4), sizeof(insn_before_pc));
+        // On SECCOMP_RET_TRAP, the kernel already advanced PC past svc #0 (*(pc - 4) is svc #0).
+        // Only advance PC if PC itself points to svc #0 and *(pc - 4) does not.
+        int at_is_svc = ((insn_at_pc & 0xffe0001fU) == 0xd4000001U);
+        int prev_is_svc = ((insn_before_pc & 0xffe0001fU) == 0xd4000001U);
+        if (at_is_svc && !prev_is_svc) {
             uctx->uc_mcontext.pc += 4;
         }
     }
 #elif defined(__arm__)
-    if (uctx->uc_mcontext.arm_pc != 0) {
+    uctx->uc_mcontext.arm_r0 = (unsigned long)ret_val;
+    if (uctx->uc_mcontext.arm_pc >= 4) {
         if (uctx->uc_mcontext.arm_cpsr & 0x20) {
-            uint16_t insn = 0;
-            memcpy(&insn, (const void *)uctx->uc_mcontext.arm_pc, sizeof(insn));
-            if (insn == 0xdf00 || (insn & 0xff00) == 0xdf00) {
-                uctx->uc_mcontext.arm_r0 = ret_val;
+            uint16_t insn_at_pc = 0;
+            uint16_t insn_before_pc = 0;
+            memcpy(&insn_at_pc, (const void *)uctx->uc_mcontext.arm_pc, sizeof(insn_at_pc));
+            memcpy(&insn_before_pc, (const void *)(uctx->uc_mcontext.arm_pc - 2), sizeof(insn_before_pc));
+            int at_is_svc = ((insn_at_pc & 0xff00U) == 0xdf00U);
+            int prev_is_svc = ((insn_before_pc & 0xff00U) == 0xdf00U);
+            if (at_is_svc && !prev_is_svc) {
                 uctx->uc_mcontext.arm_pc += 2;
             }
         } else {
-            uint32_t insn = 0;
-            memcpy(&insn, (const void *)uctx->uc_mcontext.arm_pc, sizeof(insn));
-            if (insn == 0xef000000 || (insn & 0x0f000000) == 0x0f000000) {
-                uctx->uc_mcontext.arm_r0 = ret_val;
+            uint32_t insn_at_pc = 0;
+            uint32_t insn_before_pc = 0;
+            memcpy(&insn_at_pc, (const void *)uctx->uc_mcontext.arm_pc, sizeof(insn_at_pc));
+            memcpy(&insn_before_pc, (const void *)(uctx->uc_mcontext.arm_pc - 4), sizeof(insn_before_pc));
+            int at_is_svc = ((insn_at_pc & 0x0f000000U) == 0x0f000000U);
+            int prev_is_svc = ((insn_before_pc & 0x0f000000U) == 0x0f000000U);
+            if (at_is_svc && !prev_is_svc) {
                 uctx->uc_mcontext.arm_pc += 4;
             }
         }
     }
 #elif defined(__x86_64__) && defined(REG_RAX)
-    if (uctx->uc_mcontext.gregs[REG_RIP] != 0) {
-        unsigned char insn[2] = {0};
-        memcpy(insn, (const void *)uctx->uc_mcontext.gregs[REG_RIP], sizeof(insn));
-        if (insn[0] == 0x0f && insn[1] == 0x05) { // syscall opcode
-            uctx->uc_mcontext.gregs[REG_RAX] = ret_val;
+    uctx->uc_mcontext.gregs[REG_RAX] = (greg_t)ret_val;
+    if (uctx->uc_mcontext.gregs[REG_RIP] >= 2) {
+        unsigned char insn_at[2] = {0};
+        unsigned char insn_prev[2] = {0};
+        memcpy(insn_at, (const void *)uctx->uc_mcontext.gregs[REG_RIP], sizeof(insn_at));
+        memcpy(insn_prev, (const void *)(uctx->uc_mcontext.gregs[REG_RIP] - 2), sizeof(insn_prev));
+        int at_is_sys = (insn_at[0] == 0x0f && insn_at[1] == 0x05);
+        int prev_is_sys = (insn_prev[0] == 0x0f && insn_prev[1] == 0x05);
+        if (at_is_sys && !prev_is_sys) {
             uctx->uc_mcontext.gregs[REG_RIP] += 2;
         }
     }
 #elif defined(__i386__) && defined(REG_EAX)
-    if (uctx->uc_mcontext.gregs[REG_EIP] != 0) {
-        unsigned char insn[2] = {0};
-        memcpy(insn, (const void *)uctx->uc_mcontext.gregs[REG_EIP], sizeof(insn));
-        if (insn[0] == 0xcd && insn[1] == 0x80) { // int 0x80 opcode
-            uctx->uc_mcontext.gregs[REG_EAX] = ret_val;
+    uctx->uc_mcontext.gregs[REG_EAX] = (greg_t)ret_val;
+    if (uctx->uc_mcontext.gregs[REG_EIP] >= 2) {
+        unsigned char insn_at[2] = {0};
+        unsigned char insn_prev[2] = {0};
+        memcpy(insn_at, (const void *)uctx->uc_mcontext.gregs[REG_EIP], sizeof(insn_at));
+        memcpy(insn_prev, (const void *)(uctx->uc_mcontext.gregs[REG_EIP] - 2), sizeof(insn_prev));
+        int at_is_sys = (insn_at[0] == 0xcd && insn_at[1] == 0x80);
+        int prev_is_sys = (insn_prev[0] == 0xcd && insn_prev[1] == 0x80);
+        if (at_is_sys && !prev_is_sys) {
             uctx->uc_mcontext.gregs[REG_EIP] += 2;
         }
     }
@@ -1265,18 +1331,52 @@ int eaccess(const char *pathname, int mode) {
 int chmod(const char *pathname, mode_t mode) {
     static int (*orig_chmod)(const char *, mode_t) = NULL;
     if (!orig_chmod) orig_chmod = (int (*)(const char *, mode_t))dlsym(RTLD_NEXT, "chmod");
+    if (!orig_chmod) return -1;
     char buf[PATH_MAX];
     const char *target = rewrite_path(pathname, buf, sizeof(buf));
-    return orig_chmod(target, mode);
+    int ret = orig_chmod(target, mode);
+    if (ret != 0 && ((mode & 06000) != 0 || errno == EPERM || errno == EACCES || errno == ENOSYS)) {
+        ret = orig_chmod(target, mode & 01777);
+    }
+    if (ret != 0 && (errno == EPERM || errno == EACCES)) {
+        errno = 0;
+        return 0;
+    }
+    return ret;
+}
+
+// Hook fchmod
+int fchmod(int fd, mode_t mode) {
+    static int (*orig_fchmod)(int, mode_t) = NULL;
+    if (!orig_fchmod) orig_fchmod = (int (*)(int, mode_t))dlsym(RTLD_NEXT, "fchmod");
+    if (!orig_fchmod) return -1;
+    int ret = orig_fchmod(fd, mode);
+    if (ret != 0 && ((mode & 06000) != 0 || errno == EPERM || errno == EACCES || errno == ENOSYS)) {
+        ret = orig_fchmod(fd, mode & 01777);
+    }
+    if (ret != 0 && (errno == EPERM || errno == EACCES)) {
+        errno = 0;
+        return 0;
+    }
+    return ret;
 }
 
 // Hook fchmodat
 int fchmodat(int dirfd, const char *pathname, mode_t mode, int flags) {
     static int (*orig_fchmodat)(int, const char *, mode_t, int) = NULL;
     if (!orig_fchmodat) orig_fchmodat = (int (*)(int, const char *, mode_t, int))dlsym(RTLD_NEXT, "fchmodat");
+    if (!orig_fchmodat) return -1;
     char buf[PATH_MAX];
     const char *target = (pathname && pathname[0] == '/') ? rewrite_path(pathname, buf, sizeof(buf)) : pathname;
-    return orig_fchmodat(dirfd, target, mode, flags);
+    int ret = orig_fchmodat(dirfd, target, mode, flags);
+    if (ret != 0 && ((mode & 06000) != 0 || errno == EPERM || errno == EACCES || errno == ENOSYS)) {
+        ret = orig_fchmodat(dirfd, target, mode & 01777, flags);
+    }
+    if (ret != 0 && (errno == EPERM || errno == EACCES)) {
+        errno = 0;
+        return 0;
+    }
+    return ret;
 }
 
 // Hook unlink
@@ -1738,124 +1838,217 @@ int getgrouplist(const char *user, gid_t group, gid_t *groups, int *ngroups) {
     return 1;
 }
 
-struct group *getgrgid(gid_t gid) {
+#endif /* !CORTEX_HOST_TEST */
+
+static uid_t real_uid(void) {
+#ifdef CORTEX_HOST_TEST
+    return 10000;
+#else
+    static uid_t (*orig_getuid)(void) = NULL;
+    if (!orig_getuid) orig_getuid = (uid_t (*)(void))dlsym(RTLD_NEXT, "getuid");
+    return orig_getuid ? orig_getuid() : 0;
+#endif
+}
+
+static gid_t real_gid(void) {
+#ifdef CORTEX_HOST_TEST
+    return 10000;
+#else
+    static gid_t (*orig_getgid)(void) = NULL;
+    if (!orig_getgid) orig_getgid = (gid_t (*)(void))dlsym(RTLD_NEXT, "getgid");
+    return orig_getgid ? orig_getgid() : 0;
+#endif
+}
+
+#ifdef CORTEX_HOST_TEST
+#define CORTEX_NSS_SYM(name) hook_##name
+static int g_test_orig_nss_r_ret = 0;
+static int g_test_orig_nss_r_found = 0;
+#else
+#define CORTEX_NSS_SYM(name) name
+#endif
+
+struct group *CORTEX_NSS_SYM(getgrgid)(gid_t gid) {
+#ifndef CORTEX_HOST_TEST
     static struct group *(*orig_getgrgid)(gid_t) = NULL;
     if (!orig_getgrgid) orig_getgrgid = (struct group *(*)(gid_t))dlsym(RTLD_NEXT, "getgrgid");
     struct group *res = orig_getgrgid ? orig_getgrgid(gid) : NULL;
     if (res) return res;
+#endif
+
+    if (gid != 0 && gid != real_gid()) {
+        return NULL;
+    }
 
     static struct group s_grp;
-    static char *s_mem[] = {"root", "cortex", NULL};
-    s_grp.gr_name = (gid == 0) ? "root" : "cortex";
+    static char *s_mem[] = {"root", NULL};
+    s_grp.gr_name = "root";
     s_grp.gr_passwd = "x";
     s_grp.gr_gid = gid;
     s_grp.gr_mem = s_mem;
     return &s_grp;
 }
 
-struct group *getgrnam(const char *name) {
+struct group *CORTEX_NSS_SYM(getgrnam)(const char *name) {
+#ifndef CORTEX_HOST_TEST
     static struct group *(*orig_getgrnam)(const char *) = NULL;
     if (!orig_getgrnam) orig_getgrnam = (struct group *(*)(const char *))dlsym(RTLD_NEXT, "getgrnam");
     struct group *res = orig_getgrnam ? orig_getgrnam(name) : NULL;
     if (res) return res;
+#endif
+
+    if (!name || strcmp(name, "root") != 0) {
+        return NULL;
+    }
 
     static struct group s_grp;
-    static char *s_mem[] = {"root", "cortex", NULL};
-    s_grp.gr_name = (char *)(name ? name : "root");
+    static char *s_mem[] = {"root", NULL};
+    s_grp.gr_name = "root";
     s_grp.gr_passwd = "x";
     s_grp.gr_gid = 0;
     s_grp.gr_mem = s_mem;
     return &s_grp;
 }
 
-int getgrgid_r(gid_t gid, struct group *grp, char *buf, size_t buflen, struct group **result) {
+int CORTEX_NSS_SYM(getgrgid_r)(gid_t gid, struct group *grp, char *buf, size_t buflen, struct group **result) {
+#ifndef CORTEX_HOST_TEST
     static int (*orig_getgrgid_r)(gid_t, struct group *, char *, size_t, struct group **) = NULL;
     if (!orig_getgrgid_r) orig_getgrgid_r = (int (*)(gid_t, struct group *, char *, size_t, struct group **))dlsym(RTLD_NEXT, "getgrgid_r");
-    int ret = orig_getgrgid_r ? orig_getgrgid_r(gid, grp, buf, buflen, result) : -1;
+    int ret = orig_getgrgid_r ? orig_getgrgid_r(gid, grp, buf, buflen, result) : ENOENT;
+#else
+    int ret = g_test_orig_nss_r_ret;
+    if (result) *result = (ret == 0 && g_test_orig_nss_r_found) ? grp : NULL;
+#endif
     if (ret == 0 && result && *result != NULL) return 0;
+    if (ret != 0 && ret != ENOENT) {
+        if (result) *result = NULL;
+        return ret;
+    }
+
+    if (gid != 0 && gid != real_gid()) {
+        if (result) *result = NULL;
+        return 0;
+    }
 
     if (!grp || !buf || buflen < 64) {
         if (result) *result = NULL;
         return ERANGE;
     }
-    const char *gname = (gid == 0) ? "root" : "cortex";
-    snprintf(buf, buflen, "%s", gname);
+    snprintf(buf, buflen, "root");
     grp->gr_name = buf;
     grp->gr_passwd = "x";
     grp->gr_gid = gid;
-    static char *s_members[] = {"root", "cortex", NULL};
+    static char *s_members[] = {"root", NULL};
     grp->gr_mem = s_members;
     if (result) *result = grp;
     return 0;
 }
 
-int getgrnam_r(const char *name, struct group *grp, char *buf, size_t buflen, struct group **result) {
+int CORTEX_NSS_SYM(getgrnam_r)(const char *name, struct group *grp, char *buf, size_t buflen, struct group **result) {
+#ifndef CORTEX_HOST_TEST
     static int (*orig_getgrnam_r)(const char *, struct group *, char *, size_t, struct group **) = NULL;
     if (!orig_getgrnam_r) orig_getgrnam_r = (int (*)(const char *, struct group *, char *, size_t, struct group **))dlsym(RTLD_NEXT, "getgrnam_r");
-    int ret = orig_getgrnam_r ? orig_getgrnam_r(name, grp, buf, buflen, result) : -1;
+    int ret = orig_getgrnam_r ? orig_getgrnam_r(name, grp, buf, buflen, result) : ENOENT;
+#else
+    int ret = g_test_orig_nss_r_ret;
+    if (result) *result = (ret == 0 && g_test_orig_nss_r_found) ? grp : NULL;
+#endif
     if (ret == 0 && result && *result != NULL) return 0;
+    if (ret != 0 && ret != ENOENT) {
+        if (result) *result = NULL;
+        return ret;
+    }
+
+    if (!name || strcmp(name, "root") != 0) {
+        if (result) *result = NULL;
+        return 0;
+    }
 
     if (!grp || !buf || buflen < 64) {
         if (result) *result = NULL;
         return ERANGE;
     }
-    const char *gname = (name && name[0]) ? name : "root";
-    snprintf(buf, buflen, "%s", gname);
+    snprintf(buf, buflen, "root");
     grp->gr_name = buf;
     grp->gr_passwd = "x";
     grp->gr_gid = 0;
-    static char *s_members[] = {"root", "cortex", NULL};
+    static char *s_members[] = {"root", NULL};
     grp->gr_mem = s_members;
     if (result) *result = grp;
     return 0;
 }
 
-struct passwd *getpwuid(uid_t uid) {
+struct passwd *CORTEX_NSS_SYM(getpwuid)(uid_t uid) {
+#ifndef CORTEX_HOST_TEST
     static struct passwd *(*orig_getpwuid)(uid_t) = NULL;
     if (!orig_getpwuid) orig_getpwuid = (struct passwd *(*)(uid_t))dlsym(RTLD_NEXT, "getpwuid");
     struct passwd *res = orig_getpwuid ? orig_getpwuid(uid) : NULL;
     if (res) return res;
+#endif
+
+    if (uid != 0 && uid != real_uid()) {
+        return NULL;
+    }
 
     static struct passwd s_pwd;
-    s_pwd.pw_name = (uid == 0) ? "root" : "cortex";
+    s_pwd.pw_name = "root";
     s_pwd.pw_passwd = "x";
     s_pwd.pw_uid = uid;
     s_pwd.pw_gid = 0;
-    s_pwd.pw_gecos = (uid == 0) ? "root" : "cortex";
+    s_pwd.pw_gecos = "root";
     s_pwd.pw_dir = "/home";
     s_pwd.pw_shell = "/bin/bash";
     return &s_pwd;
 }
 
-struct passwd *getpwnam(const char *name) {
+struct passwd *CORTEX_NSS_SYM(getpwnam)(const char *name) {
+#ifndef CORTEX_HOST_TEST
     static struct passwd *(*orig_getpwnam)(const char *) = NULL;
     if (!orig_getpwnam) orig_getpwnam = (struct passwd *(*)(const char *))dlsym(RTLD_NEXT, "getpwnam");
     struct passwd *res = orig_getpwnam ? orig_getpwnam(name) : NULL;
     if (res) return res;
+#endif
+
+    if (!name || strcmp(name, "root") != 0) {
+        return NULL;
+    }
 
     static struct passwd s_pwd;
-    s_pwd.pw_name = (char *)(name ? name : "root");
+    s_pwd.pw_name = "root";
     s_pwd.pw_passwd = "x";
     s_pwd.pw_uid = 0;
     s_pwd.pw_gid = 0;
-    s_pwd.pw_gecos = s_pwd.pw_name;
+    s_pwd.pw_gecos = "root";
     s_pwd.pw_dir = "/home";
     s_pwd.pw_shell = "/bin/bash";
     return &s_pwd;
 }
 
-int getpwuid_r(uid_t uid, struct passwd *pwd, char *buf, size_t buflen, struct passwd **result) {
+int CORTEX_NSS_SYM(getpwuid_r)(uid_t uid, struct passwd *pwd, char *buf, size_t buflen, struct passwd **result) {
+#ifndef CORTEX_HOST_TEST
     static int (*orig_getpwuid_r)(uid_t, struct passwd *, char *, size_t, struct passwd **) = NULL;
     if (!orig_getpwuid_r) orig_getpwuid_r = (int (*)(uid_t, struct passwd *, char *, size_t, struct passwd **))dlsym(RTLD_NEXT, "getpwuid_r");
-    int ret = orig_getpwuid_r ? orig_getpwuid_r(uid, pwd, buf, buflen, result) : -1;
+    int ret = orig_getpwuid_r ? orig_getpwuid_r(uid, pwd, buf, buflen, result) : ENOENT;
+#else
+    int ret = g_test_orig_nss_r_ret;
+    if (result) *result = (ret == 0 && g_test_orig_nss_r_found) ? pwd : NULL;
+#endif
     if (ret == 0 && result && *result != NULL) return 0;
+    if (ret != 0 && ret != ENOENT) {
+        if (result) *result = NULL;
+        return ret;
+    }
+
+    if (uid != 0 && uid != real_uid()) {
+        if (result) *result = NULL;
+        return 0;
+    }
 
     if (!pwd || !buf || buflen < 128) {
         if (result) *result = NULL;
         return ERANGE;
     }
-    const char *pname = (uid == 0) ? "root" : "cortex";
-    snprintf(buf, buflen, "%s", pname);
+    snprintf(buf, buflen, "root");
     pwd->pw_name = buf;
     pwd->pw_passwd = "x";
     pwd->pw_uid = uid;
@@ -1867,18 +2060,31 @@ int getpwuid_r(uid_t uid, struct passwd *pwd, char *buf, size_t buflen, struct p
     return 0;
 }
 
-int getpwnam_r(const char *name, struct passwd *pwd, char *buf, size_t buflen, struct passwd **result) {
+int CORTEX_NSS_SYM(getpwnam_r)(const char *name, struct passwd *pwd, char *buf, size_t buflen, struct passwd **result) {
+#ifndef CORTEX_HOST_TEST
     static int (*orig_getpwnam_r)(const char *, struct passwd *, char *, size_t, struct passwd **) = NULL;
     if (!orig_getpwnam_r) orig_getpwnam_r = (int (*)(const char *, struct passwd *, char *, size_t, struct passwd **))dlsym(RTLD_NEXT, "getpwnam_r");
-    int ret = orig_getpwnam_r ? orig_getpwnam_r(name, pwd, buf, buflen, result) : -1;
+    int ret = orig_getpwnam_r ? orig_getpwnam_r(name, pwd, buf, buflen, result) : ENOENT;
+#else
+    int ret = g_test_orig_nss_r_ret;
+    if (result) *result = (ret == 0 && g_test_orig_nss_r_found) ? pwd : NULL;
+#endif
     if (ret == 0 && result && *result != NULL) return 0;
+    if (ret != 0 && ret != ENOENT) {
+        if (result) *result = NULL;
+        return ret;
+    }
+
+    if (!name || strcmp(name, "root") != 0) {
+        if (result) *result = NULL;
+        return 0;
+    }
 
     if (!pwd || !buf || buflen < 128) {
         if (result) *result = NULL;
         return ERANGE;
     }
-    const char *pname = (name && name[0]) ? name : "root";
-    snprintf(buf, buflen, "%s", pname);
+    snprintf(buf, buflen, "root");
     pwd->pw_name = buf;
     pwd->pw_passwd = "x";
     pwd->pw_uid = 0;
@@ -1889,6 +2095,8 @@ int getpwnam_r(const char *name, struct passwd *pwd, char *buf, size_t buflen, s
     if (result) *result = pwd;
     return 0;
 }
+
+#ifndef CORTEX_HOST_TEST
 
 int chown(const char *pathname, uid_t owner, gid_t group) { (void)pathname; (void)owner; (void)group; return 0; }
 int fchown(int fd, uid_t owner, gid_t group) { (void)fd; (void)owner; (void)group; return 0; }
@@ -1964,8 +2172,23 @@ int syncfs(int fd) {
     (void)fd;
     return 0;
 }
-int capget(void *hdrp, void *datap) { (void)hdrp; (void)datap; return 0; }
+
+int capget(void *hdrp, void *datap) {
+    static int (*orig_capget)(void *, void *) = NULL;
+    if (!orig_capget) orig_capget = (int (*)(void *, void *))dlsym(RTLD_NEXT, "capget");
+    if (orig_capget && orig_capget(hdrp, datap) == 0) {
+        return 0;
+    }
+    if (datap) {
+        uint32_t ver = hdrp ? *(const uint32_t *)hdrp : 0;
+        size_t nbytes = (ver == 0x20071026U || ver == 0x20080522U) ? 24 : 12;
+        memset(datap, 0, nbytes);
+    }
+    errno = 0;
+    return 0;
+}
 int capset(void *hdrp, const void *datap) { (void)hdrp; (void)datap; return 0; }
+
 int prctl(int option, ...) {
     va_list ap;
     va_start(ap, option);
@@ -1987,9 +2210,9 @@ int prctl(int option, ...) {
 
     // PR_SET_SECCOMP = 22, PR_GET_SECCOMP = 21
 #ifdef PR_SET_SECCOMP
-    if (option == PR_SET_SECCOMP) return 0;
+    if (option == PR_SET_SECCOMP) { errno = EINVAL; return -1; }
 #endif
-    if (option == 22) return 0;
+    if (option == 22) { errno = EINVAL; return -1; }
 #ifdef PR_GET_SECCOMP
     if (option == PR_GET_SECCOMP) return 0;
 #endif
@@ -2125,24 +2348,28 @@ int landlock_restrict_self(int ruleset_fd, uint32_t flags) {
 int seccomp(unsigned int operation, unsigned int flags, void *args) {
     (void)flags;
     (void)args;
-    if (operation == SECCOMP_GET_ACTION_AVAIL) {
-        return 0;
+    if (operation != SECCOMP_SET_MODE_STRICT &&
+        operation != SECCOMP_SET_MODE_FILTER &&
+        operation != SECCOMP_GET_ACTION_AVAIL &&
+        operation != 3 /* SECCOMP_GET_NOTIF_SIZES */) {
+        errno = EINVAL;
+        return -1;
     }
-    if (operation == SECCOMP_SET_MODE_FILTER || operation == SECCOMP_SET_MODE_STRICT) {
-        return 0;
-    }
-    return 0;
+    errno = ENOSYS;
+    return -1;
 }
 
 int unshare(int flags) {
     (void)flags;
-    return 0;
+    errno = ENOSYS;
+    return -1;
 }
 
 int setns(int fd, int nstype) {
     (void)fd;
     (void)nstype;
-    return 0;
+    errno = ENOSYS;
+    return -1;
 }
 
 #ifndef CLOSE_RANGE_CLOEXEC
@@ -2737,11 +2964,19 @@ static void free_modified_env(char **modified_env, char *const orig_env[]) {
     free(modified_env);
 }
 
+#endif /* !CORTEX_HOST_TEST */
+
 static char s_cached_ld_so[PATH_MAX] = {0};
 static char s_cached_ld_root[PATH_MAX] = {0};
 static uint16_t s_cached_e_machine = 0;
 
-static int find_dynamic_linker(const char *cortex_root, const char *cmd, char *out_ld_so, size_t max_len) {
+#ifdef CORTEX_HOST_TEST
+#define CORTEX_FIND_LD_SYM hook_find_dynamic_linker
+#else
+#define CORTEX_FIND_LD_SYM find_dynamic_linker
+#endif
+
+static int CORTEX_FIND_LD_SYM(const char *cortex_root, const char *cmd, char *out_ld_so, size_t max_len) {
     if (!cortex_root || cortex_root[0] == '\0' || !out_ld_so || max_len == 0) return 0;
 
     uint16_t e_machine = 0;
@@ -2758,7 +2993,7 @@ static int find_dynamic_linker(const char *cortex_root, const char *cmd, char *o
     }
 
     if (s_cached_ld_so[0] != '\0' && strcmp(s_cached_ld_root, cortex_root) == 0 &&
-        (e_machine == 0 || e_machine == s_cached_e_machine)) {
+        e_machine != 0 && e_machine == s_cached_e_machine) {
         strncpy(out_ld_so, s_cached_ld_so, max_len - 1);
         out_ld_so[max_len - 1] = '\0';
         return 1;
@@ -2801,12 +3036,16 @@ static int find_dynamic_linker(const char *cortex_root, const char *cmd, char *o
 
     if (e_machine == 183) { // EM_AARCH64
         primary = aarch64_cands;
-        secondary = armhf_cands;
+        secondary = NULL;
     } else if (e_machine == 40) { // EM_ARM
         primary = armhf_cands;
-        secondary = aarch64_cands;
+        secondary = NULL;
     } else if (e_machine == 62) { // EM_X86_64
         primary = x86_64_cands;
+        secondary = NULL;
+    } else if (e_machine == 3) { // EM_386
+        primary = NULL;
+        secondary = NULL;
     } else {
         #if defined(__aarch64__)
         primary = aarch64_cands;
@@ -2823,11 +3062,13 @@ static int find_dynamic_linker(const char *cortex_root, const char *cmd, char *o
         for (int i = 0; primary[i] != NULL; i++) {
             snprintf(out_ld_so, max_len, "%s%s", cortex_root, primary[i]);
             if (access(out_ld_so, F_OK) == 0) {
-                strncpy(s_cached_ld_so, out_ld_so, sizeof(s_cached_ld_so) - 1);
-                s_cached_ld_so[sizeof(s_cached_ld_so) - 1] = '\0';
-                strncpy(s_cached_ld_root, cortex_root, sizeof(s_cached_ld_root) - 1);
-                s_cached_ld_root[sizeof(s_cached_ld_root) - 1] = '\0';
-                s_cached_e_machine = e_machine;
+                if (e_machine != 0) {
+                    strncpy(s_cached_ld_so, out_ld_so, sizeof(s_cached_ld_so) - 1);
+                    s_cached_ld_so[sizeof(s_cached_ld_so) - 1] = '\0';
+                    strncpy(s_cached_ld_root, cortex_root, sizeof(s_cached_ld_root) - 1);
+                    s_cached_ld_root[sizeof(s_cached_ld_root) - 1] = '\0';
+                    s_cached_e_machine = e_machine;
+                }
                 return 1;
             }
         }
@@ -2836,11 +3077,13 @@ static int find_dynamic_linker(const char *cortex_root, const char *cmd, char *o
         for (int i = 0; secondary[i] != NULL; i++) {
             snprintf(out_ld_so, max_len, "%s%s", cortex_root, secondary[i]);
             if (access(out_ld_so, F_OK) == 0) {
-                strncpy(s_cached_ld_so, out_ld_so, sizeof(s_cached_ld_so) - 1);
-                s_cached_ld_so[sizeof(s_cached_ld_so) - 1] = '\0';
-                strncpy(s_cached_ld_root, cortex_root, sizeof(s_cached_ld_root) - 1);
-                s_cached_ld_root[sizeof(s_cached_ld_root) - 1] = '\0';
-                s_cached_e_machine = e_machine;
+                if (e_machine != 0) {
+                    strncpy(s_cached_ld_so, out_ld_so, sizeof(s_cached_ld_so) - 1);
+                    s_cached_ld_so[sizeof(s_cached_ld_so) - 1] = '\0';
+                    strncpy(s_cached_ld_root, cortex_root, sizeof(s_cached_ld_root) - 1);
+                    s_cached_ld_root[sizeof(s_cached_ld_root) - 1] = '\0';
+                    s_cached_e_machine = e_machine;
+                }
                 return 1;
             }
         }
@@ -2853,21 +3096,30 @@ static int check_elf_dynamic(int fd, const unsigned char *ehdr, ssize_t n) {
     if (n < 52 || ehdr[0] != 0x7f || ehdr[1] != 'E' || ehdr[2] != 'L' || ehdr[3] != 'F') {
         return 0;
     }
+    if ((ehdr[4] != 1 && ehdr[4] != 2) || ehdr[5] != 1 /* ELFDATA2LSB */) {
+        return 0;
+    }
     int is_64 = (ehdr[4] == 2);
     uint64_t phoff = 0;
     uint16_t phentsize = 0;
     uint16_t phnum = 0;
     if (is_64) {
         if (n < 64) return 0;
-        phoff = *(const uint64_t *)(ehdr + 32);
-        phentsize = *(const uint16_t *)(ehdr + 54);
-        phnum = *(const uint16_t *)(ehdr + 56);
+        memcpy(&phoff, ehdr + 32, sizeof(uint64_t));
+        memcpy(&phentsize, ehdr + 54, sizeof(uint16_t));
+        memcpy(&phnum, ehdr + 56, sizeof(uint16_t));
     } else {
-        phoff = *(const uint32_t *)(ehdr + 28);
-        phentsize = *(const uint16_t *)(ehdr + 42);
-        phnum = *(const uint16_t *)(ehdr + 44);
+        uint32_t phoff32 = 0;
+        memcpy(&phoff32, ehdr + 28, sizeof(uint32_t));
+        phoff = phoff32;
+        memcpy(&phentsize, ehdr + 42, sizeof(uint16_t));
+        memcpy(&phnum, ehdr + 44, sizeof(uint16_t));
     }
-    if (phoff == 0 || phentsize == 0 || phnum == 0) {
+    uint16_t min_phentsize = is_64 ? 56 : 32;
+    if (phoff == 0 || phentsize < min_phentsize || phentsize > 4096 || phnum == 0) {
+        return 0;
+    }
+    if ((off_t)phoff < 0 || (uint64_t)(off_t)phoff != phoff) {
         return 0;
     }
     if (lseek(fd, (off_t)phoff, SEEK_SET) < 0) {
@@ -2884,6 +3136,58 @@ static int check_elf_dynamic(int fd, const unsigned char *ehdr, ssize_t n) {
     return 0;
 }
 
+static int is_elf_binary(const char *path) {
+    if (!path || path[0] == '\0') return 0;
+    int fd = open(path, O_RDONLY);
+    if (fd < 0) return 0;
+    unsigned char magic[4];
+    ssize_t n = read(fd, magic, sizeof(magic));
+    close(fd);
+    return (n == 4 && magic[0] == 0x7f && magic[1] == 'E' && magic[2] == 'L' && magic[3] == 'F');
+}
+
+static int is_ld_linux(const char *path) {
+    if (!path) return 0;
+    const char *base = strrchr(path, '/');
+    base = base ? base + 1 : path;
+    return (strncmp(base, "ld-linux", 8) == 0 || strncmp(base, "ld-2.", 5) == 0);
+}
+
+#ifndef CORTEX_HOST_TEST
+
+static void resolve_symlinks(const char *path, char *out, size_t out_size, int depth) {
+    if (!path || !out || out_size == 0) return;
+    strncpy(out, path, out_size - 1);
+    out[out_size - 1] = '\0';
+    if (depth > 8) return;
+
+    char link_target[PATH_MAX];
+    ssize_t len = readlink(path, link_target, sizeof(link_target) - 1);
+    if (len < 0) return;
+    link_target[len] = '\0';
+
+    char next_path[PATH_MAX];
+    if (link_target[0] == '/') {
+        char rw_buf[PATH_MAX];
+        const char *rewritten = rewrite_path(link_target, rw_buf, sizeof(rw_buf));
+        strncpy(next_path, rewritten, sizeof(next_path) - 1);
+        next_path[sizeof(next_path) - 1] = '\0';
+    } else {
+        char dir_buf[PATH_MAX];
+        strncpy(dir_buf, path, sizeof(dir_buf) - 1);
+        dir_buf[sizeof(dir_buf) - 1] = '\0';
+        char *slash = strrchr(dir_buf, '/');
+        if (slash) {
+            *slash = '\0';
+            snprintf(next_path, sizeof(next_path), "%s/%s", dir_buf, link_target);
+        } else {
+            strncpy(next_path, link_target, sizeof(next_path) - 1);
+            next_path[sizeof(next_path) - 1] = '\0';
+        }
+    }
+    resolve_symlinks(next_path, out, out_size, depth + 1);
+}
+
 static int has_pt_interp(const char *path) {
     if (!path || path[0] == '\0') return 0;
     int fd = open(path, O_RDONLY);
@@ -2893,6 +3197,71 @@ static int has_pt_interp(const char *path) {
     int ret = check_elf_dynamic(fd, ehdr, n);
     close(fd);
     return ret;
+}
+
+static char **ensure_hook_in_envp(char *const envp[], const char *real_exe) {
+    return prepare_cortex_env(envp, real_exe);
+}
+
+static void build_ld_library_path(char *const envp[], char *out_buf, size_t out_size) {
+    if (!out_buf || out_size == 0) return;
+    out_buf[0] = '\0';
+
+    const char *caller_ld = NULL;
+    if (envp) {
+        for (int i = 0; envp[i] != NULL; i++) {
+            if (strncmp(envp[i], "LD_LIBRARY_PATH=", 16) == 0) {
+                caller_ld = envp[i] + 16;
+                break;
+            }
+        }
+    }
+    if (!caller_ld) {
+        caller_ld = getenv("LD_LIBRARY_PATH");
+    }
+
+    char rewritten_caller[PATH_MAX * 2] = {0};
+    if (caller_ld && caller_ld[0] != '\0') {
+        char copy[PATH_MAX * 2];
+        strncpy(copy, caller_ld, sizeof(copy) - 1);
+        copy[sizeof(copy) - 1] = '\0';
+        size_t used = 0;
+        char *saveptr = NULL;
+        char *tok = strtok_r(copy, ":", &saveptr);
+        while (tok) {
+            if (tok[0] != '\0') {
+                char rw_buf[PATH_MAX];
+                const char *rw = (tok[0] == '/') ? rewrite_path(tok, rw_buf, sizeof(rw_buf)) : tok;
+                int n = snprintf(rewritten_caller + used, sizeof(rewritten_caller) - used,
+                                 "%s%s", (used > 0 ? ":" : ""), rw);
+                if (n > 0 && used + (size_t)n < sizeof(rewritten_caller)) {
+                    used += (size_t)n;
+                }
+            }
+            tok = strtok_r(NULL, ":", &saveptr);
+        }
+    }
+
+    if (rewritten_caller[0] != '\0') {
+        snprintf(out_buf, out_size,
+                 "%s:%s/lib:%s/usr/lib:%s/lib/aarch64-linux-gnu:%s/usr/lib/aarch64-linux-gnu:"
+                 "%s/usr/lib/aarch64-linux-gnu/systemd:%s/lib/aarch64-linux-gnu/systemd:"
+                 "%s/usr/lib/systemd:%s/lib/systemd:%s/lib/arm-linux-gnueabihf:%s/usr/lib/arm-linux-gnueabihf:"
+                 "%s/usr/lib/arm-linux-gnueabihf/systemd:%s/lib/arm-linux-gnueabihf/systemd:%s/usr/local/lib",
+                 rewritten_caller,
+                 g_cortex_root, g_cortex_root, g_cortex_root, g_cortex_root,
+                 g_cortex_root, g_cortex_root, g_cortex_root, g_cortex_root,
+                 g_cortex_root, g_cortex_root, g_cortex_root, g_cortex_root, g_cortex_root);
+    } else {
+        snprintf(out_buf, out_size,
+                 "%s/lib:%s/usr/lib:%s/lib/aarch64-linux-gnu:%s/usr/lib/aarch64-linux-gnu:"
+                 "%s/usr/lib/aarch64-linux-gnu/systemd:%s/lib/aarch64-linux-gnu/systemd:"
+                 "%s/usr/lib/systemd:%s/lib/systemd:%s/lib/arm-linux-gnueabihf:%s/usr/lib/arm-linux-gnueabihf:"
+                 "%s/usr/lib/arm-linux-gnueabihf/systemd:%s/lib/arm-linux-gnueabihf/systemd:%s/usr/local/lib",
+                 g_cortex_root, g_cortex_root, g_cortex_root, g_cortex_root,
+                 g_cortex_root, g_cortex_root, g_cortex_root, g_cortex_root,
+                 g_cortex_root, g_cortex_root, g_cortex_root, g_cortex_root, g_cortex_root);
+    }
 }
 
 // Hook execve
@@ -2960,7 +3329,14 @@ int execve(const char *filename, char *const argv[], char *const envp[]) {
 
     // Only intercept binaries/scripts within CORTEX_ROOT
     if (g_cortex_root[0] != '\0' && strncmp(target, g_cortex_root, strlen(g_cortex_root)) == 0) {
-        int fd = open(target, O_RDONLY);
+        char resolved_target[PATH_MAX];
+        resolve_symlinks(target, resolved_target, sizeof(resolved_target), 0);
+        const char *elf_target = target;
+        if (is_elf_binary(resolved_target) && !is_ld_linux(resolved_target)) {
+            elf_target = resolved_target;
+        }
+
+        int fd = open(elf_target, O_RDONLY);
         if (fd >= 0) {
             char hdr[256];
             ssize_t n = read(fd, hdr, sizeof(hdr) - 1);
@@ -2972,17 +3348,17 @@ int execve(const char *filename, char *const argv[], char *const envp[]) {
                 close(fd);
                 if (is_dynamic) {
                     char ld_so[PATH_MAX] = {0};
-                    if (find_dynamic_linker(g_cortex_root, target, ld_so, sizeof(ld_so)) && strcmp(target, ld_so) != 0) {
+                    if (find_dynamic_linker(g_cortex_root, elf_target, ld_so, sizeof(ld_so)) && strcmp(elf_target, ld_so) != 0) {
                         static char s_last_chmoded_ld[PATH_MAX] = {0};
                         if (strcmp(s_last_chmoded_ld, ld_so) != 0) {
                             chmod(ld_so, 0755);
                             strncpy(s_last_chmoded_ld, ld_so, sizeof(s_last_chmoded_ld) - 1);
                         }
-                        if (access(target, X_OK) != 0) {
-                            chmod(target, 0755);
+                        if (access(elf_target, X_OK) != 0) {
+                            chmod(elf_target, 0755);
                         }
 
-                        strncpy(g_real_exe, target, sizeof(g_real_exe) - 1);
+                        strncpy(g_real_exe, elf_target, sizeof(g_real_exe) - 1);
                         g_real_exe[sizeof(g_real_exe) - 1] = '\0';
 
                         char *const *arg_ptr = argv;
@@ -3001,15 +3377,8 @@ int execve(const char *filename, char *const argv[], char *const envp[]) {
                             snprintf(hook_so, sizeof(hook_so), "%s/lib/libcortex-hook.so", g_cortex_root);
                         }
 
-                        char ld_lib_path[PATH_MAX * 4] = {0};
-                        snprintf(ld_lib_path, sizeof(ld_lib_path),
-                                 "%s/lib:%s/usr/lib:%s/lib/aarch64-linux-gnu:%s/usr/lib/aarch64-linux-gnu:"
-                                 "%s/usr/lib/aarch64-linux-gnu/systemd:%s/lib/aarch64-linux-gnu/systemd:"
-                                 "%s/usr/lib/systemd:%s/lib/systemd:%s/lib/arm-linux-gnueabihf:%s/usr/lib/arm-linux-gnueabihf:"
-                                 "%s/usr/lib/arm-linux-gnueabihf/systemd:%s/lib/arm-linux-gnueabihf/systemd:%s/usr/local/lib",
-                                 g_cortex_root, g_cortex_root, g_cortex_root, g_cortex_root,
-                                 g_cortex_root, g_cortex_root, g_cortex_root, g_cortex_root,
-                                 g_cortex_root, g_cortex_root, g_cortex_root, g_cortex_root, g_cortex_root);
+                        char ld_lib_path[PATH_MAX * 6] = {0};
+                        build_ld_library_path(envp, ld_lib_path, sizeof(ld_lib_path));
 
                         char **new_argv = (char **)calloc(argc + 16, sizeof(char *));
                         int nidx = 0;
@@ -3022,12 +3391,12 @@ int execve(const char *filename, char *const argv[], char *const envp[]) {
                         new_argv[nidx++] = ld_lib_path;
                         new_argv[nidx++] = (char *)"--argv0";
                         new_argv[nidx++] = (char *)((argc > 0 && argv[0]) ? argv[0] : prog_name);
-                        new_argv[nidx++] = (char *)target;
+                        new_argv[nidx++] = (char *)elf_target;
                         for (int i = 1; i < argc; i++) {
                             new_argv[nidx++] = (char *)argv[i];
                         }
                         new_argv[nidx] = NULL;
-                        char **new_env = prepare_cortex_env(envp, target);
+                        char **new_env = ensure_hook_in_envp(envp, elf_target);
                         int ret = orig_execve(ld_so, new_argv, new_env);
                         free(new_argv);
                         free_modified_env(new_env, envp);
@@ -3359,10 +3728,17 @@ int posix_spawn(pid_t *pid, const char *path,
         return errno;
     }
 
+    char resolved_target[PATH_MAX];
+    resolve_symlinks(target, resolved_target, sizeof(resolved_target), 0);
+    const char *elf_target = target;
+    if (is_elf_binary(resolved_target) && !is_ld_linux(resolved_target)) {
+        elf_target = resolved_target;
+    }
+
     int is_elf = 0;
     int is_dynamic = 0;
     if (g_cortex_root[0] != '\0' && strncmp(target, g_cortex_root, strlen(g_cortex_root)) == 0) {
-        int fd = open(target, O_RDONLY);
+        int fd = open(elf_target, O_RDONLY);
         if (fd >= 0) {
             unsigned char hdr[256];
             ssize_t n = read(fd, hdr, sizeof(hdr));
@@ -3375,20 +3751,20 @@ int posix_spawn(pid_t *pid, const char *path,
     }
 
     char ld_so[PATH_MAX] = {0};
-    int has_ld_so = (is_elf && is_dynamic && g_cortex_root[0] != '\0') ? find_dynamic_linker(g_cortex_root, target, ld_so, sizeof(ld_so)) : 0;
+    int has_ld_so = (is_elf && is_dynamic && g_cortex_root[0] != '\0') ? find_dynamic_linker(g_cortex_root, elf_target, ld_so, sizeof(ld_so)) : 0;
 
     char *const *orig_ep = envp ? envp : environ;
-    char **new_envp = prepare_cortex_env((char *const *)orig_ep, target);
+    char **new_envp = ensure_hook_in_envp((char *const *)orig_ep, elf_target);
 
     int ret = -1;
-    if (is_elf && has_ld_so && strcmp(target, ld_so) != 0) {
+    if (is_elf && has_ld_so && strcmp(elf_target, ld_so) != 0) {
         static char s_last_chmoded_ld_spawn[PATH_MAX] = {0};
         if (strcmp(s_last_chmoded_ld_spawn, ld_so) != 0) {
             chmod(ld_so, 0755);
             strncpy(s_last_chmoded_ld_spawn, ld_so, sizeof(s_last_chmoded_ld_spawn) - 1);
         }
-        if (access(target, X_OK) != 0) {
-            chmod(target, 0755);
+        if (access(elf_target, X_OK) != 0) {
+            chmod(elf_target, 0755);
         }
 
         int argc = 0;
@@ -3403,15 +3779,8 @@ int posix_spawn(pid_t *pid, const char *path,
             snprintf(hook_so, sizeof(hook_so), "%s/lib/libcortex-hook.so", g_cortex_root);
         }
 
-        char ld_lib_path[PATH_MAX * 4] = {0};
-        snprintf(ld_lib_path, sizeof(ld_lib_path),
-                 "%s/lib:%s/usr/lib:%s/lib/aarch64-linux-gnu:%s/usr/lib/aarch64-linux-gnu:"
-                 "%s/usr/lib/aarch64-linux-gnu/systemd:%s/lib/aarch64-linux-gnu/systemd:"
-                 "%s/usr/lib/systemd:%s/lib/systemd:%s/lib/arm-linux-gnueabihf:%s/usr/lib/arm-linux-gnueabihf:"
-                 "%s/usr/lib/arm-linux-gnueabihf/systemd:%s/lib/arm-linux-gnueabihf/systemd:%s/usr/local/lib",
-                 g_cortex_root, g_cortex_root, g_cortex_root, g_cortex_root,
-                 g_cortex_root, g_cortex_root, g_cortex_root, g_cortex_root,
-                 g_cortex_root, g_cortex_root, g_cortex_root, g_cortex_root, g_cortex_root);
+        char ld_lib_path[PATH_MAX * 6] = {0};
+        build_ld_library_path((char *const *)orig_ep, ld_lib_path, sizeof(ld_lib_path));
 
         char **new_argv = (char **)calloc(argc + 16, sizeof(char *));
         if (new_argv) {
@@ -3425,7 +3794,7 @@ int posix_spawn(pid_t *pid, const char *path,
             new_argv[nidx++] = ld_lib_path;
             new_argv[nidx++] = (char *)"--argv0";
             new_argv[nidx++] = (char *)((argc > 0 && argv && argv[0]) ? argv[0] : prog_name);
-            new_argv[nidx++] = (char *)target;
+            new_argv[nidx++] = (char *)elf_target;
             for (int i = 1; i < argc; i++) {
                 new_argv[nidx++] = (char *)argv[i];
             }
@@ -4326,3 +4695,21 @@ int getpeername(int sockfd, struct sockaddr *addr, socklen_t *addrlen) {
     return ret;
 }
 
+#ifndef AF_NETLINK
+#define AF_NETLINK 16
+#endif
+#ifndef NETLINK_AUDIT
+#define NETLINK_AUDIT 9
+#endif
+
+int socket(int domain, int type, int protocol) {
+    static int (*orig_socket)(int, int, int) = NULL;
+    if (!orig_socket) orig_socket = (int (*)(int, int, int))dlsym(RTLD_NEXT, "socket");
+    if (domain == AF_NETLINK && protocol == NETLINK_AUDIT) {
+        errno = EPROTONOSUPPORT;
+        return -1;
+    }
+    return orig_socket ? orig_socket(domain, type, protocol) : -1;
+}
+
+#endif /* !CORTEX_HOST_TEST */

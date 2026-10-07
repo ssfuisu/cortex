@@ -18,21 +18,29 @@ class PtyProcess private constructor(
 
     private val alive = AtomicBoolean(true)
     private val fdClosed = AtomicBoolean(false)
+    private val fdLock = Any()
+    private val processLock = Any()
+    @Volatile
+    private var reaped = false
 
     val isAlive: Boolean
         get() = alive.get()
 
     private fun closeMasterFdOnce() {
-        if (fdClosed.compareAndSet(false, true)) {
-            try {
-                pfd.close()
-            } catch (_: Exception) {}
+        synchronized(fdLock) {
+            if (fdClosed.compareAndSet(false, true)) {
+                try {
+                    pfd.close()
+                } catch (_: Exception) {}
+            }
         }
     }
 
     fun resize(rows: Int, cols: Int, widthPx: Int, heightPx: Int) {
-        if (isAlive && masterFd >= 0) {
-            PtyNative.setPtyWindowSize(masterFd, rows, cols, widthPx, heightPx)
+        synchronized(fdLock) {
+            if (isAlive && !fdClosed.get() && masterFd >= 0) {
+                PtyNative.setPtyWindowSize(masterFd, rows, cols, widthPx, heightPx)
+            }
         }
     }
 
@@ -40,14 +48,19 @@ class PtyProcess private constructor(
         try {
             return PtyNative.waitForProcess(pid)
         } finally {
-            alive.set(false)
+            synchronized(processLock) {
+                reaped = true
+                alive.set(false)
+            }
             closeMasterFdOnce()
         }
     }
 
     fun destroy() {
-        if (alive.compareAndSet(true, false)) {
-            PtyNative.killProcess(pid, 1) // SIGHUP
+        synchronized(processLock) {
+            if (!reaped && alive.compareAndSet(true, false)) {
+                PtyNative.killProcess(pid, 1) // SIGHUP
+            }
         }
         closeMasterFdOnce()
     }

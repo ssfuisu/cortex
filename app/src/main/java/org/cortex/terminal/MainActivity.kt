@@ -297,7 +297,7 @@ class MainActivity : AppCompatActivity() {
                 android.util.Log.e("MainActivity", "Startup keyrings failed", e)
             }
             try {
-                BootstrapManager.ensureEssentialBinaries(root, homeDir)
+                BootstrapManager.ensureEssentialBinaries(root, homeDir, this@MainActivity)
             } catch (e: Exception) {
                 android.util.Log.e("MainActivity", "Startup essential binaries failed", e)
             }
@@ -324,7 +324,7 @@ class MainActivity : AppCompatActivity() {
                 val success = BootstrapManager.installBootstrapFromAssets(this)
                 if (success) {
                     BootstrapManager.updateTimezone(this, root)
-                    BootstrapManager.ensureEssentialBinaries(root, Environment.getHomeDir(this))
+                    BootstrapManager.ensureEssentialBinaries(root, Environment.getHomeDir(this), this)
                     BootstrapManager.initializeFileSystem(this)
                 }
 
@@ -375,7 +375,6 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         applyPreferences()
-        UpdateManager.cleanUpdates(this)
         if (UpdateManager.isUpdateAvailable) {
             updateRedDot.visibility = android.view.View.VISIBLE
         }

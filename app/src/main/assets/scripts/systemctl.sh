@@ -4,6 +4,15 @@ ACTION="$1"
 SERVICE="${2%.service}"
 shift 2 2>/dev/null
 
+AUTOSTART_DIR="${CORTEX_AUTOSTART_DIR:-/etc/cortex/autostart}"
+
+validate_service_name() {
+    if [ -z "$SERVICE" ] || [[ ! "$SERVICE" =~ ^[a-zA-Z0-9._-]+$ ]] || [ "$SERVICE" = "." ] || [ "$SERVICE" = ".." ]; then
+        echo "systemctl: invalid service name '$SERVICE'" >&2
+        exit 1
+    fi
+}
+
 case "$ACTION" in
     daemon-reload|reset-failed)
         exit 0
@@ -13,7 +22,7 @@ case "$ACTION" in
         exit 0
         ;;
     is-active)
-        if [ -z "$SERVICE" ]; then exit 1; fi
+        validate_service_name
         if service "$SERVICE" status >/dev/null 2>&1; then
             echo "active"
             exit 0
@@ -23,7 +32,8 @@ case "$ACTION" in
         fi
         ;;
     is-enabled)
-        if [ -f "/etc/cortex/autostart/$SERVICE" ]; then
+        validate_service_name
+        if [ -f "$AUTOSTART_DIR/$SERVICE" ]; then
             echo "enabled"
             exit 0
         else
@@ -32,13 +42,15 @@ case "$ACTION" in
         fi
         ;;
     enable)
-        mkdir -p /etc/cortex/autostart
-        touch "/etc/cortex/autostart/$SERVICE"
+        validate_service_name
+        mkdir -p "$AUTOSTART_DIR"
+        touch "$AUTOSTART_DIR/$SERVICE"
         echo "Enabled $SERVICE for automatic startup."
         exit 0
         ;;
     disable)
-        rm -f "/etc/cortex/autostart/$SERVICE"
+        validate_service_name
+        rm -f "$AUTOSTART_DIR/$SERVICE"
         echo "Disabled $SERVICE from automatic startup."
         exit 0
         ;;
@@ -47,6 +59,7 @@ case "$ACTION" in
             echo "Usage: systemctl $ACTION <service>"
             exit 1
         fi
+        validate_service_name
         exec service "$SERVICE" "$ACTION" "$@"
         ;;
     list-units|list-unit-files)
@@ -54,6 +67,7 @@ case "$ACTION" in
         ;;
     *)
         if [ -n "$SERVICE" ]; then
+            validate_service_name
             exec service "$SERVICE" "$ACTION" "$@"
         fi
         exit 0

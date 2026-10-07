@@ -4,16 +4,19 @@ import java.util.ArrayDeque
 
 class TerminalBuffer(var rows: Int, var cols: Int, private val maxHistory: Int = 5000) {
     val history = ArrayDeque<TerminalRow>()
+    private var historyGeneration = 0
     private var historyArrayCache: Array<TerminalRow>? = null
     private var historyArrayCacheSize = -1
+    private var historyArrayCacheGeneration = -1
 
     private fun getHistoryRow(index: Int): TerminalRow? {
         if (index !in 0 until history.size) return null
         var cache = historyArrayCache
-        if (cache == null || historyArrayCacheSize != history.size) {
+        if (cache == null || historyArrayCacheSize != history.size || historyArrayCacheGeneration != historyGeneration) {
             cache = history.toTypedArray()
             historyArrayCache = cache
             historyArrayCacheSize = history.size
+            historyArrayCacheGeneration = historyGeneration
         }
         return if (index in cache.indices) cache[index] else null
     }
@@ -53,7 +56,7 @@ class TerminalBuffer(var rows: Int, var cols: Int, private val maxHistory: Int =
             val linesToShift = if (cursorRow >= newRows) cursorRow - newRows + 1 else 0
 
             // Push lines above visible area to history so they are not lost
-            if (!isAlternate) {
+            if (!isAlternate && linesToShift > 0) {
                 for (r in 0 until linesToShift) {
                     val hRow = TerminalRow(cols)
                     hRow.copyFrom(screen[r])
@@ -62,6 +65,8 @@ class TerminalBuffer(var rows: Int, var cols: Int, private val maxHistory: Int =
                         history.removeFirst()
                     }
                 }
+                historyGeneration++
+                historyArrayCache = null
             }
 
             // Copy lines into new screen
@@ -79,9 +84,13 @@ class TerminalBuffer(var rows: Int, var cols: Int, private val maxHistory: Int =
             val restoredCount = if (!isAlternate) minOf(linesToAdd, history.size) else 0
 
             // Restore lines from history to the top of new screen
-            for (r in 0 until restoredCount) {
-                val hRow = history.removeLast()
-                newScreen[restoredCount - 1 - r].copyFrom(hRow)
+            if (restoredCount > 0) {
+                for (r in 0 until restoredCount) {
+                    val hRow = history.removeLast()
+                    newScreen[restoredCount - 1 - r].copyFrom(hRow)
+                }
+                historyGeneration++
+                historyArrayCache = null
             }
 
             // Copy existing screen lines below restored lines
@@ -188,6 +197,8 @@ class TerminalBuffer(var rows: Int, var cols: Int, private val maxHistory: Int =
             if (history.size > maxHistory) {
                 history.removeFirst()
             }
+            historyGeneration++
+            historyArrayCache = null
         }
 
         for (r in t until b) {
@@ -233,6 +244,8 @@ class TerminalBuffer(var rows: Int, var cols: Int, private val maxHistory: Int =
                 }
                 if (mode == 3 && !isAlternate) {
                     history.clear()
+                    historyGeneration++
+                    historyArrayCache = null
                 }
             }
         }
@@ -301,12 +314,14 @@ class TerminalBuffer(var rows: Int, var cols: Int, private val maxHistory: Int =
      */
     private var rowsCache: ArrayList<Pair<Int, TerminalRow>> = ArrayList()
     private var cachedHistorySize = -1
+    private var cachedHistoryGeneration = -1
     private var cachedScreenRows = -1
     private var cachedGeneration = -1
 
     private fun rebuildRowsCacheIfNeeded() {
         val screenCount = minOf(rows, screen.size)
         if (cachedHistorySize == history.size &&
+            cachedHistoryGeneration == historyGeneration &&
             cachedScreenRows == screenCount &&
             cachedGeneration == screenGeneration) return
         val needed = history.size + screenCount
@@ -325,6 +340,7 @@ class TerminalBuffer(var rows: Int, var cols: Int, private val maxHistory: Int =
             rowsCache.add(Pair(i, screen[i]))
         }
         cachedHistorySize = history.size
+        cachedHistoryGeneration = historyGeneration
         cachedScreenRows = screenCount
         cachedGeneration = screenGeneration
     }

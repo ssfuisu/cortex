@@ -127,6 +127,12 @@ class ExtraKeysView @JvmOverloads constructor(
                 layoutParams = params
 
                 val moveSlopPx = 22 * resources.displayMetrics.density
+                var handledByTouch = false
+                setOnClickListener {
+                    if (!handledByTouch) {
+                        try { action() } catch (_: Exception) {}
+                    }
+                }
                 setOnTouchListener { v, event ->
                     when (event.action) {
                         MotionEvent.ACTION_DOWN -> {
@@ -159,7 +165,12 @@ class ExtraKeysView @JvmOverloads constructor(
                         }
                         MotionEvent.ACTION_UP -> {
                             v.isPressed = false
-                            v.performClick()
+                            handledByTouch = true
+                            try {
+                                v.performClick()
+                            } finally {
+                                handledByTouch = false
+                            }
                             // Fire immediately if the tap ended before the deferral elapsed.
                             // The manual run may arm repeat; UP always disarms, so taps
                             // never repeat while holds keep ticking until release.

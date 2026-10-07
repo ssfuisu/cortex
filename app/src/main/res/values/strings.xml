@@ -7,4 +7,7 @@
     <string name="exit_confirm_message">Do you want to close this terminal session?</string>
     <string name="yes">Yes</string>
     <string name="no">No</string>
+    <string name="terminal_screen_desc">Terminal Screen, %1$d columns by %2$d rows</string>
+    <string name="terminal_screen_inactive_desc">Terminal Screen (Inactive)</string>
+    <string name="close_session">Close session</string>
 </resources>

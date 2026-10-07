@@ -52,6 +52,6 @@
         android:textSize="16sp"
         android:textStyle="bold"
         android:background="@drawable/icon_circle_bg"
-        android:contentDescription="Close session" />
+        android:contentDescription="@string/close_session" />
 
 </LinearLayout>
