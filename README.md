@@ -9,7 +9,7 @@
   <img src="docs/screenshots/cortex-sessions.jpg" width="31%" alt="Sessions Drawer" />
   <img src="docs/screenshots/cortex-keyboard.jpg" width="31%" alt="Keyboard & Virtual Keys" />
 </p>
-
+ANNOUNCEMENT: DUE TO MY BUSY SCHEDULE, I AM UNABLE TO ACTIVELY DEVELOP THE PROJECT. I MAY NOT BE ABLE TO ADDRESS YOUR REQUESTS AND REPORT ERRORS IN A TIMELY MANNER. I ONLY HAVE THE OPPORTUNITY TO DEVELOP IT ON WEEKENDS.
 ## What is Cortex?
 
 Cortex is a next-generation native Linux terminal and development powerhouse engineered for Android.  
