@@ -51,6 +51,14 @@ static int g_tests_failed = 0;
     } \
 } while (0)
 
+/* Helper: locate writable temporary directory across host Linux, CI, and Android/Termux */
+static const char *get_test_tmp_dir(void) {
+    const char *tmp = getenv("TMPDIR");
+    if (tmp && tmp[0] != '\0' && access(tmp, W_OK) == 0) return tmp;
+    if (access("/tmp", W_OK) == 0) return "/tmp";
+    return ".";
+}
+
 /* Helper: recursively remove a temporary directory */
 static void rm_rf(const char *path) {
     if (!path || path[0] == '\0' || strcmp(path, "/") == 0) return;
@@ -209,7 +217,8 @@ static void test_pax_header_parsing(void) {
 
 /* 4. End-to-end extract_tar_archive tests */
 static void test_extract_tar_end_to_end(void) {
-    char tmp_base[] = "/tmp/cortex_tar_test_XXXXXX";
+    char tmp_base[PATH_MAX];
+    snprintf(tmp_base, sizeof(tmp_base), "%s/cortex_tar_test_XXXXXX", get_test_tmp_dir());
     ASSERT_TRUE(mkdtemp(tmp_base) != NULL, "mkdtemp base");
 
     /* 4a. Valid tar with dotfiles, regular files, and relative alternatives symlink */
@@ -312,7 +321,8 @@ static void test_extract_tar_end_to_end(void) {
 
 /* 5. Test check_elf_dynamic */
 static void test_check_elf_dynamic(void) {
-    char tmp_elf[] = "/tmp/cortex_elf_test_XXXXXX";
+    char tmp_elf[PATH_MAX];
+    snprintf(tmp_elf, sizeof(tmp_elf), "%s/cortex_elf_test_XXXXXX", get_test_tmp_dir());
     int fd = mkstemp(tmp_elf);
     ASSERT_TRUE(fd >= 0, "mkstemp elf");
     unlink(tmp_elf);
@@ -377,7 +387,8 @@ static void test_check_elf_dynamic(void) {
 
 /* 6. Test find_dynamic_linker cache and cross-arch protection */
 static void test_find_dynamic_linker(void) {
-    char tmp_root[] = "/tmp/cortex_ld_test_XXXXXX";
+    char tmp_root[PATH_MAX];
+    snprintf(tmp_root, sizeof(tmp_root), "%s/cortex_ld_test_XXXXXX", get_test_tmp_dir());
     ASSERT_TRUE(mkdtemp(tmp_root) != NULL, "mkdtemp ld root");
 
     char lib_dir[PATH_MAX], ld_aarch64[PATH_MAX];

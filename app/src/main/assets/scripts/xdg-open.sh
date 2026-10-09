@@ -43,8 +43,15 @@ if [ -z "$TOKEN" ]; then
 fi
 
 # 1. Try bash /dev/tcp if bash is available
-if [ -x /bin/bash ] || [ -x /usr/bin/bash ]; then
-    BASH_BIN="$([ -x /bin/bash ] && echo /bin/bash || echo /usr/bin/bash)"
+BASH_BIN=""
+if [ -x /bin/bash ]; then
+    BASH_BIN=/bin/bash
+elif [ -x /usr/bin/bash ]; then
+    BASH_BIN=/usr/bin/bash
+elif command -v bash >/dev/null 2>&1; then
+    BASH_BIN="$(command -v bash)"
+fi
+if [ -n "$BASH_BIN" ]; then
     if "$BASH_BIN" -c '
         port="$1"
         token="$2"

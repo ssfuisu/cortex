@@ -80,7 +80,7 @@ fi
 if [ -x "$HOST_SU" ] || [ -f "$HOST_SU" ]; then
     RUN_SU=(
         env -u LD_PRELOAD -u LD_LIBRARY_PATH -u GLIBC_TUNABLES
-        PATH=/system/bin:/system/xbin:/sbin:/vendor/bin:/usr/bin:/bin
+        PATH="/system/bin:/system/xbin:/sbin:/vendor/bin:/usr/bin:/bin${PATH:+:$PATH}"
         ANDROID_ROOT=/system
         ANDROID_DATA=/data
         "TERM=${TERM:-xterm-256color}"
@@ -90,7 +90,7 @@ if [ -x "$HOST_SU" ] || [ -f "$HOST_SU" ]; then
 else
     RUN_SU=(
         env -u LD_PRELOAD -u LD_LIBRARY_PATH -u GLIBC_TUNABLES
-        PATH=/system/bin:/system/xbin:/sbin:/vendor/bin:/usr/bin:/bin
+        PATH="/system/bin:/system/xbin:/sbin:/vendor/bin:/usr/bin:/bin${PATH:+:$PATH}"
         ANDROID_ROOT=/system
         ANDROID_DATA=/data
         "TERM=${TERM:-xterm-256color}"

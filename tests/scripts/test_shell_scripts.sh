@@ -217,23 +217,24 @@ fi
 # Functional test of su.sh with a mock HOST_SU
 SU_TEST_DIR="$TEST_TMP/su dir with spaces & 'quotes'"
 mkdir -p "$SU_TEST_DIR/bin" "$SU_TEST_DIR/root"
-cp "$(command -v bash)" "$SU_TEST_DIR/bin/bash" 2>/dev/null || ln -s "$(command -v bash)" "$SU_TEST_DIR/bin/bash"
+BASH_EXEC="$(command -v bash)"
+cp "$BASH_EXEC" "$SU_TEST_DIR/bin/bash" 2>/dev/null || ln -s "$BASH_EXEC" "$SU_TEST_DIR/bin/bash"
 
 MOCK_SU="$TEST_TMP/mock_su"
-cat > "$MOCK_SU" << 'EOF'
-#!/usr/bin/env bash
-if [ "${1:-}" = "-c" ]; then
+cat > "$MOCK_SU" << EOF
+#!$BASH_EXEC
+if [ "\${1:-}" = "-c" ]; then
     shift
     # Verify TERM does not contain literal single quotes
-    case "${TERM:-}" in
+    case "\${TERM:-}" in
         \'*\')
-            echo "LITERAL_QUOTES_IN_TERM:$TERM" >&2
+            echo "LITERAL_QUOTES_IN_TERM:\$TERM" >&2
             exit 2
             ;;
     esac
-    exec bash -c "$1"
+    exec "$BASH_EXEC" -c "\$1"
 fi
-exec bash "$@"
+exec "$BASH_EXEC" "\$@"
 EOF
 chmod +x "$MOCK_SU"
 

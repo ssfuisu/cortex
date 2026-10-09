@@ -49,17 +49,36 @@ android {
     val releaseStorePassword = System.getenv("RELEASE_STORE_PASSWORD")
     val releaseKeyAlias = System.getenv("RELEASE_KEY_ALIAS")
     val releaseKeyPassword = System.getenv("RELEASE_KEY_PASSWORD")
-    val resolvedKeystoreFile = if (!releaseStoreFile.isNullOrEmpty()) {
+    val resolvedCustomKeystore = if (!releaseStoreFile.isNullOrEmpty()) {
         val candidate = file(releaseStoreFile)
         if (candidate.exists()) candidate else rootProject.file(releaseStoreFile)
     } else {
         null
     }
-    val hasReleaseSigning = resolvedKeystoreFile != null &&
-        resolvedKeystoreFile.exists() &&
-        !releaseStorePassword.isNullOrEmpty() &&
-        !releaseKeyAlias.isNullOrEmpty() &&
-        !releaseKeyPassword.isNullOrEmpty()
+    val defaultKeystore = file("cortex-release.keystore")
+    val defaultKeystoreRoot = rootProject.file("app/cortex-release.keystore")
+    val existingDefaultKeystore = when {
+        defaultKeystore.exists() -> defaultKeystore
+        defaultKeystoreRoot.exists() -> defaultKeystoreRoot
+        else -> null
+    }
+
+    val (activeKeystore, activeStorePass, activeAlias, activeKeyPass) = when {
+        resolvedCustomKeystore != null &&
+            resolvedCustomKeystore.exists() &&
+            !releaseStorePassword.isNullOrEmpty() &&
+            !releaseKeyAlias.isNullOrEmpty() &&
+            !releaseKeyPassword.isNullOrEmpty() -> {
+            listOf(resolvedCustomKeystore, releaseStorePassword, releaseKeyAlias, releaseKeyPassword)
+        }
+        existingDefaultKeystore != null -> {
+            listOf(existingDefaultKeystore, "cortexpassword", "cortex", "cortexpassword")
+        }
+        else -> {
+            listOf(null, null, null, null)
+        }
+    }
+    val hasReleaseSigning = activeKeystore != null
 
     val isReleaseTaskRequested = gradle.startParameter.taskNames.any { taskName ->
         taskName.contains("Release", ignoreCase = true) &&
@@ -69,17 +88,19 @@ android {
     }
     if (isReleaseTaskRequested && !hasReleaseSigning) {
         throw GradleException(
-            "Release build requires valid RELEASE_STORE_FILE, RELEASE_STORE_PASSWORD, RELEASE_KEY_ALIAS, and RELEASE_KEY_PASSWORD"
+            "Release build requires either a valid cortex-release.keystore or configured release signing environment variables."
         )
     }
 
     signingConfigs {
         create("release") {
-            if (hasReleaseSigning && resolvedKeystoreFile != null) {
-                storeFile = resolvedKeystoreFile
-                storePassword = releaseStorePassword
-                keyAlias = releaseKeyAlias
-                keyPassword = releaseKeyPassword
+            if (hasReleaseSigning && activeKeystore != null) {
+                storeFile = activeKeystore as java.io.File
+                storePassword = activeStorePass as String
+                keyAlias = activeAlias as String
+                keyPassword = activeKeyPass as String
+            } else {
+                initWith(getByName("debug"))
             }
         }
     }
@@ -92,9 +113,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            if (hasReleaseSigning) {
-                signingConfig = signingConfigs.getByName("release")
-            }
+            signingConfig = signingConfigs.getByName("release")
         }
         debug {
             applicationIdSuffix = ".debug"
