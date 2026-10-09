@@ -65,7 +65,11 @@ object Environment {
             File(root, "usr/lib/libcortex-hook.so"),
             File(root, "lib/libcortex-hook.so")
         )
-        val hookLib = glibcHooks.firstOrNull { it.exists() }
+        var hookLib = glibcHooks.firstOrNull { it.exists() }
+        if (hookLib == null) {
+            BootstrapManager.ensureHookLibrary(context, File(root))
+            hookLib = glibcHooks.firstOrNull { it.exists() }
+        }
         val preloadStr = hookLib?.absolutePath ?: ""
 
         val tz = try {

@@ -524,6 +524,14 @@ static void test_sigsys_and_close_fds(void) {
     ASSERT_EQ(is_handled_sigsys_syscall(423), 0, "423 must not be handled");
     ASSERT_EQ(is_handled_sigsys_syscall(1), 0, "syscall 1 must not be handled");
 
+#if defined(__aarch64__)
+    ASSERT_EQ(is_handled_sigsys_syscall(99), 1, "set_robust_list (99) must be handled on aarch64");
+    ASSERT_EQ(is_handled_sigsys_syscall(146), 1, "setuid (146) must be handled on aarch64");
+    ASSERT_EQ(is_sigsys_synthetic_success_syscall(99), 1, "set_robust_list (99) must succeed synthetically");
+    ASSERT_EQ(is_sigsys_synthetic_success_syscall(146), 1, "setuid (146) must succeed synthetically");
+    ASSERT_EQ(is_sigsys_synthetic_success_syscall(435), 0, "clone3 (435) must not succeed synthetically (-ENOSYS)");
+#endif
+
     int dup_fd = dup(2);
     ASSERT_TRUE(dup_fd >= 3, "dup(2) must return fd >= 3");
     close_all_inherited_fds(dup_fd + 1);

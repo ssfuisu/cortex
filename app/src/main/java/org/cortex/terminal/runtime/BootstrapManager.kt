@@ -849,16 +849,16 @@ object BootstrapManager {
                 }
             }
             if (tmpHook.exists() && tmpHook.length() > 0) {
-                tmpHook.setExecutable(true, true)
-                tmpHook.setReadable(true, true)
+                tmpHook.setExecutable(true, false)
+                tmpHook.setReadable(true, false)
                 tmpHook.setWritable(true, true)
-                try { android.system.Os.chmod(tmpHook.absolutePath, 448) } catch (e: Exception) {}
+                try { android.system.Os.chmod(tmpHook.absolutePath, 493) } catch (e: Exception) {}
 
                 ElfLinkerPatcher.atomicReplace(tmpHook, targetHook)
-                targetHook.setExecutable(true, true)
-                targetHook.setReadable(true, true)
+                targetHook.setExecutable(true, false)
+                targetHook.setReadable(true, false)
                 targetHook.setWritable(true, true)
-                try { android.system.Os.chmod(targetHook.absolutePath, 448) } catch (e: Exception) {}
+                try { android.system.Os.chmod(targetHook.absolutePath, 493) } catch (e: Exception) {}
             }
 
             val libDir = File(root, "lib")
