@@ -266,6 +266,33 @@ static int cortex_emulate_hardlink(const char *rold, const char *rnew) {
         return -1;
     }
 
+    // Clean up stale dangling symlink or stale dead-process lock file at rnew
+#ifndef CORTEX_HOST_TEST
+    static int (*orig_lstat)(const char *, struct stat *) = NULL;
+    if (!orig_lstat) orig_lstat = (int (*)(const char *, struct stat *))dlsym(RTLD_NEXT, "lstat");
+    struct stat lst;
+    if (orig_lstat && orig_lstat(rnew, &lst) == 0) {
+        if (S_ISLNK(lst.st_mode)) {
+            unlink(rnew);
+        } else if (strstr(rnew, ".lock")) {
+            int rfd = open(rnew, O_RDONLY);
+            if (rfd >= 0) {
+                char pbuf[32] = {0};
+                ssize_t pr = read(rfd, pbuf, sizeof(pbuf) - 1);
+                close(rfd);
+                if (pr > 0) {
+                    pid_t lpid = (pid_t)atoi(pbuf);
+                    if (lpid > 0 && kill(lpid, 0) == -1 && errno == ESRCH) {
+                        unlink(rnew);
+                    }
+                } else {
+                    unlink(rnew);
+                }
+            }
+        }
+    }
+#endif
+
     int fd_new = open(rnew, O_WRONLY | O_CREAT | O_EXCL, st.st_mode & 0777);
     if (fd_new < 0) {
         return -1;
@@ -2173,6 +2200,7 @@ static gid_t real_gid(void) {
 
 #ifdef CORTEX_HOST_TEST
 #define CORTEX_NSS_SYM(name) hook_##name
+#define CORTEX_SHADOW_SYM(name) hook_##name
 static int g_test_orig_nss_r_ret = 0;
 static int g_test_orig_nss_r_found = 0;
 
@@ -2202,7 +2230,57 @@ int hook_unlink(const char *path) {
 }
 #else
 #define CORTEX_NSS_SYM(name) name
+#define CORTEX_SHADOW_SYM(name) name
 #endif
+
+// Hook lckpwdf and ulckpwdf (shadow password database locking)
+// In glibc, lckpwdf() attempts to open /etc/.pwd.lock directly using internal syscalls
+// which fails with EROFS on Android because host /etc is mounted read-only.
+static int g_pwd_lock_fd = -1;
+static pthread_mutex_t g_pwd_lock_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+int CORTEX_SHADOW_SYM(lckpwdf)(void) {
+#ifndef CORTEX_HOST_TEST
+    init_cortex_hook();
+    pthread_mutex_lock(&g_pwd_lock_mutex);
+    if (g_pwd_lock_fd != -1) {
+        pthread_mutex_unlock(&g_pwd_lock_mutex);
+        return 0; // Already locked
+    }
+    char buf[PATH_MAX];
+    const char *target = rewrite_path("/etc/.pwd.lock", buf, sizeof(buf));
+    static int (*orig_open)(const char *, int, ...) = NULL;
+    if (!orig_open) orig_open = (int (*)(const char *, int, ...))dlsym(RTLD_NEXT, "open");
+    if (orig_open && target) {
+        g_pwd_lock_fd = orig_open(target, O_WRONLY | O_CREAT | O_CLOEXEC, 0600);
+        if (g_pwd_lock_fd >= 0) {
+            struct flock fl;
+            memset(&fl, 0, sizeof(fl));
+            fl.l_type = F_WRLCK;
+            fl.l_whence = SEEK_SET;
+            fcntl(g_pwd_lock_fd, F_SETLK, &fl);
+        }
+    }
+    if (g_pwd_lock_fd < 0) {
+        g_pwd_lock_fd = -2; // In-memory lock held
+    }
+    pthread_mutex_unlock(&g_pwd_lock_mutex);
+#endif
+    return 0;
+}
+
+int CORTEX_SHADOW_SYM(ulckpwdf)(void) {
+#ifndef CORTEX_HOST_TEST
+    pthread_mutex_lock(&g_pwd_lock_mutex);
+    if (g_pwd_lock_fd >= 0) {
+        close(g_pwd_lock_fd);
+    }
+    g_pwd_lock_fd = -1;
+    pthread_mutex_unlock(&g_pwd_lock_mutex);
+#endif
+    return 0;
+}
+
 
 struct group *CORTEX_NSS_SYM(getgrgid)(gid_t gid) {
 #ifndef CORTEX_HOST_TEST

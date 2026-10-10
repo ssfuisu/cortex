@@ -597,6 +597,10 @@ static void test_hardlink_emulation_and_st_nlink(void) {
     close(fd_b);
 
     ASSERT_EQ(hook_unlink(file_b), 0, "hook_unlink(file_b) must succeed");
+
+    // Test lckpwdf and ulckpwdf hooks for shadow suite locking
+    ASSERT_EQ(hook_lckpwdf(), 0, "hook_lckpwdf() must return 0");
+    ASSERT_EQ(hook_ulckpwdf(), 0, "hook_ulckpwdf() must return 0");
 }
 
 int main(void) {

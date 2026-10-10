@@ -898,7 +898,7 @@ object BootstrapManager {
             if (etcDir.exists() && etcDir.isDirectory) {
                 etcDir.listFiles()?.forEach { file ->
                     val name = file.name
-                    if (name.endsWith(".lock") || name.endsWith("+") || name.endsWith(".tmp")) {
+                    if (name.endsWith(".lock") || name.endsWith("+") || name.endsWith(".tmp") || name.contains(".pwd.lock")) {
                         try {
                             file.deleteRecursively()
                         } catch (e: Exception) {}
@@ -1168,6 +1168,12 @@ object BootstrapManager {
             } else {
                 passwdText = passwdText.replace(Regex("cortex:x:0:0:Cortex:[^:]+:/bin/bash"), "cortex:x:0:0:Cortex:$homePath:/bin/bash")
             }
+            if (!passwdText.contains("_ssh:")) {
+                passwdText += "_ssh:x:100:100:OpenSSH daemon:/run/sshd:/usr/sbin/nologin\n"
+            }
+            if (!passwdText.contains("sshd:")) {
+                passwdText += "sshd:x:101:101:Privilege-separated SSH:/run/sshd:/usr/sbin/nologin\n"
+            }
             passwdFile.writeText(passwdText)
             passwdFile.setReadable(true, false)
             passwdFile.setWritable(true, true)
@@ -1181,10 +1187,38 @@ object BootstrapManager {
             if (!groupText.contains("cortex:")) {
                 groupText += "cortex:x:0:\n"
             }
+            if (!groupText.contains("_ssh:")) {
+                groupText += "_ssh:x:100:\n"
+            }
+            if (!groupText.contains("ssh:")) {
+                groupText += "ssh:x:101:\n"
+            }
             groupFile.writeText(groupText)
             groupFile.setReadable(true, false)
             groupFile.setWritable(true, true)
             try { android.system.Os.chmod(groupFile.absolutePath, 420) } catch (e: Exception) {}
+
+            val shadowFile = File(etcDir, "shadow")
+            var shadowText = if (shadowFile.exists()) shadowFile.readText() else ""
+            if (!shadowText.contains("root:")) shadowText = "root:*:19700:0:99999:7:::\n" + shadowText
+            if (!shadowText.contains("cortex:")) shadowText += "cortex:*:19700:0:99999:7:::\n"
+            if (!shadowText.contains("_ssh:")) shadowText += "_ssh:*:19700:0:99999:7:::\n"
+            if (!shadowText.contains("sshd:")) shadowText += "sshd:*:19700:0:99999:7:::\n"
+            shadowFile.writeText(shadowText)
+            shadowFile.setReadable(true, false)
+            shadowFile.setWritable(true, true)
+            try { android.system.Os.chmod(shadowFile.absolutePath, 420) } catch (e: Exception) {}
+
+            val gshadowFile = File(etcDir, "gshadow")
+            var gshadowText = if (gshadowFile.exists()) gshadowFile.readText() else ""
+            if (!gshadowText.contains("root:")) gshadowText = "root:*::\n" + gshadowText
+            if (!gshadowText.contains("cortex:")) gshadowText += "cortex:*::\n"
+            if (!gshadowText.contains("_ssh:")) gshadowText += "_ssh:*::\n"
+            if (!gshadowText.contains("ssh:")) gshadowText += "ssh:*::\n"
+            gshadowFile.writeText(gshadowText)
+            gshadowFile.setReadable(true, false)
+            gshadowFile.setWritable(true, true)
+            try { android.system.Os.chmod(gshadowFile.absolutePath, 420) } catch (e: Exception) {}
         } catch (e: Exception) {
             Log.e(TAG, "Failed to ensure passwd/group", e)
         }
