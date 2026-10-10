@@ -577,6 +577,13 @@ static void test_hardlink_emulation_and_st_nlink(void) {
     ASSERT_EQ(hook_stat(file_b, &st_b), 0, "hook_stat(file_b) must succeed");
     ASSERT_EQ(st_b.st_nlink, 2, "hook_stat(file_b)->st_nlink must be 2");
 
+    // Repeated stat calls must NEVER deadlock or hang
+    for (int rep = 0; rep < 5; rep++) {
+        struct stat st_rep;
+        ASSERT_EQ(hook_stat(file_b, &st_rep), 0, "repeated hook_stat(file_b) must succeed without deadlock");
+        ASSERT_EQ(st_rep.st_nlink, 2, "repeated hook_stat(file_b)->st_nlink must remain 2");
+    }
+
     // shadow's sequence unlinks file_a, leaving file_b intact
     ASSERT_EQ(hook_unlink(file_a), 0, "hook_unlink(file_a) must succeed");
 

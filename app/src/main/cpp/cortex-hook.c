@@ -30,6 +30,7 @@
 #include <pwd.h>
 #include <grp.h>
 #include <pthread.h>
+#include <sys/sendfile.h>
 
 static int is_sigsys_synthetic_success_syscall(int sys_nr) {
 #if defined(__NR_setuid)
@@ -165,7 +166,12 @@ typedef struct {
 } cortex_hardlink_pair_t;
 
 static cortex_hardlink_pair_t g_hardlinks[CORTEX_MAX_HARDLINKS];
+static int g_active_hardlinks_count = 0;
+#ifdef PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP
+static pthread_mutex_t g_hardlinks_lock = PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP;
+#else
 static pthread_mutex_t g_hardlinks_lock = PTHREAD_MUTEX_INITIALIZER;
+#endif
 
 static int register_emulated_hardlink(const char *p1, const char *p2, ino_t ino1, ino_t ino2) {
     if (!p1 || !p2) return -1;
@@ -186,18 +192,24 @@ static int register_emulated_hardlink(const char *p1, const char *p2, ino_t ino1
     g_hardlinks[slot].path2[PATH_MAX - 1] = '\0';
     g_hardlinks[slot].ino1 = ino1;
     g_hardlinks[slot].ino2 = ino2;
+    if (!g_hardlinks[slot].active) {
+        g_active_hardlinks_count++;
+    }
     g_hardlinks[slot].active = 1;
     pthread_mutex_unlock(&g_hardlinks_lock);
     return 0;
 }
 
 static void unregister_emulated_hardlink(const char *path) {
-    if (!path) return;
+    if (!path || g_active_hardlinks_count <= 0) return;
     pthread_mutex_lock(&g_hardlinks_lock);
     for (int i = 0; i < CORTEX_MAX_HARDLINKS; i++) {
         if (g_hardlinks[i].active) {
             if (strcmp(g_hardlinks[i].path1, path) == 0 || strcmp(g_hardlinks[i].path2, path) == 0) {
                 g_hardlinks[i].active = 0;
+                if (g_active_hardlinks_count > 0) {
+                    g_active_hardlinks_count--;
+                }
             }
         }
     }
@@ -205,6 +217,7 @@ static void unregister_emulated_hardlink(const char *path) {
 }
 
 static int is_emulated_hardlink(const char *path, ino_t ino, ino_t *unified_ino) {
+    if (g_active_hardlinks_count <= 0) return 0;
     if (!path && !ino) return 0;
     int found = 0;
     pthread_mutex_lock(&g_hardlinks_lock);
@@ -217,15 +230,11 @@ static int is_emulated_hardlink(const char *path, ino_t ino, ino_t *unified_ino)
                 match = 1;
             }
             if (match) {
-                if (access(g_hardlinks[i].path1, F_OK) == 0 && access(g_hardlinks[i].path2, F_OK) == 0) {
-                    found = 1;
-                    if (unified_ino) {
-                        *unified_ino = g_hardlinks[i].ino1;
-                    }
-                    break;
-                } else {
-                    g_hardlinks[i].active = 0;
+                found = 1;
+                if (unified_ino) {
+                    *unified_ino = g_hardlinks[i].ino1;
                 }
+                break;
             }
         }
     }
@@ -262,7 +271,7 @@ static int cortex_emulate_hardlink(const char *rold, const char *rnew) {
         return -1;
     }
 
-    int fd_old = open(rold, O_RDONLY);
+    int fd_old = open(rold, O_RDONLY | O_CLOEXEC);
     if (fd_old < 0) {
         int err = errno;
         close(fd_new);
@@ -271,27 +280,47 @@ static int cortex_emulate_hardlink(const char *rold, const char *rnew) {
         return -1;
     }
 
-    char cbuf[16384];
-    ssize_t nread;
+    ssize_t sent = 0;
     int copy_failed = 0;
-    while ((nread = read(fd_old, cbuf, sizeof(cbuf))) > 0) {
-        ssize_t nwritten = 0;
-        while (nwritten < nread) {
-            ssize_t w = write(fd_new, cbuf + nwritten, nread - nwritten);
-            if (w < 0) {
-                copy_failed = 1;
-                break;
-            }
-            nwritten += w;
+    while (sent < st.st_size) {
+        ssize_t s = sendfile(fd_new, fd_old, NULL, (size_t)(st.st_size - sent));
+        if (s > 0) {
+            sent += s;
+        } else {
+            break;
         }
-        if (copy_failed) break;
     }
-    if (nread < 0) copy_failed = 1;
+    if (sent < st.st_size) {
+        char cbuf[16384];
+        ssize_t nread;
+        while ((nread = read(fd_old, cbuf, sizeof(cbuf))) > 0) {
+            ssize_t nwritten = 0;
+            while (nwritten < nread) {
+                ssize_t w = write(fd_new, cbuf + nwritten, nread - nwritten);
+                if (w < 0) {
+                    copy_failed = 1;
+                    break;
+                }
+                nwritten += w;
+            }
+            if (copy_failed) break;
+        }
+        if (nread < 0) copy_failed = 1;
+    }
 
-    close(fd_old);
     fchmod(fd_new, st.st_mode & 0777);
     struct stat st_new;
+    memset(&st_new, 0, sizeof(st_new));
+#ifndef CORTEX_HOST_TEST
+    static int (*orig_fstat)(int, struct stat *) = NULL;
+    if (!orig_fstat) orig_fstat = (int (*)(int, struct stat *))dlsym(RTLD_NEXT, "fstat");
+    if (orig_fstat) orig_fstat(fd_new, &st_new);
+    else fstat(fd_new, &st_new);
+#else
     fstat(fd_new, &st_new);
+#endif
+
+    close(fd_old);
     close(fd_new);
 
     if (copy_failed) {
@@ -1864,8 +1893,35 @@ int linkat(int olddirfd, const char *oldpath, int newdirfd, const char *newpath,
             snprintf(new_full, sizeof(new_full), "/proc/self/fd/%d/%s", newdirfd, rnew);
             p_new = new_full;
         }
-        if (p_old && p_new) {
-            ret = cortex_emulate_hardlink(p_old, p_new);
+        // Shadow lock files (e.g. /etc/group.lock, /etc/passwd.lock, or files ending in .lock)
+        // require atomic regular file creation with O_CREAT | O_EXCL and st_nlink == 2 emulation.
+        // General package files (like dpkg extracting archives) use fast symlink fallback.
+        int is_lock = 0;
+        if ((newpath && strstr(newpath, ".lock")) || (oldpath && strstr(oldpath, ".lock")) ||
+            (rnew && strstr(rnew, ".lock")) || (rold && strstr(rold, ".lock"))) {
+            is_lock = 1;
+        } else if ((newpath && strstr(newpath, "/etc/group")) || (oldpath && strstr(oldpath, "/etc/group")) ||
+                   (newpath && strstr(newpath, "/etc/passwd")) || (oldpath && strstr(oldpath, "/etc/passwd")) ||
+                   (newpath && strstr(newpath, "/etc/shadow")) || (oldpath && strstr(oldpath, "/etc/shadow")) ||
+                   (rnew && strstr(rnew, "/etc/group")) || (rold && strstr(rold, "/etc/group")) ||
+                   (rnew && strstr(rnew, "/etc/passwd")) || (rold && strstr(rold, "/etc/passwd")) ||
+                   (rnew && strstr(rnew, "/etc/shadow")) || (rold && strstr(rold, "/etc/shadow"))) {
+            is_lock = 1;
+        }
+
+        if (is_lock) {
+            if (p_old && p_new) {
+                ret = cortex_emulate_hardlink(p_old, p_new);
+            }
+        } else {
+            static int (*orig_symlinkat)(const char *, int, const char *) = NULL;
+            if (!orig_symlinkat) orig_symlinkat = (int (*)(const char *, int, const char *))dlsym(RTLD_NEXT, "symlinkat");
+            if (orig_symlinkat) {
+                ret = orig_symlinkat(rold, newdirfd, rnew);
+            }
+            if (ret != 0 && p_old && p_new) {
+                ret = cortex_emulate_hardlink(p_old, p_new);
+            }
         }
     }
     return ret;
