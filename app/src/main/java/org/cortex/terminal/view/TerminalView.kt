@@ -208,6 +208,9 @@ class TerminalView @JvmOverloads constructor(
     var scrollOffset = 0
         private set
 
+    val historySize: Int
+        get() = session?.emulator?.buffer?.history?.size ?: 0
+
     var onModifiersChanged: (() -> Unit)? = null
 
     // ---- Terminal text search (Ctrl+F style) ----
