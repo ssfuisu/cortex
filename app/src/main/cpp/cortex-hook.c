@@ -242,23 +242,23 @@ static int is_emulated_hardlink(const char *path, ino_t ino, ino_t *unified_ino)
     return found;
 }
 
-static int cortex_emulate_hardlink(const char *rold, const char *rnew) {
+static int cortex_emulate_hardlinkat(int olddirfd, const char *rold, int newdirfd, const char *rnew) {
     if (!rold || !rnew) {
         errno = EINVAL;
         return -1;
     }
     struct stat st;
 #ifdef CORTEX_HOST_TEST
-    if (stat(rold, &st) != 0) {
+    if (fstatat(olddirfd, rold, &st, 0) != 0) {
         return -1;
     }
 #else
     static int (*orig_fstatat)(int, const char *, struct stat *, int) = NULL;
     if (!orig_fstatat) orig_fstatat = (int (*)(int, const char *, struct stat *, int))dlsym(RTLD_NEXT, "fstatat");
     if (orig_fstatat) {
-        if (orig_fstatat(AT_FDCWD, rold, &st, 0) != 0) return -1;
+        if (orig_fstatat(olddirfd, rold, &st, 0) != 0) return -1;
     } else {
-        if (stat(rold, &st) != 0) return -1;
+        if (fstatat(olddirfd, rold, &st, 0) != 0) return -1;
     }
 #endif
     if (S_ISDIR(st.st_mode)) {
@@ -268,14 +268,21 @@ static int cortex_emulate_hardlink(const char *rold, const char *rnew) {
 
     // Clean up stale dangling symlink or stale dead-process lock file at rnew
 #ifndef CORTEX_HOST_TEST
-    static int (*orig_lstat)(const char *, struct stat *) = NULL;
-    if (!orig_lstat) orig_lstat = (int (*)(const char *, struct stat *))dlsym(RTLD_NEXT, "lstat");
     struct stat lst;
-    if (orig_lstat && orig_lstat(rnew, &lst) == 0) {
+    int have_lst = 0;
+    if (orig_fstatat) {
+        if (orig_fstatat(newdirfd, rnew, &lst, AT_SYMLINK_NOFOLLOW) == 0) have_lst = 1;
+    } else {
+        if (fstatat(newdirfd, rnew, &lst, AT_SYMLINK_NOFOLLOW) == 0) have_lst = 1;
+    }
+    if (have_lst) {
         if (S_ISLNK(lst.st_mode)) {
-            unlink(rnew);
+            unlinkat(newdirfd, rnew, 0);
         } else if (strstr(rnew, ".lock")) {
-            int rfd = open(rnew, O_RDONLY);
+            static int (*orig_openat)(int, const char *, int, ...) = NULL;
+            if (!orig_openat) orig_openat = (int (*)(int, const char *, int, ...))dlsym(RTLD_NEXT, "openat");
+            int rfd = orig_openat ? orig_openat(newdirfd, rnew, O_RDONLY | O_CLOEXEC)
+                                  : openat(newdirfd, rnew, O_RDONLY | O_CLOEXEC);
             if (rfd >= 0) {
                 char pbuf[32] = {0};
                 ssize_t pr = read(rfd, pbuf, sizeof(pbuf) - 1);
@@ -283,26 +290,33 @@ static int cortex_emulate_hardlink(const char *rold, const char *rnew) {
                 if (pr > 0) {
                     pid_t lpid = (pid_t)atoi(pbuf);
                     if (lpid > 0 && kill(lpid, 0) == -1 && errno == ESRCH) {
-                        unlink(rnew);
+                        unlinkat(newdirfd, rnew, 0);
                     }
                 } else {
-                    unlink(rnew);
+                    unlinkat(newdirfd, rnew, 0);
                 }
             }
         }
     }
 #endif
 
-    int fd_new = open(rnew, O_WRONLY | O_CREAT | O_EXCL, st.st_mode & 0777);
-    if (fd_new < 0) {
-        return -1;
-    }
-
-    int fd_old = open(rold, O_RDONLY | O_CLOEXEC);
+#ifdef CORTEX_HOST_TEST
+    int fd_new = openat(newdirfd, rnew, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, st.st_mode & 0777);
+    if (fd_new < 0) return -1;
+    int fd_old = openat(olddirfd, rold, O_RDONLY | O_CLOEXEC);
+#else
+    static int (*orig_openat)(int, const char *, int, ...) = NULL;
+    if (!orig_openat) orig_openat = (int (*)(int, const char *, int, ...))dlsym(RTLD_NEXT, "openat");
+    int fd_new = orig_openat ? orig_openat(newdirfd, rnew, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, st.st_mode & 0777)
+                             : openat(newdirfd, rnew, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, st.st_mode & 0777);
+    if (fd_new < 0) return -1;
+    int fd_old = orig_openat ? orig_openat(olddirfd, rold, O_RDONLY | O_CLOEXEC)
+                             : openat(olddirfd, rold, O_RDONLY | O_CLOEXEC);
+#endif
     if (fd_old < 0) {
         int err = errno;
         close(fd_new);
-        unlink(rnew);
+        unlinkat(newdirfd, rnew, 0);
         errno = err;
         return -1;
     }
@@ -351,13 +365,17 @@ static int cortex_emulate_hardlink(const char *rold, const char *rnew) {
     close(fd_new);
 
     if (copy_failed) {
-        unlink(rnew);
+        unlinkat(newdirfd, rnew, 0);
         errno = EIO;
         return -1;
     }
 
     register_emulated_hardlink(rold, rnew, st.st_ino, st_new.st_ino);
     return 0;
+}
+
+static inline int cortex_emulate_hardlink(const char *rold, const char *rnew) {
+    return cortex_emulate_hardlinkat(AT_FDCWD, rold, AT_FDCWD, rnew);
 }
 
 #ifndef CORTEX_HOST_TEST
@@ -1909,47 +1927,7 @@ int linkat(int olddirfd, const char *oldpath, int newdirfd, const char *newpath,
     const char *rnew = (newpath && newpath[0] == '/') ? rewrite_path(newpath, nbuf, sizeof(nbuf)) : newpath;
     int ret = orig_linkat ? orig_linkat(olddirfd, rold, newdirfd, rnew, flags) : -1;
     if (ret != 0 && (errno == EXDEV || errno == EPERM || errno == EACCES || errno == ENOTSUP || errno == ENOSYS)) {
-        char old_full[PATH_MAX], new_full[PATH_MAX];
-        const char *p_old = rold;
-        const char *p_new = rnew;
-        if (rold && rold[0] != '/' && olddirfd != AT_FDCWD) {
-            snprintf(old_full, sizeof(old_full), "/proc/self/fd/%d/%s", olddirfd, rold);
-            p_old = old_full;
-        }
-        if (rnew && rnew[0] != '/' && newdirfd != AT_FDCWD) {
-            snprintf(new_full, sizeof(new_full), "/proc/self/fd/%d/%s", newdirfd, rnew);
-            p_new = new_full;
-        }
-        // Shadow lock files (e.g. /etc/group.lock, /etc/passwd.lock, or files ending in .lock)
-        // require atomic regular file creation with O_CREAT | O_EXCL and st_nlink == 2 emulation.
-        // General package files (like dpkg extracting archives) use fast symlink fallback.
-        int is_lock = 0;
-        if ((newpath && strstr(newpath, ".lock")) || (oldpath && strstr(oldpath, ".lock")) ||
-            (rnew && strstr(rnew, ".lock")) || (rold && strstr(rold, ".lock"))) {
-            is_lock = 1;
-        } else if ((newpath && strstr(newpath, "/etc/group")) || (oldpath && strstr(oldpath, "/etc/group")) ||
-                   (newpath && strstr(newpath, "/etc/passwd")) || (oldpath && strstr(oldpath, "/etc/passwd")) ||
-                   (newpath && strstr(newpath, "/etc/shadow")) || (oldpath && strstr(oldpath, "/etc/shadow")) ||
-                   (rnew && strstr(rnew, "/etc/group")) || (rold && strstr(rold, "/etc/group")) ||
-                   (rnew && strstr(rnew, "/etc/passwd")) || (rold && strstr(rold, "/etc/passwd")) ||
-                   (rnew && strstr(rnew, "/etc/shadow")) || (rold && strstr(rold, "/etc/shadow"))) {
-            is_lock = 1;
-        }
-
-        if (is_lock) {
-            if (p_old && p_new) {
-                ret = cortex_emulate_hardlink(p_old, p_new);
-            }
-        } else {
-            static int (*orig_symlinkat)(const char *, int, const char *) = NULL;
-            if (!orig_symlinkat) orig_symlinkat = (int (*)(const char *, int, const char *))dlsym(RTLD_NEXT, "symlinkat");
-            if (orig_symlinkat) {
-                ret = orig_symlinkat(rold, newdirfd, rnew);
-            }
-            if (ret != 0 && p_old && p_new) {
-                ret = cortex_emulate_hardlink(p_old, p_new);
-            }
-        }
+        ret = cortex_emulate_hardlinkat(olddirfd, rold, newdirfd, rnew);
     }
     return ret;
 }
@@ -2208,6 +2186,14 @@ int hook_link(const char *oldpath, const char *newpath) {
     int ret = link(oldpath, newpath);
     if (ret != 0 && (errno == EXDEV || errno == EPERM || errno == EACCES || errno == ENOTSUP || errno == ENOSYS)) {
         ret = cortex_emulate_hardlink(oldpath, newpath);
+    }
+    return ret;
+}
+
+int hook_linkat(int olddirfd, const char *oldpath, int newdirfd, const char *newpath, int flags) {
+    int ret = linkat(olddirfd, oldpath, newdirfd, newpath, flags);
+    if (ret != 0 && (errno == EXDEV || errno == EPERM || errno == EACCES || errno == ENOTSUP || errno == ENOSYS)) {
+        ret = cortex_emulate_hardlinkat(olddirfd, oldpath, newdirfd, newpath);
     }
     return ret;
 }

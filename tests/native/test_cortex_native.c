@@ -607,6 +607,42 @@ static void test_hardlink_emulation_and_st_nlink(void) {
 
     ASSERT_EQ(hook_unlink(file_b), 0, "hook_unlink(file_b) must succeed");
 
+    // Test git-clone style linkat (loose objects: tmp_obj -> real_obj, then unlink tmp_obj)
+    char dir_objs[PATH_MAX], tmp_obj[PATH_MAX], real_obj[PATH_MAX];
+    snprintf(dir_objs, sizeof(dir_objs), "%s/cortex_git_test_%d", tmp, getpid());
+    mkdir(dir_objs, 0700);
+    snprintf(tmp_obj, sizeof(tmp_obj), "%s/tmp_obj_%d", dir_objs, getpid());
+    snprintf(real_obj, sizeof(real_obj), "%s/real_obj_%d", dir_objs, getpid());
+    int fd_tmp = open(tmp_obj, O_CREAT | O_WRONLY | O_TRUNC, 0644);
+    ASSERT_TRUE(fd_tmp >= 0, "open tmp_obj must succeed");
+    const char *git_blob = "blob 14\0hello world 123";
+    write(fd_tmp, git_blob, 23);
+    close(fd_tmp);
+
+    int dirfd = open(dir_objs, O_RDONLY | O_DIRECTORY);
+    ASSERT_TRUE(dirfd >= 0, "open dir_objs must succeed");
+    char base_tmp[64], base_real[64];
+    snprintf(base_tmp, sizeof(base_tmp), "tmp_obj_%d", getpid());
+    snprintf(base_real, sizeof(base_real), "real_obj_%d", getpid());
+
+    int lres_at = hook_linkat(dirfd, base_tmp, dirfd, base_real, 0);
+    ASSERT_EQ(lres_at, 0, "hook_linkat with dirfd must succeed");
+    close(dirfd);
+
+    // Git immediately unlinks the temporary object
+    ASSERT_EQ(hook_unlink(tmp_obj), 0, "unlinking tmp_obj must succeed");
+
+    // Real object must be intact, NOT a dangling symlink!
+    int fd_real = open(real_obj, O_RDONLY);
+    ASSERT_TRUE(fd_real >= 0, "open real_obj after unlinking tmp_obj must succeed (not dangling symlink)");
+    char git_read[32] = {0};
+    ssize_t gnr = read(fd_real, git_read, sizeof(git_read));
+    ASSERT_EQ(gnr, 23, "read from real_obj must match git blob length");
+    ASSERT_EQ(memcmp(git_read, git_blob, 23), 0, "git blob data must match perfectly");
+    close(fd_real);
+    hook_unlink(real_obj);
+    rmdir(dir_objs);
+
     // Test lckpwdf and ulckpwdf hooks for shadow suite locking
     ASSERT_EQ(hook_lckpwdf(), 0, "hook_lckpwdf() must return 0");
     ASSERT_EQ(hook_ulckpwdf(), 0, "hook_ulckpwdf() must return 0");

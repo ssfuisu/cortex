@@ -94,7 +94,7 @@ jobs:
         id: cache-hook
         with:
           path: hook-libs
-          key: cortex-hook-${{ hashFiles('app/src/main/cpp/cortex-hook.c', '.github/workflows/build-release.yml') }}
+          key: cortex-hook-${{ hashFiles('app/src/main/cpp/cortex-hook.c', 'app/src/main/cpp/cortex-xdg-open.c', '.github/workflows/build-release.yml') }}
 
       - name: Build Glibc cortex-hook Libraries
         if: steps.cache-hook.outputs.cache-hit != 'true'
@@ -105,6 +105,8 @@ jobs:
           mkdir -p hook-libs
           aarch64-linux-gnu-gcc -std=gnu11 -shared -fPIC -O3 -Wall -Wno-nonnull-compare -Wl,-z,max-page-size=16384 -o hook-libs/libcortex-hook-arm64.so app/src/main/cpp/cortex-hook.c -ldl
           arm-linux-gnueabihf-gcc -std=gnu11 -shared -fPIC -O3 -Wall -Wno-nonnull-compare -Wl,-z,max-page-size=16384 -o hook-libs/libcortex-hook-arm.so app/src/main/cpp/cortex-hook.c -ldl
+          aarch64-linux-gnu-gcc -std=gnu11 -static -O3 -Wall -o hook-libs/xdg-open-arm64 app/src/main/cpp/cortex-xdg-open.c
+          arm-linux-gnueabihf-gcc -std=gnu11 -static -O3 -Wall -o hook-libs/xdg-open-arm app/src/main/cpp/cortex-xdg-open.c
 
           echo "Verifying 16 KB page alignment of LOAD segments in libcortex-hook-arm64.so..."
           python3 - << 'EOF'
@@ -160,6 +162,8 @@ jobs:
 
           cp hook-libs/libcortex-hook-arm64.so app/src/main/assets/libcortex-hook-arm64.so
           cp hook-libs/libcortex-hook-arm.so app/src/main/assets/libcortex-hook-arm.so
+          cp hook-libs/xdg-open-arm64 app/src/main/assets/xdg-open-arm64
+          cp hook-libs/xdg-open-arm app/src/main/assets/xdg-open-arm
 
           if [ "$CACHE_HIT" = "true" ] && [ -f app/src/main/assets/bootstrap-arm64.tar.gz ] && [ -f app/src/main/assets/bootstrap-arm.tar.gz ]; then
             echo "Using cached pre-built Ubuntu bootstrap archives. Skipping rootfs generation."
@@ -383,7 +387,7 @@ jobs:
 
           # 1. Strip opposite arch assets from 64-bit APK to minimize download size
           echo "Optimizing 64-bit APK size: stripping 32-bit assets..."
-          zip -d "$ARM64_RAW" "assets/bootstrap-arm.tar*" "assets/libcortex-hook-arm.so" || true
+          zip -d "$ARM64_RAW" "assets/bootstrap-arm.tar*" "assets/libcortex-hook-arm.so" "assets/xdg-open-arm" || true
           $ZIPALIGN -f -p 4 "$ARM64_RAW" release-apks/arm64-aligned.apk
           $APKSIGNER sign \
             --ks "$KS_FILE" \
@@ -396,7 +400,7 @@ jobs:
 
           # 2. Strip opposite arch assets from 32-bit APK to minimize download size
           echo "Optimizing 32-bit APK size: stripping 64-bit assets..."
-          zip -d "$ARM32_RAW" "assets/bootstrap-arm64.tar*" "assets/libcortex-hook-arm64.so" || true
+          zip -d "$ARM32_RAW" "assets/bootstrap-arm64.tar*" "assets/libcortex-hook-arm64.so" "assets/xdg-open-arm64" || true
           $ZIPALIGN -f -p 4 "$ARM32_RAW" release-apks/arm32-aligned.apk
           $APKSIGNER sign \
             --ks "$KS_FILE" \

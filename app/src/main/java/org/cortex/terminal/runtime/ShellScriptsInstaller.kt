@@ -1,6 +1,7 @@
 package org.cortex.terminal.runtime
 
 import android.content.Context
+import android.os.Build
 import android.system.Os
 import android.util.Log
 import java.io.File
@@ -135,15 +136,39 @@ object ShellScriptsInstaller {
             }
 
             try {
-                val xdgOpenScript = loadAssetScript(context, "xdg-open.sh", "#!/bin/sh\n")
+                val is64 = Build.SUPPORTED_ABIS.any { it.contains("64") }
+                val xdgBinaryAsset = if (is64) "xdg-open-arm64" else "xdg-open-arm"
                 val xdgOpenFile = File(localBin, "xdg-open")
-                xdgOpenFile.writeText(xdgOpenScript)
-                xdgOpenFile.setReadable(true, false)
-                xdgOpenFile.setWritable(true, true)
-                xdgOpenFile.setExecutable(true, false)
-                try { Os.chmod(xdgOpenFile.absolutePath, 493) } catch (_: Exception) {} // 0755
+                var installedBinary = false
+
+                if (context != null) {
+                    try {
+                        context.assets.open(xdgBinaryAsset).use { input ->
+                            val tmp = File(localBin, "xdg-open.tmp")
+                            tmp.outputStream().use { output -> input.copyTo(output) }
+                            tmp.setReadable(true, false)
+                            tmp.setWritable(true, true)
+                            tmp.setExecutable(true, false)
+                            try { Os.chmod(tmp.absolutePath, 493) } catch (_: Exception) {}
+                            if (tmp.renameTo(xdgOpenFile) || (xdgOpenFile.delete() && tmp.renameTo(xdgOpenFile))) {
+                                installedBinary = true
+                            }
+                        }
+                    } catch (_: Exception) {
+                        // Fall back to script if asset binary not found
+                    }
+                }
+
+                if (!installedBinary) {
+                    val xdgOpenScript = loadAssetScript(context, "xdg-open.sh", "#!/bin/sh\n")
+                    xdgOpenFile.writeText(xdgOpenScript)
+                    xdgOpenFile.setReadable(true, false)
+                    xdgOpenFile.setWritable(true, true)
+                    xdgOpenFile.setExecutable(true, false)
+                    try { Os.chmod(xdgOpenFile.absolutePath, 493) } catch (_: Exception) {} // 0755
+                }
             } catch (e: Exception) {
-                Log.e(TAG, "Skipping xdg-open script install: ${e.message}")
+                Log.e(TAG, "Skipping xdg-open install: ${e.message}")
             }
 
             val browserAliases = listOf(
@@ -166,25 +191,42 @@ object ShellScriptsInstaller {
 
             for (alias in browserAliases) {
                 val aliasFile = File(localBin, alias)
-                aliasFile.writeText(wrapperScript)
-                aliasFile.setReadable(true, false)
-                aliasFile.setWritable(true, true)
-                aliasFile.setExecutable(true, false)
-                try { Os.chmod(aliasFile.absolutePath, 493) } catch (_: Exception) {} // 0755
+                var linked = false
+                try {
+                    aliasFile.delete()
+                    Os.symlink("xdg-open", aliasFile.absolutePath)
+                    linked = true
+                } catch (_: Exception) {}
+
+                if (!linked) {
+                    aliasFile.writeText(wrapperScript)
+                    aliasFile.setReadable(true, false)
+                    aliasFile.setWritable(true, true)
+                    aliasFile.setExecutable(true, false)
+                    try { Os.chmod(aliasFile.absolutePath, 493) } catch (_: Exception) {} // 0755
+                }
             }
 
-            // Also mirror xdg-open and termux openers into /usr/bin if /usr/bin exists
+            // Also mirror xdg-open and browser openers into /usr/bin if /usr/bin exists
             val usrBin = File(root, "usr/bin")
             if (usrBin.exists() && usrBin.isDirectory) {
-                val extraBins = listOf("xdg-open", "termux-open", "termux-open-url")
+                val extraBins = listOf("xdg-open", "termux-open", "termux-open-url", "sensible-browser", "x-www-browser")
                 for (bname in extraBins) {
                     val bFile = File(usrBin, bname)
                     if (!bFile.exists()) {
-                        bFile.writeText(wrapperScript)
-                        bFile.setReadable(true, false)
-                        bFile.setWritable(true, true)
-                        bFile.setExecutable(true, false)
-                        try { Os.chmod(bFile.absolutePath, 493) } catch (_: Exception) {}
+                        var linked = false
+                        try {
+                            Os.symlink("/usr/local/bin/xdg-open", bFile.absolutePath)
+                            linked = true
+                        } catch (_: Exception) {}
+
+                        if (!linked) {
+                            bFile.writeText(wrapperScript)
+                            bFile.setReadable(true, false)
+                            bFile.setWritable(true, true)
+                            bFile.setExecutable(true, false)
+                            try { Os.chmod(bFile.absolutePath, 493) } catch (_: Exception) {}
+                        }
                     }
                 }
             }

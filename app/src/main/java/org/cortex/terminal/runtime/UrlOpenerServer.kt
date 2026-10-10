@@ -1,8 +1,13 @@
 package org.cortex.terminal.runtime
 
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -467,64 +472,143 @@ object UrlOpenerServer {
             mainHandler?.post {
                 val launchContext = org.cortex.terminal.MainActivity.instance ?: context
 
-                // 1. Try system default browser / handler first
+                // 1. Always post a high-priority heads-up Notification with PendingIntent.
+                // This guarantees that MIUI / Android 10+ background activity restrictions,
+                // locked keyguards, or screen-off conditions will NOT silently drop the URL.
+                try {
+                    showUrlNotification(context, cleanUrl, uri)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to post URL notification", e)
+                }
+
+                // 2. Try system default browser / handler first
+                var started = false
                 try {
                     val defaultIntent = Intent(Intent.ACTION_VIEW, uri).apply {
                         addCategory(Intent.CATEGORY_BROWSABLE)
                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
                     }
                     launchContext.startActivity(defaultIntent)
-                    return@post
+                    started = true
                 } catch (e: Exception) {
                     Log.w(TAG, "Default browser launch failed for $cleanUrl", e)
                 }
 
-                // 2. Try explicit popular browser packages
-                val pm = launchContext.packageManager
-                val browserPackages = listOf(
-                    "com.android.chrome",
-                    "com.chrome.beta",
-                    "com.chrome.dev",
-                    "com.chrome.canary",
-                    "org.mozilla.firefox",
-                    "com.brave.browser",
-                    "com.opera.browser",
-                    "com.microsoft.emmx",
-                    "com.sec.android.app.sbrowser"
-                )
+                // 3. Try explicit popular browser packages
+                if (!started) {
+                    val pm = launchContext.packageManager
+                    val browserPackages = listOf(
+                        "com.android.chrome",
+                        "com.chrome.beta",
+                        "com.chrome.dev",
+                        "com.chrome.canary",
+                        "org.mozilla.firefox",
+                        "com.brave.browser",
+                        "com.opera.browser",
+                        "com.microsoft.emmx",
+                        "com.sec.android.app.sbrowser"
+                    )
 
-                for (pkg in browserPackages) {
-                    try {
-                        pm.getPackageInfo(pkg, 0)
-                        val intent = Intent(Intent.ACTION_VIEW, uri).apply {
-                            setPackage(pkg)
-                            addCategory(Intent.CATEGORY_BROWSABLE)
-                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                    for (pkg in browserPackages) {
+                        try {
+                            pm.getPackageInfo(pkg, 0)
+                            val intent = Intent(Intent.ACTION_VIEW, uri).apply {
+                                setPackage(pkg)
+                                addCategory(Intent.CATEGORY_BROWSABLE)
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                            }
+                            launchContext.startActivity(intent)
+                            started = true
+                            break
+                        } catch (e: Exception) {
+                            // Try next browser
                         }
-                        launchContext.startActivity(intent)
-                        return@post
-                    } catch (e: Exception) {
-                        // Try next browser
                     }
                 }
 
-                // 3. Fallback to system chooser
-                try {
-                    val fallbackIntent = Intent.createChooser(
-                        Intent(Intent.ACTION_VIEW, uri).apply {
-                            addCategory(Intent.CATEGORY_BROWSABLE)
+                // 4. Fallback to system chooser
+                if (!started) {
+                    try {
+                        val fallbackIntent = Intent.createChooser(
+                            Intent(Intent.ACTION_VIEW, uri).apply {
+                                addCategory(Intent.CATEGORY_BROWSABLE)
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                            },
+                            null
+                        ).apply {
                             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                        },
-                        null
-                    ).apply {
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                        }
+                        launchContext.startActivity(fallbackIntent)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to launch default browser for $cleanUrl", e)
                     }
-                    launchContext.startActivity(fallbackIntent)
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to launch default browser for $cleanUrl", e)
                 }
             }
         }
         return true
+    }
+
+    private const val NOTIFICATION_CHANNEL_ID = "cortex_url_channel"
+    private const val URL_NOTIFICATION_ID = 47150
+
+    private fun showUrlNotification(context: Context, cleanUrl: String, uri: Uri) {
+        val appContext = context.applicationContext ?: context
+        val nm = appContext.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                NOTIFICATION_CHANNEL_ID,
+                "Browser Links",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Notifications to open web links from terminal CLI tools"
+                setShowBadge(true)
+            }
+            nm.createNotificationChannel(channel)
+        }
+
+        val viewIntent = Intent(Intent.ACTION_VIEW, uri).apply {
+            addCategory(Intent.CATEGORY_BROWSABLE)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        }
+        val flagImmutable = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        } else {
+            PendingIntent.FLAG_UPDATE_CURRENT
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            appContext,
+            (System.currentTimeMillis() % 10000).toInt(),
+            viewIntent,
+            flagImmutable
+        )
+
+        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            Notification.Builder(appContext, NOTIFICATION_CHANNEL_ID)
+        } else {
+            @Suppress("DEPRECATION")
+            Notification.Builder(appContext)
+        }
+
+        builder.setContentTitle("Open in Browser")
+            .setContentText(cleanUrl)
+            .setSmallIcon(org.cortex.terminal.R.drawable.ic_notification)
+            .setContentIntent(pendingIntent)
+            .setAutoCancel(true)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            builder.setPriority(Notification.PRIORITY_HIGH)
+                .setVisibility(Notification.VISIBILITY_PUBLIC)
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT_WATCH) {
+            builder.addAction(
+                Notification.Action.Builder(0, "Open", pendingIntent).build()
+            )
+        } else {
+            @Suppress("DEPRECATION")
+            builder.addAction(0, "Open", pendingIntent)
+        }
+
+        nm.notify(URL_NOTIFICATION_ID, builder.build())
     }
 }
