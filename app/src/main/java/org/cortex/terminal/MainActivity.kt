@@ -144,13 +144,17 @@ class MainActivity : AppCompatActivity() {
         searchBar.onClose = { terminalView.clearSearch() }
         terminalView.onSearchChanged = { _, index, total -> searchBar.updateCount(index, total) }
 
-        // ---- Clickable URLs -> Android browser (reuses UrlOpenerServer bridge) ----
+        // ---- Clickable URLs -> Copy to clipboard ----
         terminalView.onUrlTapped = { url ->
-            val opened = org.cortex.terminal.runtime.UrlOpenerServer.openUrlInBrowser(this, url)
-            if (opened) {
-                Toast.makeText(this, "Opening: $url", Toast.LENGTH_SHORT).show()
-            } else {
-                Toast.makeText(this, "Unable to open: $url", Toast.LENGTH_SHORT).show()
+            try {
+                val clipboard = getSystemService(android.content.Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
+                if (clipboard != null) {
+                    val clip = android.content.ClipData.newPlainText("URL", url)
+                    clipboard.setPrimaryClip(clip)
+                    Toast.makeText(this, "Copied URL: $url", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                Toast.makeText(this, url, Toast.LENGTH_SHORT).show()
             }
         }
 
@@ -161,8 +165,7 @@ class MainActivity : AppCompatActivity() {
 
         instance = this
         // Start foreground service FIRST so the 5s startForeground() ANR
-        // window starts ticking while the UI keeps initializing. All
-        // UrlOpener bootstrap/file I/O below was moved off the main thread.
+        // window starts ticking while the UI keeps initializing.
         try {
             CortexService.start(this)
         } catch (e: Exception) {
@@ -274,7 +277,6 @@ class MainActivity : AppCompatActivity() {
         // stalls onCreate, delays the first frame, and on slow devices can
         // push the CortexService foreground promotion past the 5s ANR window —
         // exactly the blank-screen + ANR kill reported in issue #1.
-        org.cortex.terminal.runtime.UrlOpenerServer.start(this)
         kotlin.concurrent.thread(name = "Cortex-StartupMaintenance") {
             try {
                 BootstrapManager.updateDnsConfiguration(this@MainActivity, root)

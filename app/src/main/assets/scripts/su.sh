@@ -165,8 +165,6 @@ fi
 CERT_FILE="$CORTEX_ROOT/etc/ssl/certs/ca-certificates.crt"
 CERT_DIR="$CORTEX_ROOT/etc/ssl/certs:/system/etc/security/cacerts"
 CURRENT_DIR="$PWD"
-CORTEX_URL_PORT="${CORTEX_URL_PORT:-4715}"
-CORTEX_URL_TOKEN="${CORTEX_URL_TOKEN:-}"
 
 ENV_SETUP="export CORTEX_ROOT=$(sq "$CORTEX_ROOT"); \
 export PATH=$(sq "$CORTEX_PATH"); \
@@ -190,12 +188,7 @@ export TERMINFO=$(sq "$CORTEX_ROOT/usr/share/terminfo"); \
 export TERMINFO_DIRS=$(sq "$CORTEX_ROOT/usr/share/terminfo:$CORTEX_ROOT/lib/terminfo:$CORTEX_ROOT/etc/terminfo:/usr/share/terminfo"); \
 export GODEBUG='netdns=cgo'; \
 export BROWSER='/usr/local/bin/xdg-open'; \
-export CORTEX_URL_PORT=$(sq "$CORTEX_URL_PORT"); \
 export PS1='\[\033[01;31m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]# ';"
-
-if [ -n "$CORTEX_URL_TOKEN" ]; then
-    ENV_SETUP="$ENV_SETUP export CORTEX_URL_TOKEN=$(sq "$CORTEX_URL_TOKEN");"
-fi
 
 if [ -n "$HOOK_LIB" ]; then
     ENV_SETUP="$ENV_SETUP export LD_PRELOAD=$(sq "$HOOK_LIB");"

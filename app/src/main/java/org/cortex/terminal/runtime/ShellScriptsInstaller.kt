@@ -135,38 +135,25 @@ object ShellScriptsInstaller {
                 }
             }
 
+            // Remove legacy cortex_url_token if present
             try {
-                val is64 = Build.SUPPORTED_ABIS.any { it.contains("64") }
-                val xdgBinaryAsset = if (is64) "xdg-open-arm64" else "xdg-open-arm"
-                val xdgOpenFile = File(localBin, "xdg-open")
-                var installedBinary = false
+                File(root, "etc/cortex_url_token").delete()
+            } catch (_: Exception) {}
 
-                if (context != null) {
-                    try {
-                        context.assets.open(xdgBinaryAsset).use { input ->
-                            val tmp = File(localBin, "xdg-open.tmp")
-                            tmp.outputStream().use { output -> input.copyTo(output) }
-                            tmp.setReadable(true, false)
-                            tmp.setWritable(true, true)
-                            tmp.setExecutable(true, false)
-                            try { Os.chmod(tmp.absolutePath, 493) } catch (_: Exception) {}
-                            if (tmp.renameTo(xdgOpenFile) || (xdgOpenFile.delete() && tmp.renameTo(xdgOpenFile))) {
-                                installedBinary = true
-                            }
-                        }
-                    } catch (_: Exception) {
-                        // Fall back to script if asset binary not found
-                    }
-                }
+            val xdgOpenFile = File(localBin, "xdg-open")
+            val simpleXdgOpenScript = "#!/bin/sh\n" +
+                "if [ \$# -gt 0 ]; then\n" +
+                "    echo \"To open this URL, copy and paste it into your browser:\"\n" +
+                "    echo \"\$1\"\n" +
+                "fi\n" +
+                "exit 0\n"
 
-                if (!installedBinary) {
-                    val xdgOpenScript = loadAssetScript(context, "xdg-open.sh", "#!/bin/sh\n")
-                    xdgOpenFile.writeText(xdgOpenScript)
-                    xdgOpenFile.setReadable(true, false)
-                    xdgOpenFile.setWritable(true, true)
-                    xdgOpenFile.setExecutable(true, false)
-                    try { Os.chmod(xdgOpenFile.absolutePath, 493) } catch (_: Exception) {} // 0755
-                }
+            try {
+                xdgOpenFile.writeText(simpleXdgOpenScript)
+                xdgOpenFile.setReadable(true, false)
+                xdgOpenFile.setWritable(true, true)
+                xdgOpenFile.setExecutable(true, false)
+                try { Os.chmod(xdgOpenFile.absolutePath, 493) } catch (_: Exception) {} // 0755
             } catch (e: Exception) {
                 Log.e(TAG, "Skipping xdg-open install: ${e.message}")
             }
@@ -184,10 +171,7 @@ object ShellScriptsInstaller {
                 "termux-open-url"
             )
 
-            val wrapperScript = requireFunctionalScript(
-                "xdg-open-wrapper",
-                "#!/bin/sh\nexec /usr/local/bin/xdg-open \"\$@\"\n"
-            )
+            val wrapperScript = "#!/bin/sh\nexec /usr/local/bin/xdg-open \"\$@\"\n"
 
             for (alias in browserAliases) {
                 val aliasFile = File(localBin, alias)
@@ -229,22 +213,6 @@ object ShellScriptsInstaller {
                         }
                     }
                 }
-            }
-
-            // Persist cortex_url_token into rootfs /etc/cortex_url_token so all container users can read it
-            try {
-                if (context != null) {
-                    val token = UrlOpenerServer.getOrCreateToken(context)
-                    val etcDir = File(root, "etc")
-                    if (etcDir.exists()) {
-                        val tokenFile = File(etcDir, "cortex_url_token")
-                        tokenFile.writeText(token, Charsets.UTF_8)
-                        tokenFile.setReadable(true, false)
-                        try { Os.chmod(tokenFile.absolutePath, 420) } catch (_: Exception) {} // 0644
-                    }
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to persist token to /etc/cortex_url_token", e)
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to ensure browser opener", e)

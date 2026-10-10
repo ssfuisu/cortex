@@ -160,11 +160,6 @@ class CortexService : Service() {
         } catch (e: Exception) {
             android.util.Log.e("CortexService", "getOrCreateSessionManager failed", e)
         }
-        try {
-            org.cortex.terminal.runtime.UrlOpenerServer.start(this)
-        } catch (e: Exception) {
-            android.util.Log.e("CortexService", "UrlOpenerServer.start failed", e)
-        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -363,7 +358,6 @@ class CortexService : Service() {
     }
 
     override fun onDestroy() {
-        org.cortex.terminal.runtime.UrlOpenerServer.stop()
         releaseWakeLock()
         instance = null
         super.onDestroy()
