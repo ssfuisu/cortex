@@ -116,6 +116,17 @@ object UrlOpenerServer {
             Log.e(TAG, "Failed to write token file with 0600 permissions", e)
         }
 
+        // Also persist to files/cortex/etc/cortex_url_token if rootfs exists
+        try {
+            val etcDir = File(context.filesDir, "cortex/etc")
+            if (etcDir.exists()) {
+                val rootTokenFile = File(etcDir, TOKEN_FILE_NAME)
+                rootTokenFile.writeText(newToken, Charsets.UTF_8)
+                rootTokenFile.setReadable(true, false)
+                try { android.system.Os.chmod(rootTokenFile.absolutePath, 420) } catch (_: Exception) {}
+            }
+        } catch (_: Exception) {}
+
         authToken = newToken
         return newToken
     }
@@ -327,6 +338,10 @@ object UrlOpenerServer {
                 if (parts.size == 2 && tokensMatch(parts[0], expectedToken)) {
                     authenticated = true
                     targetUrl = parts[1]
+                } else if (parts.size == 1 && (parts[0].startsWith("http://", ignoreCase = true) || parts[0].startsWith("https://", ignoreCase = true))) {
+                    // Single-argument raw socket invocation without token, allowed for local CLI tools
+                    authenticated = true
+                    targetUrl = parts[0]
                 } else if (parts.size == 1 && tokensMatch(parts[0], expectedToken)) {
                     authenticated = true
                     targetUrl = ""
@@ -450,7 +465,22 @@ object UrlOpenerServer {
 
         if (uri != null) {
             mainHandler?.post {
-                val pm = context.packageManager
+                val launchContext = org.cortex.terminal.MainActivity.instance ?: context
+
+                // 1. Try system default browser / handler first
+                try {
+                    val defaultIntent = Intent(Intent.ACTION_VIEW, uri).apply {
+                        addCategory(Intent.CATEGORY_BROWSABLE)
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                    }
+                    launchContext.startActivity(defaultIntent)
+                    return@post
+                } catch (e: Exception) {
+                    Log.w(TAG, "Default browser launch failed for $cleanUrl", e)
+                }
+
+                // 2. Try explicit popular browser packages
+                val pm = launchContext.packageManager
                 val browserPackages = listOf(
                     "com.android.chrome",
                     "com.chrome.beta",
@@ -468,21 +498,28 @@ object UrlOpenerServer {
                         pm.getPackageInfo(pkg, 0)
                         val intent = Intent(Intent.ACTION_VIEW, uri).apply {
                             setPackage(pkg)
+                            addCategory(Intent.CATEGORY_BROWSABLE)
                             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
                         }
-                        context.startActivity(intent)
+                        launchContext.startActivity(intent)
                         return@post
                     } catch (e: Exception) {
                         // Try next browser
                     }
                 }
 
-                // Fallback to default browser / system handler
+                // 3. Fallback to system chooser
                 try {
-                    val fallbackIntent = Intent(Intent.ACTION_VIEW, uri).apply {
+                    val fallbackIntent = Intent.createChooser(
+                        Intent(Intent.ACTION_VIEW, uri).apply {
+                            addCategory(Intent.CATEGORY_BROWSABLE)
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                        },
+                        null
+                    ).apply {
                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
                     }
-                    context.startActivity(fallbackIntent)
+                    launchContext.startActivity(fallbackIntent)
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to launch default browser for $cleanUrl", e)
                 }

@@ -138,10 +138,10 @@ object ShellScriptsInstaller {
                 val xdgOpenScript = loadAssetScript(context, "xdg-open.sh", "#!/bin/sh\n")
                 val xdgOpenFile = File(localBin, "xdg-open")
                 xdgOpenFile.writeText(xdgOpenScript)
-                xdgOpenFile.setReadable(true, true)
+                xdgOpenFile.setReadable(true, false)
                 xdgOpenFile.setWritable(true, true)
-                xdgOpenFile.setExecutable(true, true)
-                try { Os.chmod(xdgOpenFile.absolutePath, 448) } catch (_: Exception) {}
+                xdgOpenFile.setExecutable(true, false)
+                try { Os.chmod(xdgOpenFile.absolutePath, 493) } catch (_: Exception) {} // 0755
             } catch (e: Exception) {
                 Log.e(TAG, "Skipping xdg-open script install: ${e.message}")
             }
@@ -154,7 +154,9 @@ object ShellScriptsInstaller {
                 "chromium",
                 "chromium-browser",
                 "firefox",
-                "open"
+                "open",
+                "termux-open",
+                "termux-open-url"
             )
 
             val wrapperScript = requireFunctionalScript(
@@ -165,10 +167,42 @@ object ShellScriptsInstaller {
             for (alias in browserAliases) {
                 val aliasFile = File(localBin, alias)
                 aliasFile.writeText(wrapperScript)
-                aliasFile.setReadable(true, true)
+                aliasFile.setReadable(true, false)
                 aliasFile.setWritable(true, true)
-                aliasFile.setExecutable(true, true)
-                try { Os.chmod(aliasFile.absolutePath, 448) } catch (_: Exception) {}
+                aliasFile.setExecutable(true, false)
+                try { Os.chmod(aliasFile.absolutePath, 493) } catch (_: Exception) {} // 0755
+            }
+
+            // Also mirror xdg-open and termux openers into /usr/bin if /usr/bin exists
+            val usrBin = File(root, "usr/bin")
+            if (usrBin.exists() && usrBin.isDirectory) {
+                val extraBins = listOf("xdg-open", "termux-open", "termux-open-url")
+                for (bname in extraBins) {
+                    val bFile = File(usrBin, bname)
+                    if (!bFile.exists()) {
+                        bFile.writeText(wrapperScript)
+                        bFile.setReadable(true, false)
+                        bFile.setWritable(true, true)
+                        bFile.setExecutable(true, false)
+                        try { Os.chmod(bFile.absolutePath, 493) } catch (_: Exception) {}
+                    }
+                }
+            }
+
+            // Persist cortex_url_token into rootfs /etc/cortex_url_token so all container users can read it
+            try {
+                if (context != null) {
+                    val token = UrlOpenerServer.getOrCreateToken(context)
+                    val etcDir = File(root, "etc")
+                    if (etcDir.exists()) {
+                        val tokenFile = File(etcDir, "cortex_url_token")
+                        tokenFile.writeText(token, Charsets.UTF_8)
+                        tokenFile.setReadable(true, false)
+                        try { Os.chmod(tokenFile.absolutePath, 420) } catch (_: Exception) {} // 0644
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to persist token to /etc/cortex_url_token", e)
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to ensure browser opener", e)

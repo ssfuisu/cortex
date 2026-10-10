@@ -462,6 +462,15 @@ static void test_nss_fallback_semantics(void) {
 
     struct group *gr = hook_getgrnam("root");
     ASSERT_TRUE(gr != NULL, "getgrnam('root') must return fallback root group");
+    struct group *gr_ssh = hook_getgrnam("_ssh");
+    ASSERT_TRUE(gr_ssh != NULL, "getgrnam('_ssh') must return _ssh group");
+    ASSERT_EQ(gr_ssh->gr_gid, 100, "getgrnam('_ssh')->gr_gid must be 100");
+    struct group *gr_cortex = hook_getgrnam("cortex");
+    ASSERT_TRUE(gr_cortex != NULL, "getgrnam('cortex') must return cortex group");
+    struct passwd *pw_ssh = hook_getpwnam("_ssh");
+    ASSERT_TRUE(pw_ssh != NULL, "getpwnam('_ssh') must return _ssh user");
+    ASSERT_EQ(pw_ssh->pw_uid, 100, "getpwnam('_ssh')->pw_uid must be 100");
+    ASSERT_EQ(pw_ssh->pw_gid, 100, "getpwnam('_ssh')->pw_gid must be 100");
     ASSERT_TRUE(hook_getgrnam("messagebus") == NULL,
                 "getgrnam('messagebus') must return NULL when absent from /etc/group");
     ASSERT_TRUE(hook_getgrgid(100) == NULL,

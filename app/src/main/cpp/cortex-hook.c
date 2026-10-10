@@ -2282,6 +2282,378 @@ int CORTEX_SHADOW_SYM(ulckpwdf)(void) {
 }
 
 
+// Group lookup helper: reads $CORTEX_ROOT/etc/group or falls back to known entries
+static int cortex_lookup_group(const char *search_name, gid_t search_gid, int by_name,
+                               struct group *grp, char *buf, size_t buflen) {
+    if (!grp || !buf || buflen < 64) {
+        return ERANGE;
+    }
+
+    int found = 0;
+    char found_name[64] = {0};
+    char found_pass[32] = {0};
+    gid_t found_gid = 0;
+    char found_members[256] = {0};
+
+    // 1. Try reading /etc/group from Cortex rootfs
+#ifndef CORTEX_HOST_TEST
+    char path_buf[PATH_MAX];
+    const char *grp_path = rewrite_path("/etc/group", path_buf, sizeof(path_buf));
+    static int (*orig_open)(const char *, int, ...) = NULL;
+    if (!orig_open) orig_open = (int (*)(const char *, int, ...))dlsym(RTLD_NEXT, "open");
+    int fd = (orig_open && grp_path) ? orig_open(grp_path, O_RDONLY | O_CLOEXEC) : -1;
+    if (fd >= 0) {
+        char file_buf[8192];
+        ssize_t n = read(fd, file_buf, sizeof(file_buf) - 1);
+        close(fd);
+        if (n > 0) {
+            file_buf[n] = '\0';
+            char *line = file_buf;
+            while (*line && !found) {
+                char *next_line = strchr(line, '\n');
+                if (next_line) {
+                    *next_line = '\0';
+                }
+                size_t llen = strlen(line);
+                if (llen > 0 && line[llen - 1] == '\r') line[llen - 1] = '\0';
+
+                // format: name:pass:gid:members
+                char *p1 = strchr(line, ':');
+                if (p1) {
+                    *p1 = '\0';
+                    char *p2 = strchr(p1 + 1, ':');
+                    if (p2) {
+                        *p2 = '\0';
+                        char *p3 = strchr(p2 + 1, ':');
+                        if (p3) {
+                            *p3 = '\0';
+                            const char *gname = line;
+                            const char *gpass = p1 + 1;
+                            gid_t ggid = (gid_t)strtoul(p2 + 1, NULL, 10);
+                            const char *gmem = p3 + 1;
+
+                            if (by_name && search_name && strcmp(gname, search_name) == 0) {
+                                snprintf(found_name, sizeof(found_name), "%s", gname);
+                                snprintf(found_pass, sizeof(found_pass), "%s", gpass);
+                                found_gid = ggid;
+                                snprintf(found_members, sizeof(found_members), "%s", gmem);
+                                found = 1;
+                            } else if (!by_name && ggid == search_gid) {
+                                snprintf(found_name, sizeof(found_name), "%s", gname);
+                                snprintf(found_pass, sizeof(found_pass), "%s", gpass);
+                                found_gid = ggid;
+                                snprintf(found_members, sizeof(found_members), "%s", gmem);
+                                found = 1;
+                            }
+                        }
+                    }
+                }
+                if (!next_line) break;
+                line = next_line + 1;
+            }
+        }
+    }
+#endif
+
+    // 2. Fallbacks for well-known groups if absent from file
+    if (!found) {
+        if (by_name) {
+            if (!search_name) return ENOENT;
+            if (strcmp(search_name, "root") == 0 || strcmp(search_name, "cortex") == 0) {
+                snprintf(found_name, sizeof(found_name), "%s", search_name);
+                snprintf(found_pass, sizeof(found_pass), "x");
+                found_gid = 0;
+                snprintf(found_members, sizeof(found_members), "%s", search_name);
+                found = 1;
+            } else if (strcmp(search_name, "_ssh") == 0) {
+                snprintf(found_name, sizeof(found_name), "_ssh");
+                snprintf(found_pass, sizeof(found_pass), "x");
+                found_gid = 100;
+                found = 1;
+            } else if (strcmp(search_name, "ssh") == 0) {
+                snprintf(found_name, sizeof(found_name), "ssh");
+                snprintf(found_pass, sizeof(found_pass), "x");
+                found_gid = 101;
+                found = 1;
+            } else if (strcmp(search_name, "nogroup") == 0 || strcmp(search_name, "nobody") == 0) {
+                snprintf(found_name, sizeof(found_name), "%s", search_name);
+                snprintf(found_pass, sizeof(found_pass), "x");
+                found_gid = 65534;
+                found = 1;
+            }
+        } else {
+            if (search_gid == 0 || search_gid == real_gid()) {
+                snprintf(found_name, sizeof(found_name), "root");
+                snprintf(found_pass, sizeof(found_pass), "x");
+                found_gid = search_gid;
+                snprintf(found_members, sizeof(found_members), "root");
+                found = 1;
+            }
+        }
+    }
+
+    if (!found) {
+        return ENOENT;
+    }
+
+    // 3. Assemble struct group into caller's buf
+    size_t mem_ptr_count = 1;
+    char *m_copy = found_members;
+    while (*m_copy) {
+        if (*m_copy == ',') mem_ptr_count++;
+        m_copy++;
+    }
+    if (found_members[0] != '\0') mem_ptr_count++;
+
+    size_t mem_array_bytes = (mem_ptr_count + 1) * sizeof(char *);
+    mem_array_bytes = (mem_array_bytes + sizeof(void *) - 1) & ~(sizeof(void *) - 1);
+
+    size_t name_len = strlen(found_name) + 1;
+    size_t pass_len = strlen(found_pass) + 1;
+    size_t mem_str_len = strlen(found_members) + 1;
+
+    if (mem_array_bytes + name_len + pass_len + mem_str_len > buflen) {
+        return ERANGE;
+    }
+
+    char **mem_array = (char **)buf;
+    char *str_cursor = buf + mem_array_bytes;
+
+    grp->gr_name = str_cursor;
+    memcpy(str_cursor, found_name, name_len);
+    str_cursor += name_len;
+
+    grp->gr_passwd = str_cursor;
+    memcpy(str_cursor, found_pass, pass_len);
+    str_cursor += pass_len;
+
+    grp->gr_gid = found_gid;
+
+    size_t m_idx = 0;
+    if (found_members[0] != '\0') {
+        char *m_tok = str_cursor;
+        memcpy(str_cursor, found_members, mem_str_len);
+        str_cursor += mem_str_len;
+
+        char *curr = m_tok;
+        while (curr && *curr) {
+            char *comma = strchr(curr, ',');
+            if (comma) {
+                *comma = '\0';
+            }
+            if (*curr) {
+                mem_array[m_idx++] = curr;
+            }
+            curr = comma ? comma + 1 : NULL;
+        }
+    }
+    mem_array[m_idx] = NULL;
+    grp->gr_mem = mem_array;
+
+    return 0;
+}
+
+// Passwd lookup helper: reads $CORTEX_ROOT/etc/passwd or falls back to known entries
+static int cortex_lookup_passwd(const char *search_name, uid_t search_uid, int by_name,
+                                struct passwd *pwd, char *buf, size_t buflen) {
+    if (!pwd || !buf || buflen < 128) {
+        return ERANGE;
+    }
+
+    int found = 0;
+    char found_name[64] = {0};
+    char found_pass[32] = {0};
+    uid_t found_uid = 0;
+    gid_t found_gid = 0;
+    char found_gecos[64] = {0};
+    char found_dir[128] = {0};
+    char found_shell[64] = {0};
+
+    // 1. Try reading /etc/passwd from Cortex rootfs
+#ifndef CORTEX_HOST_TEST
+    char path_buf[PATH_MAX];
+    const char *pwd_path = rewrite_path("/etc/passwd", path_buf, sizeof(path_buf));
+    static int (*orig_open)(const char *, int, ...) = NULL;
+    if (!orig_open) orig_open = (int (*)(const char *, int, ...))dlsym(RTLD_NEXT, "open");
+    int fd = (orig_open && pwd_path) ? orig_open(pwd_path, O_RDONLY | O_CLOEXEC) : -1;
+    if (fd >= 0) {
+        char file_buf[8192];
+        ssize_t n = read(fd, file_buf, sizeof(file_buf) - 1);
+        close(fd);
+        if (n > 0) {
+            file_buf[n] = '\0';
+            char *line = file_buf;
+            while (*line && !found) {
+                char *next_line = strchr(line, '\n');
+                if (next_line) {
+                    *next_line = '\0';
+                }
+                size_t llen = strlen(line);
+                if (llen > 0 && line[llen - 1] == '\r') line[llen - 1] = '\0';
+
+                // format: name:pass:uid:gid:gecos:dir:shell
+                char *f[7] = {0};
+                char *curr = line;
+                int f_idx = 0;
+                while (curr && f_idx < 7) {
+                    f[f_idx++] = curr;
+                    char *col = strchr(curr, ':');
+                    if (col && f_idx < 7) {
+                        *col = '\0';
+                        curr = col + 1;
+                    } else {
+                        break;
+                    }
+                }
+                if (f_idx >= 7) {
+                    const char *uname = f[0];
+                    const char *upass = f[1];
+                    uid_t uuid = (uid_t)strtoul(f[2], NULL, 10);
+                    gid_t ugid = (gid_t)strtoul(f[3], NULL, 10);
+                    const char *ugecos = f[4];
+                    const char *udir = f[5];
+                    const char *ushell = f[6];
+
+                    if (by_name && search_name && strcmp(uname, search_name) == 0) {
+                        snprintf(found_name, sizeof(found_name), "%s", uname);
+                        snprintf(found_pass, sizeof(found_pass), "%s", upass);
+                        found_uid = uuid;
+                        found_gid = ugid;
+                        snprintf(found_gecos, sizeof(found_gecos), "%s", ugecos);
+                        snprintf(found_dir, sizeof(found_dir), "%s", udir);
+                        snprintf(found_shell, sizeof(found_shell), "%s", ushell);
+                        found = 1;
+                    } else if (!by_name && uuid == search_uid) {
+                        snprintf(found_name, sizeof(found_name), "%s", uname);
+                        snprintf(found_pass, sizeof(found_pass), "%s", upass);
+                        found_uid = uuid;
+                        found_gid = ugid;
+                        snprintf(found_gecos, sizeof(found_gecos), "%s", ugecos);
+                        snprintf(found_dir, sizeof(found_dir), "%s", udir);
+                        snprintf(found_shell, sizeof(found_shell), "%s", ushell);
+                        found = 1;
+                    }
+                }
+                if (!next_line) break;
+                line = next_line + 1;
+            }
+        }
+    }
+#endif
+
+    // 2. Fallbacks for well-known users if absent from file
+    if (!found) {
+        if (by_name) {
+            if (!search_name) return ENOENT;
+            if (strcmp(search_name, "root") == 0) {
+                snprintf(found_name, sizeof(found_name), "root");
+                snprintf(found_pass, sizeof(found_pass), "x");
+                found_uid = 0;
+                found_gid = 0;
+                snprintf(found_gecos, sizeof(found_gecos), "root");
+                snprintf(found_dir, sizeof(found_dir), "/root");
+                snprintf(found_shell, sizeof(found_shell), "/bin/bash");
+                found = 1;
+            } else if (strcmp(search_name, "cortex") == 0) {
+                snprintf(found_name, sizeof(found_name), "cortex");
+                snprintf(found_pass, sizeof(found_pass), "x");
+                found_uid = 0;
+                found_gid = 0;
+                snprintf(found_gecos, sizeof(found_gecos), "Cortex");
+                snprintf(found_dir, sizeof(found_dir), "/home/cortex");
+                snprintf(found_shell, sizeof(found_shell), "/bin/bash");
+                found = 1;
+            } else if (strcmp(search_name, "_ssh") == 0) {
+                snprintf(found_name, sizeof(found_name), "_ssh");
+                snprintf(found_pass, sizeof(found_pass), "x");
+                found_uid = 100;
+                found_gid = 100;
+                snprintf(found_gecos, sizeof(found_gecos), "OpenSSH daemon");
+                snprintf(found_dir, sizeof(found_dir), "/run/sshd");
+                snprintf(found_shell, sizeof(found_shell), "/usr/sbin/nologin");
+                found = 1;
+            } else if (strcmp(search_name, "sshd") == 0) {
+                snprintf(found_name, sizeof(found_name), "sshd");
+                snprintf(found_pass, sizeof(found_pass), "x");
+                found_uid = 101;
+                found_gid = 101;
+                snprintf(found_gecos, sizeof(found_gecos), "Privilege-separated SSH");
+                snprintf(found_dir, sizeof(found_dir), "/run/sshd");
+                snprintf(found_shell, sizeof(found_shell), "/usr/sbin/nologin");
+                found = 1;
+            } else if (strcmp(search_name, "nobody") == 0) {
+                snprintf(found_name, sizeof(found_name), "nobody");
+                snprintf(found_pass, sizeof(found_pass), "x");
+                found_uid = 65534;
+                found_gid = 65534;
+                snprintf(found_gecos, sizeof(found_gecos), "nobody");
+                snprintf(found_dir, sizeof(found_dir), "/nonexistent");
+                snprintf(found_shell, sizeof(found_shell), "/usr/sbin/nologin");
+                found = 1;
+            }
+        } else {
+            if (search_uid == 0 || search_uid == real_uid()) {
+                snprintf(found_name, sizeof(found_name), "root");
+                snprintf(found_pass, sizeof(found_pass), "x");
+                found_uid = search_uid;
+                found_gid = 0;
+                snprintf(found_gecos, sizeof(found_gecos), "root");
+                snprintf(found_dir, sizeof(found_dir), "/home");
+                snprintf(found_shell, sizeof(found_shell), "/bin/bash");
+                found = 1;
+            }
+        }
+    }
+
+    if (!found) {
+        return ENOENT;
+    }
+
+    // 3. Assemble struct passwd into caller's buf
+    size_t name_len = strlen(found_name) + 1;
+    size_t pass_len = strlen(found_pass) + 1;
+    size_t gecos_len = strlen(found_gecos) + 1;
+    size_t dir_len = strlen(found_dir) + 1;
+    size_t shell_len = strlen(found_shell) + 1;
+
+    size_t total_str_bytes = name_len + pass_len + gecos_len + dir_len + shell_len;
+    if (total_str_bytes > buflen) {
+        return ERANGE;
+    }
+
+    char *str_cursor = buf;
+
+    pwd->pw_name = str_cursor;
+    memcpy(str_cursor, found_name, name_len);
+    str_cursor += name_len;
+
+    pwd->pw_passwd = str_cursor;
+    memcpy(str_cursor, found_pass, pass_len);
+    str_cursor += pass_len;
+
+    pwd->pw_uid = found_uid;
+    pwd->pw_gid = found_gid;
+
+    pwd->pw_gecos = str_cursor;
+    memcpy(str_cursor, found_gecos, gecos_len);
+    str_cursor += gecos_len;
+
+    pwd->pw_dir = str_cursor;
+    memcpy(str_cursor, found_dir, dir_len);
+    str_cursor += dir_len;
+
+    pwd->pw_shell = str_cursor;
+    memcpy(str_cursor, found_shell, shell_len);
+    str_cursor += shell_len;
+
+    return 0;
+}
+
+static struct group s_grp_storage;
+static char s_grp_buf[2048];
+static struct passwd s_pwd_storage;
+static char s_pwd_buf[2048];
+
 struct group *CORTEX_NSS_SYM(getgrgid)(gid_t gid) {
 #ifndef CORTEX_HOST_TEST
     static struct group *(*orig_getgrgid)(gid_t) = NULL;
@@ -2290,17 +2662,9 @@ struct group *CORTEX_NSS_SYM(getgrgid)(gid_t gid) {
     if (res) return res;
 #endif
 
-    if (gid != 0 && gid != real_gid()) {
-        return NULL;
-    }
-
-    static struct group s_grp;
-    static char *s_mem[] = {"root", NULL};
-    s_grp.gr_name = "root";
-    s_grp.gr_passwd = "x";
-    s_grp.gr_gid = gid;
-    s_grp.gr_mem = s_mem;
-    return &s_grp;
+    int err = cortex_lookup_group(NULL, gid, 0, &s_grp_storage, s_grp_buf, sizeof(s_grp_buf));
+    if (err == 0) return &s_grp_storage;
+    return NULL;
 }
 
 struct group *CORTEX_NSS_SYM(getgrnam)(const char *name) {
@@ -2311,17 +2675,9 @@ struct group *CORTEX_NSS_SYM(getgrnam)(const char *name) {
     if (res) return res;
 #endif
 
-    if (!name || strcmp(name, "root") != 0) {
-        return NULL;
-    }
-
-    static struct group s_grp;
-    static char *s_mem[] = {"root", NULL};
-    s_grp.gr_name = "root";
-    s_grp.gr_passwd = "x";
-    s_grp.gr_gid = 0;
-    s_grp.gr_mem = s_mem;
-    return &s_grp;
+    int err = cortex_lookup_group(name, 0, 1, &s_grp_storage, s_grp_buf, sizeof(s_grp_buf));
+    if (err == 0) return &s_grp_storage;
+    return NULL;
 }
 
 int CORTEX_NSS_SYM(getgrgid_r)(gid_t gid, struct group *grp, char *buf, size_t buflen, struct group **result) {
@@ -2339,23 +2695,13 @@ int CORTEX_NSS_SYM(getgrgid_r)(gid_t gid, struct group *grp, char *buf, size_t b
         return ret;
     }
 
-    if (gid != 0 && gid != real_gid()) {
-        if (result) *result = NULL;
+    int err = cortex_lookup_group(NULL, gid, 0, grp, buf, buflen);
+    if (err == 0) {
+        if (result) *result = grp;
         return 0;
     }
-
-    if (!grp || !buf || buflen < 64) {
-        if (result) *result = NULL;
-        return ERANGE;
-    }
-    snprintf(buf, buflen, "root");
-    grp->gr_name = buf;
-    grp->gr_passwd = "x";
-    grp->gr_gid = gid;
-    static char *s_members[] = {"root", NULL};
-    grp->gr_mem = s_members;
-    if (result) *result = grp;
-    return 0;
+    if (result) *result = NULL;
+    return (err == ERANGE) ? ERANGE : 0;
 }
 
 int CORTEX_NSS_SYM(getgrnam_r)(const char *name, struct group *grp, char *buf, size_t buflen, struct group **result) {
@@ -2373,23 +2719,13 @@ int CORTEX_NSS_SYM(getgrnam_r)(const char *name, struct group *grp, char *buf, s
         return ret;
     }
 
-    if (!name || strcmp(name, "root") != 0) {
-        if (result) *result = NULL;
+    int err = cortex_lookup_group(name, 0, 1, grp, buf, buflen);
+    if (err == 0) {
+        if (result) *result = grp;
         return 0;
     }
-
-    if (!grp || !buf || buflen < 64) {
-        if (result) *result = NULL;
-        return ERANGE;
-    }
-    snprintf(buf, buflen, "root");
-    grp->gr_name = buf;
-    grp->gr_passwd = "x";
-    grp->gr_gid = 0;
-    static char *s_members[] = {"root", NULL};
-    grp->gr_mem = s_members;
-    if (result) *result = grp;
-    return 0;
+    if (result) *result = NULL;
+    return (err == ERANGE) ? ERANGE : 0;
 }
 
 struct passwd *CORTEX_NSS_SYM(getpwuid)(uid_t uid) {
@@ -2400,19 +2736,9 @@ struct passwd *CORTEX_NSS_SYM(getpwuid)(uid_t uid) {
     if (res) return res;
 #endif
 
-    if (uid != 0 && uid != real_uid()) {
-        return NULL;
-    }
-
-    static struct passwd s_pwd;
-    s_pwd.pw_name = "root";
-    s_pwd.pw_passwd = "x";
-    s_pwd.pw_uid = uid;
-    s_pwd.pw_gid = 0;
-    s_pwd.pw_gecos = "root";
-    s_pwd.pw_dir = "/home";
-    s_pwd.pw_shell = "/bin/bash";
-    return &s_pwd;
+    int err = cortex_lookup_passwd(NULL, uid, 0, &s_pwd_storage, s_pwd_buf, sizeof(s_pwd_buf));
+    if (err == 0) return &s_pwd_storage;
+    return NULL;
 }
 
 struct passwd *CORTEX_NSS_SYM(getpwnam)(const char *name) {
@@ -2423,25 +2749,15 @@ struct passwd *CORTEX_NSS_SYM(getpwnam)(const char *name) {
     if (res) return res;
 #endif
 
-    if (!name || strcmp(name, "root") != 0) {
-        return NULL;
-    }
-
-    static struct passwd s_pwd;
-    s_pwd.pw_name = "root";
-    s_pwd.pw_passwd = "x";
-    s_pwd.pw_uid = 0;
-    s_pwd.pw_gid = 0;
-    s_pwd.pw_gecos = "root";
-    s_pwd.pw_dir = "/home";
-    s_pwd.pw_shell = "/bin/bash";
-    return &s_pwd;
+    int err = cortex_lookup_passwd(name, 0, 1, &s_pwd_storage, s_pwd_buf, sizeof(s_pwd_buf));
+    if (err == 0) return &s_pwd_storage;
+    return NULL;
 }
 
 int CORTEX_NSS_SYM(getpwuid_r)(uid_t uid, struct passwd *pwd, char *buf, size_t buflen, struct passwd **result) {
 #ifndef CORTEX_HOST_TEST
     static int (*orig_getpwuid_r)(uid_t, struct passwd *, char *, size_t, struct passwd **) = NULL;
-    if (!orig_getpwuid_r) orig_getpwuid_r = (int (*)(uid_t, struct passwd *, char *, size_t, struct passwd **))dlsym(RTLD_NEXT, "getpwuid_r");
+    if (!orig_getpwuid_r) orig_getpwuid_r = (int (*)(uid_t, struct passwd *, char *, size_t, struct passwd **)dlsym(RTLD_NEXT, "getpwuid_r");
     int ret = orig_getpwuid_r ? orig_getpwuid_r(uid, pwd, buf, buflen, result) : ENOENT;
 #else
     int ret = g_test_orig_nss_r_ret;
@@ -2453,25 +2769,13 @@ int CORTEX_NSS_SYM(getpwuid_r)(uid_t uid, struct passwd *pwd, char *buf, size_t 
         return ret;
     }
 
-    if (uid != 0 && uid != real_uid()) {
-        if (result) *result = NULL;
+    int err = cortex_lookup_passwd(NULL, uid, 0, pwd, buf, buflen);
+    if (err == 0) {
+        if (result) *result = pwd;
         return 0;
     }
-
-    if (!pwd || !buf || buflen < 128) {
-        if (result) *result = NULL;
-        return ERANGE;
-    }
-    snprintf(buf, buflen, "root");
-    pwd->pw_name = buf;
-    pwd->pw_passwd = "x";
-    pwd->pw_uid = uid;
-    pwd->pw_gid = 0;
-    pwd->pw_gecos = buf;
-    pwd->pw_dir = "/home";
-    pwd->pw_shell = "/bin/bash";
-    if (result) *result = pwd;
-    return 0;
+    if (result) *result = NULL;
+    return (err == ERANGE) ? ERANGE : 0;
 }
 
 int CORTEX_NSS_SYM(getpwnam_r)(const char *name, struct passwd *pwd, char *buf, size_t buflen, struct passwd **result) {
@@ -2489,25 +2793,13 @@ int CORTEX_NSS_SYM(getpwnam_r)(const char *name, struct passwd *pwd, char *buf, 
         return ret;
     }
 
-    if (!name || strcmp(name, "root") != 0) {
-        if (result) *result = NULL;
+    int err = cortex_lookup_passwd(name, 0, 1, pwd, buf, buflen);
+    if (err == 0) {
+        if (result) *result = pwd;
         return 0;
     }
-
-    if (!pwd || !buf || buflen < 128) {
-        if (result) *result = NULL;
-        return ERANGE;
-    }
-    snprintf(buf, buflen, "root");
-    pwd->pw_name = buf;
-    pwd->pw_passwd = "x";
-    pwd->pw_uid = 0;
-    pwd->pw_gid = 0;
-    pwd->pw_gecos = buf;
-    pwd->pw_dir = "/home";
-    pwd->pw_shell = "/bin/bash";
-    if (result) *result = pwd;
-    return 0;
+    if (result) *result = NULL;
+    return (err == ERANGE) ? ERANGE : 0;
 }
 
 #ifndef CORTEX_HOST_TEST
