@@ -539,6 +539,59 @@ static void test_sigsys_and_close_fds(void) {
     ASSERT_TRUE(fcntl(2, F_GETFD) != -1, "stderr (fd 2) must remain open");
 }
 
+/* 9. Test emulated hardlink and st_nlink reporting (fixing groupadd/shadow /etc/group.lock failure) */
+static void test_hardlink_emulation_and_st_nlink(void) {
+    const char *tmp = get_test_tmp_dir();
+    char file_a[PATH_MAX], file_b[PATH_MAX];
+    snprintf(file_a, sizeof(file_a), "%s/cortex_hl_test_a_%d.tmp", tmp, getpid());
+    snprintf(file_b, sizeof(file_b), "%s/cortex_hl_test_b_%d.lock", tmp, getpid());
+
+    hook_unlink(file_a);
+    hook_unlink(file_b);
+
+    int fd = open(file_a, O_CREAT | O_WRONLY | O_TRUNC, 0600);
+    ASSERT_TRUE(fd >= 0, "open file_a must succeed");
+    const char *content = "12345\n";
+    ssize_t nw = write(fd, content, strlen(content));
+    ASSERT_EQ(nw, (ssize_t)strlen(content), "write to file_a must match");
+    close(fd);
+
+    // Call hook_link (which uses cortex_emulate_hardlink on Android/EACCES)
+    int lres = hook_link(file_a, file_b);
+    ASSERT_EQ(lres, 0, "hook_link(file_a, file_b) must succeed");
+
+    // Existing link destination must fail with EEXIST
+    int lres_exist = hook_link(file_a, file_b);
+    ASSERT_EQ(lres_exist, -1, "linking over existing file_b must fail");
+    ASSERT_EQ(errno, EEXIST, "linking over existing file_b must set errno=EEXIST");
+
+    // hook_stat(file_a) must report st_nlink == 2 (critical for shadow check_link_count!)
+    struct stat st_a;
+    memset(&st_a, 0, sizeof(st_a));
+    ASSERT_EQ(hook_stat(file_a, &st_a), 0, "hook_stat(file_a) must succeed");
+    ASSERT_EQ(st_a.st_nlink, 2, "hook_stat(file_a)->st_nlink must be 2 for shadow link count check");
+
+    // hook_stat(file_b) must report st_nlink == 2
+    struct stat st_b;
+    memset(&st_b, 0, sizeof(st_b));
+    ASSERT_EQ(hook_stat(file_b, &st_b), 0, "hook_stat(file_b) must succeed");
+    ASSERT_EQ(st_b.st_nlink, 2, "hook_stat(file_b)->st_nlink must be 2");
+
+    // shadow's sequence unlinks file_a, leaving file_b intact
+    ASSERT_EQ(hook_unlink(file_a), 0, "hook_unlink(file_a) must succeed");
+
+    // file_b must still exist, be readable, and contain the original data!
+    int fd_b = open(file_b, O_RDONLY);
+    ASSERT_TRUE(fd_b >= 0, "open(file_b) after unlinking file_a must succeed (regular file, not broken symlink)");
+    char read_buf[32] = {0};
+    ssize_t nr = read(fd_b, read_buf, sizeof(read_buf) - 1);
+    ASSERT_EQ(nr, (ssize_t)strlen(content), "read from file_b must match original content");
+    ASSERT_STR_EQ(read_buf, content, "content in file_b must match original content");
+    close(fd_b);
+
+    ASSERT_EQ(hook_unlink(file_b), 0, "hook_unlink(file_b) must succeed");
+}
+
 int main(void) {
     test_tar_path_helpers();
     test_symlink_containment();
@@ -548,6 +601,7 @@ int main(void) {
     test_find_dynamic_linker();
     test_nss_fallback_semantics();
     test_sigsys_and_close_fds();
+    test_hardlink_emulation_and_st_nlink();
 
     if (g_tests_failed > 0) {
         fprintf(stderr, "FAILED: %d/%d assertions failed\n", g_tests_failed, g_tests_run);

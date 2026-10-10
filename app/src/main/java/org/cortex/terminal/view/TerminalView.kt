@@ -93,6 +93,8 @@ class TerminalView @JvmOverloads constructor(
         super.onDetachedFromWindow()
         scroller.abortAnimation()
         removeCallbacks(flingRunnable)
+        selectionAutoScrollDirection = 0
+        removeCallbacks(selectionAutoScrollRunnable)
         hideActionPopup()
         isSelecting = false
         session?.onRedraw = null
@@ -121,6 +123,47 @@ class TerminalView @JvmOverloads constructor(
         NONE, START, END
     }
     private var activeHandle = ActiveHandle.NONE
+
+    private var selectionAutoScrollDirection = 0 // 1 for UP into history, -1 for DOWN towards newest
+    private var lastSelectionTouchX = 0f
+    private var lastSelectionTouchY = 0f
+
+    private val selectionAutoScrollRunnable = object : Runnable {
+        override fun run() {
+            if (activeHandle == ActiveHandle.NONE || !isSelecting || selectionAutoScrollDirection == 0) {
+                return
+            }
+
+            // "ortanın çok az hızlı hali": ~25 lines per second with 40ms tick
+            val linesToScroll = if (selectionAutoScrollDirection > 0) {
+                if (lastSelectionTouchY <= 0f) 2 else 1
+            } else {
+                if (lastSelectionTouchY >= height) 2 else 1
+            }
+
+            val oldOffset = scrollOffset
+            val newOffset = if (selectionAutoScrollDirection > 0) {
+                (scrollOffset + linesToScroll).coerceIn(0, historySize)
+            } else {
+                (scrollOffset - linesToScroll).coerceIn(0, historySize)
+            }
+
+            if (newOffset != oldOffset) {
+                scrollOffset = newOffset
+                if (activeHandle == ActiveHandle.START) {
+                    selectStartRow = screenYToBufferRow(lastSelectionTouchY)
+                    selectStartCol = screenXToCol(lastSelectionTouchX)
+                } else if (activeHandle == ActiveHandle.END) {
+                    selectEndRow = screenYToBufferRow(lastSelectionTouchY)
+                    selectEndCol = screenXToCol(lastSelectionTouchX)
+                }
+                invalidate()
+                postDelayed(this, 40L)
+            } else {
+                selectionAutoScrollDirection = 0
+            }
+        }
+    }
 
     private val selectionBgPaint = Paint().apply {
         color = Color.WHITE
@@ -708,6 +751,11 @@ class TerminalView @JvmOverloads constructor(
                     ActiveHandle.NONE
                 }
 
+                selectionAutoScrollDirection = 0
+                removeCallbacks(selectionAutoScrollRunnable)
+                lastSelectionTouchX = event.x
+                lastSelectionTouchY = event.y
+
                 if (activeHandle == ActiveHandle.NONE) {
                     // Tap outside selection handles cancels selection
                     clearSelection()
@@ -718,6 +766,8 @@ class TerminalView @JvmOverloads constructor(
                 }
             }
             MotionEvent.ACTION_MOVE -> {
+                lastSelectionTouchX = event.x
+                lastSelectionTouchY = event.y
                 if (activeHandle == ActiveHandle.START) {
                     selectStartRow = screenYToBufferRow(event.y)
                     selectStartCol = screenXToCol(event.x)
@@ -727,8 +777,32 @@ class TerminalView @JvmOverloads constructor(
                     selectEndCol = screenXToCol(event.x)
                     invalidate()
                 }
+
+                if (activeHandle != ActiveHandle.NONE) {
+                    val edgeZone = charHeight * 2.5f
+                    if (event.y <= edgeZone && scrollOffset < historySize) {
+                        if (selectionAutoScrollDirection != 1) {
+                            selectionAutoScrollDirection = 1
+                            removeCallbacks(selectionAutoScrollRunnable)
+                            post(selectionAutoScrollRunnable)
+                        }
+                    } else if (event.y >= height - edgeZone && scrollOffset > 0) {
+                        if (selectionAutoScrollDirection != -1) {
+                            selectionAutoScrollDirection = -1
+                            removeCallbacks(selectionAutoScrollRunnable)
+                            post(selectionAutoScrollRunnable)
+                        }
+                    } else {
+                        if (selectionAutoScrollDirection != 0) {
+                            selectionAutoScrollDirection = 0
+                            removeCallbacks(selectionAutoScrollRunnable)
+                        }
+                    }
+                }
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                selectionAutoScrollDirection = 0
+                removeCallbacks(selectionAutoScrollRunnable)
                 activeHandle = ActiveHandle.NONE
                 if (isSelecting) {
                     showActionPopup()
@@ -880,6 +954,9 @@ class TerminalView @JvmOverloads constructor(
     fun clearSelection() {
         if (isSelecting) {
             isSelecting = false
+            selectionAutoScrollDirection = 0
+            removeCallbacks(selectionAutoScrollRunnable)
+            activeHandle = ActiveHandle.NONE
             hideActionPopup()
             invalidate()
         }

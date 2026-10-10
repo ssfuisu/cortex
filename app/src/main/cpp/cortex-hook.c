@@ -154,6 +154,156 @@ static int is_handled_sigsys_syscall(int sys_nr) {
     return 0;
 }
 
+// Emulated hard links tracker (for filesystems/Android where link() fails with EACCES/EPERM)
+#define CORTEX_MAX_HARDLINKS 128
+typedef struct {
+    char path1[PATH_MAX];
+    char path2[PATH_MAX];
+    ino_t ino1;
+    ino_t ino2;
+    int active;
+} cortex_hardlink_pair_t;
+
+static cortex_hardlink_pair_t g_hardlinks[CORTEX_MAX_HARDLINKS];
+static pthread_mutex_t g_hardlinks_lock = PTHREAD_MUTEX_INITIALIZER;
+
+static int register_emulated_hardlink(const char *p1, const char *p2, ino_t ino1, ino_t ino2) {
+    if (!p1 || !p2) return -1;
+    pthread_mutex_lock(&g_hardlinks_lock);
+    int slot = -1;
+    for (int i = 0; i < CORTEX_MAX_HARDLINKS; i++) {
+        if (!g_hardlinks[i].active) {
+            slot = i;
+            break;
+        }
+    }
+    if (slot == -1) {
+        slot = 0;
+    }
+    strncpy(g_hardlinks[slot].path1, p1, PATH_MAX - 1);
+    g_hardlinks[slot].path1[PATH_MAX - 1] = '\0';
+    strncpy(g_hardlinks[slot].path2, p2, PATH_MAX - 1);
+    g_hardlinks[slot].path2[PATH_MAX - 1] = '\0';
+    g_hardlinks[slot].ino1 = ino1;
+    g_hardlinks[slot].ino2 = ino2;
+    g_hardlinks[slot].active = 1;
+    pthread_mutex_unlock(&g_hardlinks_lock);
+    return 0;
+}
+
+static void unregister_emulated_hardlink(const char *path) {
+    if (!path) return;
+    pthread_mutex_lock(&g_hardlinks_lock);
+    for (int i = 0; i < CORTEX_MAX_HARDLINKS; i++) {
+        if (g_hardlinks[i].active) {
+            if (strcmp(g_hardlinks[i].path1, path) == 0 || strcmp(g_hardlinks[i].path2, path) == 0) {
+                g_hardlinks[i].active = 0;
+            }
+        }
+    }
+    pthread_mutex_unlock(&g_hardlinks_lock);
+}
+
+static int is_emulated_hardlink(const char *path, ino_t ino, ino_t *unified_ino) {
+    if (!path && !ino) return 0;
+    int found = 0;
+    pthread_mutex_lock(&g_hardlinks_lock);
+    for (int i = 0; i < CORTEX_MAX_HARDLINKS; i++) {
+        if (g_hardlinks[i].active) {
+            int match = 0;
+            if (path && (strcmp(g_hardlinks[i].path1, path) == 0 || strcmp(g_hardlinks[i].path2, path) == 0)) {
+                match = 1;
+            } else if (ino && (g_hardlinks[i].ino1 == ino || g_hardlinks[i].ino2 == ino)) {
+                match = 1;
+            }
+            if (match) {
+                if (access(g_hardlinks[i].path1, F_OK) == 0 && access(g_hardlinks[i].path2, F_OK) == 0) {
+                    found = 1;
+                    if (unified_ino) {
+                        *unified_ino = g_hardlinks[i].ino1;
+                    }
+                    break;
+                } else {
+                    g_hardlinks[i].active = 0;
+                }
+            }
+        }
+    }
+    pthread_mutex_unlock(&g_hardlinks_lock);
+    return found;
+}
+
+static int cortex_emulate_hardlink(const char *rold, const char *rnew) {
+    if (!rold || !rnew) {
+        errno = EINVAL;
+        return -1;
+    }
+    struct stat st;
+#ifdef CORTEX_HOST_TEST
+    if (stat(rold, &st) != 0) {
+        return -1;
+    }
+#else
+    static int (*orig_fstatat)(int, const char *, struct stat *, int) = NULL;
+    if (!orig_fstatat) orig_fstatat = (int (*)(int, const char *, struct stat *, int))dlsym(RTLD_NEXT, "fstatat");
+    if (orig_fstatat) {
+        if (orig_fstatat(AT_FDCWD, rold, &st, 0) != 0) return -1;
+    } else {
+        if (stat(rold, &st) != 0) return -1;
+    }
+#endif
+    if (S_ISDIR(st.st_mode)) {
+        errno = EPERM;
+        return -1;
+    }
+
+    int fd_new = open(rnew, O_WRONLY | O_CREAT | O_EXCL, st.st_mode & 0777);
+    if (fd_new < 0) {
+        return -1;
+    }
+
+    int fd_old = open(rold, O_RDONLY);
+    if (fd_old < 0) {
+        int err = errno;
+        close(fd_new);
+        unlink(rnew);
+        errno = err;
+        return -1;
+    }
+
+    char cbuf[16384];
+    ssize_t nread;
+    int copy_failed = 0;
+    while ((nread = read(fd_old, cbuf, sizeof(cbuf))) > 0) {
+        ssize_t nwritten = 0;
+        while (nwritten < nread) {
+            ssize_t w = write(fd_new, cbuf + nwritten, nread - nwritten);
+            if (w < 0) {
+                copy_failed = 1;
+                break;
+            }
+            nwritten += w;
+        }
+        if (copy_failed) break;
+    }
+    if (nread < 0) copy_failed = 1;
+
+    close(fd_old);
+    fchmod(fd_new, st.st_mode & 0777);
+    struct stat st_new;
+    fstat(fd_new, &st_new);
+    close(fd_new);
+
+    if (copy_failed) {
+        unlink(rnew);
+        errno = EIO;
+        return -1;
+    }
+
+    register_emulated_hardlink(rold, rnew, st.st_ino, st_new.st_ino);
+    return 0;
+}
+
 #ifndef CORTEX_HOST_TEST
 
 #ifndef SYS_SECCOMP
@@ -1197,6 +1347,13 @@ int stat(const char *pathname, struct stat *statbuf) {
             }
         }
     }
+    if (ret == 0 && statbuf && statbuf->st_nlink < 2) {
+        ino_t uino = 0;
+        if (is_emulated_hardlink(target, statbuf->st_ino, &uino)) {
+            statbuf->st_nlink = 2;
+            if (uino) statbuf->st_ino = uino;
+        }
+    }
     return ret;
 }
 
@@ -1242,6 +1399,13 @@ int lstat(const char *pathname, struct stat *statbuf) {
             }
         }
     }
+    if (ret == 0 && statbuf && statbuf->st_nlink < 2) {
+        ino_t uino = 0;
+        if (is_emulated_hardlink(target, statbuf->st_ino, &uino)) {
+            statbuf->st_nlink = 2;
+            if (uino) statbuf->st_ino = uino;
+        }
+    }
     return ret;
 }
 
@@ -1285,6 +1449,28 @@ int fstatat(int dirfd, const char *pathname, struct stat *statbuf, int flags) {
             if (post_len > 0) {
                 statbuf->st_size = post_len;
             }
+        }
+    }
+    if (ret == 0 && statbuf && statbuf->st_nlink < 2) {
+        ino_t uino = 0;
+        if (is_emulated_hardlink(target, statbuf->st_ino, &uino)) {
+            statbuf->st_nlink = 2;
+            if (uino) statbuf->st_ino = uino;
+        }
+    }
+    return ret;
+}
+
+// Hook fstat
+int fstat(int fd, struct stat *statbuf) {
+    static int (*orig_fstat)(int, struct stat *) = NULL;
+    if (!orig_fstat) orig_fstat = (int (*)(int, struct stat *))dlsym(RTLD_NEXT, "fstat");
+    int ret = orig_fstat ? orig_fstat(fd, statbuf) : -1;
+    if (ret == 0 && statbuf && statbuf->st_nlink < 2) {
+        ino_t uino = 0;
+        if (is_emulated_hardlink(NULL, statbuf->st_ino, &uino)) {
+            statbuf->st_nlink = 2;
+            if (uino) statbuf->st_ino = uino;
         }
     }
     return ret;
@@ -1455,6 +1641,7 @@ int unlink(const char *pathname) {
     char buf[PATH_MAX];
     const char *target = rewrite_path(pathname, buf, sizeof(buf));
     unlink_mapped_unix_socket(target);
+    unregister_emulated_hardlink(target);
     return orig_unlink(target);
 }
 
@@ -1464,7 +1651,10 @@ int unlinkat(int dirfd, const char *pathname, int flags) {
     if (!orig_unlinkat) orig_unlinkat = (int (*)(int, const char *, int))dlsym(RTLD_NEXT, "unlinkat");
     char buf[PATH_MAX];
     const char *target = (pathname && pathname[0] == '/') ? rewrite_path(pathname, buf, sizeof(buf)) : pathname;
-    if (target) unlink_mapped_unix_socket(target);
+    if (target) {
+        unlink_mapped_unix_socket(target);
+        unregister_emulated_hardlink(target);
+    }
     return orig_unlinkat ? orig_unlinkat(dirfd, target, flags) : -1;
 }
 
@@ -1654,24 +1844,6 @@ int symlinkat(const char *target, int newdirfd, const char *linkpath) {
     return orig_symlinkat ? orig_symlinkat(newtarget, newdirfd, newlink) : -1;
 }
 
-// Hook link
-int link(const char *oldpath, const char *newpath) {
-    static int (*orig_link)(const char *, const char *) = NULL;
-    if (!orig_link) orig_link = (int (*)(const char *, const char *))dlsym(RTLD_NEXT, "link");
-    char obuf[PATH_MAX], nbuf[PATH_MAX];
-    const char *rold = rewrite_path(oldpath, obuf, sizeof(obuf));
-    const char *rnew = rewrite_path(newpath, nbuf, sizeof(nbuf));
-    int ret = orig_link ? orig_link(rold, rnew) : -1;
-    if (ret != 0 && (errno == EXDEV || errno == EPERM || errno == EACCES || errno == ENOTSUP || errno == ENOSYS)) {
-        static int (*orig_symlink)(const char *, const char *) = NULL;
-        if (!orig_symlink) orig_symlink = (int (*)(const char *, const char *))dlsym(RTLD_NEXT, "symlink");
-        if (orig_symlink) {
-            ret = orig_symlink(rold, rnew);
-        }
-    }
-    return ret;
-}
-
 // Hook linkat
 int linkat(int olddirfd, const char *oldpath, int newdirfd, const char *newpath, int flags) {
     static int (*orig_linkat)(int, const char *, int, const char *, int) = NULL;
@@ -1681,13 +1853,27 @@ int linkat(int olddirfd, const char *oldpath, int newdirfd, const char *newpath,
     const char *rnew = (newpath && newpath[0] == '/') ? rewrite_path(newpath, nbuf, sizeof(nbuf)) : newpath;
     int ret = orig_linkat ? orig_linkat(olddirfd, rold, newdirfd, rnew, flags) : -1;
     if (ret != 0 && (errno == EXDEV || errno == EPERM || errno == EACCES || errno == ENOTSUP || errno == ENOSYS)) {
-        static int (*orig_symlinkat)(const char *, int, const char *) = NULL;
-        if (!orig_symlinkat) orig_symlinkat = (int (*)(const char *, int, const char *))dlsym(RTLD_NEXT, "symlinkat");
-        if (orig_symlinkat) {
-            ret = orig_symlinkat(rold, newdirfd, rnew);
+        char old_full[PATH_MAX], new_full[PATH_MAX];
+        const char *p_old = rold;
+        const char *p_new = rnew;
+        if (rold && rold[0] != '/' && olddirfd != AT_FDCWD) {
+            snprintf(old_full, sizeof(old_full), "/proc/self/fd/%d/%s", olddirfd, rold);
+            p_old = old_full;
+        }
+        if (rnew && rnew[0] != '/' && newdirfd != AT_FDCWD) {
+            snprintf(new_full, sizeof(new_full), "/proc/self/fd/%d/%s", newdirfd, rnew);
+            p_new = new_full;
+        }
+        if (p_old && p_new) {
+            ret = cortex_emulate_hardlink(p_old, p_new);
         }
     }
     return ret;
+}
+
+// Hook link
+int link(const char *oldpath, const char *newpath) {
+    return linkat(AT_FDCWD, oldpath, AT_FDCWD, newpath, 0);
 }
 
 // Hook utime / utimes / lutimes / futimesat / utimensat
@@ -1933,6 +2119,31 @@ static gid_t real_gid(void) {
 #define CORTEX_NSS_SYM(name) hook_##name
 static int g_test_orig_nss_r_ret = 0;
 static int g_test_orig_nss_r_found = 0;
+
+int hook_link(const char *oldpath, const char *newpath) {
+    int ret = link(oldpath, newpath);
+    if (ret != 0 && (errno == EXDEV || errno == EPERM || errno == EACCES || errno == ENOTSUP || errno == ENOSYS)) {
+        ret = cortex_emulate_hardlink(oldpath, newpath);
+    }
+    return ret;
+}
+
+int hook_stat(const char *path, struct stat *st) {
+    int ret = stat(path, st);
+    if (ret == 0 && st && st->st_nlink < 2) {
+        ino_t uino = 0;
+        if (is_emulated_hardlink(path, st->st_ino, &uino)) {
+            st->st_nlink = 2;
+            if (uino) st->st_ino = uino;
+        }
+    }
+    return ret;
+}
+
+int hook_unlink(const char *path) {
+    unregister_emulated_hardlink(path);
+    return unlink(path);
+}
 #else
 #define CORTEX_NSS_SYM(name) name
 #endif
@@ -2523,6 +2734,16 @@ long syscall(long number, ...) {
 #if defined(__NR_readlink)
     if (number == __NR_readlink) {
         return (long)readlink((const char *)arg1, (char *)arg2, (size_t)arg3);
+    }
+#endif
+#if defined(__NR_linkat)
+    if (number == __NR_linkat) {
+        return (long)linkat((int)arg1, (const char *)arg2, (int)arg3, (const char *)arg4, (int)arg5);
+    }
+#endif
+#if defined(__NR_link)
+    if (number == __NR_link) {
+        return (long)link((const char *)arg1, (const char *)arg2);
     }
 #endif
 

@@ -894,9 +894,17 @@ object BootstrapManager {
             } else {
                 tmpDir.mkdirs()
             }
-            try {
-                android.system.Os.chmod(tmpDir.absolutePath, 448) // 0700
-            } catch (e: Exception) {}
+            val etcDir = File(root, "etc")
+            if (etcDir.exists() && etcDir.isDirectory) {
+                etcDir.listFiles()?.forEach { file ->
+                    val name = file.name
+                    if (name.endsWith(".lock") || name.endsWith("+") || name.endsWith(".tmp")) {
+                        try {
+                            file.deleteRecursively()
+                        } catch (e: Exception) {}
+                    }
+                }
+            }
 
             val opencodeDataDir = File(home, ".local/share/opencode")
             if (opencodeDataDir.exists() && opencodeDataDir.isDirectory) {
@@ -1161,9 +1169,9 @@ object BootstrapManager {
                 passwdText = passwdText.replace(Regex("cortex:x:0:0:Cortex:[^:]+:/bin/bash"), "cortex:x:0:0:Cortex:$homePath:/bin/bash")
             }
             passwdFile.writeText(passwdText)
-            passwdFile.setReadable(true, true)
+            passwdFile.setReadable(true, false)
             passwdFile.setWritable(true, true)
-            try { android.system.Os.chmod(passwdFile.absolutePath, 384) } catch (e: Exception) {}
+            try { android.system.Os.chmod(passwdFile.absolutePath, 420) } catch (e: Exception) {}
 
             val groupFile = File(etcDir, "group")
             var groupText = if (groupFile.exists()) groupFile.readText() else ""
@@ -1174,9 +1182,9 @@ object BootstrapManager {
                 groupText += "cortex:x:0:\n"
             }
             groupFile.writeText(groupText)
-            groupFile.setReadable(true, true)
+            groupFile.setReadable(true, false)
             groupFile.setWritable(true, true)
-            try { android.system.Os.chmod(groupFile.absolutePath, 384) } catch (e: Exception) {}
+            try { android.system.Os.chmod(groupFile.absolutePath, 420) } catch (e: Exception) {}
         } catch (e: Exception) {
             Log.e(TAG, "Failed to ensure passwd/group", e)
         }
