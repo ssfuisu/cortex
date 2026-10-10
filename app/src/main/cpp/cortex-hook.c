@@ -2757,7 +2757,7 @@ struct passwd *CORTEX_NSS_SYM(getpwnam)(const char *name) {
 int CORTEX_NSS_SYM(getpwuid_r)(uid_t uid, struct passwd *pwd, char *buf, size_t buflen, struct passwd **result) {
 #ifndef CORTEX_HOST_TEST
     static int (*orig_getpwuid_r)(uid_t, struct passwd *, char *, size_t, struct passwd **) = NULL;
-    if (!orig_getpwuid_r) orig_getpwuid_r = (int (*)(uid_t, struct passwd *, char *, size_t, struct passwd **)dlsym(RTLD_NEXT, "getpwuid_r");
+    if (!orig_getpwuid_r) orig_getpwuid_r = (int (*)(uid_t, struct passwd *, char *, size_t, struct passwd **))dlsym(RTLD_NEXT, "getpwuid_r");
     int ret = orig_getpwuid_r ? orig_getpwuid_r(uid, pwd, buf, buflen, result) : ENOENT;
 #else
     int ret = g_test_orig_nss_r_ret;
