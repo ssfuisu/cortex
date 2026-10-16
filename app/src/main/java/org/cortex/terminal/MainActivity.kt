@@ -38,6 +38,12 @@ class MainActivity : AppCompatActivity() {
     companion object {
         var instance: MainActivity? = null
             private set
+
+        // Base-system extraction is process-wide: if the activity is re-created while it runs (a
+        // permission dialog, a configuration change, the user re-opening the app) the new instance
+        // must wait for it instead of starting a second extraction over the first one.
+        private val bootstrapLock = Any()
+        private var bootstrapInProgress = false
     }
 
     private lateinit var binding: ActivityMainBinding
@@ -239,7 +245,8 @@ class MainActivity : AppCompatActivity() {
         val root = Environment.getCortexRoot(this)
         val homeDir = Environment.getHomeDir(this)
 
-        if (BootstrapManager.isBootstrapInstalled(this)) {
+        val bootstrapInstalledAtStart = BootstrapManager.isBootstrapInstalled(this)
+        if (bootstrapInstalledAtStart) {
             // Fast synchronous prep before creating session:
             // 1. Ensure hook library is up-to-date and not corrupted (<2ms)
             // 2. Ensure repository GPG keyrings are present and verified (<1ms)
@@ -278,6 +285,9 @@ class MainActivity : AppCompatActivity() {
         // push the CortexService foreground promotion past the 5s ANR window —
         // exactly the blank-screen + ANR kill reported in issue #1.
         kotlin.concurrent.thread(name = "Cortex-StartupMaintenance") {
+            // While the base system is still being extracted these steps would write into the tree
+            // being unpacked; the bootstrap path below runs the same steps once it is done.
+            if (!bootstrapInstalledAtStart) return@thread
             try {
                 BootstrapManager.updateDnsConfiguration(this@MainActivity, root)
             } catch (e: Exception) {
@@ -309,7 +319,7 @@ class MainActivity : AppCompatActivity() {
                 android.util.Log.e("MainActivity", "Startup filesystem init failed", e)
             }
         }
-        if (!BootstrapManager.isBootstrapInstalled(this)) {
+        if (!bootstrapInstalledAtStart) {
             isBootstrapping = true
             val progress = android.app.ProgressDialog(this).apply {
                 setMessage("Setting up Cortex Glibc environment...\nExtracting base system...")
@@ -322,24 +332,28 @@ class MainActivity : AppCompatActivity() {
             } catch (e: Exception) {
                 android.util.Log.e("MainActivity", "Failed to show progress dialog", e)
             }
-            kotlin.concurrent.thread {
-                val success = BootstrapManager.installBootstrapFromAssets(this)
-                if (success) {
-                    BootstrapManager.updateTimezone(this, root)
-                    BootstrapManager.ensureEssentialBinaries(root, Environment.getHomeDir(this), this)
-                    BootstrapManager.initializeFileSystem(this)
+            kotlin.concurrent.thread(name = "Cortex-Bootstrap") {
+                // Whatever happens in here, the modal progress dialog below must be dismissed;
+                // an uncaught error used to leave "Extracting base system..." on screen forever.
+                val success = try {
+                    runBootstrapOnce(root)
+                } catch (t: Throwable) {
+                    android.util.Log.e("MainActivity", "Bootstrap failed", t)
+                    false
                 }
 
                 runOnUiThread {
-                    if (!isFinishing && !isDestroyed) {
-                        try {
-                            if (progress.isShowing) {
-                                progress.dismiss()
-                            }
-                        } catch (e: Exception) {}
-                    }
+                    try {
+                        if (progress.isShowing) {
+                            progress.dismiss()
+                        }
+                    } catch (e: Exception) {}
                     bootstrapDialog = null
                     isBootstrapping = false
+                    if (isFinishing || isDestroyed) {
+                        // A re-created activity runs its own wait/finish sequence.
+                        return@runOnUiThread
+                    }
                     if (success) {
                         createNewSession()
                         terminalView.post {
@@ -424,6 +438,44 @@ class MainActivity : AppCompatActivity() {
             window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         } else {
             window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        }
+    }
+
+    /**
+     * Extracts the Ubuntu base system, at most once at a time per process. A caller that arrives
+     * while another extraction is running waits for it and reports whether it succeeded.
+     */
+    private fun runBootstrapOnce(root: java.io.File): Boolean {
+        val isOwner = synchronized(bootstrapLock) {
+            if (bootstrapInProgress) {
+                false
+            } else {
+                bootstrapInProgress = true
+                true
+            }
+        }
+        if (!isOwner) {
+            while (synchronized(bootstrapLock) { bootstrapInProgress }) {
+                Thread.sleep(300)
+            }
+            return BootstrapManager.isBootstrapInstalled(this)
+        }
+        try {
+            val installed = BootstrapManager.installBootstrapFromAssets(this)
+            if (installed) {
+                // The base system is in place; a hiccup in the follow-up polish must not turn
+                // a working install into "Failed to initialize environment".
+                try {
+                    BootstrapManager.updateTimezone(this, root)
+                    BootstrapManager.ensureEssentialBinaries(root, Environment.getHomeDir(this), this)
+                    BootstrapManager.initializeFileSystem(this)
+                } catch (t: Throwable) {
+                    android.util.Log.e("MainActivity", "Post-bootstrap setup failed", t)
+                }
+            }
+            return installed
+        } finally {
+            synchronized(bootstrapLock) { bootstrapInProgress = false }
         }
     }
 

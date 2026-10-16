@@ -12,7 +12,7 @@ import java.util.zip.GZIPInputStream
 
 object BootstrapManager {
     private const val TAG = "BootstrapManager"
-    const val CURRENT_BOOTSTRAP_VERSION = 12523
+    const val CURRENT_BOOTSTRAP_VERSION = 12627
 
     fun initializeFileSystem(context: Context) {
         val root = Environment.getCortexRoot(context)
@@ -31,288 +31,13 @@ object BootstrapManager {
         ensureRootTools(root, context)
         ensureBrowserOpener(root, context)
 
-        val d = "$"
-        val certExportSnippet = "if [ -z \"" + d + "CORTEX_ROOT\" ]; then\n" +
-            "    if [ -d \"" + d + "HOME/../etc\" ]; then\n" +
-            "        export CORTEX_ROOT=\"$(cd \"" + d + "HOME/..\" && pwd)\"\n" +
-            "    fi\n" +
-            "fi\n" +
-            "if [ -n \"" + d + "CORTEX_ROOT\" ]; then\n" +
-            "    export SSL_CERT_FILE=\"" + d + "CORTEX_ROOT/etc/ssl/certs/ca-certificates.crt\"\n" +
-            "    export SSL_CERT_DIR=\"" + d + "CORTEX_ROOT/etc/ssl/certs:/system/etc/security/cacerts\"\n" +
-            "    export CURL_CA_BUNDLE=\"" + d + "CORTEX_ROOT/etc/ssl/certs/ca-certificates.crt\"\n" +
-            "    export NODE_EXTRA_CA_CERTS=\"" + d + "CORTEX_ROOT/etc/ssl/certs/ca-certificates.crt\"\n" +
-            "    export REQUESTS_CA_BUNDLE=\"" + d + "CORTEX_ROOT/etc/ssl/certs/ca-certificates.crt\"\n" +
-            "else\n" +
-            "    export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt\n" +
-            "    export CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt\n" +
-            "fi\n"
-
-        try {
-            val bashrc = File(home, ".bashrc")
-            var bashrcText = if (bashrc.exists()) {
-                try { bashrc.readText() } catch (e: Exception) { "" }
-            } else ""
-            var changed = false
-
-            // Strip legacy source() override if present
-            if (bashrcText.contains("source()")) {
-                bashrcText = bashrcText.replace(Regex("source\\s*\\(\\)\\s*\\{[\\s\\S]*?\\n\\}"), "")
-                changed = true
-            }
-
-            if (!bashrcText.contains("unset PREFIX")) {
-                bashrcText = "unset PREFIX\n" + bashrcText
-                changed = true
-            }
-
-            if (!bashrcText.contains("checkwinsize")) {
-                bashrcText = "shopt -s checkwinsize 2>/dev/null\n" + bashrcText
-                changed = true
-            }
-
-            if (!bashrcText.contains("GODEBUG")) {
-                bashrcText = "export GODEBUG=netdns=cgo\n" + bashrcText
-                changed = true
-            }
-
-            if (!bashrcText.contains("PS1=")) {
-                bashrcText += "# Cortex Terminal Environment\n" +
-                    "if [ -n \"" + d + "BASH_VERSION\" ]; then\n" +
-                    "    export PS1='\\w " + d + " '\n" +
-                    "else\n" +
-                    "    export PS1='~ " + d + " '\n" +
-                    "fi\n" +
-                    "alias ll='ls -la'\n" +
-                    "alias la='ls -A'\n" +
-                    "alias l='ls -CF'\n" +
-                    "alias cls='clear'\n"
-                changed = true
-            }
-            if (bashrcText.contains(".opencode/bin")) {
-                bashrcText = bashrcText.replace(d + "HOME/.opencode/bin:", "")
-                bashrcText = bashrcText.replace("/home/.opencode/bin:", "")
-                changed = true
-            }
-            if (!bashrcText.contains(".local/bin")) {
-                bashrcText += "export PATH=\"" + d + "HOME/.local/bin:" + d + "PATH\"\n"
-                changed = true
-            }
-
-            if (bashrcText.contains("export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt")) {
-                bashrcText = bashrcText.replace(
-                    "export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt\nexport CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt\n",
-                    certExportSnippet
-                )
-                if (bashrcText.contains("export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt")) {
-                    bashrcText = bashrcText.replace("export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt", certExportSnippet)
-                }
-                changed = true
-            } else if (!bashrcText.contains("SSL_CERT_FILE")) {
-                bashrcText += certExportSnippet
-                changed = true
-            }
-            if (!bashrcText.contains("TZDIR")) {
-                bashrcText += "if [ -d \"" + d + "HOME/../usr/share/zoneinfo\" ]; then\n" +
-                    "    export TZDIR=\"" + d + "HOME/../usr/share/zoneinfo\"\n" +
-                    "elif [ -d \"/usr/share/zoneinfo\" ]; then\n" +
-                    "    export TZDIR=\"/usr/share/zoneinfo\"\n" +
-                    "fi\n"
-                changed = true
-            }
-            if (!bashrcText.contains("export TZ=")) {
-                bashrcText += "if [ -f /etc/timezone ]; then export TZ=\"$(cat /etc/timezone 2>/dev/null)\"; fi\n"
-                changed = true
-            }
-
-            val reloadFn = "reload() {\n" +
-                "    set --\n" +
-                "    if [ -f \"" + d + "HOME/.bashrc\" ]; then . \"" + d + "HOME/.bashrc\"; fi\n" +
-                "    if [ -f \"" + d + "HOME/.profile\" ]; then . \"" + d + "HOME/.profile\"; fi\n" +
-                "    if [ -f \"" + d + "HOME/.bash_profile\" ]; then . \"" + d + "HOME/.bash_profile\"; fi\n" +
-                "    echo \"Configuration reloaded successfully.\"\n" +
-                "}\n" +
-                "alias reload='reload'\n"
-
-            if (bashrcText.contains("reload()")) {
-                bashrcText = bashrcText.replace(Regex("reload\\s*\\(\\)\\s*\\{[\\s\\S]*?\\n\\}"), "")
-                bashrcText = bashrcText.lines().filter { !it.startsWith("alias reload=") }.joinToString("\n").trimEnd()
-                bashrcText += "\n\n" + reloadFn
-                changed = true
-            } else {
-                bashrcText = bashrcText.trimEnd() + "\n\n" + reloadFn
-                changed = true
-            }
-
-            if (!bashrcText.contains("_CORTEX_PROF_GUARD")) {
-                bashrcText += "\nif [ -f \"" + d + "HOME/.profile\" ] && [ -z \"" + d + "_CORTEX_PROF_GUARD\" ]; then\n" +
-                    "    _CORTEX_PROF_GUARD=1\n" +
-                    "    . \"" + d + "HOME/.profile\"\n" +
-                    "    unset _CORTEX_PROF_GUARD\n" +
-                    "fi\n"
-                changed = true
-            }
-
-            if (!bashrcText.contains("/etc/cortex/autostart")) {
-                bashrcText += "\nif [ -d /etc/cortex/autostart ]; then\n" +
-                    "    for s in /etc/cortex/autostart/*; do\n" +
-                    "        if [ -f \"" + d + "s\" ]; then\n" +
-                    "            sname=\"" + d + "(basename \"" + d + "s\")\"\n" +
-                    "            service \"" + d + "sname\" start >/dev/null 2>&1 || true\n" +
-                    "        fi\n" +
-                    "    done\n" +
-                    "fi\n"
-                changed = true
-            }
-
-            if (changed) {
-                bashrc.writeText(bashrcText.trim() + "\n")
-                bashrc.setReadable(true, true)
-                bashrc.setWritable(true, true)
-                try { android.system.Os.chmod(bashrc.absolutePath, 384) } catch (e: Exception) {} // 0600
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to ensure .bashrc", e)
-        }
-
-        try {
-            val profile = File(home, ".profile")
-            var profileText = if (profile.exists()) {
-                try { profile.readText() } catch (e: Exception) { "" }
-            } else ""
-            var changed = false
-
-            // Strip legacy source() override if present
-            if (profileText.contains("source()")) {
-                profileText = profileText.replace(Regex("source\\s*\\(\\)\\s*\\{[\\s\\S]*?\\n\\}"), "")
-                changed = true
-            }
-
-            if (!profileText.contains("unset PREFIX")) {
-                profileText = "unset PREFIX\n" + profileText
-                changed = true
-            }
-
-            if (!profileText.contains("checkwinsize")) {
-                profileText = "shopt -s checkwinsize 2>/dev/null\n" + profileText
-                changed = true
-            }
-
-            if (!profileText.contains("GODEBUG")) {
-                profileText = "export GODEBUG=netdns=cgo\n" + profileText
-                changed = true
-            }
-
-            if (!profileText.contains("PS1=")) {
-                profileText += "if [ -n \"" + d + "BASH_VERSION\" ]; then\n" +
-                    "    export PS1='\\w " + d + " '\n" +
-                    "else\n" +
-                    "    export PS1='~ " + d + " '\n" +
-                    "fi\n"
-                changed = true
-            }
-            if (!profileText.contains(".local/bin")) {
-                profileText += "export PATH=\"" + d + "HOME/.local/bin:" + d + "PATH\"\n"
-                changed = true
-            }
-            if (profileText.contains("export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt")) {
-                profileText = profileText.replace(
-                    "export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt\nexport CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt\n",
-                    certExportSnippet
-                )
-                if (profileText.contains("export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt")) {
-                    profileText = profileText.replace("export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt", certExportSnippet)
-                }
-                changed = true
-            } else if (!profileText.contains("SSL_CERT_FILE")) {
-                profileText += certExportSnippet
-                changed = true
-            }
-            if (!profileText.contains("TZDIR")) {
-                profileText += "if [ -d \"" + d + "HOME/../usr/share/zoneinfo\" ]; then\n" +
-                    "    export TZDIR=\"" + d + "HOME/../usr/share/zoneinfo\"\n" +
-                    "elif [ -d \"/usr/share/zoneinfo\" ]; then\n" +
-                    "    export TZDIR=\"/usr/share/zoneinfo\"\n" +
-                    "fi\n"
-                changed = true
-            }
-            if (!profileText.contains("export TZ=")) {
-                profileText += "if [ -f /etc/timezone ]; then export TZ=\"$(cat /etc/timezone 2>/dev/null)\"; fi\n"
-                changed = true
-            }
-
-            val reloadFn = "reload() {\n" +
-                "    set --\n" +
-                "    if [ -f \"" + d + "HOME/.bashrc\" ]; then . \"" + d + "HOME/.bashrc\"; fi\n" +
-                "    if [ -f \"" + d + "HOME/.profile\" ]; then . \"" + d + "HOME/.profile\"; fi\n" +
-                "    if [ -f \"" + d + "HOME/.bash_profile\" ]; then . \"" + d + "HOME/.bash_profile\"; fi\n" +
-                "    echo \"Configuration reloaded successfully.\"\n" +
-                "}\n" +
-                "alias reload='reload'\n"
-
-            if (profileText.contains("reload()")) {
-                profileText = profileText.replace(Regex("reload\\s*\\(\\)\\s*\\{[\\s\\S]*?\\n\\}"), "")
-                profileText = profileText.lines().filter { !it.startsWith("alias reload=") }.joinToString("\n").trimEnd()
-                profileText += "\n\n" + reloadFn
-                changed = true
-            } else {
-                profileText = profileText.trimEnd() + "\n\n" + reloadFn
-                changed = true
-            }
-
-            if (!profileText.contains("_CORTEX_RC_GUARD")) {
-                profileText += "\nif [ -f \"" + d + "HOME/.bashrc\" ] && [ -z \"" + d + "_CORTEX_RC_GUARD\" ]; then\n" +
-                    "    _CORTEX_RC_GUARD=1\n" +
-                    "    . \"" + d + "HOME/.bashrc\"\n" +
-                    "    unset _CORTEX_RC_GUARD\n" +
-                    "fi\n"
-                changed = true
-            }
-
-            if (changed) {
-                profile.writeText(profileText.trim() + "\n")
-                profile.setReadable(true, true)
-                profile.setWritable(true, true)
-                try { android.system.Os.chmod(profile.absolutePath, 384) } catch (e: Exception) {} // 0600
-            }
-
-            // Clean up any unhidden bashrc, profile, or ubuntu directory in home
-            File(home, "bashrc").delete()
-            File(home, "profile").delete()
-            File(home, "ubuntu").deleteRecursively()
-
-            val localBin = File(home, ".local/bin")
-            localBin.mkdirs()
-            val localBinBashrc = File(localBin, "bashrc")
-            localBinBashrc.writeText(
-                "#!/bin/bash\n" +
-                "if (return 0 2>/dev/null); then\n" +
-                "    . \"" + d + "HOME/.bashrc\"\n" +
-                "else\n" +
-                "    exec \"" + d + "{SHELL:-/bin/bash}\" -l\n" +
-                "fi\n"
-            )
-            localBinBashrc.setExecutable(true, true)
-            localBinBashrc.setReadable(true, true)
-            localBinBashrc.setWritable(true, true)
-            try { android.system.Os.chmod(localBinBashrc.absolutePath, 448) } catch (e: Exception) {} // 0700
-
-            val localBinProfile = File(localBin, "profile")
-            localBinProfile.writeText(
-                "#!/bin/bash\n" +
-                "if (return 0 2>/dev/null); then\n" +
-                "    . \"" + d + "HOME/.profile\"\n" +
-                "else\n" +
-                "    exec \"" + d + "{SHELL:-/bin/bash}\" -l\n" +
-                "fi\n"
-            )
-            localBinProfile.setExecutable(true, true)
-            localBinProfile.setReadable(true, true)
-            localBinProfile.setWritable(true, true)
-            try { android.system.Os.chmod(localBinProfile.absolutePath, 448) } catch (e: Exception) {} // 0700
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to ensure .profile", e)
-        }
+        // ~/.profile and ~/.bashrc are the user's own files (created once from /etc/skel, see
+        // ShellProfile). Cortex's environment lives in /etc/profile.d, never in the user's files.
+        ShellProfile.ensureUserStartupFiles(
+            home = home,
+            skel = File(root, "etc/skel"),
+            rootfsReady = File(root, "usr/bin/bash").exists()
+        )
 
         val etcProfile = File(root, "etc/profile")
         if (etcProfile.exists()) {
@@ -884,7 +609,7 @@ object BootstrapManager {
                     val name = file.name
                     if (name.endsWith(".sock") || name.endsWith(".socket") ||
                         name.endsWith(".lock") || name.endsWith(".pid") ||
-                        name.startsWith(".ctx_sock_") || name.startsWith("opencode") ||
+                        name.startsWith(".ctx_sock_") || name.startsWith(".cortex-rcwatch.") || name.startsWith("opencode") ||
                         name.startsWith("bun-") || name.startsWith("node-")) {
                         try {
                             file.deleteRecursively()
@@ -1323,7 +1048,7 @@ object BootstrapManager {
             ensureMountpoint(root)
             ensureJavaCaDirs(root)
             cleanupAutoLaunchers(root)
-            ensureProfileEnvironment(root)
+            ensureProfileEnvironment(root, context)
         } catch (e: Exception) {
             Log.e(TAG, "Failed in ensureEssentialBinaries", e)
         }
@@ -1428,6 +1153,12 @@ object BootstrapManager {
         }
     }
 
+    /**
+     * Removes the auto-installer wrapper scripts old releases put into /usr/local/bin. Only small
+     * regular shell scripts carrying the wrapper's own banner are touched: the real tool (a
+     * large Bun/Go binary that merely mentions its own URL) or a symlink to it must never be
+     * read into memory or deleted.
+     */
     fun cleanupAutoLaunchers(root: File) {
         try {
             val candidates = listOf(
@@ -1439,16 +1170,9 @@ object BootstrapManager {
                 File(root, "bin/muse")
             )
             for (cand in candidates) {
-                if (cand.exists()) {
-                    val text = try { cand.readText() } catch (_: Exception) { "" }
-                    if (text.contains("OpenCode CLI is not yet installed") ||
-                        text.contains("Meta Muse Code CLI is not yet installed") ||
-                        text.contains("opencode.ai") ||
-                        text.contains("dev.meta.ai")) {
-                        cand.delete()
-                        Log.i(TAG, "Removed auto-installer wrapper: ${cand.absolutePath}")
-                    }
-                }
+                if (!ShellScriptsInstaller.isLegacyAutoLauncher(cand)) continue
+                cand.delete()
+                Log.i(TAG, "Removed auto-installer wrapper: ${cand.absolutePath}")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to cleanup auto-launchers", e)
@@ -1577,28 +1301,52 @@ object BootstrapManager {
         }
     }
 
-    fun ensureProfileEnvironment(root: File) {
+    /**
+     * Writes Cortex's own environment into /etc/profile.d (the place Ubuntu reserves for
+     * packages/administrators), so ~/.bashrc and ~/.profile stay the user's files.
+     */
+    fun ensureProfileEnvironment(root: File, context: Context? = null) {
         try {
             val profileD = File(root, "etc/profile.d")
             profileD.mkdirs()
             val envSh = File(profileD, "00-env.sh")
-            val envContent = "if [ -z \"\$CORTEX_ROOT\" ]; then\n" +
+            val envContent = "# Cortex environment. Managed by the app and rewritten on every start;\n" +
+                "# put personal settings in ~/.bashrc and ~/.profile instead.\n" +
+                "if [ -z \"\$CORTEX_ROOT\" ]; then\n" +
                 "    if [ -d \"\$HOME/../etc\" ]; then\n" +
                 "        export CORTEX_ROOT=\"\$(cd \"\$HOME/..\" && pwd)\"\n" +
                 "    else\n" +
                 "        export CORTEX_ROOT=\"" + root.absolutePath + "\"\n" +
                 "    fi\n" +
                 "fi\n" +
+                "export SHELL=\"\${SHELL:-/bin/bash}\"\n" +
                 "export LD_LIBRARY_PATH=\"\$CORTEX_ROOT/lib:\$CORTEX_ROOT/usr/lib:\$CORTEX_ROOT/lib/aarch64-linux-gnu:\$CORTEX_ROOT/usr/lib/aarch64-linux-gnu:\$CORTEX_ROOT/lib/arm-linux-gnueabihf:\$CORTEX_ROOT/usr/lib/arm-linux-gnueabihf:\$CORTEX_ROOT/usr/local/lib:\$CORTEX_ROOT/usr/lib/systemd:\$CORTEX_ROOT/lib/systemd:\$CORTEX_ROOT/usr/lib/aarch64-linux-gnu/systemd:\$CORTEX_ROOT/lib/aarch64-linux-gnu/systemd:\$CORTEX_ROOT/usr/lib/arm-linux-gnueabihf/systemd:\$CORTEX_ROOT/lib/arm-linux-gnueabihf/systemd\"\n" +
                 "export LD_PRELOAD=\"\$CORTEX_ROOT/usr/lib/libcortex-hook.so\"\n" +
-                "export PATH=\"/home/.local/bin:\$HOME/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:\$PATH\"\n"
-            envSh.writeText(envContent)
+                "# Ubuntu's default PATH (normally already set by /etc/profile) plus ~/.local/bin,\n" +
+                "# each entry only once.\n" +
+                "for __cortex_d in /usr/local/sbin /usr/local/bin /usr/sbin /usr/bin /sbin /bin; do\n" +
+                "    case \":\$PATH:\" in\n" +
+                "        *\":\$__cortex_d:\"*) ;;\n" +
+                "        *) PATH=\"\$PATH:\$__cortex_d\" ;;\n" +
+                "    esac\n" +
+                "done\n" +
+                "unset __cortex_d\n" +
+                "case \":\$PATH:\" in\n" +
+                "    *\":\$HOME/.local/bin:\"*) ;;\n" +
+                "    *) PATH=\"\$HOME/.local/bin:\$PATH\" ;;\n" +
+                "esac\n" +
+                "export PATH\n"
+            val existing = try { if (envSh.isFile) envSh.readText() else null } catch (e: Exception) { null }
+            if (existing != envContent) {
+                envSh.writeText(envContent)
+            }
             envSh.setReadable(true, true)
             envSh.setWritable(true, true)
             try { android.system.Os.chmod(envSh.absolutePath, 384) } catch (e: Exception) {}
         } catch (e: Exception) {
             Log.e(TAG, "Failed to ensure profile environment", e)
         }
+        ShellScriptsInstaller.ensureShellHelpers(root, context)
     }
 
     fun ensureServiceManager(root: File, context: Context? = null) {

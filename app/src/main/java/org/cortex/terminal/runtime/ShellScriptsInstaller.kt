@@ -71,6 +71,57 @@ object ShellScriptsInstaller {
         }
     }
 
+    /**
+     * Installs the interactive-shell helpers (`reload`, automatic re-sourcing of ~/.bashrc when an
+     * installer changes it) as /etc/profile.d/02-cortex-shell.sh, the Ubuntu-standard hook that
+     * every login shell sources. The user's own dotfiles are not involved.
+     */
+    fun ensureShellHelpers(root: File, context: Context? = null) {
+        try {
+            val fallback = "[ -n \"\${BASH_VERSION-}\" ] || return 0 2>/dev/null\n" +
+                "reload() {\n" +
+                "    set --\n" +
+                "    if [ -f \"\$HOME/.bashrc\" ]; then . \"\$HOME/.bashrc\"; fi\n" +
+                "    if [ -f \"\$HOME/.profile\" ]; then . \"\$HOME/.profile\"; fi\n" +
+                "    echo \"Configuration reloaded successfully.\"\n" +
+                "}\n"
+            val script = loadAssetScript(context, "cortex-shell.sh", fallback)
+
+            val profileD = File(root, "etc/profile.d")
+            profileD.mkdirs()
+            val target = File(profileD, "02-cortex-shell.sh")
+            val existing = try { if (target.isFile) target.readText() else null } catch (_: Exception) { null }
+            if (existing != script) {
+                target.writeText(script)
+            }
+            target.setReadable(true, false)
+            target.setWritable(true, true)
+            try { Os.chmod(target.absolutePath, 420) } catch (_: Exception) {} // 0644
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to install shell helpers", e)
+        }
+    }
+
+    /**
+     * True for the small auto-install wrapper scripts old releases put into /usr/local/bin. The
+     * real tool (a large Bun/Go binary that merely mentions its own URL) and symlinks to it must
+     * never be read into memory or deleted.
+     */
+    internal fun isLegacyAutoLauncher(file: File): Boolean {
+        return try {
+            if (!file.isFile || ElfLinkerPatcher.isSymlink(file) || file.length() > 64 * 1024) {
+                false
+            } else {
+                val text = file.readText()
+                text.startsWith("#!") &&
+                    (text.contains("OpenCode CLI is not yet installed") ||
+                        text.contains("Meta Muse Code CLI is not yet installed"))
+            }
+        } catch (e: Exception) {
+            false
+        }
+    }
+
     fun ensureServiceManager(root: File, context: Context? = null) {
         try {
             File(root, "run").mkdirs()

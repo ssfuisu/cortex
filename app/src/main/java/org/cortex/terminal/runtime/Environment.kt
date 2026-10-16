@@ -123,6 +123,9 @@ object Environment {
             "LOCPATH=$root/usr/lib/locale",
             "USER=cortex",
             "LOGNAME=cortex",
+            // Stock Ubuntu exports SHELL at login; installers (nvm, bun, pnpm, rustup, opencode, ...)
+            // read it to decide which rc file to append their PATH setup to.
+            "SHELL=/bin/bash",
             "HOSTNAME=cortex-android",
             "PS1=\\w $ ",
             "ENV=$home/.profile",

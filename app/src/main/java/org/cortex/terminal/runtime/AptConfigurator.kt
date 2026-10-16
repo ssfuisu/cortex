@@ -285,7 +285,6 @@ object AptConfigurator {
                 "unset PREFIX\n" +
                 "export GODEBUG=netdns=cgo\n" +
                 "shopt -s checkwinsize 2>/dev/null\n" +
-                "export PATH=\"/home/.local/bin:\$HOME/.local/bin:\$PATH\"\n" +
                 "if [ -n \"\$CORTEX_ROOT\" ]; then\n" +
                 "    export SSL_CERT_FILE=\"\$CORTEX_ROOT/etc/ssl/certs/ca-certificates.crt\"\n" +
                 "    export SSL_CERT_DIR=\"\$CORTEX_ROOT/etc/ssl/certs:/system/etc/security/cacerts\"\n" +

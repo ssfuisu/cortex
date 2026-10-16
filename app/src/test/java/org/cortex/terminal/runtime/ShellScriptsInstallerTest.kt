@@ -106,4 +106,58 @@ class ShellScriptsInstallerTest {
             isSymlink || emptyDbusMachineId.length() >= 32L
         )
     }
+
+    @Test
+    fun ensureShellHelpers_installsProfileDScriptWithReloadFunction() {
+        val root = tempFolder.newFolder("root")
+
+        ShellScriptsInstaller.ensureShellHelpers(root, null)
+
+        val script = File(root, "etc/profile.d/02-cortex-shell.sh")
+        assertTrue("02-cortex-shell.sh must be installed in /etc/profile.d", script.isFile)
+        val text = script.readText()
+        assertTrue(text.contains("reload()"))
+        assertTrue("it must be bash-only", text.contains("BASH_VERSION"))
+        assertFalse("it must not touch the user's dotfiles", text.contains(">> \"\$HOME/.bashrc\""))
+    }
+
+    @Test
+    fun isLegacyAutoLauncher_matchesOnlySmallWrapperScripts() {
+        val dir = tempFolder.newFolder("bin")
+
+        val wrapper = File(dir, "opencode").apply {
+            writeText("#!/bin/bash\necho \" OpenCode CLI is not yet installed.\"\n")
+        }
+        assertTrue(ShellScriptsInstaller.isLegacyAutoLauncher(wrapper))
+
+        // The real tool mentions its own URL; that alone must never get it deleted.
+        val realBinary = File(dir, "opencode-real").apply {
+            writeBytes("\u007fELF".toByteArray() + ByteArray(200_000) + "https://opencode.ai/update".toByteArray())
+        }
+        assertFalse(ShellScriptsInstaller.isLegacyAutoLauncher(realBinary))
+
+        val scriptWithUrl = File(dir, "user-script").apply {
+            writeText("#!/bin/sh\ncurl -fsSL https://opencode.ai/v2/install | bash\n")
+        }
+        assertFalse(ShellScriptsInstaller.isLegacyAutoLauncher(scriptWithUrl))
+
+        assertFalse(ShellScriptsInstaller.isLegacyAutoLauncher(File(dir, "missing")))
+    }
+
+    @Test
+    fun cleanupAutoLaunchers_keepsInstalledToolAndRemovesOldWrapper() {
+        val root = tempFolder.newFolder("root")
+        val localBin = File(root, "usr/local/bin").apply { mkdirs() }
+        val tool = File(localBin, "opencode").apply {
+            writeBytes("\u007fELF".toByteArray() + "https://opencode.ai".toByteArray())
+        }
+        val wrapper = File(localBin, "muse").apply {
+            writeText("#!/bin/bash\necho \" Meta Muse Code CLI is not yet installed.\"\n")
+        }
+
+        BootstrapManager.cleanupAutoLaunchers(root)
+
+        assertTrue("an installed opencode must survive the cleanup", tool.exists())
+        assertFalse("the old auto-install wrapper must be removed", wrapper.exists())
+    }
 }

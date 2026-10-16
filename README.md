@@ -67,6 +67,22 @@ With full APT package management, high-speed developer launchers, and a modern M
 
 ---
 
+## Shell Environment (Ubuntu 24.04 compatible)
+
+Cortex starts a standard **bash login shell** and follows Ubuntu's startup order, so installers behave as they do on a real Ubuntu machine:
+
+| File | Owner | Purpose |
+|------|-------|---------|
+| `/etc/profile`, `/etc/bash.bashrc` | Ubuntu | stock system-wide startup |
+| `/etc/profile.d/00-env.sh`, `01cortex.sh`, `02-cortex-shell.sh` | Cortex (rewritten on every app start) | `CORTEX_ROOT`, `LD_PRELOAD`, de-duplicated `PATH`, APT/CA/timezone settings, `reload` |
+| `~/.profile`, `~/.bashrc` | **You** | created once from `/etc/skel`; Cortex never rewrites them again |
+
+- `SHELL=/bin/bash` is exported, so installers such as `nvm`, `bun`, `rustup`, `pnpm` and `opencode` append their `PATH` setup to `~/.bashrc` exactly like on Ubuntu.
+- **Automatic reload:** when an installer (or you) changes `~/.bashrc`, `~/.profile` or `~/.bash_profile`, the running shell re-sources it at the next prompt, so `nvm`, `opencode` and friends work immediately without restarting the terminal. Run `reload` to do it by hand, or `export CORTEX_AUTO_RELOAD=0` (e.g. in `~/.bashrc`) to disable it.
+- Cortex keeps its compact `\w $` prompt via one line at the end of a new `~/.bashrc`; delete that line to get Ubuntu's `user@host:dir$` prompt.
+
+---
+
 ## How to Install
 
 1. Navigate to the [Releases](https://github.com/ssfuisu/cortex/releases) section of this repository.

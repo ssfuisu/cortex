@@ -27,7 +27,7 @@ cleanup() {
 trap cleanup EXIT
 
 echo "=== 0. Checking LF line endings and syntax ==="
-for script_name in reload.sh service.sh systemctl.sh su.sh; do
+for script_name in reload.sh service.sh systemctl.sh su.sh cortex-shell.sh; do
     script_path="$ASSETS_SCRIPTS/$script_name"
     if LC_ALL=C grep -q $'\r' "$script_path"; then
         fail "$script_name contains CRLF line endings"
@@ -286,6 +286,67 @@ if sh "$XDG_OPEN_TEST" >/dev/null 2>&1; then
     pass "xdg-open with no arguments exits 0 cleanly"
 else
     fail "xdg-open with no arguments failed"
+fi
+
+echo "=== 5. Testing cortex-shell.sh (/etc/profile.d interactive helpers) ==="
+CORTEX_SHELL_SH="$ASSETS_SCRIPTS/cortex-shell.sh"
+RC_HOME="$TEST_TMP/rc_home"
+RC_TMP="$TEST_TMP/rc_tmp"
+mkdir -p "$RC_HOME" "$RC_TMP"
+printf '# user bashrc\n' > "$RC_HOME/.bashrc"
+
+# Interactive bash fed from a pipe: PROMPT_COMMAND runs before every line it reads.
+run_interactive() {
+    HOME="$RC_HOME" TMPDIR="$RC_TMP" CORTEX_SHELL_SH="$CORTEX_SHELL_SH" \
+        CORTEX_TEST_SESSION="$TEST_TMP/rc_session.sh" \
+        timeout 30 bash --norc --noprofile -i 2>&1
+}
+
+# 5a. Non-interactive shells must not be touched (no PROMPT_COMMAND, no functions)
+NONINT_OUT="$(HOME="$RC_HOME" TMPDIR="$RC_TMP" bash -c '. "$1"; printf "%s|%s" "${PROMPT_COMMAND-none}" "$(type -t reload || echo nofn)"' _ "$CORTEX_SHELL_SH" 2>&1)"
+if [ "$NONINT_OUT" = "none|nofn" ]; then
+    pass "cortex-shell.sh does nothing in non-interactive shells"
+else
+    fail "cortex-shell.sh leaked into a non-interactive shell: '$NONINT_OUT'"
+fi
+
+# 5b. An installer appending to ~/.bashrc is picked up at the next prompt (nvm / opencode scenario)
+cat > "$TEST_TMP/rc_session.sh" << 'EOF'
+. "$CORTEX_SHELL_SH"
+sleep 1.1
+printf 'export CORTEX_TEST_FROM_INSTALLER=yes\nnvm() { echo nvm-ready; }\n' >> "$HOME/.bashrc"
+EOF
+RC_OUT="$(printf 'source "$CORTEX_TEST_SESSION"\necho "VAR=${CORTEX_TEST_FROM_INSTALLER-unset}"\necho "FN=$(type -t nvm || echo none)"\n' | run_interactive)"
+if [[ "$RC_OUT" == *"VAR=yes"* ]] && [[ "$RC_OUT" == *"FN=function"* ]]; then
+    pass "cortex-shell.sh re-sources ~/.bashrc when an installer changes it"
+else
+    fail "cortex-shell.sh did not auto-reload ~/.bashrc: output='$RC_OUT'"
+fi
+
+# 5c. CORTEX_AUTO_RELOAD=0 turns the automatic reload off
+printf '# user bashrc\n' > "$RC_HOME/.bashrc"
+RC_OFF_OUT="$(printf 'source "$CORTEX_TEST_SESSION"\necho "VAR=${CORTEX_TEST_FROM_INSTALLER-unset}"\n' | CORTEX_AUTO_RELOAD=0 run_interactive)"
+if [[ "$RC_OFF_OUT" == *"VAR=unset"* ]]; then
+    pass "CORTEX_AUTO_RELOAD=0 disables the automatic reload"
+else
+    fail "CORTEX_AUTO_RELOAD=0 did not disable the automatic reload: output='$RC_OFF_OUT'"
+fi
+
+# 5d. A stamp file removed behind the shell's back (tmp cleanup at app start) must not trigger a reload
+RC_STAMP_OUT="$(printf 'source "$CORTEX_SHELL_SH"\nrm -f "$TMPDIR"/.cortex-rcwatch.*\necho one\necho two\n' | run_interactive)"
+if [[ "$RC_STAMP_OUT" != *"reloading"* ]] && [[ "$RC_STAMP_OUT" == *"two"* ]]; then
+    pass "cortex-shell.sh recovers silently when its stamp file is removed"
+else
+    fail "cortex-shell.sh reloaded after its stamp file vanished: output='$RC_STAMP_OUT'"
+fi
+
+# 5e. A user's PROMPT_COMMAND is preserved and sourcing the helpers twice does not stack the hook
+PC_OUT="$(HOME="$RC_HOME" TMPDIR="$RC_TMP" PROMPT_COMMAND='echo user-hook' bash --norc --noprofile -i -c '. "$1"; . "$1"; printf "%s" "$PROMPT_COMMAND"' _ "$CORTEX_SHELL_SH" 2>/dev/null)"
+PC_HOOKS="$(printf '%s' "$PC_OUT" | tr ';' '\n' | grep -c '^__cortex_rc_check' || true)"
+if [[ "$PC_OUT" == *"echo user-hook" ]] && [ "$PC_HOOKS" -eq 1 ]; then
+    pass "cortex-shell.sh keeps the user's PROMPT_COMMAND and installs its hook once"
+else
+    fail "cortex-shell.sh mangled PROMPT_COMMAND (hooks=$PC_HOOKS): '$PC_OUT'"
 fi
 
 echo ""
