@@ -648,6 +648,41 @@ static void test_hardlink_emulation_and_st_nlink(void) {
     ASSERT_EQ(hook_ulckpwdf(), 0, "hook_ulckpwdf() must return 0");
 }
 
+/* 9. Relative exec paths ("./script.sh") must be routed like absolute ones */
+static void test_absolutize_exec_path(void) {
+    char tmp_root[PATH_MAX];
+    snprintf(tmp_root, sizeof(tmp_root), "%s/cortex_abs_test_XXXXXX", get_test_tmp_dir());
+    ASSERT_TRUE(mkdtemp(tmp_root) != NULL, "mkdtemp abs root");
+
+    char old_cwd[PATH_MAX];
+    ASSERT_TRUE(getcwd(old_cwd, sizeof(old_cwd)) != NULL, "save cwd");
+    ASSERT_EQ(chdir(tmp_root), 0, "chdir into temp root");
+    char cwd[PATH_MAX];
+    ASSERT_TRUE(getcwd(cwd, sizeof(cwd)) != NULL, "read cwd");
+
+    char buf[PATH_MAX], expect[PATH_MAX];
+    snprintf(expect, sizeof(expect), "%s/script.sh", cwd);
+    ASSERT_STR_EQ(absolutize_exec_path("./script.sh", buf, sizeof(buf)), expect, "./script.sh -> cwd/script.sh");
+    ASSERT_STR_EQ(absolutize_exec_path("script.sh", buf, sizeof(buf)), expect, "bare name -> cwd/name");
+    ASSERT_STR_EQ(absolutize_exec_path(".//script.sh", buf, sizeof(buf)), expect, "repeated slashes after ./ collapse");
+
+    snprintf(expect, sizeof(expect), "%s/bin/tool", cwd);
+    ASSERT_STR_EQ(absolutize_exec_path("bin/tool", buf, sizeof(buf)), expect, "sub/path -> cwd/sub/path");
+    snprintf(expect, sizeof(expect), "%s/../x.sh", cwd);
+    ASSERT_STR_EQ(absolutize_exec_path("../x.sh", buf, sizeof(buf)), expect, "../x.sh keeps the ..");
+
+    const char *abs_in = "/usr/bin/env";
+    ASSERT_TRUE(absolutize_exec_path(abs_in, buf, sizeof(buf)) == abs_in, "absolute paths are returned untouched");
+    ASSERT_TRUE(absolutize_exec_path(NULL, buf, sizeof(buf)) == NULL, "NULL stays NULL");
+
+    char tiny[8];
+    ASSERT_STR_EQ(absolutize_exec_path("script.sh", tiny, sizeof(tiny)), "script.sh",
+                  "a result that does not fit is not truncated");
+
+    ASSERT_EQ(chdir(old_cwd), 0, "restore cwd");
+    rm_rf(tmp_root);
+}
+
 int main(void) {
     test_tar_path_helpers();
     test_symlink_containment();
@@ -658,6 +693,7 @@ int main(void) {
     test_nss_fallback_semantics();
     test_sigsys_and_close_fds();
     test_hardlink_emulation_and_st_nlink();
+    test_absolutize_exec_path();
 
     if (g_tests_failed > 0) {
         fprintf(stderr, "FAILED: %d/%d assertions failed\n", g_tests_failed, g_tests_run);

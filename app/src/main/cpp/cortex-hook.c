@@ -2156,6 +2156,31 @@ int getgrouplist(const char *user, gid_t group, gid_t *groups, int *ngroups) {
 
 #endif /* !CORTEX_HOST_TEST */
 
+// Relative exec paths ("./configure", "bin/tool", "../x.sh") must go through the same
+// CORTEX_ROOT routing as absolute ones. Without this they were mistaken for Android host
+// binaries and handed to the kernel unchanged, which then resolved "#!/bin/bash" (or a glibc
+// PT_INTERP) literally and failed with "bad interpreter: No such file or directory".
+// getcwd() is not virtualised, so cwd + path is a real path that starts with CORTEX_ROOT.
+static const char *absolutize_exec_path(const char *path, char *buffer, size_t bufsize) {
+    if (!path || path[0] == '\0' || path[0] == '/') return path;
+    char cwd[PATH_MAX];
+    static char *(*real_getcwd)(char *, size_t) = NULL;
+    if (!real_getcwd) real_getcwd = (char *(*)(char *, size_t))dlsym(RTLD_NEXT, "getcwd");
+    if (!real_getcwd || !real_getcwd(cwd, sizeof(cwd))) return path;
+
+    while (path[0] == '.' && path[1] == '/') {
+        path += 2;
+        while (path[0] == '/') path++;
+    }
+    if (path[0] == '\0' || strcmp(path, ".") == 0) return path;
+
+    size_t cwd_len = strlen(cwd);
+    while (cwd_len > 1 && cwd[cwd_len - 1] == '/') cwd[--cwd_len] = '\0';
+    int n = snprintf(buffer, bufsize, "%s%s%s", cwd, (cwd_len == 1 && cwd[0] == '/') ? "" : "/", path);
+    if (n < 0 || (size_t)n >= bufsize) return path;
+    return buffer;
+}
+
 static uid_t real_uid(void) {
 #ifdef CORTEX_HOST_TEST
     return 10000;
@@ -3972,6 +3997,12 @@ int execve(const char *filename, char *const argv[], char *const envp[]) {
     static orig_execve_f_type orig_execve = NULL;
     if (!orig_execve) orig_execve = (orig_execve_f_type)dlsym(RTLD_NEXT, "execve");
 
+    // Scripts get the path exactly as the caller wrote it ("./x.sh" stays "./x.sh" in $0),
+    // like the kernel would pass it; routing below uses the absolute form.
+    const char *caller_path = filename;
+    char abs_buf[PATH_MAX];
+    filename = absolutize_exec_path(filename, abs_buf, sizeof(abs_buf));
+
     char buf[PATH_MAX];
     const char *target = rewrite_path(filename, buf, sizeof(buf));
 
@@ -4146,7 +4177,7 @@ int execve(const char *filename, char *const argv[], char *const envp[]) {
                 if (has_arg) {
                     new_argv[idx++] = interp_arg;
                 }
-                new_argv[idx++] = (char *)target;
+                new_argv[idx++] = (char *)((caller_path && caller_path[0] != '/') ? caller_path : target);
                 for (int i = 1; i < orig_argc; i++) {
                     new_argv[idx++] = argv[i];
                 }
@@ -4364,6 +4395,9 @@ int posix_spawn(pid_t *pid, const char *path,
     if (!orig_posix_spawn) orig_posix_spawn = (int (*)(pid_t *, const char *, const posix_spawn_file_actions_t *,
                                                       const posix_spawnattr_t *, char *const [], char *const []))
                                              dlsym(RTLD_NEXT, "posix_spawn");
+
+    char abs_buf[PATH_MAX];
+    path = absolutize_exec_path(path, abs_buf, sizeof(abs_buf));
 
     char buf[PATH_MAX];
     const char *target = rewrite_path(path, buf, sizeof(buf));
