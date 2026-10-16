@@ -52,7 +52,6 @@ class MainActivity : AppCompatActivity() {
     private val terminalView: TerminalView get() = binding.terminalView
     private val extraKeysView: ExtraKeysView get() = binding.extraKeysView
     private val searchBar: TerminalSearchBar get() = binding.searchBar
-    private val drawerTitle: TextView get() = binding.drawerTitle
     private val btnDrawerSettings: ImageView get() = binding.btnDrawerSettings
     private val layoutUpdateBadge: android.widget.FrameLayout get() = binding.layoutUpdateBadge
     private val updateRedDot: android.view.View get() = binding.updateRedDot
@@ -222,9 +221,6 @@ class MainActivity : AppCompatActivity() {
                 } else {
                     CortexService.updateNotification(this)
                     terminalView.session = session
-                    val tabNum = sessionManager.currentSessionIndex + 1
-                    val totalTabs = sessionManager.sessions.size
-                    drawerTitle.text = "Sessions [$tabNum/$totalTabs]"
                     sessionAdapter.notifyDataSetChanged()
                     terminalView.invalidate()
                 }
@@ -376,9 +372,6 @@ class MainActivity : AppCompatActivity() {
             } else {
                 val current = sessionManager.currentSession ?: sessionManager.sessions[0]
                 terminalView.session = current
-                val tabNum = sessionManager.currentSessionIndex + 1
-                val totalTabs = sessionManager.sessions.size
-                drawerTitle.text = "Sessions [$tabNum/$totalTabs]"
                 sessionAdapter.notifyDataSetChanged()
                 terminalView.invalidate()
             }
@@ -487,9 +480,6 @@ class MainActivity : AppCompatActivity() {
             heightPx = terminalView.height
         )
         terminalView.session = session
-        val tabNum = sessionManager.currentSessionIndex + 1
-        val totalTabs = sessionManager.sessions.size
-        drawerTitle.text = "Sessions [$tabNum/$totalTabs]"
         sessionAdapter.notifyDataSetChanged()
         return session
     }

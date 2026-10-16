@@ -3,7 +3,6 @@ package org.cortex.terminal.session
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.RecyclerView
 import org.cortex.terminal.R
 import org.cortex.terminal.databinding.ItemSessionBinding
@@ -27,15 +26,10 @@ class SessionAdapter(
 
         binding.sessionLabelText.text = "Session ${position + 1}"
 
-        if (isActive) {
-            binding.sessionItemRoot.setBackgroundResource(R.drawable.session_item_active_bg)
-            binding.sessionStatusText.text = "Active session"
-            binding.sessionStatusText.setTextColor(ContextCompat.getColor(holder.itemView.context, R.color.cortex_primary))
-        } else {
-            binding.sessionItemRoot.setBackgroundResource(R.drawable.session_item_inactive_bg)
-            binding.sessionStatusText.text = "Background"
-            binding.sessionStatusText.setTextColor(ContextCompat.getColor(holder.itemView.context, R.color.cortex_text_muted))
-        }
+        // The active session is marked by its highlighted background only.
+        binding.sessionItemRoot.setBackgroundResource(
+            if (isActive) R.drawable.session_item_active_bg else R.drawable.session_item_inactive_bg
+        )
 
         binding.btnSessionClose.visibility = View.VISIBLE
         binding.btnSessionClose.setOnClickListener {

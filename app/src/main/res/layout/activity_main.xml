@@ -78,7 +78,7 @@
                     android:id="@+id/drawerTitle"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Cortex Terminal"
+                    android:text="Sessions"
                     android:textColor="@color/cortex_text_primary"
                     android:textStyle="bold"
                     android:textSize="17sp" />
@@ -174,14 +174,14 @@
                 android:id="@+id/btnDrawerNewSession"
                 android:layout_width="0dp"
                 android:layout_height="48dp"
-                android:layout_weight="1.2"
+                android:layout_weight="1"
                 android:layout_marginStart="6dp"
                 android:gravity="center"
                 android:text="+ NEW SESSION"
-                android:textColor="@color/cortex_key_active_text"
+                android:textColor="@color/cortex_text_primary"
                 android:textSize="12sp"
                 android:textStyle="bold"
-                android:background="@drawable/key_button_active" />
+                android:background="@drawable/pill_button_bg" />
         </LinearLayout>
 
     </LinearLayout>
