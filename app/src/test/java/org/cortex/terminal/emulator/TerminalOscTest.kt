@@ -151,9 +151,9 @@ class TerminalOscTest {
         e.feed("plain\r\n${esc}]8;;https://example.com$st" + "abc" + "${esc}]8;;$st")
 
         assertNull("rows that never had a link allocate nothing", e.buffer.screen[0].links)
-        val links = e.buffer.screen[1].links
-        assertNotNull(links)
-        assertTrue(links!![0] === links[1] && links[1] === links[2])
+        val links: Array<String?> = e.buffer.screen[1].links ?: throw AssertionError("the linked row must have link storage")
+        assertNotNull(links[0])
+        assertTrue(links[0] === links[1] && links[1] === links[2])
     }
 
     @Test
