@@ -53,7 +53,7 @@ class TerminalSearchBar @JvmOverloads constructor(
             setBackgroundResource(R.drawable.search_bar_bg)
             setTextColor(Color.WHITE)
             setHintTextColor(Color.parseColor("#6c7086"))
-            hint = "Search terminal…"
+            hint = context.getString(R.string.search_hint)
             textSize = 14f
             isSingleLine = true
             imeOptions = EditorInfo.IME_ACTION_SEARCH
@@ -92,7 +92,7 @@ class TerminalSearchBar @JvmOverloads constructor(
             }
             setImageResource(android.R.drawable.arrow_up_float)
             setBackgroundResource(R.drawable.icon_circle_bg)
-            contentDescription = "Previous match"
+            contentDescription = context.getString(R.string.search_previous)
             setColorFilter(Color.WHITE)
             setOnClickListener { onPrev?.invoke() }
         }
@@ -104,7 +104,7 @@ class TerminalSearchBar @JvmOverloads constructor(
             }
             setImageResource(android.R.drawable.arrow_down_float)
             setBackgroundResource(R.drawable.icon_circle_bg)
-            contentDescription = "Next match"
+            contentDescription = context.getString(R.string.search_next)
             setColorFilter(Color.WHITE)
             setOnClickListener { onNext?.invoke() }
         }
@@ -114,7 +114,7 @@ class TerminalSearchBar @JvmOverloads constructor(
             layoutParams = LayoutParams(btnSize, btnSize)
             setImageResource(android.R.drawable.ic_menu_close_clear_cancel)
             setBackgroundResource(R.drawable.icon_circle_bg)
-            contentDescription = "Close search"
+            contentDescription = context.getString(R.string.search_close)
             setColorFilter(Color.WHITE)
             setOnClickListener {
                 if (onRequestClose != null) {

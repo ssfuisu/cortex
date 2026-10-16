@@ -45,7 +45,9 @@
         android:theme="@style/Theme.Cortex"
         android:hardwareAccelerated="true"
         android:extractNativeLibs="true"
-        android:requestLegacyExternalStorage="true">
+        android:localeConfig="@xml/locales_config"
+        android:requestLegacyExternalStorage="true"
+        tools:targetApi="33">
 
         <activity
             android:name=".MainActivity"
@@ -82,6 +84,19 @@
             <meta-data
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
+        </provider>
+
+        <!-- Lists the Cortex home directory in the Files app and file pickers. Only the system
+             documents UI holds MANAGE_DOCUMENTS, so other apps only get what the user picks. -->
+        <provider
+            android:name=".documents.CortexDocumentsProvider"
+            android:authorities="${applicationId}.documents"
+            android:exported="true"
+            android:grantUriPermissions="true"
+            android:permission="android.permission.MANAGE_DOCUMENTS">
+            <intent-filter>
+                <action android:name="android.content.action.DOCUMENTS_PROVIDER" />
+            </intent-filter>
         </provider>
 
     </application>

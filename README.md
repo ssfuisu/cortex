@@ -83,6 +83,38 @@ Cortex starts a standard **bash login shell** and follows Ubuntu's startup order
 
 ---
 
+## Terminal Integration
+
+Programs talk to the Android side through standard terminal escape sequences, so there are no extra sockets, services or permissions to set up:
+
+- **Clipboard (OSC 52):** `tmux` (`set -g set-clipboard on`), `vim`/`neovim` clipboard providers and `ssh` sessions can copy text to the Android clipboard. Only writing is supported; programs can never read your clipboard. Switch it off under *Settings > Notifications & Clipboard*.
+- **Long command notifications (OSC 133):** the shell reports when each command starts and ends. If a command that ran longer than the limit (15 s / 30 s / 1 min / 5 min, default 30 s) finishes while Cortex is in the background, you get a notification with the exit status. Inside `tmux` the marks are swallowed by `tmux` itself. Opt out in the shell with `export CORTEX_COMMAND_MARKS=0`.
+- **Hyperlinks (OSC 8):** output such as `ls --hyperlink=auto` or `gcc` diagnostics is underlined and tapping it copies the target. Plain `https://` text is detected as before.
+
+> The prompt hooks are added to `PROMPT_COMMAND` at login. If your `~/.bashrc` *replaces* `PROMPT_COMMAND` instead of appending to it (`PROMPT_COMMAND="...;$PROMPT_COMMAND"`), automatic reload and the marks are lost.
+
+## Backup and Restore
+
+```
+cortex-backup                  # saves ~/ and /root to /sdcard/Download/cortex-backup-<date>.tar.gz
+cortex-backup restore FILE     # puts them back (asks first; --yes skips the question)
+cortex-backup list             # shows existing backups
+```
+
+Caches (`~/.cache`, `~/.npm/_cacache`) and the `~/storage` link are skipped (`--include-caches` keeps them). Archives that contain anything outside `home/` and `root/` are refused. Installed packages are not part of a backup: reinstall them with `apt` after restoring on a fresh install.
+
+## Files App Integration
+
+The Cortex home directory shows up as **Cortex** in Android's *Files* app and in every file picker, so you can open, share, create, rename and delete files without copying them to shared storage first. Only the home directory is exposed (never the Ubuntu system tree), links that point outside it such as `~/storage` stay hidden, and other apps can only reach files you pick yourself. Turn it off under *Settings > Files*.
+
+## Languages
+
+The interface follows the system language and can be switched under *Settings > Language*. Available: English, Arabic, Azerbaijani, Bengali, Bulgarian, Catalan, Chinese (Simplified and Traditional), Croatian, Czech, Danish, Dutch, Filipino, Finnish, French, German, Greek, Gujarati, Hebrew, Hindi, Hungarian, Indonesian, Italian, Japanese, Kannada, Kazakh, Korean, Malay, Malayalam, Marathi, Nepali, Norwegian Bokmål, Persian, Polish, Portuguese (Brazil), Punjabi, Romanian, Russian, Serbian, Slovak, Spanish, Swahili, Swedish, Tamil, Telugu, Thai, Turkish, Ukrainian, Urdu and Vietnamese. On Android 13+ the language can also be set per app in the system settings.
+
+The translations were produced with machine assistance and have not all been reviewed by native speakers. Corrections are welcome: every language lives in `app/src/main/res/values-<code>/strings.xml`, and `python3 scripts/check-translations.py` verifies that a language is complete and that its placeholders match English.
+
+---
+
 ## How to Install
 
 1. Navigate to the [Releases](https://github.com/ssfuisu/cortex/releases) section of this repository.

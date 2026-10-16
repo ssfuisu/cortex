@@ -34,8 +34,30 @@ class TerminalEmulator(
     private var csiIntermediate: Char? = null
     private val oscBuffer = StringBuilder()
 
+    private companion object {
+        const val MAX_OSC_CHARS = 8192
+        // base64 of 256 KiB; larger clipboard payloads are dropped instead of truncated.
+        const val MAX_OSC52_CHARS = 350_000
+        const val MAX_OSC52_BYTES = 256 * 1024
+        const val MAX_LINK_CHARS = 2048
+    }
+
     var onTitleChange: ((String) -> Unit)? = null
     var onBell: (() -> Unit)? = null
+
+    /** OSC 52: a program asked to put [String] on the clipboard. Called with the emulator lock held. */
+    var onClipboardSet: ((String) -> Unit)? = null
+
+    /**
+     * OSC 133 shell integration: a command that started ([commandStartMs] set by `133;C`) has ended
+     * (`133;D;exit`). Arguments are the duration in milliseconds and the exit status, if reported.
+     * Called with the emulator lock held; handlers must not block.
+     */
+    var onCommandFinished: ((durationMs: Long, exitCode: Int?) -> Unit)? = null
+
+    internal var monotonicMs: () -> Long = { System.nanoTime() / 1_000_000L }
+    private var commandStartMs = -1L
+    private var oscOverflow = false
     var onSendResponse: ((String) -> Unit)? = null
     var isApplicationCursorKeys = false
 
@@ -191,6 +213,7 @@ class TerminalEmulator(
             ']' -> {
                 state = State.OSC
                 oscBuffer.setLength(0)
+                oscOverflow = false
             }
             '(', ')', '*', '+' -> {
                 // Character set selection (e.g. \e(B for US-ASCII, \e(0 for line drawing)
@@ -202,6 +225,8 @@ class TerminalEmulator(
                 stringIgnoreEscaped = false
             }
             'c' -> { // Full reset (RIS)
+                buffer.currentLink = null
+                commandStartMs = -1L
                 buffer.eraseInDisplay(2)
                 buffer.cursorRow = 0
                 buffer.cursorCol = 0
@@ -577,14 +602,70 @@ class TerminalEmulator(
     private fun handleOsc(c: Char) {
         if (c == '\u0007' || (c == '\\' && oscBuffer.endsWith("\u001b"))) {
             val fullStr = oscBuffer.toString().removeSuffix("\u001b")
-            val parts = fullStr.split(";", limit = 2)
-            if (parts.size == 2 && (parts[0] == "0" || parts[0] == "2")) {
-                onTitleChange?.invoke(parts[1])
-            }
+            val overflow = oscOverflow
+            oscOverflow = false
             state = State.NORMAL
+            dispatchOsc(fullStr, overflow)
         } else {
-            if (oscBuffer.length < 8192) {
+            val limit = if (oscBuffer.startsWith("52;")) MAX_OSC52_CHARS else MAX_OSC_CHARS
+            if (oscBuffer.length < limit) {
                 oscBuffer.append(c)
+            } else {
+                oscOverflow = true
+            }
+        }
+    }
+
+    private fun dispatchOsc(full: String, overflow: Boolean) {
+        val sep = full.indexOf(';')
+        if (sep < 0) return
+        val arg = full.substring(sep + 1)
+        when (full.substring(0, sep)) {
+            "0", "2" -> onTitleChange?.invoke(arg)
+            // A cut-off payload would be a corrupt link target / clipboard, so these are all-or-nothing.
+            "8" -> if (!overflow) handleHyperlink(arg)
+            "52" -> if (!overflow) handleClipboard(arg)
+            "133" -> handleShellIntegration(arg)
+        }
+    }
+
+    /** OSC 8 ; params ; URI. An empty URI closes the link. */
+    private fun handleHyperlink(arg: String) {
+        val idx = arg.indexOf(';')
+        if (idx < 0) return
+        val uri = arg.substring(idx + 1)
+        buffer.currentLink = if (uri.isEmpty() || uri.length > MAX_LINK_CHARS) {
+            null
+        } else if (uri.all { it.code in 0x21..0x7e }) {
+            uri
+        } else {
+            null
+        }
+    }
+
+    /** OSC 52 ; selection ; base64. Only writing is supported: a "?" query is never answered. */
+    private fun handleClipboard(arg: String) {
+        val idx = arg.indexOf(';')
+        if (idx < 0) return
+        val data = arg.substring(idx + 1)
+        if (data.isEmpty() || data == "?") return
+        val bytes = Base64Lenient.decode(data, MAX_OSC52_BYTES) ?: return
+        if (bytes.isEmpty()) return
+        onClipboardSet?.invoke(String(bytes, StandardCharsets.UTF_8))
+    }
+
+    /** OSC 133 ; C (command output starts) / D ; exit (command finished). Prompt marks A and B are ignored. */
+    private fun handleShellIntegration(arg: String) {
+        when (arg.firstOrNull()) {
+            'C' -> commandStartMs = monotonicMs()
+            'D' -> {
+                buffer.currentLink = null
+                val start = commandStartMs
+                commandStartMs = -1L
+                if (start >= 0L) {
+                    val exit = arg.split(';').getOrNull(1)?.toIntOrNull()
+                    onCommandFinished?.invoke((monotonicMs() - start).coerceAtLeast(0L), exit)
+                }
             }
         }
     }

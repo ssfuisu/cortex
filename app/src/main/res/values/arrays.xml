@@ -1,14 +1,14 @@
 <resources>
     <string-array name="font_size_entries">
-        <item>Small (10sp)</item>
-        <item>Compact (11sp)</item>
-        <item>Normal (12sp)</item>
-        <item>Medium (14sp)</item>
-        <item>Large (16sp)</item>
-        <item>Huge (18sp)</item>
+        <item>@string/font_size_small</item>
+        <item>@string/font_size_compact</item>
+        <item>@string/font_size_normal</item>
+        <item>@string/font_size_medium</item>
+        <item>@string/font_size_large</item>
+        <item>@string/font_size_huge</item>
     </string-array>
 
-    <string-array name="font_size_values">
+    <string-array name="font_size_values" translatable="false">
         <item>10</item>
         <item>11</item>
         <item>12</item>
@@ -18,13 +18,13 @@
     </string-array>
 
     <string-array name="terminal_font_entries">
-        <item>JetBrains Mono Nerd Font (Default)</item>
+        <item>@string/font_jetbrains_default</item>
         <item>Fira Code Nerd Font</item>
-        <item>System Monospace</item>
-        <item>Custom Font (~/.cortex/font.ttf)</item>
+        <item>@string/font_system_monospace</item>
+        <item>@string/font_custom</item>
     </string-array>
 
-    <string-array name="terminal_font_values">
+    <string-array name="terminal_font_values" translatable="false">
         <item>jetbrains_mono</item>
         <item>fira_code</item>
         <item>monospace</item>
@@ -32,7 +32,7 @@
     </string-array>
 
     <string-array name="terminal_theme_entries">
-        <item>Catppuccin Mocha (Default)</item>
+        <item>@string/theme_catppuccin_default</item>
         <item>Tokyo Night</item>
         <item>Dracula</item>
         <item>Gruvbox Dark</item>
@@ -40,12 +40,135 @@
         <item>Nord</item>
     </string-array>
 
-    <string-array name="terminal_theme_values">
+    <string-array name="terminal_theme_values" translatable="false">
         <item>catppuccin</item>
         <item>tokyo_night</item>
         <item>dracula</item>
         <item>gruvbox</item>
         <item>one_dark</item>
         <item>nord</item>
+    </string-array>
+
+    <string-array name="long_command_threshold_entries">
+        <item>@string/threshold_15s</item>
+        <item>@string/threshold_30s</item>
+        <item>@string/threshold_1m</item>
+        <item>@string/threshold_5m</item>
+    </string-array>
+
+    <string-array name="long_command_threshold_values" translatable="false">
+        <item>15</item>
+        <item>30</item>
+        <item>60</item>
+        <item>300</item>
+    </string-array>
+
+    <!-- Each language is written in its own language so it can be found whatever the current UI language is. -->
+    <string-array name="language_entries">
+        <item>@string/pref_language_system</item>
+        <item>English</item>
+        <item>简体中文</item>
+        <item>繁體中文</item>
+        <item>हिन्दी</item>
+        <item>Español</item>
+        <item>Français</item>
+        <item>العربية</item>
+        <item>বাংলা</item>
+        <item>Português (Brasil)</item>
+        <item>Русский</item>
+        <item>اردو</item>
+        <item>Bahasa Indonesia</item>
+        <item>Deutsch</item>
+        <item>日本語</item>
+        <item>Kiswahili</item>
+        <item>मराठी</item>
+        <item>తెలుగు</item>
+        <item>Türkçe</item>
+        <item>தமிழ்</item>
+        <item>한국어</item>
+        <item>Tiếng Việt</item>
+        <item>Italiano</item>
+        <item>ไทย</item>
+        <item>فارسی</item>
+        <item>Polski</item>
+        <item>Українська</item>
+        <item>Nederlands</item>
+        <item>Bahasa Melayu</item>
+        <item>ગુજરાતી</item>
+        <item>ಕನ್ನಡ</item>
+        <item>മലയാളം</item>
+        <item>ਪੰਜਾਬੀ</item>
+        <item>Română</item>
+        <item>Čeština</item>
+        <item>Magyar</item>
+        <item>Ελληνικά</item>
+        <item>Svenska</item>
+        <item>עברית</item>
+        <item>Български</item>
+        <item>Српски</item>
+        <item>Hrvatski</item>
+        <item>Slovenčina</item>
+        <item>Dansk</item>
+        <item>Suomi</item>
+        <item>Norsk bokmål</item>
+        <item>Català</item>
+        <item>Filipino</item>
+        <item>नेपाली</item>
+        <item>Қазақша</item>
+        <item>Azərbaycanca</item>
+    </string-array>
+
+    <string-array name="language_values" translatable="false">
+        <item>system</item>
+        <item>en</item>
+        <item>zh-CN</item>
+        <item>zh-TW</item>
+        <item>hi</item>
+        <item>es</item>
+        <item>fr</item>
+        <item>ar</item>
+        <item>bn</item>
+        <item>pt-BR</item>
+        <item>ru</item>
+        <item>ur</item>
+        <item>id</item>
+        <item>de</item>
+        <item>ja</item>
+        <item>sw</item>
+        <item>mr</item>
+        <item>te</item>
+        <item>tr</item>
+        <item>ta</item>
+        <item>ko</item>
+        <item>vi</item>
+        <item>it</item>
+        <item>th</item>
+        <item>fa</item>
+        <item>pl</item>
+        <item>uk</item>
+        <item>nl</item>
+        <item>ms</item>
+        <item>gu</item>
+        <item>kn</item>
+        <item>ml</item>
+        <item>pa</item>
+        <item>ro</item>
+        <item>cs</item>
+        <item>hu</item>
+        <item>el</item>
+        <item>sv</item>
+        <item>he</item>
+        <item>bg</item>
+        <item>sr</item>
+        <item>hr</item>
+        <item>sk</item>
+        <item>da</item>
+        <item>fi</item>
+        <item>nb</item>
+        <item>ca</item>
+        <item>fil</item>
+        <item>ne</item>
+        <item>kk</item>
+        <item>az</item>
     </string-array>
 </resources>

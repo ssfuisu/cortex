@@ -131,7 +131,7 @@ object UpdateManager {
                 val responseCode = connection.responseCode
                 if (responseCode != HttpURLConnection.HTTP_OK) {
                     mainHandler.post {
-                        onResult?.invoke(false, null, "Server responded with code $responseCode")
+                        onResult?.invoke(false, null, context.getString(R.string.update_server_code, responseCode))
                     }
                     return@thread
                 }
@@ -160,7 +160,7 @@ object UpdateManager {
                 val selectedAsset = selectPreferredAsset(assetsList)
                 if (selectedAsset == null) {
                     mainHandler.post {
-                        onResult?.invoke(false, null, "No compatible APK asset found in release")
+                        onResult?.invoke(false, null, context.getString(R.string.update_no_asset))
                     }
                     return@thread
                 }
@@ -182,7 +182,7 @@ object UpdateManager {
                 }
             } catch (e: Exception) {
                 mainHandler.post {
-                    onResult?.invoke(false, null, e.localizedMessage ?: "Failed to connect to GitHub")
+                    onResult?.invoke(false, null, e.localizedMessage ?: context.getString(R.string.update_connect_failed))
                 }
             } finally {
                 try {
@@ -225,7 +225,7 @@ object UpdateManager {
                     activity.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES))
                 }
             } catch (ex: Exception) {
-                Toast.makeText(activity, "Failed to open settings: ${e.message}", Toast.LENGTH_SHORT).show()
+                Toast.makeText(activity, activity.getString(R.string.update_settings_open_failed, e.message), Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -237,24 +237,22 @@ object UpdateManager {
         val latestVer = if (info.tagName.startsWith("v", ignoreCase = true)) info.tagName else "v${info.tagName}"
 
         val messageBuilder = StringBuilder()
-        messageBuilder.append("A new version of Cortex is available.\n\n")
-        messageBuilder.append("Current version: $currentVer\n")
-        messageBuilder.append("Latest version: $latestVer\n\n")
+        messageBuilder.append(activity.getString(R.string.update_available_message, currentVer, latestVer))
 
         val cleanNotes = cleanReleaseNotes(info.body)
         if (cleanNotes.isNotEmpty()) {
-            messageBuilder.append("What's New:\n")
+            messageBuilder.append(activity.getString(R.string.update_whats_new))
             messageBuilder.append(cleanNotes)
         }
 
         AlertDialog.Builder(activity)
-            .setTitle("Update Available")
+            .setTitle(R.string.update_available_title)
             .setMessage(messageBuilder.toString())
-            .setPositiveButton("Update") { _, _ ->
+            .setPositiveButton(R.string.update_button_update) { _, _ ->
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !activity.packageManager.canRequestPackageInstalls()) {
                     Toast.makeText(
                         activity,
-                        "Lütfen Cortex için bilinmeyen uygulamaları yüklemeye izin verin",
+                        activity.getString(R.string.update_allow_unknown_sources),
                         Toast.LENGTH_LONG
                     ).show()
                     openUnknownAppSourcesSettings(activity)
@@ -262,7 +260,7 @@ object UpdateManager {
                     downloadAndInstall(activity, info)
                 }
             }
-            .setNegativeButton("Later", null)
+            .setNegativeButton(R.string.later, null)
             .show()
     }
 
@@ -277,9 +275,9 @@ object UpdateManager {
         }
 
         AlertDialog.Builder(activity)
-            .setTitle("Check for Updates")
-            .setMessage("You are using the latest version of Cortex.\n\nCurrent version: $currentVer\nLatest version: $latestVer")
-            .setPositiveButton("OK", null)
+            .setTitle(R.string.check_for_updates)
+            .setMessage(activity.getString(R.string.update_up_to_date_message, currentVer, latestVer))
+            .setPositiveButton(R.string.ok, null)
             .show()
     }
 
@@ -310,7 +308,7 @@ object UpdateManager {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !activity.packageManager.canRequestPackageInstalls()) {
             Toast.makeText(
                 activity,
-                "Lütfen Cortex için bilinmeyen uygulamaları yüklemeye izin verin",
+                activity.getString(R.string.update_allow_unknown_sources),
                 Toast.LENGTH_LONG
             ).show()
             openUnknownAppSourcesSettings(activity)
@@ -343,7 +341,7 @@ object UpdateManager {
             }
         } catch (e: Exception) {
             isDownloading.set(false)
-            Toast.makeText(activity, "Failed to create temporary update file", Toast.LENGTH_SHORT).show()
+            Toast.makeText(activity, R.string.update_temp_file_failed, Toast.LENGTH_SHORT).show()
             return
         }
 
@@ -352,17 +350,17 @@ object UpdateManager {
         val progressBar = dialogView.findViewById<ProgressBar>(R.id.downloadProgressBar)
         val percentText = dialogView.findViewById<TextView>(R.id.downloadPercentText)
 
-        statusText.text = "Connecting to download server..."
+        statusText.text = activity.getString(R.string.update_connecting)
         progressBar.isIndeterminate = true
 
         val isCancelled = AtomicBoolean(false)
         val activeConnection = java.util.concurrent.atomic.AtomicReference<HttpURLConnection?>(null)
 
         val downloadDialog = AlertDialog.Builder(activity)
-            .setTitle("Downloading Update")
+            .setTitle(R.string.update_downloading_title)
             .setView(dialogView)
             .setCancelable(false)
-            .setNegativeButton("Cancel") { _, _ ->
+            .setNegativeButton(R.string.cancel) { _, _ ->
                 isCancelled.set(true)
                 try {
                     activeConnection.get()?.disconnect()
@@ -422,7 +420,7 @@ object UpdateManager {
                         progressBar.isIndeterminate = false
                         progressBar.max = 100
                         progressBar.progress = 0
-                        statusText.text = "Downloading ${info.asset.name}..."
+                        statusText.text = activity.getString(R.string.update_downloading_file, info.asset.name)
                     }
                 }
 
@@ -465,7 +463,7 @@ object UpdateManager {
                         mainHandler.post {
                             if (!isCancelled.get() && downloadDialog.isShowing) {
                                 progressBar.progress = percent
-                                percentText.text = "$percent% ($downloadedMB MB / $totalMB MB)"
+                                percentText.text = activity.getString(R.string.update_progress, percent, downloadedMB, totalMB)
                             }
                         }
                     }
@@ -518,12 +516,12 @@ object UpdateManager {
                     if (!isCancelled.get() && downloadDialog.isShowing) {
                         try { downloadDialog.dismiss() } catch (ex: Exception) {}
                         AlertDialog.Builder(activity)
-                            .setTitle("Update Download Failed")
-                            .setMessage("Failed to download update: ${e.localizedMessage}\n\nWould you like to retry?")
-                            .setPositiveButton("Retry") { _, _ ->
+                            .setTitle(R.string.update_download_failed_title)
+                            .setMessage(activity.getString(R.string.update_download_failed_message, e.localizedMessage))
+                            .setPositiveButton(R.string.retry) { _, _ ->
                                 downloadAndInstall(activity, info)
                             }
-                            .setNegativeButton("Cancel", null)
+                            .setNegativeButton(R.string.cancel, null)
                             .show()
                     }
                 }
@@ -674,7 +672,7 @@ object UpdateManager {
         }
 
         if (!apkFile.exists() || apkFile.length() <= 0L) {
-            Toast.makeText(activity, "Downloaded APK file is missing or corrupted", Toast.LENGTH_SHORT).show()
+            Toast.makeText(activity, R.string.update_apk_missing, Toast.LENGTH_SHORT).show()
             try { apkFile.delete() } catch (_: Exception) {}
             cleanUpdatesForce(activity)
             return
@@ -684,9 +682,9 @@ object UpdateManager {
             try { apkFile.delete() } catch (_: Exception) {}
             cleanUpdatesForce(activity)
             AlertDialog.Builder(activity)
-                .setTitle("Update Verification Failed")
-                .setMessage("The downloaded update could not be verified or its digital signature does not match this app.")
-                .setPositiveButton("OK", null)
+                .setTitle(R.string.update_verification_failed_title)
+                .setMessage(R.string.update_verification_failed_message)
+                .setPositiveButton(R.string.ok, null)
                 .show()
             return
         }
@@ -694,12 +692,12 @@ object UpdateManager {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             if (!activity.packageManager.canRequestPackageInstalls()) {
                 AlertDialog.Builder(activity)
-                    .setTitle("Install Permission Required")
-                    .setMessage("Cortex needs permission to install downloaded APK updates. Please enable 'Allow from this source' for Cortex in system settings.")
-                    .setPositiveButton("Settings") { _, _ ->
+                    .setTitle(R.string.update_install_permission_title)
+                    .setMessage(R.string.update_install_permission_message)
+                    .setPositiveButton(R.string.settings) { _, _ ->
                         openUnknownAppSourcesSettings(activity)
                     }
-                    .setNegativeButton("Cancel") { _, _ ->
+                    .setNegativeButton(R.string.cancel) { _, _ ->
                         try { apkFile.delete() } catch (_: Exception) {}
                         cleanUpdatesForce(activity)
                     }
@@ -727,7 +725,7 @@ object UpdateManager {
             }
             activity.startActivity(installIntent)
         } catch (e: Exception) {
-            Toast.makeText(activity, "Failed to launch installer: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+            Toast.makeText(activity, activity.getString(R.string.update_installer_failed, e.localizedMessage), Toast.LENGTH_LONG).show()
             try { apkFile.delete() } catch (_: Exception) {}
             cleanUpdatesForce(activity)
         }

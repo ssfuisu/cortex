@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
@@ -13,7 +14,7 @@
         android:id="@+id/downloadStatusText"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Preparing update..."
+        android:text="@string/update_preparing"
         android:textColor="@color/cortex_text_primary"
         android:textSize="14sp"
         android:textStyle="bold" />
@@ -36,7 +37,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:gravity="end"
-        android:text="0%"
+        tools:text="0%"
         android:textColor="@color/cortex_text_secondary"
         android:textSize="13sp"
         android:textStyle="bold" />

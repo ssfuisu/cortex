@@ -27,7 +27,7 @@ cleanup() {
 trap cleanup EXIT
 
 echo "=== 0. Checking LF line endings and syntax ==="
-for script_name in reload.sh service.sh systemctl.sh su.sh cortex-shell.sh; do
+for script_name in reload.sh service.sh systemctl.sh su.sh cortex-shell.sh cortex-backup.sh; do
     script_path="$ASSETS_SCRIPTS/$script_name"
     if LC_ALL=C grep -q $'\r' "$script_path"; then
         fail "$script_name contains CRLF line endings"
@@ -342,11 +342,114 @@ fi
 
 # 5e. A user's PROMPT_COMMAND is preserved and sourcing the helpers twice does not stack the hook
 PC_OUT="$(HOME="$RC_HOME" TMPDIR="$RC_TMP" PROMPT_COMMAND='echo user-hook' bash --norc --noprofile -i -c '. "$1"; . "$1"; printf "%s" "$PROMPT_COMMAND"' _ "$CORTEX_SHELL_SH" 2>/dev/null)"
-PC_HOOKS="$(printf '%s' "$PC_OUT" | tr ';' '\n' | grep -c '^__cortex_rc_check' || true)"
+PC_HOOKS="$(printf '%s' "$PC_OUT" | grep -o '__cortex_precmd;' | wc -l)"
 if [[ "$PC_OUT" == *"echo user-hook" ]] && [ "$PC_HOOKS" -eq 1 ]; then
     pass "cortex-shell.sh keeps the user's PROMPT_COMMAND and installs its hook once"
 else
     fail "cortex-shell.sh mangled PROMPT_COMMAND (hooks=$PC_HOOKS): '$PC_OUT'"
+fi
+
+# 5f. OSC 133 marks: C before a command runs, D;<status> at the next prompt
+printf '# user bashrc\n' > "$RC_HOME/.bashrc"
+MARK_OUT="$(printf 'source "$CORTEX_SHELL_SH"\ntrue\nfalse\n(exit 7)\n' | run_interactive)"
+if [[ "$MARK_OUT" == *$'\033]133;C\007'* ]] && [[ "$MARK_OUT" == *$'\033]133;D;0\007'* ]] &&
+   [[ "$MARK_OUT" == *$'\033]133;D;1\007'* ]] && [[ "$MARK_OUT" == *$'\033]133;D;7\007'* ]]; then
+    pass "cortex-shell.sh emits OSC 133 command marks with exit statuses"
+else
+    fail "cortex-shell.sh did not emit the expected OSC 133 marks: $(printf '%s' "$MARK_OUT" | od -c | head -5)"
+fi
+
+# 5g. Later PROMPT_COMMAND hooks (starship, direnv, custom prompts) still see the user's $?
+STATUS_OUT="$(printf 'source "$CORTEX_SHELL_SH"\nfalse\n' | PROMPT_COMMAND='echo "seen-status=$?"' run_interactive)"
+if [[ "$STATUS_OUT" == *"seen-status=1"* ]]; then
+    pass "cortex-shell.sh hands the last exit status on to other PROMPT_COMMAND hooks"
+else
+    fail "cortex-shell.sh hid the exit status from other hooks: output='$STATUS_OUT'"
+fi
+
+# 5h. CORTEX_COMMAND_MARKS=0 switches the marks off
+OFF_MARKS="$(printf 'source "$CORTEX_SHELL_SH"\ntrue\n' | CORTEX_COMMAND_MARKS=0 run_interactive)"
+if [[ "$OFF_MARKS" != *$'\033]133;'* ]]; then
+    pass "CORTEX_COMMAND_MARKS=0 disables the OSC 133 marks"
+else
+    fail "CORTEX_COMMAND_MARKS=0 did not disable the marks"
+fi
+
+echo "=== 6. Testing cortex-backup.sh ==="
+BACKUP_SH="$ASSETS_SCRIPTS/cortex-backup.sh"
+BK_ROOT="$TEST_TMP/bk_root"
+BK_OUT="$TEST_TMP/bk_out"
+mkdir -p "$BK_ROOT/home/proj" "$BK_ROOT/home/.cache" "$BK_ROOT/root" "$BK_OUT"
+echo "hello" > "$BK_ROOT/home/proj/a.txt"
+echo "secret" > "$BK_ROOT/root/r.txt"
+echo "junk" > "$BK_ROOT/home/.cache/big"
+ln -s /nonexistent-sdcard "$BK_ROOT/home/storage"
+
+if CORTEX_ROOT="$BK_ROOT" bash -n "$BACKUP_SH" 2>/dev/null; then
+    pass "cortex-backup.sh passes bash -n syntax check"
+else
+    fail "cortex-backup.sh failed bash -n syntax check"
+fi
+
+CORTEX_ROOT="$BK_ROOT" CORTEX_BACKUP_DIR="$BK_OUT" bash "$BACKUP_SH" create >/dev/null 2>&1
+BK_FILE="$(ls "$BK_OUT"/cortex-backup-*.tar.gz 2>/dev/null | head -n 1)"
+if [ -n "$BK_FILE" ] && tar -tzf "$BK_FILE" | grep -q '^home/proj/a.txt$' && tar -tzf "$BK_FILE" | grep -q '^root/r.txt$'; then
+    pass "cortex-backup creates an archive with home/ and root/"
+else
+    fail "cortex-backup did not create the expected archive"
+fi
+if [ -n "$BK_FILE" ] && ! tar -tzf "$BK_FILE" | grep -q -e '\.cache' -e 'storage'; then
+    pass "cortex-backup leaves caches and the storage link out"
+else
+    fail "cortex-backup included caches or the storage link"
+fi
+
+rm -rf "$BK_ROOT/home/proj"
+echo "stale" > "$BK_ROOT/root/r.txt"
+if CORTEX_ROOT="$BK_ROOT" bash "$BACKUP_SH" restore "$BK_FILE" --yes >/dev/null 2>&1 &&
+   [ "$(cat "$BK_ROOT/home/proj/a.txt" 2>/dev/null)" = "hello" ] && [ "$(cat "$BK_ROOT/root/r.txt")" = "secret" ]; then
+    pass "cortex-backup restore brings deleted and changed files back"
+else
+    fail "cortex-backup restore did not restore the files"
+fi
+
+# An archive that is not a Cortex backup (or tries to leave home/ and root/) must be refused untouched.
+EVIL_DIR="$TEST_TMP/evil"
+mkdir -p "$EVIL_DIR/x"
+echo pwn > "$EVIL_DIR/x/evil"
+tar -C "$EVIL_DIR" -czf "$TEST_TMP/foreign.tar.gz" x
+python3 - "$TEST_TMP/traversal.tar.gz" << 'EOF'
+import io, sys, tarfile
+t = tarfile.open(sys.argv[1], 'w:gz')
+info = tarfile.TarInfo('home/../../escape')
+info.size = 1
+t.addfile(info, io.BytesIO(b'x'))
+t.close()
+EOF
+if ! CORTEX_ROOT="$BK_ROOT" bash "$BACKUP_SH" restore "$TEST_TMP/foreign.tar.gz" --yes >/dev/null 2>&1 &&
+   ! CORTEX_ROOT="$BK_ROOT" bash "$BACKUP_SH" restore "$TEST_TMP/traversal.tar.gz" --yes >/dev/null 2>&1 &&
+   [ ! -e "$BK_ROOT/x" ] && [ ! -e "$TEST_TMP/escape" ]; then
+    pass "cortex-backup restore refuses foreign and path-traversal archives"
+else
+    fail "cortex-backup restore accepted an unsafe archive"
+fi
+
+if ! CORTEX_ROOT="$BK_ROOT" bash "$BACKUP_SH" create -o "$BK_FILE" >/dev/null 2>&1; then
+    pass "cortex-backup never overwrites an existing backup"
+else
+    fail "cortex-backup overwrote an existing backup"
+fi
+
+echo "=== 7. Checking translations ==="
+if command -v python3 >/dev/null 2>&1; then
+    TR_OUT="$(python3 "$REPO_ROOT/scripts/check-translations.py" 2>&1)"
+    if [ $? -eq 0 ]; then
+        pass "translations are complete and consistent ($(printf '%s' "$TR_OUT" | head -n 1))"
+    else
+        fail "translation check failed: $TR_OUT"
+    fi
+else
+    echo "  [SKIP] python3 not available"
 fi
 
 echo ""

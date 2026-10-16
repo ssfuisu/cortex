@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/sessionItemRoot"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
@@ -27,7 +28,7 @@
             android:id="@+id/sessionLabelText"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Session 1"
+            tools:text="Session 1"
             android:textColor="@color/cortex_text_primary"
             android:textSize="15sp"
             android:textStyle="bold" />

@@ -35,6 +35,9 @@ class TerminalSession(
         private set
     var title = "Cortex"
 
+    /** 1-based position of this session in the drawer, for notification texts. */
+    var numberProvider: (() -> Int)? = null
+
     fun start() {
         if (isRunning) return
 
@@ -101,6 +104,14 @@ class TerminalSession(
 
             emulator.onTitleChange = { newTitle ->
                 this.title = newTitle
+            }
+
+            emulator.onClipboardSet = { text ->
+                TerminalBridge.onClipboardRequest(context, text)
+            }
+
+            emulator.onCommandFinished = { durationMs, exitCode ->
+                TerminalBridge.onCommandFinished(context, numberProvider?.invoke() ?: 1, durationMs, exitCode)
             }
 
             emulator.onSendResponse = { response ->

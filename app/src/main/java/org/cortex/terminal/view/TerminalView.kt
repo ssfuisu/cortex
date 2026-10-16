@@ -134,7 +134,7 @@ class TerminalView @JvmOverloads constructor(
                 return
             }
 
-            // "ortanın çok az hızlı hali": ~25 lines per second with 40ms tick
+            // slightly faster than the medium speed: ~25 lines per second with a 40ms tick
             val linesToScroll = if (selectionAutoScrollDirection > 0) {
                 if (lastSelectionTouchY <= 0f) 2 else 1
             } else {
@@ -582,7 +582,7 @@ class TerminalView @JvmOverloads constructor(
 
                         val isMatch = if (c < row.isSearchMatch.size) row.isSearchMatch[c] else false
                         val isCurrent = if (c < row.isSearchCurrent.size) row.isSearchCurrent[c] else false
-                        val isLink = if (c < row.isUrlLink.size) row.isUrlLink[c] else false
+                        val isLink = (c < row.isUrlLink.size && row.isUrlLink[c]) || row.hasLinkAt(c)
                         if (isMatch) {
                             canvas.drawRect(x, y, x + charWidth, y + charHeight,
                                 if (isCurrent) searchCurrentPaint else searchMatchPaint)
@@ -601,7 +601,7 @@ class TerminalView @JvmOverloads constructor(
                 }
             }
 
-            // Draw selection pin handles ("iğneler")
+            // Draw selection pin handles
             if (isSelecting) {
                 val norm = getNormalizedSelection()
                 val minR = norm[0]
@@ -982,7 +982,7 @@ class TerminalView @JvmOverloads constructor(
         if (text.isNotEmpty()) {
             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
             clipboard.setPrimaryClip(ClipData.newPlainText("Cortex", text))
-            Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, R.string.copied_to_clipboard, Toast.LENGTH_SHORT).show()
             clearSelection()
             return true
         }
@@ -1014,7 +1014,7 @@ class TerminalView @JvmOverloads constructor(
                 scrollOffset = 0
                 invalidate()
                 clearSelection()
-                Toast.makeText(context, "Pasted image path: $savedPath", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, context.getString(R.string.pasted_image_path, savedPath), Toast.LENGTH_SHORT).show()
                 return
             }
         }
@@ -1228,12 +1228,23 @@ class TerminalView @JvmOverloads constructor(
     }
 
     private fun handleUrlTap(x: Float, y: Float): Boolean {
-        if (urlHits.isEmpty()) return false
         val screenRow = (y / charHeight).toInt()
         if (screenRow !in 0 until rows) return false
         val col = (x / charWidth).toInt()
         if (col !in 0 until cols) return false
         val bufferRow = screenRow - scrollOffset
+
+        // Explicit OSC 8 hyperlinks (e.g. `ls --hyperlink`, `gcc`, `rg --hyperlink-format`).
+        val emulator = session?.emulator
+        if (emulator != null) {
+            val target = emulator.lock.withLock { emulator.buffer.rowForIndex(bufferRow)?.linkAt(col) }
+            if (target != null) {
+                onUrlTapped?.invoke(target)
+                return true
+            }
+        }
+
+        if (urlHits.isEmpty()) return false
         for (u in urlHits) {
             if (u.row == bufferRow && col in u.startCol..u.endCol) {
                 val url = TerminalSearch.normalizeUrl(u.url)
@@ -1375,12 +1386,12 @@ class TerminalView @JvmOverloads constructor(
                         scrollOffset = 0
                         invalidate()
                         clearSelection()
-                        Toast.makeText(context, "Pasted image path: $savedPath", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, context.getString(R.string.pasted_image_path, savedPath), Toast.LENGTH_SHORT).show()
                     }
                     true
                 } else {
                     post {
-                        Toast.makeText(context, "Failed to save image", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, R.string.image_save_failed, Toast.LENGTH_SHORT).show()
                     }
                     false
                 }

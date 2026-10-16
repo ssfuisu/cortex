@@ -59,19 +59,48 @@ __cortex_rc_check() {
 
 __cortex_rc_touch
 
+# Shell-integration marks (OSC 133). The terminal times commands with them and, if enabled in
+# Settings, notifies when a long command finishes while Cortex is in the background:
+#   C = a command is about to run (PS0), D;<status> = it finished (first thing at the next prompt).
+# Opt out with:  export CORTEX_COMMAND_MARKS=0
+__cortex_ec=0
+__cortex_precmd() {
+    __cortex_ec=$?
+    if [ "${CORTEX_COMMAND_MARKS-1}" != "0" ]; then
+        printf '\033]133;D;%s\007' "$__cortex_ec"
+    fi
+    return 0
+}
+# Hands the status of the user's last command on to whatever PROMPT_COMMAND entries follow
+# (starship, direnv, a custom prompt ...).
+__cortex_restore_status() {
+    return "$__cortex_ec"
+}
+if [ "${CORTEX_COMMAND_MARKS-1}" != "0" ]; then
+    case "${PS0-}" in
+        *133\;C*) ;;
+        *) PS0=$'\033]133;C\007'"${PS0-}" ;;
+    esac
+fi
+
 # The sourcing has to happen at top level (PROMPT_COMMAND is eval'ed there),
 # not inside a function, otherwise `declare` in the user's files would become
 # function-local and be lost.
 __cortex_rc_cmd='__cortex_rc_check; for __cortex_rc_f in "${__cortex_rc_hit[@]}"; do . "$__cortex_rc_f"; done; unset __cortex_rc_f'
 
+# Our hooks go first so that $? is still the status of the user's command when they run, and the
+# status is restored before anyone else's hook sees it.
 case "$(declare -p PROMPT_COMMAND 2>/dev/null)" in
     "declare -a"*)
-        PROMPT_COMMAND+=("$__cortex_rc_cmd")
+        case " ${PROMPT_COMMAND[*]} " in
+            *__cortex_precmd*) ;;
+            *) PROMPT_COMMAND=("__cortex_precmd" "$__cortex_rc_cmd" "__cortex_restore_status" "${PROMPT_COMMAND[@]}") ;;
+        esac
         ;;
     *)
         case ";${PROMPT_COMMAND-};" in
-            *"__cortex_rc_check"*) ;;
-            *) PROMPT_COMMAND="$__cortex_rc_cmd${PROMPT_COMMAND:+;$PROMPT_COMMAND}" ;;
+            *__cortex_precmd*) ;;
+            *) PROMPT_COMMAND="__cortex_precmd; $__cortex_rc_cmd; __cortex_restore_status${PROMPT_COMMAND:+;$PROMPT_COMMAND}" ;;
         esac
         ;;
 esac

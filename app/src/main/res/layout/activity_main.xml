@@ -78,7 +78,7 @@
                     android:id="@+id/drawerTitle"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Sessions"
+                    android:text="@string/drawer_sessions"
                     android:textColor="@color/cortex_text_primary"
                     android:textStyle="bold"
                     android:textSize="17sp" />
@@ -99,7 +99,7 @@
                     android:layout_height="24dp"
                     android:layout_gravity="center"
                     android:src="@drawable/ic_update"
-                    android:contentDescription="Check for Updates" />
+                    android:contentDescription="@string/check_for_updates" />
 
                 <View
                     android:id="@+id/updateRedDot"
@@ -118,7 +118,7 @@
                 android:layout_height="48dp"
                 android:padding="12dp"
                 android:src="@drawable/ic_settings"
-                android:contentDescription="Settings"
+                android:contentDescription="@string/settings"
                 android:background="@drawable/icon_circle_bg" />
         </LinearLayout>
 
@@ -164,7 +164,8 @@
                 android:layout_weight="1"
                 android:layout_marginEnd="6dp"
                 android:gravity="center"
-                android:text="KEYBOARD"
+                android:text="@string/drawer_keyboard"
+                android:textAllCaps="true"
                 android:textColor="@color/cortex_text_primary"
                 android:textSize="12sp"
                 android:textStyle="bold"
@@ -177,7 +178,8 @@
                 android:layout_weight="1"
                 android:layout_marginStart="6dp"
                 android:gravity="center"
-                android:text="+ NEW SESSION"
+                android:text="@string/drawer_new_session"
+                android:textAllCaps="true"
                 android:textColor="@color/cortex_text_primary"
                 android:textSize="12sp"
                 android:textStyle="bold"

@@ -86,7 +86,7 @@ class MainActivity : AppCompatActivity() {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
                 Toast.makeText(
                     this,
-                    "Güncelleme yüklemek için bilinmeyen uygulamaları yükleme iznini açın",
+                    getString(R.string.update_allow_unknown_sources),
                     Toast.LENGTH_LONG
                 ).show()
                 UpdateManager.openUnknownAppSourcesSettings(this)
@@ -96,7 +96,7 @@ class MainActivity : AppCompatActivity() {
             if (UpdateManager.isUpdateAvailable && cached != null) {
                 UpdateManager.showUpdateDialog(this, cached)
             } else {
-                val checkingToast = Toast.makeText(this, "Checking for updates...", Toast.LENGTH_SHORT)
+                val checkingToast = Toast.makeText(this, R.string.update_checking, Toast.LENGTH_SHORT)
                 checkingToast.show()
                 UpdateManager.checkForUpdate(this) { isAvailable, info, error ->
                     if (isFinishing || isDestroyed) return@checkForUpdate
@@ -105,7 +105,7 @@ class MainActivity : AppCompatActivity() {
                         updateRedDot.visibility = android.view.View.VISIBLE
                         UpdateManager.showUpdateDialog(this, info)
                     } else if (error != null) {
-                        Toast.makeText(this, "Update check failed: $error", Toast.LENGTH_LONG).show()
+                        Toast.makeText(this, getString(R.string.update_check_failed, error), Toast.LENGTH_LONG).show()
                     } else {
                         updateRedDot.visibility = android.view.View.GONE
                         UpdateManager.showUpToDateDialog(this, info?.tagName)
@@ -156,7 +156,7 @@ class MainActivity : AppCompatActivity() {
                 if (clipboard != null) {
                     val clip = android.content.ClipData.newPlainText("URL", url)
                     clipboard.setPrimaryClip(clip)
-                    Toast.makeText(this, "Copied URL: $url", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, getString(R.string.copied_url, url), Toast.LENGTH_SHORT).show()
                 }
             } catch (e: Exception) {
                 Toast.makeText(this, url, Toast.LENGTH_SHORT).show()
@@ -318,7 +318,7 @@ class MainActivity : AppCompatActivity() {
         if (!bootstrapInstalledAtStart) {
             isBootstrapping = true
             val progress = android.app.ProgressDialog(this).apply {
-                setMessage("Setting up Cortex Glibc environment...\nExtracting base system...")
+                setMessage(getString(R.string.bootstrap_progress))
                 setCancelable(false)
                 setCanceledOnTouchOutside(false)
             }
@@ -359,7 +359,7 @@ class MainActivity : AppCompatActivity() {
                     } else {
                         android.widget.Toast.makeText(
                             this,
-                            "Failed to initialize environment. Please restart the app.",
+                            getString(R.string.bootstrap_failed),
                             android.widget.Toast.LENGTH_LONG
                         ).show()
                     }
@@ -630,10 +630,10 @@ class MainActivity : AppCompatActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             if (!android.os.Environment.isExternalStorageManager()) {
                 AlertDialog.Builder(this)
-                    .setTitle("Manage All Files Permission")
-                    .setMessage("Cortex Terminal requires 'All files access' permission to manage device storage (/sdcard) and run CLI development tools with full privileges.")
+                    .setTitle(R.string.storage_permission_title)
+                    .setMessage(R.string.storage_permission_message)
                     .setCancelable(false)
-                    .setPositiveButton("Grant Permission") { _, _ ->
+                    .setPositiveButton(R.string.storage_permission_grant) { _, _ ->
                         try {
                             val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
                                 data = Uri.parse("package:$packageName")
@@ -643,11 +643,11 @@ class MainActivity : AppCompatActivity() {
                             try {
                                 startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
                             } catch (e2: Exception) {
-                                Toast.makeText(this, "Unable to open permission settings", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(this, R.string.storage_permission_open_failed, Toast.LENGTH_SHORT).show()
                             }
                         }
                     }
-                    .setNegativeButton("Later", null)
+                    .setNegativeButton(R.string.later, null)
                     .show()
             }
         } else {

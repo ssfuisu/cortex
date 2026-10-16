@@ -10,6 +10,30 @@ class TerminalRow(val cols: Int) {
     val isUrlLink = BooleanArray(cols) { false }
     var isWrapped: Boolean = false
 
+    /**
+     * Per-cell OSC 8 hyperlink targets. Allocated lazily: rows that never carried a link (almost
+     * all of them) pay for a single null reference. Cells of one link share one String instance.
+     */
+    var links: Array<String?>? = null
+        private set
+
+    fun linkAt(col: Int): String? {
+        val l = links ?: return null
+        return if (col in l.indices) l[col] else null
+    }
+
+    fun hasLinkAt(col: Int): Boolean = linkAt(col) != null
+
+    private fun setLink(col: Int, link: String?) {
+        var l = links
+        if (l == null) {
+            if (link == null) return
+            l = arrayOfNulls(cols)
+            links = l
+        }
+        if (col in l.indices) l[col] = link
+    }
+
     fun clear(fg: Int = TerminalColor.DEFAULT_FG, bg: Int = TerminalColor.DEFAULT_BG) {
         for (i in 0 until cols) {
             chars[i] = ' '
@@ -20,10 +44,11 @@ class TerminalRow(val cols: Int) {
             isSearchCurrent[i] = false
             isUrlLink[i] = false
         }
+        links = null
         isWrapped = false
     }
 
-    fun setChar(col: Int, char: Char, fg: Int, bg: Int, style: Byte = 0) {
+    fun setChar(col: Int, char: Char, fg: Int, bg: Int, style: Byte = 0, link: String? = null) {
         if (col in 0 until cols) {
             chars[col] = char
             fgColors[col] = fg
@@ -32,6 +57,7 @@ class TerminalRow(val cols: Int) {
             isSearchMatch[col] = false
             isSearchCurrent[col] = false
             isUrlLink[col] = false
+            setLink(col, link)
         }
     }
 
@@ -60,6 +86,14 @@ class TerminalRow(val cols: Int) {
         System.arraycopy(other.isSearchCurrent, 0, isSearchCurrent, 0, cCount)
         val uCount = minOf(cols, other.isUrlLink.size)
         System.arraycopy(other.isUrlLink, 0, isUrlLink, 0, uCount)
+        val otherLinks = other.links
+        if (otherLinks == null) {
+            links = null
+        } else {
+            val copy = arrayOfNulls<String>(cols)
+            System.arraycopy(otherLinks, 0, copy, 0, minOf(cols, otherLinks.size))
+            links = copy
+        }
         isWrapped = other.isWrapped
     }
 
@@ -72,6 +106,7 @@ class TerminalRow(val cols: Int) {
             System.arraycopy(fgColors, startCol + clampedCount, fgColors, startCol, shiftCount)
             System.arraycopy(bgColors, startCol + clampedCount, bgColors, startCol, shiftCount)
             System.arraycopy(styles, startCol + clampedCount, styles, startCol, shiftCount)
+            links?.let { System.arraycopy(it, startCol + clampedCount, it, startCol, shiftCount) }
         }
         val blankStart = cols - clampedCount
         for (i in blankStart until cols) {
@@ -79,6 +114,7 @@ class TerminalRow(val cols: Int) {
             fgColors[i] = fg
             bgColors[i] = bg
             styles[i] = 0
+            links?.let { l -> if (i in l.indices) l[i] = null }
         }
     }
 
@@ -91,12 +127,14 @@ class TerminalRow(val cols: Int) {
             System.arraycopy(fgColors, startCol, fgColors, startCol + clampedCount, shiftCount)
             System.arraycopy(bgColors, startCol, bgColors, startCol + clampedCount, shiftCount)
             System.arraycopy(styles, startCol, styles, startCol + clampedCount, shiftCount)
+            links?.let { System.arraycopy(it, startCol, it, startCol + clampedCount, shiftCount) }
         }
         for (i in startCol until minOf(cols, startCol + clampedCount)) {
             chars[i] = ' '
             fgColors[i] = fg
             bgColors[i] = bg
             styles[i] = 0
+            links?.let { l -> if (i in l.indices) l[i] = null }
         }
     }
 

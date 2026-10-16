@@ -1,12 +1,12 @@
 <PreferenceScreen xmlns:app="http://schemas.android.com/apk/res-auto">
 
-    <PreferenceCategory app:title="Appearance &amp; Font">
+    <PreferenceCategory app:title="@string/pref_cat_appearance">
         <ListPreference
             app:defaultValue="jetbrains_mono"
             app:entries="@array/terminal_font_entries"
             app:entryValues="@array/terminal_font_values"
             app:key="terminal_font"
-            app:title="Terminal Font"
+            app:title="@string/pref_font_title"
             app:useSimpleSummaryProvider="true" />
 
         <ListPreference
@@ -14,7 +14,7 @@
             app:entries="@array/terminal_theme_entries"
             app:entryValues="@array/terminal_theme_values"
             app:key="terminal_theme"
-            app:title="Color Scheme"
+            app:title="@string/pref_theme_title"
             app:useSimpleSummaryProvider="true" />
 
         <ListPreference
@@ -22,27 +22,68 @@
             app:entries="@array/font_size_entries"
             app:entryValues="@array/font_size_values"
             app:key="terminal_font_size"
-            app:title="Font Size"
+            app:title="@string/pref_font_size_title"
             app:useSimpleSummaryProvider="true" />
 
         <SwitchPreferenceCompat
             app:defaultValue="false"
             app:key="keep_screen_on"
-            app:summary="Prevent the display from turning off while terminal is active"
-            app:title="Keep Screen On" />
+            app:summary="@string/pref_keep_screen_on_summary"
+            app:title="@string/pref_keep_screen_on_title" />
 
         <SwitchPreferenceCompat
             app:defaultValue="false"
             app:key="secure_screen"
-            app:summary="Block screenshots and hide app content in recent tasks (FLAG_SECURE)"
-            app:title="Secure Screen" />
+            app:summary="@string/pref_secure_screen_summary"
+            app:title="@string/pref_secure_screen_title" />
     </PreferenceCategory>
 
-    <PreferenceCategory app:title="Community &amp; Support">
+    <PreferenceCategory app:title="@string/pref_cat_language">
+        <ListPreference
+            app:defaultValue="system"
+            app:entries="@array/language_entries"
+            app:entryValues="@array/language_values"
+            app:key="app_language"
+            app:title="@string/pref_language_title"
+            app:useSimpleSummaryProvider="true" />
+    </PreferenceCategory>
+
+    <PreferenceCategory app:title="@string/pref_cat_notifications">
+        <SwitchPreferenceCompat
+            app:defaultValue="true"
+            app:key="notify_long_commands"
+            app:summary="@string/pref_notify_summary"
+            app:title="@string/pref_notify_title" />
+
+        <ListPreference
+            app:defaultValue="30"
+            app:dependency="notify_long_commands"
+            app:entries="@array/long_command_threshold_entries"
+            app:entryValues="@array/long_command_threshold_values"
+            app:key="long_command_threshold"
+            app:title="@string/pref_notify_threshold_title"
+            app:useSimpleSummaryProvider="true" />
+
+        <SwitchPreferenceCompat
+            app:defaultValue="true"
+            app:key="allow_osc52"
+            app:summary="@string/pref_clipboard_summary"
+            app:title="@string/pref_clipboard_title" />
+    </PreferenceCategory>
+
+    <PreferenceCategory app:title="@string/pref_cat_files">
+        <SwitchPreferenceCompat
+            app:defaultValue="true"
+            app:key="documents_enabled"
+            app:summary="@string/pref_documents_summary"
+            app:title="@string/pref_documents_title" />
+    </PreferenceCategory>
+
+    <PreferenceCategory app:title="@string/pref_cat_support">
         <Preference
             app:key="telegram_contact_pref"
-            app:summary="Message developer on Telegram: @ratzgn"
-            app:title="Telegram Support" />
+            app:summary="@string/pref_telegram_summary"
+            app:title="@string/pref_telegram_title" />
     </PreferenceCategory>
 
 </PreferenceScreen>

@@ -160,4 +160,16 @@ class ShellScriptsInstallerTest {
         assertTrue("an installed opencode must survive the cleanup", tool.exists())
         assertFalse("the old auto-install wrapper must be removed", wrapper.exists())
     }
+
+    @Test
+    fun ensureBackupTool_installsAnExecutableCommand() {
+        val root = tempFolder.newFolder("root")
+
+        ShellScriptsInstaller.ensureBackupTool(root, null)
+
+        val tool = File(root, "usr/local/bin/cortex-backup")
+        assertTrue("cortex-backup must be installed in /usr/local/bin", tool.isFile)
+        assertTrue(tool.readText().startsWith("#!/bin/bash"))
+        assertTrue("it must be executable", tool.canExecute())
+    }
 }

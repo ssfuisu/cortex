@@ -3,8 +3,10 @@ package org.cortex.terminal
 import android.os.Bundle
 import android.view.MenuItem
 import androidx.appcompat.app.AppCompatActivity
+import androidx.preference.ListPreference
 import androidx.preference.Preference
 import androidx.preference.PreferenceFragmentCompat
+import org.cortex.terminal.documents.CortexDocumentsProvider
 
 class SettingsActivity : AppCompatActivity() {
 
@@ -44,6 +46,22 @@ class SettingsActivity : AppCompatActivity() {
     class SettingsFragment : PreferenceFragmentCompat() {
         override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
             setPreferencesFromResource(R.xml.root_preferences, rootKey)
+
+            findPreference<ListPreference>(LocaleHelper.PREF_KEY)?.let { pref ->
+                // Show what is really active (on Android 13+ the language can also be changed in system settings).
+                val available = resources.getStringArray(R.array.language_values).toList()
+                pref.value = LocaleHelper.currentSelection(available)
+                pref.setOnPreferenceChangeListener { _, newValue ->
+                    LocaleHelper.setLanguage(newValue as String)
+                    true
+                }
+            }
+
+            findPreference<androidx.preference.SwitchPreferenceCompat>(CortexDocumentsProvider.PREF_DOCUMENTS_ENABLED)
+                ?.setOnPreferenceChangeListener { _, newValue ->
+                    CortexDocumentsProvider.setEnabled(requireContext(), newValue as Boolean)
+                    true
+                }
 
             findPreference<Preference>("telegram_contact_pref")?.setOnPreferenceClickListener {
                 try {

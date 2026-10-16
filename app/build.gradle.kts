@@ -16,8 +16,8 @@ android {
         // from the app's writable data directory (filesDir). Android 10+ (targetSdk >= 29)
         // enforces SELinux W^X restrictions preventing execution from writable app data storage.
         targetSdk = 28
-        versionCode = 12628
-        versionName = "1.26.28"
+        versionCode = 12629
+        versionName = "1.26.29"
 
         externalNativeBuild {
             cmake {

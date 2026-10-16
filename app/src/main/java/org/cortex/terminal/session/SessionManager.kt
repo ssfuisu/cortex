@@ -49,6 +49,7 @@ class SessionManager(private val context: Context) {
 
     fun newSession(rows: Int = 24, cols: Int = 80, widthPx: Int = 0, heightPx: Int = 0, onRedraw: (() -> Unit)? = null): TerminalSession {
         val session = TerminalSession(context.applicationContext, rows, cols, widthPx, heightPx, onRedraw)
+        session.numberProvider = { synchronized(sessions) { sessions.indexOf(session) + 1 }.coerceAtLeast(1) }
         val startTime = System.currentTimeMillis()
         session.onSessionFinished = { exitCode ->
             val duration = System.currentTimeMillis() - startTime

@@ -102,6 +102,27 @@ object ShellScriptsInstaller {
         }
     }
 
+    /** Installs `cortex-backup` (back up / restore the home directory) into /usr/local/bin. */
+    fun ensureBackupTool(root: File, context: Context? = null) {
+        try {
+            val fallback = "#!/bin/bash\necho \"cortex-backup is not available in this build.\" >&2\nexit 1\n"
+            val script = loadAssetScript(context, "cortex-backup.sh", fallback)
+            val localBin = File(root, "usr/local/bin")
+            localBin.mkdirs()
+            val target = File(localBin, "cortex-backup")
+            val existing = try { if (target.isFile) target.readText() else null } catch (_: Exception) { null }
+            if (existing != script) {
+                target.writeText(script)
+            }
+            target.setReadable(true, false)
+            target.setWritable(true, true)
+            target.setExecutable(true, false)
+            try { Os.chmod(target.absolutePath, 493) } catch (_: Exception) {} // 0755
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to install cortex-backup", e)
+        }
+    }
+
     /**
      * True for the small auto-install wrapper scripts old releases put into /usr/local/bin. The
      * real tool (a large Bun/Go binary that merely mentions its own URL) and symlinks to it must

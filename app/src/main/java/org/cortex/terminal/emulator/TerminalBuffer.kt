@@ -36,6 +36,8 @@ class TerminalBuffer(var rows: Int, var cols: Int, private val maxHistory: Int =
     var currentFg = TerminalColor.DEFAULT_FG
     var currentBg = TerminalColor.DEFAULT_BG
     var currentStyle: Byte = 0
+    /** Target of the OSC 8 hyperlink being written, or null outside of one. */
+    var currentLink: String? = null
 
     // Alternate screen buffer
     private var alternateScreen: Array<TerminalRow>? = null
@@ -155,7 +157,7 @@ class TerminalBuffer(var rows: Int, var cols: Int, private val maxHistory: Int =
             isWrapPending = false
         }
         val r = cursorRow.coerceIn(0, rows - 1)
-        screen[r].setChar(cursorCol, c, currentFg, currentBg, currentStyle)
+        screen[r].setChar(cursorCol, c, currentFg, currentBg, currentStyle, currentLink)
         if (cursorCol >= cols - 1) {
             isWrapPending = true
         } else {

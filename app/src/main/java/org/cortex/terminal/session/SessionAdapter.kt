@@ -24,7 +24,7 @@ class SessionAdapter(
         val isActive = position == sessionManager.currentSessionIndex
         val binding = holder.binding
 
-        binding.sessionLabelText.text = "Session ${position + 1}"
+        binding.sessionLabelText.text = holder.itemView.context.getString(R.string.session_label, position + 1)
 
         // The active session is marked by its highlighted background only.
         binding.sessionItemRoot.setBackgroundResource(

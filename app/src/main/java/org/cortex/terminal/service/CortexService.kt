@@ -10,6 +10,7 @@ import android.content.Intent
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
+import org.cortex.terminal.LocaleHelper
 import org.cortex.terminal.MainActivity
 import org.cortex.terminal.R
 import org.cortex.terminal.session.SessionManager
@@ -277,12 +278,13 @@ class CortexService : Service() {
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val lc = LocaleHelper.wrap(this)
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "Cortex Terminal",
+                lc.getString(R.string.notif_channel_name),
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "Cortex active terminal sessions"
+                description = lc.getString(R.string.notif_channel_description)
                 setShowBadge(false)
             }
             nm.createNotificationChannel(channel)
@@ -290,9 +292,13 @@ class CortexService : Service() {
     }
 
     private fun buildNotification(): Notification {
+        val lc = LocaleHelper.wrap(this)
         val sessionCount = _sessionManager?.sessions?.size ?: 1
-        val sessionText = if (sessionCount == 1) "1 session" else "$sessionCount sessions"
-        val contentText = if (isWakeLockHeld) "$sessionText (wake lock held)" else sessionText
+        val contentText = if (isWakeLockHeld) {
+            lc.getString(R.string.notif_sessions_wake_lock, sessionCount)
+        } else {
+            lc.getString(R.string.notif_sessions, sessionCount)
+        }
 
         val flagImmutable = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
 
@@ -320,7 +326,9 @@ class CortexService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or flagImmutable
         )
 
-        val wlActionTitle = if (isWakeLockHeld) "Release Wakelock" else "Acquire Wakelock"
+        val wlActionTitle = lc.getString(
+            if (isWakeLockHeld) R.string.notif_action_release_wakelock else R.string.notif_action_acquire_wakelock
+        )
 
         val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Notification.Builder(this, CHANNEL_ID)
@@ -329,14 +337,14 @@ class CortexService : Service() {
             Notification.Builder(this)
         }
 
-        builder.setContentTitle("Cortex")
+        builder.setContentTitle(lc.getString(R.string.app_name))
             .setContentText(contentText)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentIntent(openPendingIntent)
             .setOngoing(true)
             .addAction(
                 Notification.Action.Builder(
-                    0, "Exit", exitPendingIntent
+                    0, lc.getString(R.string.notif_action_exit), exitPendingIntent
                 ).build()
             )
             .addAction(

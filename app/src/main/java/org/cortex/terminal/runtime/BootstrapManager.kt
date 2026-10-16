@@ -12,7 +12,7 @@ import java.util.zip.GZIPInputStream
 
 object BootstrapManager {
     private const val TAG = "BootstrapManager"
-    const val CURRENT_BOOTSTRAP_VERSION = 12628
+    const val CURRENT_BOOTSTRAP_VERSION = 12629
 
     fun initializeFileSystem(context: Context) {
         val root = Environment.getCortexRoot(context)
@@ -1041,6 +1041,7 @@ object BootstrapManager {
             ensureServiceManager(root, context)
             ensureBrowserOpener(root, context)
             ensureRootTools(root, context)
+            ShellScriptsInstaller.ensureBackupTool(root, context)
             restoreGpgv(root)
             ensureMachineId(root)
             ensureShm(root)
