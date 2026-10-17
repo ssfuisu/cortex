@@ -142,6 +142,7 @@ The translations were produced with machine assistance and have not all been rev
    - **`Cortex-arm64-v8a-signed.apk`**: For all modern 64-bit Android smartphones and tablets (recommended).
    - **`Cortex-armeabi-v7a-signed.apk`**: For legacy 32-bit Android devices.
 3. Install the APK and grant storage permissions when prompted.
+4. Optional: check the download against the published signing fingerprints in [`signing/README.md`](signing/README.md).
 
 ---
 
