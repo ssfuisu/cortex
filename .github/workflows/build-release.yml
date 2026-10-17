@@ -20,6 +20,10 @@ on:
         description: "Build, sign and verify the APKs but publish nothing (tests the signing setup)"
         type: boolean
         default: false
+      prerelease:
+        description: "Publish the release as a pre-release: the in-app updater only offers the latest full release, so nobody is offered it until it is promoted"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -509,8 +513,15 @@ jobs:
 
           sed -i 's/^          //' release-notes.md
 
+          PRERELEASE_FLAG=""
+          if [ "${{ github.event.inputs.prerelease }}" = "true" ]; then
+            PRERELEASE_FLAG="--prerelease"
+            echo "Publishing $VERSION as a pre-release."
+          fi
+
           gh release create "$VERSION" \
             release-apks/Cortex-arm64-v8a-signed.apk \
             release-apks/Cortex-armeabi-v7a-signed.apk \
             --title "Cortex Release $VERSION" \
-            --notes-file release-notes.md
+            --notes-file release-notes.md \
+            $PRERELEASE_FLAG
