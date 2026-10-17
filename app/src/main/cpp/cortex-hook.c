@@ -3648,6 +3648,19 @@ int lzma_stream_decoder_mt(cortex_lzma_stream *strm, const cortex_lzma_mt *optio
 }
 
 int lzma_stream_encoder_mt(cortex_lzma_stream *strm, const cortex_lzma_mt *options) {
+    // Cortex encodes on one thread. The single-thread encoders take the same settings: xz passes its
+    // compression level as a filter chain (its preset field is unused), other programs a preset.
+    // Honouring only the preset made `xz -T4 -9` (and -T0) compress like `xz -0`.
+    if (options && options->filters) {
+        static int (*orig_stream)(cortex_lzma_stream *, const void *, int) = NULL;
+        if (!orig_stream) {
+            orig_stream = (int (*)(cortex_lzma_stream *, const void *, int))dlsym(RTLD_DEFAULT, "lzma_stream_encoder");
+            if (!orig_stream) {
+                orig_stream = (int (*)(cortex_lzma_stream *, const void *, int))dlsym(RTLD_NEXT, "lzma_stream_encoder");
+            }
+        }
+        if (orig_stream) return orig_stream(strm, options->filters, options->check);
+    }
     static int (*orig_easy)(cortex_lzma_stream *, uint32_t, int) = NULL;
     if (!orig_easy) {
         orig_easy = (int (*)(cortex_lzma_stream *, uint32_t, int))dlsym(RTLD_DEFAULT, "lzma_easy_encoder");
