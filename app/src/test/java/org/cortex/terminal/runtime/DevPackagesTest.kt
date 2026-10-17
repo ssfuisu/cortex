@@ -343,8 +343,30 @@ class DevPackagesTest {
     }
 
     @Test
-    fun theAssetNameFollowsTheAbi() {
-        assertEquals("devpkgs-arm64.tar.gz", DevPackages.assetName(true))
-        assertEquals("devpkgs-arm.tar.gz", DevPackages.assetName(false))
+    fun theAssetNamesFollowTheAbiAndTryTheUnpackedFormFirst() {
+        // the build stores devpkgs-*.tar.gz as devpkgs-*.tar in the APK; arm must not match arm64
+        assertEquals(listOf("devpkgs-arm64.tar", "devpkgs-arm64.tar.gz"), DevPackages.assetNames(true))
+        assertEquals(listOf("devpkgs-arm.tar", "devpkgs-arm.tar.gz"), DevPackages.assetNames(false))
+    }
+
+    @Test
+    fun anOverlayThatTheBuildStoredUnpackedIsRead() {
+        val root = newRoot()
+        val payload = ByteArray(3000) { (it * 13).toByte() }.also { it[0] = 'u'.code.toByte() }
+        val extractor = FakeExtractor(overlayStanzas())
+
+        val outcome = install(root, extractor, overlay = payload)
+
+        assertEquals(outcome.toString(), DevPackages.Result.INSTALLED, outcome.result)
+        assertArrayEquals(payload, extractor.seen)
+    }
+
+    @Test
+    fun aTinyOrEmptyOverlayDoesNotCrashTheReader() {
+        for (size in 0..1) {
+            val root = newRoot()
+            val outcome = install(root, FakeExtractor(overlayStanzas()), overlay = ByteArray(size))
+            assertTrue("size $size: ${outcome}", outcome.result == DevPackages.Result.INSTALLED || outcome.result == DevPackages.Result.FAILED)
+        }
     }
 }

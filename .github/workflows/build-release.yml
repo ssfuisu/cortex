@@ -478,7 +478,7 @@ jobs:
           # Each APK carries the bootstrap, the hook and the C development overlay of its own architecture only
           check_assets() {
             unzip -l "$1" > /tmp/apk-assets.txt
-            for need in "assets/bootstrap-$2.tar" "assets/devpkgs-$2.tar.gz" "assets/libcortex-hook-$2.so"; do
+            for need in "assets/bootstrap-$2.tar" "assets/devpkgs-$2.tar" "assets/libcortex-hook-$2.so"; do
               grep -q "$need" /tmp/apk-assets.txt || { echo "ERROR: $1 has no $need"; exit 1; }
             done
             for stray in "assets/bootstrap-$3.tar" "assets/devpkgs-$3.tar" "assets/libcortex-hook-$3.so"; do

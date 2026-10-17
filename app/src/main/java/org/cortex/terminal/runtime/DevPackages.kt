@@ -2,6 +2,7 @@ package org.cortex.terminal.runtime
 
 import java.io.File
 import java.io.InputStream
+import java.io.PushbackInputStream
 import java.io.RandomAccessFile
 import java.nio.channels.FileLock
 import java.nio.channels.OverlappingFileLockException
@@ -60,14 +61,21 @@ object DevPackages {
     const val STATUS_RESOURCE = "var/lib/cortex/devpkgs/status"
     const val DONE_MARKER = "var/lib/cortex/devpkgs/installed"
 
-    fun assetName(is64Bit: Boolean) = if (is64Bit) "devpkgs-arm64.tar.gz" else "devpkgs-arm.tar.gz"
+    /**
+     * The overlay in the APK. The build stores the .tar.gz assets unpacked (as .tar: the APK compresses them
+     * as a whole), so the plain name comes first, the way findBootstrapAsset does it.
+     */
+    fun assetNames(is64Bit: Boolean): List<String> {
+        val base = if (is64Bit) "devpkgs-arm64" else "devpkgs-arm"
+        return listOf("$base.tar", "$base.tar.gz")
+    }
 
     private val installing = java.util.concurrent.locks.ReentrantLock()
 
     /**
      * Installs the overlay if this root file system needs it. Never throws.
      *
-     * @param openOverlay opens the gzip-compressed overlay, or returns null when the app has none
+     * @param openOverlay opens the overlay (a tar file, gzip-compressed or not), or returns null when the app has none
      * @param extract unpacks a tar file into the root file system; true when it worked
      */
     fun ensureInstalled(
@@ -118,7 +126,7 @@ object DevPackages {
         val tar = File(tmpDir, "devpkgs.tar")
         try {
             tmpDir.mkdirs()
-            overlay.use { raw -> GZIPInputStream(raw).use { gz -> tar.outputStream().use { gz.copyTo(it) } } }
+            overlay.use { raw -> unpackedStream(raw).use { plain -> tar.outputStream().use { plain.copyTo(it) } } }
             if (!extract(tar, root)) return Outcome(Result.FAILED, "unpacking failed")
 
             val additions = File(root, STATUS_RESOURCE)
@@ -138,6 +146,21 @@ object DevPackages {
             tar.delete()
             locks.close()
         }
+    }
+
+    /** [raw] as a plain tar stream, unzipping it when it is gzip-compressed. */
+    private fun unpackedStream(raw: InputStream): InputStream {
+        val pushback = PushbackInputStream(raw, 2)
+        val head = ByteArray(2)
+        var n = 0
+        while (n < 2) {
+            val r = pushback.read(head, n, 2 - n)
+            if (r < 0) break
+            n += r
+        }
+        if (n > 0) pushback.unread(head, 0, n)
+        val gzip = n == 2 && head[0] == 0x1f.toByte() && head[1] == 0x8b.toByte()
+        return if (gzip) GZIPInputStream(pushback) else pushback
     }
 
     /** The version of an installed package, or null. A package in the status file may also be removed. */

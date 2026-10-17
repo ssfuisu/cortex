@@ -332,10 +332,12 @@ object BootstrapManager {
             root = root,
             tmpDir = context.cacheDir,
             openOverlay = {
-                try {
-                    context.assets.open(DevPackages.assetName(Process.is64Bit()))
-                } catch (e: java.io.IOException) {
-                    null
+                DevPackages.assetNames(Process.is64Bit()).firstNotNullOfOrNull { name ->
+                    try {
+                        context.assets.open(name)
+                    } catch (e: java.io.IOException) {
+                        null
+                    }
                 }
             },
             extract = { tar, dest -> extractTarInto(tar, dest) },
