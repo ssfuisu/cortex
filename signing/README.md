@@ -7,9 +7,15 @@ Every APK on the [releases page](https://github.com/ssfuisu/cortex/releases) is 
 | | SHA-256 fingerprint |
 |---|---|
 | **Current key** (used by Android 13+) | `F5:F5:56:18:EB:AA:CE:26:88:33:95:28:D4:62:01:BE:BB:2C:75:BA:8F:74:4C:6E:F6:5C:27:04:B8:B0:B3:54` |
-| **Original key** (releases up to 1.26.29, still the signer on Android 12 and older) | `83:2C:4F:3E:29:17:AD:74:2E:4E:A4:89:C4:C7:7B:A9:ED:2C:ED:FA:3F:AF:99:81:83:9E:89:F9:5A:95:A3:BA` |
+| **Original key** (releases up to 1.26.29; compromised, kept only for compatibility with Android 12 and older) | `83:2C:4F:3E:29:17:AD:74:2E:4E:A4:89:C4:C7:7B:A9:ED:2C:ED:FA:3F:AF:99:81:83:9E:89:F9:5A:95:A3:BA` |
 
-Check a downloaded APK with `apksigner verify --verbose --print-certs Cortex-arm64-v8a-signed.apk` (Android SDK build-tools). It should list one of the two fingerprints above.
+## How to verify a download
+
+Run `apksigner verify --verbose --print-certs Cortex-arm64-v8a-signed.apk` (Android SDK build-tools). It prints the signers of each signature block.
+
+**Only the V3.1 signer proves anything.** Releases signed with the rotation (the first one after 1.26.29 and every later one) must show a `V3.1 Signer` whose SHA-256 is the **current key** above. The original key will also appear (as the V3.0 signer), because older Android versions still need it, but its private part was public, so anybody can produce an APK carrying that fingerprint: **a match with the original fingerprint authenticates nothing.** An APK that has no V3.1 signer with the current fingerprint must not be trusted.
+
+Releases up to 1.26.29 were signed only with the original key and therefore cannot be authenticated by their signature at all. The only assurance for those is that you downloaded them from the official [releases page](https://github.com/ssfuisu/cortex/releases) over HTTPS.
 
 ## Why there are two keys
 
