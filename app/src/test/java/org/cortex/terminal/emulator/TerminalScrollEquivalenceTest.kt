@@ -36,14 +36,20 @@ class TerminalScrollEquivalenceTest {
         }
 
         repeat(700) {
-            when (rnd.nextInt(24)) {
+            when (rnd.nextInt(25)) {
                 0, 1, 2, 3, 4 -> {
                     val sb = StringBuilder()
                     repeat(1 + rnd.nextInt(8)) { sb.append(words[rnd.nextInt(words.size)]).append(' ') }
                     feed(sb.toString())
                 }
                 5, 6, 7 -> feed("\r\n".repeat(1 + rnd.nextInt(4)))
-                8 -> feed("$esc[${listOf("0", "1", "4", "7", "31", "32;1", "44", "38;5;${rnd.nextInt(256)}", "48;2;${rnd.nextInt(256)};9;200").random(rnd)}m")
+                8 -> feed("$esc[${listOf("0", "1", "4", "7", "1;4", "22", "24", "27").random(rnd)}m")
+                // colours are set directly: the palette behind SGR colours comes from android.graphics.Color,
+                // which the unit-test android.jar answers with 0
+                22 -> {
+                    emu.buffer.currentFg = if (rnd.nextInt(4) == 0) TerminalColor.DEFAULT_FG else 0x100000 + rnd.nextInt(6)
+                    emu.buffer.currentBg = if (rnd.nextInt(4) == 0) TerminalColor.DEFAULT_BG else 0x200000 + rnd.nextInt(6)
+                }
                 9 -> feed("$esc[${1 + rnd.nextInt(3)}${listOf("L", "M", "S", "T").random(rnd)}")
                 10 -> {
                     val top = 1 + rnd.nextInt(rows)
@@ -74,6 +80,9 @@ class TerminalScrollEquivalenceTest {
 
     private fun <T> List<T>.random(rnd: Random): T = this[rnd.nextInt(size)]
 
+    private fun normFg(c: Int) = if (c == TerminalColor.DEFAULT_FG) -1 else c
+    private fun normBg(c: Int) = if (c == TerminalColor.DEFAULT_BG) -2 else c
+
     private fun digest(emu: TerminalEmulator): Long {
         val crc = CRC32()
         fun put(v: Int) {
@@ -82,7 +91,7 @@ class TerminalScrollEquivalenceTest {
         fun row(r: TerminalRow) {
             put(r.cols)
             for (c in 0 until r.cols) {
-                put(r.chars[c].code); put(r.fgColors[c]); put(r.bgColors[c]); put(r.styles[c].toInt())
+                put(r.chars[c].code); put(normFg(r.fgColors[c])); put(normBg(r.bgColors[c])); put(r.styles[c].toInt())
                 put(if (r.isSearchMatch[c]) 1 else 0); put(if (r.isUrlLink[c]) 1 else 0)
                 put(r.linkAt(c)?.hashCode() ?: 0)
             }
@@ -101,14 +110,14 @@ class TerminalScrollEquivalenceTest {
     fun scrollingGivesTheSameStateAsCopyingRows() {
         // Produced by the implementation that copied rows (v1.26.29) for seeds 1..40.
         val expected = longArrayOf(
-            2416632353L, 854164187L, 167735230L, 1770459094L, 2766382294L,
-            3148001545L, 443829834L, 4097107297L, 3590311930L, 3314442819L,
-            2797212869L, 708426361L, 2552205032L, 2685958924L, 3034641577L,
-            2723360390L, 2419922855L, 56669105L, 1224857635L, 498953102L,
-            3737029665L, 393568550L, 1011475602L, 947428879L, 800373509L,
-            2036938186L, 565521298L, 186694172L, 1527861604L, 2735398206L,
-            1623489909L, 1742272634L, 3540384490L, 2927353393L, 558435819L,
-            799742564L, 288890457L, 1832347724L, 1352931504L, 3089825385L,
+            1939414809L, 3951239041L, 3284967844L, 2483182971L, 2554883538L,
+            1821741478L, 4255690817L, 2443082159L, 2459607213L, 478329047L,
+            4182993009L, 1403879736L, 226736260L, 3735506793L, 3858113477L,
+            3954381601L, 3874759089L, 259706699L, 3313534421L, 1726820311L,
+            2330016250L, 1339301400L, 3654485890L, 2343967269L, 1092299266L,
+            673407887L, 2281998965L, 3013775135L, 4067073568L, 2632562140L,
+            2381473936L, 2483308198L, 733293680L, 2590770920L, 1833952475L,
+            3227660632L, 644054287L, 1838870375L, 1756734487L, 1323808280L,
         )
         val actual = LongArray(expected.size) { run(it + 1L) }
         for (i in expected.indices) {
