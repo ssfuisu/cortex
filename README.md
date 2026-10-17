@@ -34,7 +34,7 @@ With full APT package management, high-speed developer launchers, and a modern M
 | How Linux programs run | Directly on the Android kernel; a small `LD_PRELOAD` library maps `/usr`, `/etc`, ... into the app's private storage | Directly, as programs built for Android | Inside PRoot, a user-space chroot that intercepts system calls with `ptrace` | Inside a virtual machine (Android Virtualization Framework, supported devices only) |
 | C library | glibc 2.39 (Ubuntu) | Bionic (Android's libc) | glibc of the chosen distribution | glibc (Debian) |
 | Package source | Ubuntu 24.04 archive via `apt` | Termux repositories via `pkg` | The distribution's own `apt` | Debian `apt` |
-| System-call overhead from `ptrace` | None | None | Yes | None (VM overhead instead) |
+| Cost of running programs | No `ptrace`. The library adds 0.04 to 0.4 µs to a file-path call and about 0.3 ms to starting a program ([details](#performance)) | None | `ptrace` stops on every system call | Virtualization overhead |
 
 Pick Cortex when you need Ubuntu's own `.deb` packages and a genuine glibc without the layers PRoot or a VM add. Termux remains a great choice for its large, Android-specific package set.
 
@@ -43,7 +43,7 @@ Pick Cortex when you need Ubuntu's own `.deb` packages and a genuine glibc witho
 ## Features
 
 - **Genuine Ubuntu 24.04 LTS & Glibc 2.39**: Run standard GNU/Linux software, compilers, and modern libraries without Android Bionic libc limitations or missing header errors.
-- **Pure Native Execution (Zero Overhead)**: No PRoot `ptrace` system call traps, no chroot, and no QEMU/KVM emulation. Enjoy 100% native CPU speed, minimal latency, and optimal battery efficiency.
+- **Native Execution**: No PRoot `ptrace` system call traps, no chroot, and no QEMU/KVM emulation. Code runs on the phone's CPU at full speed; the small preloaded library adds a few percent to calls that take a file path (see [Performance](#performance)).
 - **Full Debian/Ubuntu APT Package Manager**: Complete, zero-warning package installation (`apt update`, `apt install`) verified with official Ubuntu archive GPG keyrings and dynamic DNS.
 - **Full OpenJDK 17 JDK & JRE Runtime**: Out-of-the-box Java 17 development support (`apt install openjdk-17-jdk`) with dynamic linker library path preservation and POSIX shared memory (`/dev/shm`).
 - **High-Speed AI & Developer Launchers**: One-command instant CDN setups for OpenCode, Meta Muse Code, and Google Antigravity.
@@ -72,7 +72,7 @@ Pick Cortex when you need Ubuntu's own `.deb` packages and a genuine glibc witho
 |  +-----------------------------------------------------+  |
 |                            |                              |
 |  +-----------------------------------------------------+  |
-|  | Zero-Overhead Userspace Hook (libcortex-hook.so)    |  |
+|  | Userspace Hook (libcortex-hook.so, no ptrace)       |  |
 |  +-----------------------------------------------------+  |
 |                            |                              |
 |  +-----------------------------------------------------+  |
@@ -84,6 +84,40 @@ Pick Cortex when you need Ubuntu's own `.deb` packages and a genuine glibc witho
 1. **Direct Kernel Execution**: Cortex does not run inside a virtual machine or container. Programs execute directly on your device's real ARM64 / ARMv7 hardware threads using Android's native Linux kernel.
 2. **Userspace Redirection (`libcortex-hook.so`)**: Using an ultra-lightweight dynamic linker hook injected via `LD_PRELOAD`, standard Linux filesystem paths (`/usr`, `/bin`, `/etc`, `/tmp`) are transparently redirected to Cortex's private application space without slow operating system-level traps.
 3. **No Root Required**: All path mapping, permission polyfills, and simulated root privileges (`getuid` / `geteuid`) happen strictly in userspace, allowing full development capabilities on any unrooted Android device.
+
+
+---
+
+## Performance
+
+Cortex runs programs directly on the phone's CPU, so work that does not call the kernel (compilers, interpreters, compression, your own code) runs at native speed. The preloaded library `libcortex-hook.so` adds a small cost in two places: on calls that take a file path, because the path has to be mapped into Cortex's storage, and when a program is started.
+
+Measured on one 8-core Android phone (Linux 4.14, one big core, median of 9 interleaved runs). "Added" is the time the library adds to one call, compared with the same call on a real path without the library:
+
+| Call | Cortex 1.26.29 | this release |
+|---|---|---|
+| `stat()` of a file | +260 ns (+18%) | **+39 ns (+3%)** |
+| `open` + `read` + `close` | +277 ns (+10%) | **+226 ns (+8%)** |
+| `fopen` + `fclose` | +390 ns (+12%) | **+82 ns (+2%)** |
+| `readlink()` | +269 ns (+22%) | **+179 ns (+14%)** |
+| `opendir` + `readdir` + `closedir` | +600 ns (+10%) | **+426 ns (+7%)** |
+| `stat()` of a command that is not in `/usr/bin` (what a shell does when it searches `PATH`) | +1,867 ns (+141%) | **+107 ns (+8%)** |
+| `lstat()` of a symbolic link | +1,526 ns (+113%) | +1,306 ns (+97%) |
+| `write()`, `dup()` + `close()`, `getcwd()`, `sigprocmask()` | up to +21 ns | up to +21 ns |
+| Computation without system calls | 0 | 0 |
+
+`lstat()` of a symbolic link stays expensive because the library reads the link to report its size the way Ubuntu does.
+
+**Starting a program** (what a shell does for every command): the library made 19 system calls before the program started and now makes 7, no longer changes the permissions of `ld.so` each time, and lists the library directories that hold nearly every library first, so a program no longer pays two failed lookups per library (`apt-cache` made 34 of them, `bash` 4, now none). Starting a program through the library takes 769 µs instead of 903 µs; starting `ld.so` by hand without the library takes 491 µs.
+
+**Whole commands** (`find`, `ls -lR`, `dpkg`, `tar`, `grep -r`, compiling a C file, reinstalling 36 packages) differ from the previous version by less than the up to ±10% variation of the phone from run to run, with two exceptions that held in two separately designed measurements: `ls -lR` is about 20% faster (it no longer prints an error line for every symbolic link) and a shell that starts a program a hundred times is 5 to 14% faster. The library was a small part of the other commands to begin with. Numbers differ from phone to phone, so compare builds on the same device.
+
+To measure your own device (inside Cortex, with a C compiler installed):
+
+```bash
+tests/bench/run-micro.sh                      # the installed library against no library
+tests/bench/run-micro.sh old=/tmp/hook-old.so new=$CORTEX_ROOT/usr/lib/libcortex-hook.so
+```
 
 ---
 
