@@ -27,7 +27,9 @@ permissions:
 jobs:
   build:
     name: Build Signed APKs
-    runs-on: ubuntu-latest
+    # Pinned: GitHub moves "ubuntu-latest" to Ubuntu 26.04 from 2026-10-19, and this job installs
+    # Ubuntu-specific cross-compilers. Move to a newer image deliberately, after testing it.
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout Source Code
