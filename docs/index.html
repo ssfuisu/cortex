@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cortex Terminal: Ubuntu 24.04 on Android without root or PRoot</title>
+<meta name="description" content="Free open-source Android terminal that runs real Ubuntu 24.04 (glibc 2.39, apt) natively. No root, no PRoot, no containers, no VM. A Termux alternative.">
+<link rel="canonical" href="https://ssfuisu.github.io/cortex/">
+<meta name="theme-color" content="#1a1b26">
+<!-- Google Search Console: paste the verification tag here, e.g.
+<meta name="google-site-verification" content="XXXXXXXX">
+-->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Cortex Terminal">
+<meta property="og:title" content="Cortex Terminal: Ubuntu 24.04 on Android without root or PRoot">
+<meta property="og:description" content="Real Ubuntu 24.04 LTS (glibc 2.39, apt) running natively on Android. No root, no PRoot, no containers, no VM.">
+<meta property="og:url" content="https://ssfuisu.github.io/cortex/">
+<meta property="og:image" content="https://ssfuisu.github.io/cortex/social-preview.png">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="640">
+<meta property="og:image:alt" content="Cortex Terminal: native Ubuntu 24.04 on Android. No root, no PRoot, no VM.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Cortex Terminal: Ubuntu 24.04 on Android">
+<meta name="twitter:description" content="Real Ubuntu 24.04 LTS with glibc and apt, running natively on Android. No root, no PRoot, no VM.">
+<meta name="twitter:image" content="https://ssfuisu.github.io/cortex/social-preview.png">
+<link rel="icon" type="image/png" href="icon.png">
+<link rel="apple-touch-icon" href="icon.png">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "Cortex Terminal",
+  "alternateName": "Cortex",
+  "description": "Free, open-source Android terminal that runs real Ubuntu 24.04 LTS (glibc 2.39, apt) natively on unrooted devices, without PRoot, containers or a virtual machine.",
+  "applicationCategory": "DeveloperApplication",
+  "operatingSystem": "Android 7.0+",
+  "url": "https://ssfuisu.github.io/cortex/",
+  "downloadUrl": "https://github.com/ssfuisu/cortex/releases/latest",
+  "image": "https://ssfuisu.github.io/cortex/social-preview.png",
+  "license": "https://www.apache.org/licenses/LICENSE-2.0",
+  "codeRepository": "https://github.com/ssfuisu/cortex",
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+  "inLanguage": ["en", "ar", "az", "bn", "bg", "ca", "zh", "hr", "cs", "da", "nl", "fil", "fi", "fr", "de", "el", "gu", "he", "hi", "hu", "id", "it", "ja", "kn", "kk", "ko", "ms", "ml", "mr", "ne", "nb", "fa", "pl", "pt", "pa", "ro", "ru", "sr", "sk", "es", "sw", "sv", "ta", "te", "th", "tr", "uk", "ur", "vi"]
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    { "@type": "Question", "name": "Does Cortex need root?", "acceptedAnswer": { "@type": "Answer", "text": "No. Cortex runs on unrooted Android devices." } },
+    { "@type": "Question", "name": "Does Cortex use PRoot, chroot or a virtual machine?", "acceptedAnswer": { "@type": "Answer", "text": "No. Programs run directly on the Android kernel. A small preloaded library redirects paths such as /usr and /etc to Cortex's private storage and emulates root-only details like the user id." } },
+    { "@type": "Question", "name": "Which Android versions and CPUs does Cortex support?", "acceptedAnswer": { "@type": "Answer", "text": "Android 7.0 and newer, with separate APKs for 64-bit (arm64-v8a) and 32-bit (armeabi-v7a) ARM devices." } },
+    { "@type": "Question", "name": "How do I install software in Cortex?", "acceptedAnswer": { "@type": "Answer", "text": "Use apt like on any Ubuntu system, for example: apt update && apt install git python3 build-essential openjdk-17-jdk." } },
+    { "@type": "Question", "name": "Is there a desktop or GUI in Cortex?", "acceptedAnswer": { "@type": "Answer", "text": "Not yet. Cortex is a terminal; there is no X11 or Wayland server." } }
+  ]
+}
+</script>
+<style>
+:root{--bg:#1a1b26;--card:#24273a;--line:#363a4f;--text:#f5f5f7;--muted:#a6adc8;--accent:#89b4fa;--pink:#f38ba8;--ok:#a6e3a1}
+@media (prefers-color-scheme:light){:root{--bg:#f7f7fb;--card:#fff;--line:#d9dbe8;--text:#1c1d29;--muted:#555a73;--accent:#1f5fd6;--pink:#c0305a;--ok:#1f7a3a}}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+a{color:var(--accent)}
+.wrap{max-width:960px;margin:0 auto;padding:0 20px}
+header.hero{padding:56px 0 36px;text-align:center}
+header.hero img.logo{width:84px;height:84px;border-radius:20px}
+h1{font-size:clamp(1.9rem,5vw,3rem);line-height:1.15;margin:16px 0 12px}
+h2{font-size:1.5rem;margin:48px 0 14px}
+.lead{font-size:1.15rem;color:var(--muted);max-width:720px;margin:0 auto 24px}
+.badges{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin:0 0 26px;padding:0;list-style:none}
+.badges li{background:var(--card);border:1px solid var(--line);border-radius:999px;padding:4px 14px;font-weight:600;color:var(--pink);font-size:.95rem}
+.btn{display:inline-block;background:var(--accent);color:#10131c;font-weight:700;text-decoration:none;padding:13px 26px;border-radius:12px;margin:4px}
+.btn.alt{background:transparent;color:var(--accent);border:2px solid var(--accent)}
+.shots{display:flex;gap:18px;justify-content:center;flex-wrap:wrap;margin:36px 0 8px}
+.shots img{width:min(260px,44vw);height:auto;border-radius:18px;border:1px solid var(--line)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px}
+.card h3{margin:0 0 6px;font-size:1.05rem}
+.card p{margin:0;color:var(--muted)}
+table{width:100%;border-collapse:collapse;font-size:.93rem;background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+th,td{padding:10px 12px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+th{background:rgba(127,127,160,.12)}
+.scroll{overflow-x:auto}
+code,pre{font-family:ui-monospace,"JetBrains Mono",Menlo,Consolas,monospace}
+pre{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px;overflow-x:auto}
+details{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 16px;margin:10px 0}
+summary{cursor:pointer;font-weight:600}
+details p{margin:10px 0 0;color:var(--muted)}
+footer{border-top:1px solid var(--line);margin-top:56px;padding:26px 0 48px;color:var(--muted);font-size:.92rem;text-align:center}
+</style>
+</head>
+<body>
+<header class="hero">
+  <div class="wrap">
+    <img class="logo" src="icon.png" width="84" height="84" alt="Cortex Terminal app icon">
+    <h1>Ubuntu 24.04 on Android, natively</h1>
+    <p class="lead"><strong>Cortex Terminal</strong> runs real Ubuntu 24.04 LTS (glibc 2.39 and <code>apt</code>) directly on your Android phone or tablet. No root, no PRoot, no containers, no virtual machine. A free, open-source alternative to Termux + proot-distro.</p>
+    <ul class="badges" aria-label="Highlights">
+      <li>No root</li><li>No PRoot</li><li>No containers</li><li>No VM</li><li>Apache-2.0</li><li>50 languages</li>
+    </ul>
+    <a class="btn" href="https://github.com/ssfuisu/cortex/releases/latest">Download the APK</a>
+    <a class="btn alt" href="https://github.com/ssfuisu/cortex">View on GitHub</a>
+    <div class="shots">
+      <img src="screenshots/cortex-neofetch.jpg" width="1080" height="2400" loading="lazy" alt="neofetch in Cortex Terminal showing Ubuntu 24.04 LTS running natively on an Android phone">
+      <img src="screenshots/cortex-keyboard.jpg" width="1080" height="2400" loading="lazy" alt="Cortex Terminal virtual keyboard toolbar with ESC, TAB, CTRL, ALT and arrow keys">
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+  <h2>What you get</h2>
+  <div class="grid">
+    <div class="card"><h3>Genuine Ubuntu 24.04 LTS</h3><p>Ubuntu's own <code>.deb</code> packages with glibc 2.39, installed with <code>apt</code> from the official archive.</p></div>
+    <div class="card"><h3>Direct execution</h3><p>Programs run on the Android kernel itself. A small preloaded library maps <code>/usr</code>, <code>/etc</code> and friends into the app's private storage.</p></div>
+    <div class="card"><h3>Built for developers</h3><p>gcc, git, Python, Java 17, Node.js (apt or nvm) and more. Changed <code>~/.bashrc</code> files are picked up at the next prompt.</p></div>
+    <div class="card"><h3>Made for a phone</h3><p>Sessions drawer, virtual key toolbar, terminal search, clickable links and image paste.</p></div>
+    <div class="card"><h3>Terminal integration</h3><p>Clipboard from tmux/vim (OSC 52), notifications when long commands finish, OSC 8 hyperlinks.</p></div>
+    <div class="card"><h3>Your files, safe</h3><p><code>cortex-backup</code> for backup and restore, and your home folder in Android's Files app.</p></div>
+  </div>
+
+  <h2>Cortex compared</h2>
+  <div class="scroll">
+  <table>
+    <thead><tr><th></th><th>Cortex</th><th>Termux (own packages)</th><th>Termux + proot-distro</th><th>Android Linux Terminal (VM)</th></tr></thead>
+    <tbody>
+      <tr><th>Needs root</th><td>No</td><td>No</td><td>No</td><td>No</td></tr>
+      <tr><th>How Linux programs run</th><td>Directly on the Android kernel, with path redirection in user space</td><td>Directly, as programs built for Android</td><td>Inside PRoot, a user-space chroot using <code>ptrace</code></td><td>Inside a virtual machine (supported devices only)</td></tr>
+      <tr><th>C library</th><td>glibc 2.39 (Ubuntu)</td><td>Bionic</td><td>glibc of the chosen distribution</td><td>glibc (Debian)</td></tr>
+      <tr><th>Package source</th><td>Ubuntu 24.04 archive via <code>apt</code></td><td>Termux repositories via <code>pkg</code></td><td>The distribution's own <code>apt</code></td><td>Debian <code>apt</code></td></tr>
+      <tr><th><code>ptrace</code> system-call overhead</th><td>None</td><td>None</td><td>Yes</td><td>None (VM overhead instead)</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p style="color:var(--muted)">Pick Cortex when you want Ubuntu's own packages and a genuine glibc without the layers PRoot or a VM add. Termux remains a great choice for its large, Android-specific package set.</p>
+
+  <h2>Install</h2>
+  <ol>
+    <li>Open the <a href="https://github.com/ssfuisu/cortex/releases/latest">latest release</a>.</li>
+    <li>Download <code>Cortex-arm64-v8a-signed.apk</code> (64-bit, almost all current phones) or <code>Cortex-armeabi-v7a-signed.apk</code> (32-bit ARM).</li>
+    <li>Install it, allow storage access when asked, and wait for the one-time base system setup.</li>
+    <li>Install tools with <code>apt</code>:</li>
+  </ol>
+  <pre><code>apt update
+apt install git python3 build-essential openjdk-17-jdk</code></pre>
+
+  <h2>FAQ</h2>
+  <details><summary>Does Cortex need root?</summary><p>No. It runs on unrooted devices.</p></details>
+  <details><summary>Does it use PRoot, chroot or a virtual machine?</summary><p>No. Programs run directly on the Android kernel. A small preloaded library redirects file paths such as <code>/usr</code> and <code>/etc</code> to Cortex's private storage and emulates root-only details like the user id.</p></details>
+  <details><summary>Which Android versions and CPUs are supported?</summary><p>Android 7.0 and newer, with separate APKs for 64-bit (arm64-v8a) and 32-bit (armeabi-v7a) ARM devices.</p></details>
+  <details><summary>How do I install software?</summary><p>Use <code>apt</code> like on any Ubuntu system. Installers such as <code>nvm</code> also work.</p></details>
+  <details><summary>Is there a desktop or GUI?</summary><p>Not yet. Cortex is a terminal; there is no X11 or Wayland server.</p></details>
+  <details><summary>Will every Ubuntu package work?</summary><p>Most command-line tools do. Packages that depend on kernel features Android does not allow for apps, such as systemd services or privileged device access, cannot work.</p></details>
+  <details><summary>Which languages does the app support?</summary><p>It follows your system language and offers 50 languages in Settings. The translations were made with machine assistance, so corrections are welcome on GitHub.</p></details>
+  <details><summary>Where do I report problems?</summary><p>On <a href="https://github.com/ssfuisu/cortex/issues">GitHub Issues</a> or on <a href="https://t.me/ratzgn">Telegram</a>.</p></details>
+</main>
+
+<footer>
+  <div class="wrap">
+    Cortex Terminal is open source under the <a href="https://www.apache.org/licenses/LICENSE-2.0">Apache License 2.0</a> ·
+    <a href="https://github.com/ssfuisu/cortex">Source code</a> ·
+    <a href="https://github.com/ssfuisu/cortex/releases">All releases</a> ·
+    <a href="https://t.me/ratzgn">Telegram</a>
+  </div>
+</footer>
+</body>
+</html>

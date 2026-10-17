@@ -1,15 +1,21 @@
-# Cortex
+# Cortex Terminal: Ubuntu 24.04 on Android, natively
 
-[![Release](https://img.shields.io/github/v/release/ssfuisu/cortex?style=for-the-badge&color=blue)](https://github.com/ssfuisu/cortex/releases)
+**Run real Ubuntu 24.04 LTS (glibc 2.39, `apt`) directly on your Android phone or tablet: no root, no PRoot, no containers, no virtual machine.**
+Cortex is a free and open-source terminal app and a native alternative to Termux + proot-distro for people who want genuine Ubuntu packages on Android (arm64 and armv7).
+
+[![Release](https://img.shields.io/github/v/release/ssfuisu/cortex?style=for-the-badge&color=blue)](https://github.com/ssfuisu/cortex/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/ssfuisu/cortex/total?style=for-the-badge&color=orange)](https://github.com/ssfuisu/cortex/releases)
+[![Stars](https://img.shields.io/github/stars/ssfuisu/cortex?style=for-the-badge&color=yellow)](https://github.com/ssfuisu/cortex/stargazers)
 [![Telegram](https://img.shields.io/badge/Telegram-@ratzgn-2CA5E0?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/ratzgn)
 [![License](https://img.shields.io/badge/License-Apache_2.0-green.svg?style=for-the-badge)](LICENSE)
 
+**[Download the latest APK](https://github.com/ssfuisu/cortex/releases/latest)** · [Website](https://ssfuisu.github.io/cortex/) · [Report a bug](https://github.com/ssfuisu/cortex/issues) · [Telegram](https://t.me/ratzgn)
+
 <p align="center">
-  <img src="docs/screenshots/cortex-neofetch.jpg" width="31%" alt="Cortex Terminal Neofetch" />
-  <img src="docs/screenshots/cortex-sessions.jpg" width="31%" alt="Sessions Drawer" />
-  <img src="docs/screenshots/cortex-keyboard.jpg" width="31%" alt="Keyboard & Virtual Keys" />
+  <img src="docs/screenshots/cortex-neofetch.jpg" width="31%" alt="neofetch in Cortex Terminal showing Ubuntu 24.04 LTS running natively on an Android phone" />
+  <img src="docs/screenshots/cortex-keyboard.jpg" width="31%" alt="Cortex Terminal virtual keyboard toolbar with ESC, TAB, CTRL, ALT and arrow keys" />
 </p>
-ANNOUNCEMENT: DUE TO MY BUSY SCHEDULE, I AM UNABLE TO ACTIVELY DEVELOP THE PROJECT. I MAY NOT BE ABLE TO ADDRESS YOUR REQUESTS AND REPORT ERRORS IN A TIMELY MANNER. I ONLY HAVE THE OPPORTUNITY TO DEVELOP IT ON WEEKENDS.
+
 ## What is Cortex?
 
 Cortex is a next-generation native Linux terminal and development powerhouse engineered for Android.  
@@ -17,6 +23,20 @@ It delivers an authentic **Ubuntu 24.04 LTS (Noble Numbat)** environment powered
 Unlike existing solutions, Cortex operates with **ZERO virtualization, ZERO PRoot, and ZERO containers**.  
 All command-line utilities, compilers, and runtimes execute directly on your physical CPU cores and the Android Linux kernel.  
 With full APT package management, high-speed developer launchers, and a modern Material 3 interface, Cortex turns your Android device into a complete coding workstation.
+
+---
+
+## Why Cortex?
+
+| | **Cortex** | Termux (its own packages) | Termux + proot-distro | Android Linux Terminal (VM) |
+|---|---|---|---|---|
+| Needs root | No | No | No | No |
+| How Linux programs run | Directly on the Android kernel; a small `LD_PRELOAD` library maps `/usr`, `/etc`, ... into the app's private storage | Directly, as programs built for Android | Inside PRoot, a user-space chroot that intercepts system calls with `ptrace` | Inside a virtual machine (Android Virtualization Framework, supported devices only) |
+| C library | glibc 2.39 (Ubuntu) | Bionic (Android's libc) | glibc of the chosen distribution | glibc (Debian) |
+| Package source | Ubuntu 24.04 archive via `apt` | Termux repositories via `pkg` | The distribution's own `apt` | Debian `apt` |
+| System-call overhead from `ptrace` | None | None | Yes | None (VM overhead instead) |
+
+Pick Cortex when you need Ubuntu's own `.deb` packages and a genuine glibc without the layers PRoot or a VM add. Termux remains a great choice for its large, Android-specific package set.
 
 ---
 
@@ -31,7 +51,7 @@ With full APT package management, high-speed developer launchers, and a modern M
 - **Modern Material 3 Terminal Interface**: Sleek dark UI, high-framerate font rendering, full 256-color & 24-bit TrueColor support, and JetBrains Mono monospace typography.
 - **2-Row Virtual Keyboard Toolbar**: Quick-access tactile keys for `ESC`, `TAB`, `CTRL`, `ALT`, arrow navigation, pipes (`|`), brackets, and symbol combinations.
 - **Integrated Terminal Search**: Swipe across the keyboard toolbar or tap `FIND` to search through 5,000 lines of scrollback buffer with real-time match counts and navigation.
-- **Clickable Links & Clipboard Image Insertion**: Underlined URLs open instantly in your default Android browser; tapping images in your keyboard clipboard automatically saves and types their file path.
+- **Clickable Links & Clipboard Image Insertion**: Underlined URLs and OSC 8 hyperlinks are copied to the clipboard when tapped; tapping images in your keyboard clipboard automatically saves and types their file path.
 - **Multi-Session Management**: Seamlessly spawn, switch between, and manage multiple active terminal sessions from the left navigation drawer.
 - **Full Storage & Background Services**: Deep `/sdcard` device storage integration and standard background service controls via `service`, `/etc/init.d/`, and `/etc/cortex/autostart`.
 
@@ -122,6 +142,43 @@ The translations were produced with machine assistance and have not all been rev
    - **`Cortex-arm64-v8a-signed.apk`**: For all modern 64-bit Android smartphones and tablets (recommended).
    - **`Cortex-armeabi-v7a-signed.apk`**: For legacy 32-bit Android devices.
 3. Install the APK and grant storage permissions when prompted.
+
+---
+
+## FAQ
+
+**Does Cortex need root?**
+No. It runs on unrooted devices.
+
+**Does it use PRoot, chroot or a virtual machine?**
+No. Programs run directly on the Android kernel. A small preloaded library redirects file paths such as `/usr` and `/etc` to Cortex's private storage and emulates root-only details like the user id.
+
+**Which Android versions and CPUs are supported?**
+Android 7.0 and newer. There are two APKs: `Cortex-arm64-v8a-signed.apk` for 64-bit devices (almost all current phones) and `Cortex-armeabi-v7a-signed.apk` for 32-bit ARM.
+
+**How do I install software?**
+Use `apt` like on any Ubuntu system, for example `apt update && apt install git python3 build-essential openjdk-17-jdk`. Installers such as `nvm` also work, and a changed `~/.bashrc` is picked up at the next prompt.
+
+**Is there a desktop or GUI?**
+Not yet. Cortex is a terminal; there is no X11 or Wayland server.
+
+**Will every Ubuntu package work?**
+Most command-line tools do. Packages that depend on kernel features Android does not allow for apps (for example systemd services or privileged device access) cannot work.
+
+**How do I back up my files?**
+Run `cortex-backup`. See [Backup and Restore](#backup-and-restore).
+
+**How do I update?**
+The app checks the [releases page](https://github.com/ssfuisu/cortex/releases) and offers to install new versions.
+
+**Where do I report problems or ask questions?**
+On [GitHub Issues](https://github.com/ssfuisu/cortex/issues) or on [Telegram](https://t.me/ratzgn).
+
+---
+
+## Project status
+
+Cortex is developed in the maintainer's spare time, mostly on weekends, so answers to feature requests and bug reports can take a while.
 
 ---
 

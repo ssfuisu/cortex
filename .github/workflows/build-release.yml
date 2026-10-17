@@ -5,6 +5,12 @@ on:
     branches:
       - main
       - master
+    # Documentation-only pushes (README, website, license) must not rebuild the APKs and re-create the
+    # release of the current version. Tag pushes ignore path filters.
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - 'LICENSE'
     tags:
       - 'v*'
   pull_request:
