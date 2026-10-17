@@ -420,6 +420,9 @@ jobs:
               print(f"Verified {len(loads)} PT_LOAD segments in {path} all have alignment >= 0x4000.")
           EOF
 
+          echo "Assets in the raw APKs (before stripping):"
+          for raw in "$ARM64_RAW" "$ARM32_RAW"; do echo "$raw:"; unzip -l "$raw" | awk '$4 ~ /^assets\// {print "  " $1 " " $4}'; done
+
           # 1. Strip opposite arch assets from 64-bit APK to minimize download size
           echo "Optimizing 64-bit APK size: stripping 32-bit assets..."
           zip -d "$ARM64_RAW" "assets/bootstrap-arm.tar*" "assets/devpkgs-arm.tar*" "assets/libcortex-hook-arm.so" || true
