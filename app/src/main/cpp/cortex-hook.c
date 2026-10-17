@@ -4215,6 +4215,19 @@ static char **build_ldso_argv(const char *ld_so, const char *hook, const char *l
     return v;
 }
 
+// POSIX_SPAWN_RESETIDS makes glibc's spawn child call setresuid() and setresgid() after it has reset
+// every signal handler to its default, which includes the SIGSYS handler that emulates the calls
+// Android's seccomp filter blocks, so the child died of SIGSYS (GNU make asks for the flag on every
+// command it starts). Cortex shows one fixed user id and never runs set-user-id programs: there is
+// no id to reset, so the flag is left out and everything else is passed on.
+static const posix_spawnattr_t *spawn_attr_for_android(const posix_spawnattr_t *attrp, posix_spawnattr_t *copy) {
+    short flags = 0;
+    if (!attrp || posix_spawnattr_getflags(attrp, &flags) != 0 || !(flags & POSIX_SPAWN_RESETIDS)) return attrp;
+    memcpy(copy, attrp, sizeof(*copy));
+    posix_spawnattr_setflags(copy, (short)(flags & ~POSIX_SPAWN_RESETIDS));
+    return copy;
+}
+
 #ifndef CORTEX_HOST_TEST
 
 static void resolve_symlinks(const char *path, char *out, size_t out_size, int depth) {
@@ -4894,7 +4907,8 @@ int posix_spawn(pid_t *pid, const char *path,
                 const posix_spawn_file_actions_t *file_actions,
                 const posix_spawnattr_t *attrp,
                 char *const argv[], char *const envp[]) {
-    return cortex_posix_spawn(pid, path, file_actions, attrp, argv, envp, 0);
+    posix_spawnattr_t sanitized;
+    return cortex_posix_spawn(pid, path, file_actions, spawn_attr_for_android(attrp, &sanitized), argv, envp, 0);
 }
 
 int posix_spawnp(pid_t *pid, const char *file,

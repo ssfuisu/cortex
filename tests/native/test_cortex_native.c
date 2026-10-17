@@ -1089,6 +1089,40 @@ static void test_find_dynamic_linker_for_machine(void) {
     rm_rf(tmp_root);
 }
 
+/* 15. posix_spawn() must not hand POSIX_SPAWN_RESETIDS to glibc (its child would die of SIGSYS) */
+static void test_spawn_attr_without_resetids(void) {
+    posix_spawnattr_t attr, copy;
+    ASSERT_EQ(posix_spawnattr_init(&attr), 0, "init attr");
+    ASSERT_TRUE(spawn_attr_for_android(NULL, &copy) == NULL, "no attributes stay none");
+
+    posix_spawnattr_setflags(&attr, POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETPGROUP);
+    ASSERT_TRUE(spawn_attr_for_android(&attr, &copy) == &attr, "attributes without RESETIDS are passed on as they are");
+
+    sigset_t defaults;
+    sigemptyset(&defaults);
+    sigaddset(&defaults, SIGPIPE);
+    posix_spawnattr_setsigdefault(&attr, &defaults);
+    posix_spawnattr_setpgroup(&attr, 1234);
+    posix_spawnattr_setflags(&attr, POSIX_SPAWN_RESETIDS | POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_SETPGROUP);
+
+    const posix_spawnattr_t *got = spawn_attr_for_android(&attr, &copy);
+    ASSERT_TRUE(got == &copy, "RESETIDS attributes are replaced by a copy");
+    short flags = 0;
+    posix_spawnattr_getflags(got, &flags);
+    ASSERT_EQ(flags, POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_SETPGROUP, "RESETIDS dropped, the other flags kept");
+    sigset_t got_defaults;
+    posix_spawnattr_getsigdefault(got, &got_defaults);
+    ASSERT_TRUE(sigismember(&got_defaults, SIGPIPE) == 1, "signal set kept");
+    pid_t group = 0;
+    posix_spawnattr_getpgroup(got, &group);
+    ASSERT_EQ(group, 1234, "process group kept");
+
+    posix_spawnattr_getflags(&attr, &flags);
+    ASSERT_TRUE((flags & POSIX_SPAWN_RESETIDS) != 0, "the caller's attributes are not modified");
+    posix_spawnattr_destroy(&attr);
+    posix_spawnattr_destroy(&copy);
+}
+
 int main(void) {
     test_tar_path_helpers();
     test_symlink_containment();
@@ -1105,6 +1139,7 @@ int main(void) {
     test_exec_probe();
     test_exec_argv();
     test_find_dynamic_linker_for_machine();
+    test_spawn_attr_without_resetids();
 
     if (g_tests_failed > 0) {
         fprintf(stderr, "FAILED: %d/%d assertions failed\n", g_tests_failed, g_tests_run);
