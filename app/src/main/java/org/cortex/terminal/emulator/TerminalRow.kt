@@ -35,15 +35,15 @@ class TerminalRow(val cols: Int) {
     }
 
     fun clear(fg: Int = TerminalColor.DEFAULT_FG, bg: Int = TerminalColor.DEFAULT_BG) {
-        for (i in 0 until cols) {
-            chars[i] = ' '
-            fgColors[i] = fg
-            bgColors[i] = bg
-            styles[i] = 0
-            isSearchMatch[i] = false
-            isSearchCurrent[i] = false
-            isUrlLink[i] = false
-        }
+        // One pass per array: simple fills compile to wide stores, a single loop writing seven
+        // arrays does not. Every scrolled line clears a row.
+        chars.fill(' ')
+        fgColors.fill(fg)
+        bgColors.fill(bg)
+        styles.fill(0)
+        isSearchMatch.fill(false)
+        isSearchCurrent.fill(false)
+        isUrlLink.fill(false)
         links = null
         isWrapped = false
     }

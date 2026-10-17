@@ -187,35 +187,42 @@ class TerminalBuffer(var rows: Int, var cols: Int, private val maxHistory: Int =
         }
     }
 
+    /**
+     * Scrolls rows [top]..[bottom] up by one line. Rows are moved as objects, not copied: this is
+     * the path every line of ordinary output takes, and copying all rows of the screen (and
+     * allocating a history row) for each line made scrolling the slowest part of the emulator.
+     */
     fun scrollUp(top: Int, bottom: Int) {
         val t = top.coerceIn(0, rows - 1)
         val b = bottom.coerceIn(t, rows - 1)
 
-        // If full screen scrolling and not in alternate buffer, save top line to history
+        val departing = screen[t]
+        var incoming: TerminalRow? = departing
+        // If full screen scrolling and not in alternate buffer, the top line becomes history
         if (t == 0 && b == rows - 1 && !isAlternate) {
-            val historyRow = TerminalRow(cols)
-            historyRow.copyFrom(screen[0])
-            history.addLast(historyRow)
-            if (history.size > maxHistory) {
-                history.removeFirst()
-            }
+            history.addLast(departing)
+            // Once the scrollback is full its oldest line is the one that is dropped: reuse it as
+            // the new bottom line instead of allocating (it is cleared below).
+            incoming = if (history.size > maxHistory) history.removeFirst().takeIf { it.cols == cols } else null
             historyGeneration++
             historyArrayCache = null
         }
 
-        for (r in t until b) {
-            screen[r].copyFrom(screen[r + 1])
-        }
-        screen[b].clear(currentFg, currentBg)
+        System.arraycopy(screen, t + 1, screen, t, b - t)
+        val bottomRow = incoming ?: TerminalRow(cols)
+        bottomRow.clear(currentFg, currentBg)
+        screen[b] = bottomRow
+        screenGeneration++
     }
 
     fun scrollDown(top: Int, bottom: Int) {
         val t = top.coerceIn(0, rows - 1)
         val b = bottom.coerceIn(t, rows - 1)
-        for (r in b downTo t + 1) {
-            screen[r].copyFrom(screen[r - 1])
-        }
-        screen[t].clear(currentFg, currentBg)
+        val departing = screen[b]
+        System.arraycopy(screen, t, screen, t + 1, b - t)
+        departing.clear(currentFg, currentBg)
+        screen[t] = departing
+        screenGeneration++
     }
 
     fun eraseInDisplay(mode: Int) {
