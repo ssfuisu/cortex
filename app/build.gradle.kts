@@ -55,14 +55,8 @@ android {
     } else {
         null
     }
-    val defaultKeystore = file("cortex-release.keystore")
-    val defaultKeystoreRoot = rootProject.file("app/cortex-release.keystore")
-    val existingDefaultKeystore = when {
-        defaultKeystore.exists() -> defaultKeystore
-        defaultKeystoreRoot.exists() -> defaultKeystoreRoot
-        else -> null
-    }
-
+    // The release key is never read from the repository (it used to be committed together with its
+    // password). It comes only from the environment, which CI fills from repository secrets.
     val (activeKeystore, activeStorePass, activeAlias, activeKeyPass) = when {
         resolvedCustomKeystore != null &&
             resolvedCustomKeystore.exists() &&
@@ -70,9 +64,6 @@ android {
             !releaseKeyAlias.isNullOrEmpty() &&
             !releaseKeyPassword.isNullOrEmpty() -> {
             listOf(resolvedCustomKeystore, releaseStorePassword, releaseKeyAlias, releaseKeyPassword)
-        }
-        existingDefaultKeystore != null -> {
-            listOf(existingDefaultKeystore, "cortexpassword", "cortex", "cortexpassword")
         }
         else -> {
             listOf(null, null, null, null)
@@ -88,7 +79,7 @@ android {
     }
     if (isReleaseTaskRequested && !hasReleaseSigning) {
         throw GradleException(
-            "Release build requires either a valid cortex-release.keystore or configured release signing environment variables."
+            "Release build requires the release signing environment variables (RELEASE_STORE_FILE, RELEASE_STORE_PASSWORD, RELEASE_KEY_ALIAS, RELEASE_KEY_PASSWORD)."
         )
     }
 
