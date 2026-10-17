@@ -683,6 +683,412 @@ static void test_absolutize_exec_path(void) {
     rm_rf(tmp_root);
 }
 
+/* rewrite_path() as it was before the fast path (v1.26.29), kept to prove that the rewrite gives
+ * the same result for every path, rootfs prefix and buffer size. */
+static int ref_is_path_prefix(const char *path, const char *prefix, size_t prefix_len) {
+    if (strncmp(path, prefix, prefix_len) != 0) return 0;
+    return path[prefix_len] == '/' || path[prefix_len] == '\0';
+}
+
+static const char *ref_rewrite_path(const char *root, const char *path, char *buffer, size_t bufsize) {
+    if (!path) return NULL;
+    if (path[0] != '/') return path;
+    if (root[0] == '\0') return path;
+    while (path[0] == '/' && path[1] == '/') path++;
+    while (path[0] == '/' && path[1] == '.' && (path[2] == '/' || path[2] == '\0')) {
+        if (path[2] == '/') {
+            path += 2;
+        } else {
+            path = "/";
+            break;
+        }
+    }
+    if (strcmp(path, "/") == 0) {
+        snprintf(buffer, bufsize, "%s", root);
+        return buffer;
+    }
+    size_t root_len = strlen(root);
+    if (strncmp(path, root, root_len) == 0 && (path[root_len] == '/' || path[root_len] == '\0')) {
+        return path;
+    }
+    if (strncmp(path, "/dev/shm", 8) == 0 && (path[8] == '/' || path[8] == '\0')) {
+        snprintf(buffer, bufsize, "%s/tmp/shm%s", root, path + 8);
+        return buffer;
+    }
+    if (strcmp(path, "/sbin/su") == 0 || strcmp(path, "/su") == 0 ||
+        ref_is_path_prefix(path, "/proc", 5) || ref_is_path_prefix(path, "/dev", 4) ||
+        ref_is_path_prefix(path, "/sys", 4) || ref_is_path_prefix(path, "/system", 7) ||
+        ref_is_path_prefix(path, "/vendor", 7) || ref_is_path_prefix(path, "/apex", 5) ||
+        ref_is_path_prefix(path, "/product", 8) || ref_is_path_prefix(path, "/system_ext", 11) ||
+        ref_is_path_prefix(path, "/odm", 4) || ref_is_path_prefix(path, "/oem", 4) ||
+        ref_is_path_prefix(path, "/linkerconfig", 13) || ref_is_path_prefix(path, "/config", 7) ||
+        ref_is_path_prefix(path, "/d", 2) || ref_is_path_prefix(path, "/data", 5) ||
+        ref_is_path_prefix(path, "/sdcard", 7) || ref_is_path_prefix(path, "/storage", 8)) {
+        return path;
+    }
+    snprintf(buffer, bufsize, "%s%s", root, path);
+    return buffer;
+}
+
+/* Compares rewrite_path_in_root() with the reference; returns the number of differences. */
+static int compare_rewrite(const char *root, const char *path, size_t bufsize, int *reported) {
+    char got_buf[PATH_MAX], want_buf[PATH_MAX];
+    memset(got_buf, 'G', sizeof(got_buf));
+    memset(want_buf, 'W', sizeof(want_buf));
+    const char *got = rewrite_path_in_root(path, got_buf, bufsize);
+    const char *want = ref_rewrite_path(root, path, want_buf, bufsize);
+    int same = (got == NULL && want == NULL) || (got && want && strcmp(got, want) == 0);
+    /* the buffer must never be written past bufsize */
+    if (bufsize < sizeof(got_buf) && got_buf[bufsize] != 'G') same = 0;
+    if (!same && !*reported) {
+        fprintf(stderr, "rewrite mismatch: root='%s' path='%s' bufsize=%zu got='%s' want='%s'\n",
+                root, path ? path : "(null)", bufsize, got ? got : "(null)", want ? want : "(null)");
+        *reported = 1;
+    }
+    return same ? 0 : 1;
+}
+
+/* 10. The path translation fast path must behave exactly like the old rewrite_path() */
+static void test_rewrite_path_matches_reference(void) {
+    static const char *const roots[] = {
+        "/data/data/org.cortex.terminal/files/cortex",
+        "/data/user/0/org.cortex.terminal/files/cortex",
+        "/r",
+    };
+    static const char *const parts[] = {
+        "", ".", "..", "proc", "dev", "shm", "d", "data", "dataX", "sdcard", "storage", "system",
+        "system_ext", "systemd", "vendor", "apex", "product", "odm", "oem", "linkerconfig", "config",
+        "su", "sbin", "bin", "usr", "etc", "tmp", "home", "x", "procfs", "user", "0",
+        "org.cortex.terminal", "files", "cortex", "cortexX", "r",
+    };
+    static const char *const seps[] = { "/", "//", "/./", "/../" };
+    static const size_t sizes[] = { PATH_MAX, 1, 2, 3, 8, 17, 44, 45, 46, 64 };
+    const size_t nparts = sizeof(parts) / sizeof(parts[0]);
+    const size_t nseps = sizeof(seps) / sizeof(seps[0]);
+    const size_t nsizes = sizeof(sizes) / sizeof(sizes[0]);
+
+    int mismatches = 0, reported = 0;
+    long checked = 0;
+    char path[PATH_MAX];
+    for (size_t r = 0; r < sizeof(roots) / sizeof(roots[0]); r++) {
+        cortex_set_root(roots[r], strlen(roots[r]));
+        const char *fixed[] = {
+            "/", "//", "///", "/.", "/./", "/./.", "/.//proc", "//./dev/shm", "/dev/shm", "/dev/shm/x",
+            "/dev/shmx", "/sbin/su", "/sbin/sux", "/su", "/su/x", "/d", "/d/x", "/data", "/database",
+            "relative/path", "", "./x", "../x", roots[r], NULL,
+        };
+        for (int f = 0; fixed[f] != NULL; f++) {
+            for (size_t s = 0; s < nsizes; s++) {
+                mismatches += compare_rewrite(roots[r], fixed[f], sizes[s], &reported);
+                checked++;
+            }
+        }
+        mismatches += compare_rewrite(roots[r], NULL, PATH_MAX, &reported);
+        /* the rootfs prefix itself, with and without a component boundary */
+        snprintf(path, sizeof(path), "%s/etc/passwd", roots[r]);
+        mismatches += compare_rewrite(roots[r], path, PATH_MAX, &reported);
+        snprintf(path, sizeof(path), "%sX/etc", roots[r]);
+        mismatches += compare_rewrite(roots[r], path, PATH_MAX, &reported);
+        snprintf(path, sizeof(path), "/%s", roots[r]);
+        mismatches += compare_rewrite(roots[r], path, PATH_MAX, &reported);
+
+        /* every pair of components with every separator */
+        for (size_t a = 0; a < nparts; a++) {
+            for (size_t b = 0; b < nparts; b++) {
+                for (size_t sa = 0; sa < nseps; sa++) {
+                    for (size_t sb = 0; sb < nseps; sb++) {
+                        snprintf(path, sizeof(path), "%s%s%s%s", seps[sa], parts[a], seps[sb], parts[b]);
+                        for (size_t s = 0; s < nsizes; s++) {
+                            mismatches += compare_rewrite(roots[r], path, sizes[s], &reported);
+                            checked++;
+                        }
+                    }
+                }
+            }
+        }
+        /* longer pseudo-random paths (fixed seed, reproducible) */
+        uint32_t seed = 12345u + (uint32_t)r;
+        for (int i = 0; i < 20000; i++) {
+            size_t len = 0;
+            int depth = 1 + (int)((seed = seed * 1103515245u + 12345u) >> 16) % 6;
+            path[0] = '\0';
+            for (int k = 0; k < depth; k++) {
+                const char *sep = seps[((seed = seed * 1103515245u + 12345u) >> 16) % nseps];
+                const char *part = parts[((seed = seed * 1103515245u + 12345u) >> 16) % nparts];
+                len += (size_t)snprintf(path + len, sizeof(path) - len, "%s%s", sep, part);
+            }
+            size_t bs = sizes[((seed = seed * 1103515245u + 12345u) >> 16) % nsizes];
+            mismatches += compare_rewrite(roots[r], path, bs, &reported);
+            checked++;
+        }
+    }
+    cortex_set_root("", 0);
+    ASSERT_EQ(mismatches, 0, "rewrite_path_in_root must match the previous rewrite_path for every input");
+    ASSERT_TRUE(checked > 100000, "the comparison must cover a large input set");
+
+    const char *rel = "relative/x";
+    char buf[64];
+    cortex_set_root("/r", 2);
+    ASSERT_TRUE(rewrite_path_in_root(rel, buf, sizeof(buf)) == rel, "relative paths are returned untouched");
+    ASSERT_STR_EQ(rewrite_path_in_root("/etc/passwd", buf, sizeof(buf)), "/r/etc/passwd", "rootfs path");
+    ASSERT_STR_EQ(rewrite_path_in_root("/proc/self/exe", buf, sizeof(buf)), "/proc/self/exe", "Android path");
+    ASSERT_STR_EQ(rewrite_path_in_root("/dev/shm/sem.x", buf, sizeof(buf)), "/r/tmp/shm/sem.x", "/dev/shm");
+    cortex_set_root("", 0);
+    ASSERT_TRUE(rewrite_path_in_root("/etc/passwd", buf, sizeof(buf)) != buf, "no rootfs: nothing is rewritten");
+}
+
+/* 11. Helpers of the path translation and the bin <-> usr/bin retry */
+static void test_path_helpers(void) {
+    /* cortex_append truncates exactly like snprintf */
+    const char *pieces[] = { "", "a", "abc", "0123456789" };
+    int bad = 0;
+    for (size_t size = 1; size < 16; size++) {
+        for (int i = 0; i < 4; i++) {
+            for (int j = 0; j < 4; j++) {
+                char got[32], want[32];
+                memset(got, 'x', sizeof(got));
+                size_t n = cortex_append(got, size, 0, pieces[i], strlen(pieces[i]));
+                n = cortex_append(got, size, n, pieces[j], strlen(pieces[j]));
+                snprintf(want, size, "%s%s", pieces[i], pieces[j]);
+                if (strcmp(got, want) != 0 || n != strlen(want) || got[size] != 'x') bad++;
+            }
+        }
+    }
+    ASSERT_EQ(bad, 0, "cortex_append must truncate like snprintf and never write past the buffer");
+
+    cortex_set_root("/data/data/org.cortex.terminal/files/cortex", 43);
+    char alt[PATH_MAX];
+    ASSERT_EQ(usrmerge_alt_path("/usr/bin/foo", alt, sizeof(alt)), CORTEX_USRMERGE_BIN, "/usr/bin pair");
+    ASSERT_STR_EQ(alt, "/data/data/org.cortex.terminal/files/cortex/bin/foo", "/usr/bin/foo -> /bin/foo");
+    ASSERT_EQ(usrmerge_alt_path("/bin/foo", alt, sizeof(alt)), CORTEX_USRMERGE_BIN, "/bin pair");
+    ASSERT_STR_EQ(alt, "/data/data/org.cortex.terminal/files/cortex/usr/bin/foo", "/bin/foo -> /usr/bin/foo");
+    ASSERT_EQ(usrmerge_alt_path("/usr/sbin/foo", alt, sizeof(alt)), CORTEX_USRMERGE_SBIN, "/usr/sbin pair");
+    ASSERT_STR_EQ(alt, "/data/data/org.cortex.terminal/files/cortex/sbin/foo", "/usr/sbin/foo -> /sbin/foo");
+    ASSERT_EQ(usrmerge_alt_path("/sbin/foo", alt, sizeof(alt)), CORTEX_USRMERGE_SBIN, "/sbin pair");
+    ASSERT_STR_EQ(alt, "/data/data/org.cortex.terminal/files/cortex/usr/sbin/foo", "/sbin/foo -> /usr/sbin/foo");
+    ASSERT_EQ(usrmerge_alt_path("/usr/local/bin/foo", alt, sizeof(alt)), 0, "no pair for /usr/local/bin");
+    ASSERT_EQ(usrmerge_alt_path("/usr/bin", alt, sizeof(alt)), 0, "the directory itself has no pair");
+
+    char sub[] = "/data/data/org.cortex.terminal/files/cortex/etc/x";
+    ASSERT_STR_EQ(get_rootfs_subpath(sub), "/etc/x", "subpath inside the rootfs");
+    ASSERT_TRUE(get_rootfs_subpath("/data/data/org.cortex.terminal/files/cortexX/etc") == NULL,
+                "a longer directory name is not inside the rootfs");
+
+    /* library search path: multiarch first, every directory once */
+    char dirs[4096];
+    size_t len = append_rootfs_lib_dirs(dirs, sizeof(dirs), 0, 0);
+    ASSERT_EQ(len, strlen(dirs), "returned length");
+    const char *first = "/data/data/org.cortex.terminal/files/cortex/lib/aarch64-linux-gnu:"
+                        "/data/data/org.cortex.terminal/files/cortex/usr/lib/aarch64-linux-gnu:";
+    ASSERT_TRUE(strncmp(dirs, first, strlen(first)) == 0, "aarch64 multiarch directories come first");
+    int entries = 1;
+    for (const char *p = dirs; *p; p++) entries += (*p == ':');
+    ASSERT_EQ(entries, 13, "13 library directories");
+    char with_sep[16] = "x";
+    append_rootfs_lib_dirs(with_sep, sizeof(with_sep), 1, 1);
+    ASSERT_TRUE(strncmp(with_sep, "x:/data", 7) == 0, "separate=1 starts with ':'");
+
+    /* SELinux label filtering of listxattr() results */
+    char list1[] = "user.a\0security.selinux\0user.b";
+    ssize_t n1 = drop_selinux_xattr(list1, (ssize_t)sizeof(list1));
+    ASSERT_EQ(n1, 14, "security.selinux removed from the middle");
+    ASSERT_EQ(memcmp(list1, "user.a\0user.b", 14), 0, "other names kept in order");
+    char list2[] = "security.selinux";
+    ASSERT_EQ(drop_selinux_xattr(list2, (ssize_t)sizeof(list2)), 0, "only security.selinux -> empty list");
+    char list3[] = "security.selinuxX\0user.c";
+    ASSERT_EQ(drop_selinux_xattr(list3, (ssize_t)sizeof(list3)), (ssize_t)sizeof(list3), "similar names are kept");
+    char list4[] = "user.d\0security.selinux";
+    ASSERT_EQ(drop_selinux_xattr(list4, 10), 10, "an entry cut off by the length is kept as is");
+    ASSERT_EQ(drop_selinux_xattr(NULL, -1), -1, "errors pass through");
+    ASSERT_TRUE(is_selinux_xattr("security.selinux") && !is_selinux_xattr("security.capability") && !is_selinux_xattr(NULL),
+                "is_selinux_xattr");
+    cortex_set_root("", 0);
+}
+
+/* Writes an ELF header with `phnum` program headers of type 1 (PT_LOAD) at `phoff`, the one at
+ * `interp_index` (-1: none) being PT_INTERP. Returns the file size. */
+static size_t make_elf(unsigned char *out, size_t cap, int is64, uint64_t phoff, uint16_t phentsize,
+                       uint16_t phnum, int interp_index, uint16_t machine) {
+    memset(out, 0, cap);
+    out[0] = 0x7f; out[1] = 'E'; out[2] = 'L'; out[3] = 'F';
+    out[4] = is64 ? 2 : 1;
+    out[5] = 1;
+    out[18] = (unsigned char)(machine & 0xff);
+    out[19] = (unsigned char)(machine >> 8);
+    if (is64) {
+        memcpy(out + 32, &phoff, sizeof(phoff));
+        memcpy(out + 54, &phentsize, sizeof(phentsize));
+        memcpy(out + 56, &phnum, sizeof(phnum));
+    } else {
+        uint32_t off32 = (uint32_t)phoff;
+        memcpy(out + 28, &off32, sizeof(off32));
+        memcpy(out + 42, &phentsize, sizeof(phentsize));
+        memcpy(out + 44, &phnum, sizeof(phnum));
+    }
+    size_t end = (size_t)phoff + (size_t)phnum * phentsize;
+    if (end > cap) end = cap;
+    for (uint16_t i = 0; i < phnum; i++) {
+        size_t off = (size_t)phoff + (size_t)i * phentsize;
+        if (off + 4 > cap) break;
+        uint32_t type = (i == interp_index) ? 3 : 1;
+        memcpy(out + off, &type, sizeof(type));
+    }
+    return end < 64 ? 64 : end;
+}
+
+/* 12. Reading PT_INTERP from the buffer must agree with check_elf_dynamic() reading the file */
+static void test_exec_probe(void) {
+    char tmp_dir[PATH_MAX];
+    snprintf(tmp_dir, sizeof(tmp_dir), "%s/cortex_probe_test_XXXXXX", get_test_tmp_dir());
+    ASSERT_TRUE(mkdtemp(tmp_dir) != NULL, "mkdtemp probe dir");
+    char file[PATH_MAX + 64];
+    snprintf(file, sizeof(file), "%s/prog", tmp_dir);
+
+    static unsigned char elf[8192];
+    /* 252: the first header straddles the end of the 255-byte buffer */
+    const uint64_t phoffs[] = { 64, 52, 120, 200, 240, 252, 300 };
+    const uint16_t phnums[] = { 1, 2, 3, 9, 200 };
+    const int interps[] = { -1, 0, 1, 2, 8, 150 };
+    int disagree = 0, buffered = 0, from_file = 0, cases = 0;
+    for (int is64 = 0; is64 <= 1; is64++) {
+        uint16_t ent = is64 ? 56 : 32;
+        for (size_t a = 0; a < sizeof(phoffs) / sizeof(phoffs[0]); a++) {
+            for (size_t b = 0; b < sizeof(phnums) / sizeof(phnums[0]); b++) {
+                for (size_t c = 0; c < sizeof(interps) / sizeof(interps[0]); c++) {
+                    size_t size = make_elf(elf, sizeof(elf), is64, phoffs[a], ent, phnums[b], interps[c], is64 ? 183 : 40);
+                    int fd = open(file, O_RDWR | O_CREAT | O_TRUNC, 0644);
+                    if (fd < 0) { disagree++; continue; }
+                    fchmod(fd, 0644); /* independent of the umask */
+                    ssize_t w = write(fd, elf, size);
+                    (void)w;
+                    lseek(fd, 0, SEEK_SET);
+                    unsigned char head[256];
+                    memset(head, 0xAA, sizeof(head)); /* anything read past n shows up */
+                    ssize_t n = read(fd, head, 255);
+                    int from_buffer = elf_interp_in_buffer(head, n);
+                    int expected = check_elf_dynamic(fd, head, n);
+                    close(fd);
+                    if (from_buffer >= 0) {
+                        buffered++;
+                        if (from_buffer != expected) disagree++;
+                    } else {
+                        from_file++;
+                    }
+                    struct exec_probe probe;
+                    probe_exec_file(file, &probe);
+                    if (!probe.is_elf || probe.is_dynamic != expected || probe.e_machine != (is64 ? 183 : 40)) disagree++;
+                    if (probe.is_dynamic && (probe.mode & 0777) != 0644) disagree++;
+                    cases++;
+                }
+            }
+        }
+    }
+    ASSERT_EQ(disagree, 0, "buffer and file reads must agree on PT_INTERP, machine and mode");
+    ASSERT_TRUE(buffered > 0 && from_file > 0, "both the buffer path and the file fallback must be exercised");
+    ASSERT_TRUE(cases == 420, "all generated ELF layouts were checked");
+
+    /* malformed headers are not dynamic, whichever way they are read */
+    unsigned char bad[255];
+    size_t size = make_elf(elf, sizeof(elf), 1, 64, 1, 1, 0, 183);
+    memcpy(bad, elf, sizeof(bad));
+    ASSERT_EQ(elf_interp_in_buffer(bad, (ssize_t)size), 0, "phentsize=1 is rejected");
+    make_elf(elf, sizeof(elf), 1, UINT64_MAX - 10, 56, 1, 0, 183);
+    memcpy(bad, elf, sizeof(bad));
+    ASSERT_EQ(elf_interp_in_buffer(bad, (ssize_t)sizeof(bad)), 0, "an overflowing phoff is rejected");
+    ASSERT_EQ(elf_interp_in_buffer((const unsigned char *)"#!/bin/sh\n", 10), 0, "a script is not ELF");
+
+    int fd = open(file, O_WRONLY | O_CREAT | O_TRUNC, 0755);
+    ASSERT_TRUE(fd >= 0, "create script");
+    ssize_t w = write(fd, "#!/usr/bin/env python3 -u\nprint(1)\n", 35);
+    (void)w;
+    close(fd);
+    struct exec_probe probe;
+    probe_exec_file(file, &probe);
+    ASSERT_TRUE(!probe.is_elf && probe.n == 35 && probe.hdr[0] == '#' && probe.hdr[1] == '!', "script header is read");
+    ASSERT_EQ(probe.hdr[35], '\0', "header is NUL-terminated");
+    char missing[PATH_MAX + 64];
+    snprintf(missing, sizeof(missing), "%s/missing", tmp_dir);
+    probe_exec_file(missing, &probe);
+    ASSERT_TRUE(probe.n == -1 && !probe.is_elf && !probe.is_dynamic, "missing file");
+
+    rm_rf(tmp_dir);
+}
+
+/* 13. "#!" parsing and the argv given to interpreters and ld.so */
+static void test_exec_argv(void) {
+    char *interp, *arg;
+    char h1[] = "#!/bin/sh\necho hi\n";
+    parse_shebang(h1, &interp, &arg);
+    ASSERT_STR_EQ(interp, "/bin/sh", "plain interpreter");
+    ASSERT_TRUE(arg == NULL, "no argument");
+    char h2[] = "#! /usr/bin/env python3\n";
+    parse_shebang(h2, &interp, &arg);
+    ASSERT_STR_EQ(interp, "/usr/bin/env", "space after #!");
+    ASSERT_STR_EQ(arg, "python3", "one argument");
+    char h3[] = "#!\t/bin/bash  -e -x";
+    parse_shebang(h3, &interp, &arg);
+    ASSERT_STR_EQ(interp, "/bin/bash", "tab after #!, no newline");
+    ASSERT_STR_EQ(arg, "-e -x", "the rest of the line is one argument, as with the kernel");
+
+    char *argv1[] = { "ignored-argv0", "a", "b", NULL };
+    char **v = build_script_argv("/r/usr/bin/python3", "-u", "./x.py", argv1);
+    ASSERT_TRUE(v != NULL, "script argv");
+    ASSERT_STR_EQ(v[0], "/r/usr/bin/python3", "interpreter first");
+    ASSERT_STR_EQ(v[1], "-u", "then its argument");
+    ASSERT_STR_EQ(v[2], "./x.py", "then the script as the caller named it");
+    ASSERT_STR_EQ(v[3], "a", "then the arguments");
+    ASSERT_TRUE(v[4] != NULL && strcmp(v[4], "b") == 0 && v[5] == NULL, "argv0 of the script is dropped");
+    free(v);
+    v = build_script_argv("/r/bin/sh", NULL, "/r/tmp/s.sh", argv1);
+    ASSERT_TRUE(v && strcmp(v[1], "/r/tmp/s.sh") == 0 && strcmp(v[2], "a") == 0, "no interpreter argument");
+    free(v);
+
+    v = build_ldso_argv("/r/lib/ld.so", "/r/usr/lib/libcortex-hook.so", "/r/lib", "/r/usr/bin/true", "true", argv1);
+    ASSERT_TRUE(v != NULL, "ld.so argv");
+    const char *want[] = { "/r/lib/ld.so", "--preload", "/r/usr/lib/libcortex-hook.so", "--library-path", "/r/lib",
+                           "--argv0", "ignored-argv0", "/r/usr/bin/true", "a", "b", NULL };
+    int ok = 1;
+    for (int i = 0; want[i] || v[i]; i++) {
+        if (!want[i] || !v[i] || strcmp(want[i], v[i]) != 0) { ok = 0; break; }
+    }
+    ASSERT_TRUE(ok, "ld.so [--preload hook] --library-path dirs --argv0 argv0 program args");
+    free(v);
+    char *argv0[] = { NULL };
+    v = build_ldso_argv("/r/lib/ld.so", NULL, "/r/lib", "/r/usr/bin/true", "true", argv0);
+    ASSERT_TRUE(v && strcmp(v[1], "--library-path") == 0 && strcmp(v[4], "true") == 0 && v[6] == NULL,
+                "no hook, empty argv: argv0 falls back to the program name");
+    free(v);
+
+    cortex_set_root("/r", 2);
+    ASSERT_TRUE(is_host_interpreter("/system/bin/sh"), "Android shell");
+    ASSERT_TRUE(is_host_interpreter("/data/local/tmp/x"), "outside the rootfs");
+    ASSERT_TRUE(!is_host_interpreter("/r/usr/bin/python3"), "rootfs interpreter");
+    cortex_set_root("", 0);
+}
+
+/* 14. ld.so lookup by machine type (what execve()/posix_spawn() use) */
+static void test_find_dynamic_linker_for_machine(void) {
+    char tmp_root[PATH_MAX];
+    snprintf(tmp_root, sizeof(tmp_root), "%s/cortex_ldm_test_XXXXXX", get_test_tmp_dir());
+    ASSERT_TRUE(mkdtemp(tmp_root) != NULL, "mkdtemp ld root");
+    char dir[PATH_MAX + 64], ld[PATH_MAX + 64];
+    snprintf(dir, sizeof(dir), "%s/lib", tmp_root);
+    mkdir(dir, 0755);
+    snprintf(ld, sizeof(ld), "%s/lib/ld-linux-aarch64.so.1", tmp_root);
+    int fd = open(ld, O_WRONLY | O_CREAT | O_TRUNC, 0755);
+    ASSERT_TRUE(fd >= 0, "create ld.so");
+    close(fd);
+
+    char out[PATH_MAX];
+    ASSERT_EQ(find_dynamic_linker_for_machine(tmp_root, 183, out, sizeof(out)), 1, "aarch64 program");
+    ASSERT_STR_EQ(out, ld, "aarch64 ld.so");
+    ASSERT_EQ(find_dynamic_linker_for_machine(tmp_root, 183, out, sizeof(out)), 1, "second lookup (cached)");
+    ASSERT_STR_EQ(out, ld, "cached aarch64 ld.so");
+    ASSERT_EQ(find_dynamic_linker_for_machine(tmp_root, 40, out, sizeof(out)), 0, "no armhf ld.so in this root");
+    ASSERT_EQ(find_dynamic_linker_for_machine("", 183, out, sizeof(out)), 0, "no root");
+    rm_rf(tmp_root);
+}
+
 int main(void) {
     test_tar_path_helpers();
     test_symlink_containment();
@@ -694,6 +1100,11 @@ int main(void) {
     test_sigsys_and_close_fds();
     test_hardlink_emulation_and_st_nlink();
     test_absolutize_exec_path();
+    test_rewrite_path_matches_reference();
+    test_path_helpers();
+    test_exec_probe();
+    test_exec_argv();
+    test_find_dynamic_linker_for_machine();
 
     if (g_tests_failed > 0) {
         fprintf(stderr, "FAILED: %d/%d assertions failed\n", g_tests_failed, g_tests_run);

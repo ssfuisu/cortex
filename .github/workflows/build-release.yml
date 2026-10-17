@@ -300,6 +300,7 @@ jobs:
         run: |
           gcc -std=gnu11 -O2 -Wall -Wextra -pthread tests/native/test_cortex_native.c -o /tmp/test_cortex_native -ldl
           /tmp/test_cortex_native
+          gcc -std=gnu11 -O2 -Wall -Wextra tests/bench/micro.c -o /tmp/micro_bench
           bash tests/scripts/test_shell_scripts.sh
           ./gradlew testDebugUnitTest lintDebug assembleDebug --build-cache --parallel --stacktrace
 
@@ -336,6 +337,7 @@ jobs:
         run: |
           gcc -std=gnu11 -O2 -Wall -Wextra -pthread tests/native/test_cortex_native.c -o /tmp/test_cortex_native -ldl
           /tmp/test_cortex_native
+          gcc -std=gnu11 -O2 -Wall -Wextra tests/bench/micro.c -o /tmp/micro_bench
           bash tests/scripts/test_shell_scripts.sh
           ./gradlew testDebugUnitTest lintDebug assembleRelease --build-cache --parallel --stacktrace
 

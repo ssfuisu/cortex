@@ -452,6 +452,35 @@ else
     echo "  [SKIP] python3 not available"
 fi
 
+echo "=== 8. Checking the library search path definitions ==="
+if command -v python3 >/dev/null 2>&1; then
+    LP_OUT="$(python3 "$REPO_ROOT/scripts/check-library-path.py" 2>&1)"
+    if [ $? -eq 0 ]; then
+        pass "all library search paths agree ($(printf '%s' "$LP_OUT" | head -n 1))"
+    else
+        fail "library path check failed: $LP_OUT"
+    fi
+else
+    echo "  [SKIP] python3 not available"
+fi
+
+echo "=== 9. Checking the benchmark runner ==="
+if bash -n "$REPO_ROOT/tests/bench/run-micro.sh" 2>/dev/null; then
+    pass "run-micro.sh passes bash -n syntax check"
+else
+    fail "run-micro.sh failed bash -n syntax check"
+fi
+if LC_ALL=C grep -q $'\r' "$REPO_ROOT/tests/bench/run-micro.sh"; then
+    fail "run-micro.sh contains CRLF line endings"
+else
+    pass "run-micro.sh uses clean LF line endings"
+fi
+if bash "$REPO_ROOT/tests/bench/run-micro.sh" -h 2>&1 | grep -q "run-micro.sh \[-r REPS\]"; then
+    pass "run-micro.sh -h prints its usage"
+else
+    fail "run-micro.sh -h did not print its usage"
+fi
+
 echo ""
 echo "Summary: $PASS_COUNT passed, $FAIL_COUNT failed"
 if [ "$FAIL_COUNT" -ne 0 ]; then

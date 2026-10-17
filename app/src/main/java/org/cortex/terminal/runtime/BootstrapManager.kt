@@ -1321,7 +1321,7 @@ object BootstrapManager {
                 "    fi\n" +
                 "fi\n" +
                 "export SHELL=\"\${SHELL:-/bin/bash}\"\n" +
-                "export LD_LIBRARY_PATH=\"\$CORTEX_ROOT/lib:\$CORTEX_ROOT/usr/lib:\$CORTEX_ROOT/lib/aarch64-linux-gnu:\$CORTEX_ROOT/usr/lib/aarch64-linux-gnu:\$CORTEX_ROOT/lib/arm-linux-gnueabihf:\$CORTEX_ROOT/usr/lib/arm-linux-gnueabihf:\$CORTEX_ROOT/usr/local/lib:\$CORTEX_ROOT/usr/lib/systemd:\$CORTEX_ROOT/lib/systemd:\$CORTEX_ROOT/usr/lib/aarch64-linux-gnu/systemd:\$CORTEX_ROOT/lib/aarch64-linux-gnu/systemd:\$CORTEX_ROOT/usr/lib/arm-linux-gnueabihf/systemd:\$CORTEX_ROOT/lib/arm-linux-gnueabihf/systemd\"\n" +
+                "export LD_LIBRARY_PATH=\"" + LibraryPath.forRoot("\$CORTEX_ROOT") + "\"\n" +
                 "export LD_PRELOAD=\"\$CORTEX_ROOT/usr/lib/libcortex-hook.so\"\n" +
                 "# Ubuntu's default PATH (normally already set by /etc/profile) plus ~/.local/bin,\n" +
                 "# each entry only once.\n" +

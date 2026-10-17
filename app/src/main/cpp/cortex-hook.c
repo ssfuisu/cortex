@@ -31,6 +31,7 @@
 #include <grp.h>
 #include <pthread.h>
 #include <sys/sendfile.h>
+#include <sys/xattr.h>
 
 static int is_sigsys_synthetic_success_syscall(int sys_nr) {
 #if defined(__NR_setuid)
@@ -378,6 +379,285 @@ static inline int cortex_emulate_hardlink(const char *rold, const char *rnew) {
     return cortex_emulate_hardlinkat(AT_FDCWD, rold, AT_FDCWD, rnew);
 }
 
+// ---- Path translation -------------------------------------------------------------------
+// Pure string functions (no syscalls), so tests/native can check them directly. They run on
+// every file-system call, so they avoid snprintf and compute the rootfs prefix length once.
+
+static char g_cortex_root[PATH_MAX] = {0};
+static size_t g_cortex_root_len = 0;
+
+static void cortex_set_root(const char *root, size_t len) {
+    if (!root) len = 0;
+    if (len > sizeof(g_cortex_root) - 1) len = sizeof(g_cortex_root) - 1;
+    if (len > 0) memcpy(g_cortex_root, root, len);
+    g_cortex_root[len] = '\0';
+    g_cortex_root_len = len;
+}
+
+// Appends s[0..len) to out[0..used) and NUL-terminates, truncating like snprintf.
+// Returns the new length.
+static size_t cortex_append(char *out, size_t outsz, size_t used, const char *s, size_t len) {
+    if (outsz == 0) return 0;
+    size_t room = used < outsz - 1 ? outsz - 1 - used : 0;
+    if (len > room) len = room;
+    if (len > 0) memcpy(out + used, s, len);
+    out[used + len] = '\0';
+    return used + len;
+}
+
+static inline int is_path_prefix(const char *path, const char *prefix, size_t prefix_len) {
+    if (strncmp(path, prefix, prefix_len) != 0) return 0;
+    return path[prefix_len] == '/' || path[prefix_len] == '\0';
+}
+
+static inline const char *get_rootfs_subpath(const char *target) {
+    if (!target || g_cortex_root_len == 0) return NULL;
+    if (strncmp(target, g_cortex_root, g_cortex_root_len) == 0 &&
+        (target[g_cortex_root_len] == '/' || target[g_cortex_root_len] == '\0')) {
+        return target + g_cortex_root_len;
+    }
+    return NULL;
+}
+
+// Android's own mounts and files, which must never be redirected into the rootfs.
+// `path` starts with '/'; a prefix can only match when its second character does.
+static int is_android_host_path(const char *path) {
+    switch (path[1]) {
+    case 'a': return is_path_prefix(path, "/apex", 5);
+    case 'c': return is_path_prefix(path, "/config", 7);
+    case 'd': return is_path_prefix(path, "/dev", 4) || is_path_prefix(path, "/d", 2) ||
+                     is_path_prefix(path, "/data", 5);
+    case 'l': return is_path_prefix(path, "/linkerconfig", 13);
+    case 'o': return is_path_prefix(path, "/odm", 4) || is_path_prefix(path, "/oem", 4);
+    case 'p': return is_path_prefix(path, "/proc", 5) || is_path_prefix(path, "/product", 8);
+    case 's': return strcmp(path, "/sbin/su") == 0 || strcmp(path, "/su") == 0 ||
+                     is_path_prefix(path, "/sys", 4) || is_path_prefix(path, "/system", 7) ||
+                     is_path_prefix(path, "/system_ext", 11) || is_path_prefix(path, "/sdcard", 7) ||
+                     is_path_prefix(path, "/storage", 8);
+    case 'v': return is_path_prefix(path, "/vendor", 7);
+    default:  return 0;
+    }
+}
+
+// Maps an absolute Ubuntu path into the rootfs. Returns `path` (possibly advanced past
+// redundant leading "/" and "/." components) when it needs no change, else `buffer`.
+static const char *rewrite_path_in_root(const char *path, char *buffer, size_t bufsize) {
+    if (!path) return NULL;
+    if (path[0] != '/' || g_cortex_root_len == 0) return path;
+
+    // Strip multiple redundant leading slashes: //foo -> /foo
+    while (path[0] == '/' && path[1] == '/') {
+        path++;
+    }
+
+    // Strip leading /./: /./boot -> /boot
+    while (path[0] == '/' && path[1] == '.' && (path[2] == '/' || path[2] == '\0')) {
+        if (path[2] == '/') {
+            path += 2;
+        } else {
+            path = "/";
+            break;
+        }
+    }
+
+    // Root directory
+    if (path[1] == '\0') {
+        cortex_append(buffer, bufsize, 0, g_cortex_root, g_cortex_root_len);
+        return buffer;
+    }
+
+    // Already inside Cortex rootfs
+    if (get_rootfs_subpath(path) != NULL) {
+        return path;
+    }
+
+    // POSIX shared memory (/dev/shm) redirection to Cortex rootfs tmp/shm
+    if (strncmp(path, "/dev/shm", 8) == 0 && (path[8] == '/' || path[8] == '\0')) {
+        size_t n = cortex_append(buffer, bufsize, 0, g_cortex_root, g_cortex_root_len);
+        n = cortex_append(buffer, bufsize, n, "/tmp/shm", 8);
+        cortex_append(buffer, bufsize, n, path + 8, strlen(path + 8));
+        return buffer;
+    }
+
+    // Real host Android kernel & system mounts
+    if (is_android_host_path(path)) {
+        return path;
+    }
+
+    // Any other absolute path belongs to Cortex rootfs (/boot, /media, /snap, /etc, /usr, ...)
+    size_t n = cortex_append(buffer, bufsize, 0, g_cortex_root, g_cortex_root_len);
+    cortex_append(buffer, bufsize, n, path, strlen(path));
+    return buffer;
+}
+
+// On ENOENT, stat()/lstat()/readlink() retry /usr/bin <-> /bin and /usr/sbin <-> /sbin, for
+// rootfs trees where bin and sbin are real directories. Returns 1 for the bin pair, 2 for the
+// sbin pair (with the other spelling in `alt`), 0 when `sub` is in neither.
+#define CORTEX_USRMERGE_BIN 1
+#define CORTEX_USRMERGE_SBIN 2
+static int usrmerge_alt_path(const char *sub, char *alt, size_t altsz) {
+    const char *dir;
+    const char *rest;
+    int pair;
+    if (strncmp(sub, "/usr/bin/", 9) == 0) {
+        dir = "/bin/"; rest = sub + 9; pair = CORTEX_USRMERGE_BIN;
+    } else if (strncmp(sub, "/bin/", 5) == 0) {
+        dir = "/usr/bin/"; rest = sub + 5; pair = CORTEX_USRMERGE_BIN;
+    } else if (strncmp(sub, "/usr/sbin/", 10) == 0) {
+        dir = "/sbin/"; rest = sub + 10; pair = CORTEX_USRMERGE_SBIN;
+    } else if (strncmp(sub, "/sbin/", 6) == 0) {
+        dir = "/usr/sbin/"; rest = sub + 6; pair = CORTEX_USRMERGE_SBIN;
+    } else {
+        return 0;
+    }
+    size_t n = cortex_append(alt, altsz, 0, g_cortex_root, g_cortex_root_len);
+    n = cortex_append(alt, altsz, n, dir, strlen(dir));
+    cortex_append(alt, altsz, n, rest, strlen(rest));
+    return pair;
+}
+
+#ifndef CORTEX_HOST_TEST
+
+// Helper for path normalization
+static void normalize_path(char *path) {
+    if (!path || !*path) return;
+    int is_abs = (path[0] == '/');
+    char *stack[128];
+    int top = 0;
+
+    char tmp[4096];
+    strncpy(tmp, path, sizeof(tmp) - 1);
+    tmp[sizeof(tmp) - 1] = '\0';
+
+    char *saveptr = NULL;
+    char *tok = strtok_r(tmp, "/", &saveptr);
+    while (tok) {
+        if (strcmp(tok, ".") == 0) {
+            // ignore
+        } else if (strcmp(tok, "..") == 0) {
+            if (top > 0) top--;
+        } else {
+            if (top < 128) stack[top++] = tok;
+        }
+        tok = strtok_r(NULL, "/", &saveptr);
+    }
+
+    char *dst = path;
+    if (is_abs) *dst++ = '/';
+    for (int i = 0; i < top; i++) {
+        size_t len = strlen(stack[i]);
+        memcpy(dst, stack[i], len);
+        dst += len;
+        if (i + 1 < top) *dst++ = '/';
+    }
+    if (dst == path && is_abs) *dst++ = '/';
+    *dst = '\0';
+}
+
+static ssize_t postprocess_readlink(const char *linkpath, char *buf, ssize_t ret, size_t bufsiz) {
+    if (ret <= 0) return ret;
+
+    // 1. Strip g_cortex_root if target starts with it
+    if (g_cortex_root_len > 0) {
+        size_t rlen = g_cortex_root_len;
+        if ((size_t)ret >= rlen && memcmp(buf, g_cortex_root, rlen) == 0 &&
+            ((size_t)ret == rlen || buf[rlen] == '/')) {
+            size_t new_len = ret - rlen;
+            if (new_len == 0) {
+                buf[0] = '/';
+                return 1;
+            } else {
+                memmove(buf, buf + rlen, new_len);
+                return (ssize_t)new_len;
+            }
+        }
+    }
+
+    // 2. Normalize relative alternatives links
+    if (linkpath && linkpath[0] == '/' && (size_t)ret < PATH_MAX) {
+        char link_copy[PATH_MAX];
+        memcpy(link_copy, buf, ret);
+        link_copy[ret] = '\0';
+
+        if (strncmp(link_copy, "..", 2) == 0) {
+            char parent[PATH_MAX];
+            snprintf(parent, sizeof(parent), "%s", linkpath);
+            char *last_slash = strrchr(parent, '/');
+            if (last_slash) {
+                if (last_slash == parent) {
+                    *(last_slash + 1) = '\0';
+                } else {
+                    *last_slash = '\0';
+                }
+            }
+            char combined[PATH_MAX * 2];
+            snprintf(combined, sizeof(combined), "%s/%s", parent, link_copy);
+            normalize_path(combined);
+
+            if (strncmp(combined, "/etc/alternatives", 17) == 0 ||
+                strncmp(linkpath, "/etc/alternatives", 17) == 0) {
+                size_t clen = strlen(combined);
+                if (clen <= bufsiz) {
+                    memcpy(buf, combined, clen);
+                    return (ssize_t)clen;
+                }
+            }
+        }
+    }
+
+    return ret;
+}
+
+#endif /* !CORTEX_HOST_TEST */
+
+// Android's SELinux label, which the xattr hooks keep away from Ubuntu programs.
+static const char k_selinux_xattr[] = "security.selinux";
+
+static int is_selinux_xattr(const char *name) {
+    return name != NULL && strcmp(name, k_selinux_xattr) == 0;
+}
+
+// Removes "security.selinux" from a listxattr() result (NUL-separated names); returns the new length.
+static ssize_t drop_selinux_xattr(char *list, ssize_t len) {
+    if (!list || len <= 0) return len;
+    ssize_t out = 0;
+    ssize_t i = 0;
+    while (i < len) {
+        size_t name_len = strnlen(list + i, (size_t)(len - i));
+        ssize_t entry = (ssize_t)name_len + 1;
+        if (entry > len - i) entry = len - i;
+        if (name_len != sizeof(k_selinux_xattr) - 1 || memcmp(list + i, k_selinux_xattr, name_len) != 0) {
+            memmove(list + out, list + i, (size_t)entry);
+            out += entry;
+        }
+        i += entry;
+    }
+    return out;
+}
+
+// Library directories of the rootfs, in the order ld.so searches them. ld.so tries every
+// directory for every library, so the multiarch ones that hold nearly all libraries come first
+// (as in glibc's own default order). Keep in sync with Environment.kt, 00-env.sh and su.sh.
+static const char *const k_rootfs_lib_dirs[] = {
+    "/lib/aarch64-linux-gnu", "/usr/lib/aarch64-linux-gnu",
+    "/lib/arm-linux-gnueabihf", "/usr/lib/arm-linux-gnueabihf",
+    "/lib", "/usr/lib", "/usr/local/lib",
+    "/usr/lib/systemd", "/lib/systemd",
+    "/usr/lib/aarch64-linux-gnu/systemd", "/lib/aarch64-linux-gnu/systemd",
+    "/usr/lib/arm-linux-gnueabihf/systemd", "/lib/arm-linux-gnueabihf/systemd",
+};
+
+// Appends the rootfs library directories as a ':'-separated list (with a leading ':' when
+// `separate` is set). Returns the new length.
+static size_t append_rootfs_lib_dirs(char *out, size_t outsz, size_t used, int separate) {
+    for (size_t i = 0; i < sizeof(k_rootfs_lib_dirs) / sizeof(k_rootfs_lib_dirs[0]); i++) {
+        if (separate || i > 0) used = cortex_append(out, outsz, used, ":", 1);
+        used = cortex_append(out, outsz, used, g_cortex_root, g_cortex_root_len);
+        used = cortex_append(out, outsz, used, k_rootfs_lib_dirs[i], strlen(k_rootfs_lib_dirs[i]));
+    }
+    return used;
+}
+
 #ifndef CORTEX_HOST_TEST
 
 #ifndef SYS_SECCOMP
@@ -583,7 +863,6 @@ int rt_sigprocmask(int how, const sigset_t *set, sigset_t *oldset, size_t sigset
 }
 
 
-static char g_cortex_root[PATH_MAX] = {0};
 static char g_real_exe[PATH_MAX] = {0};
 static int g_initialized = 0;
 
@@ -591,11 +870,10 @@ static void init_cortex_hook(void) {
     if (g_initialized) return;
     const char *root = getenv("CORTEX_ROOT");
     if (root && strlen(root) > 0) {
-        strncpy(g_cortex_root, root, sizeof(g_cortex_root) - 1);
-        size_t len = strlen(g_cortex_root);
-        if (len > 0 && g_cortex_root[len - 1] == '/') {
-            g_cortex_root[len - 1] = '\0';
-        }
+        size_t len = strlen(root);
+        if (len > sizeof(g_cortex_root) - 1) len = sizeof(g_cortex_root) - 1;
+        if (root[len - 1] == '/') len--;
+        cortex_set_root(root, len);
     } else {
         Dl_info info;
         if (dladdr((void *)init_cortex_hook, &info) && info.dli_fname) {
@@ -603,8 +881,7 @@ static void init_cortex_hook(void) {
             if (p && p > info.dli_fname) {
                 size_t len = p - info.dli_fname;
                 if (len < sizeof(g_cortex_root)) {
-                    strncpy(g_cortex_root, info.dli_fname, len);
-                    g_cortex_root[len] = '\0';
+                    cortex_set_root(info.dli_fname, len);
                 }
             }
         }
@@ -728,7 +1005,7 @@ static ssize_t handle_proc_self_exe(char *buf, size_t bufsiz) {
         char stripped[PATH_MAX];
         const char *out_path = g_real_exe;
         if (g_cortex_root[0] != '\0') {
-            size_t rlen = strlen(g_cortex_root);
+            size_t rlen = g_cortex_root_len;
             if (strncmp(g_real_exe, g_cortex_root, rlen) == 0 &&
                 (g_real_exe[rlen] == '/' || g_real_exe[rlen] == '\0')) {
                 out_path = g_real_exe + rlen;
@@ -746,93 +1023,48 @@ static ssize_t handle_proc_self_exe(char *buf, size_t bufsiz) {
     return -1;
 }
 
-static inline int is_path_prefix(const char *path, const char *prefix, size_t prefix_len) {
-    if (strncmp(path, prefix, prefix_len) != 0) return 0;
-    return path[prefix_len] == '/' || path[prefix_len] == '\0';
-}
-
-static inline const char *get_rootfs_subpath(const char *target) {
-    if (!target || g_cortex_root[0] == '\0') return NULL;
-    size_t root_len = strlen(g_cortex_root);
-    if (strncmp(target, g_cortex_root, root_len) == 0 &&
-        (target[root_len] == '/' || target[root_len] == '\0')) {
-        return target + root_len;
-    }
-    return NULL;
-}
-
 static const char *rewrite_path(const char *path, char *buffer, size_t bufsize) {
     if (!path) return NULL;
     // Relative paths must NEVER be rewritten to rootfs root
     if (path[0] != '/') return path;
     init_cortex_hook();
+    return rewrite_path_in_root(path, buffer, bufsize);
+}
 
-    if (g_cortex_root[0] == '\0') {
-        return path;
+// Whether the rootfs keeps bin (pair CORTEX_USRMERGE_BIN) or sbin as a symlink into /usr, as
+// Ubuntu 24.04 does. Checked once per process with one readlink().
+static int rootfs_pair_is_merged(int pair) {
+    static int known[3] = { 0, -1, -1 };
+    if (known[pair] >= 0) return known[pair];
+    static ssize_t (*orig_readlink)(const char *, char *, size_t) = NULL;
+    if (!orig_readlink) orig_readlink = (ssize_t (*)(const char *, char *, size_t))dlsym(RTLD_NEXT, "readlink");
+    const char *dir = (pair == CORTEX_USRMERGE_BIN) ? "/bin" : "/sbin";
+    const char *usr_dir = (pair == CORTEX_USRMERGE_BIN) ? "usr/bin" : "usr/sbin";
+    char path[PATH_MAX];
+    char link[16];
+    size_t n = cortex_append(path, sizeof(path), 0, g_cortex_root, g_cortex_root_len);
+    cortex_append(path, sizeof(path), n, dir, strlen(dir));
+    int saved_errno = errno;
+    ssize_t len = orig_readlink ? orig_readlink(path, link, sizeof(link) - 1) : -1;
+    errno = saved_errno;
+    int merged = 0;
+    if (len > 0) {
+        link[len] = '\0';
+        size_t ulen = strlen(usr_dir);
+        merged = strncmp(link, usr_dir, ulen) == 0 && (link[ulen] == '\0' || (link[ulen] == '/' && link[ulen + 1] == '\0'));
     }
+    known[pair] = merged;
+    return merged;
+}
 
-    // Strip multiple redundant leading slashes: //foo -> /foo
-    while (path[0] == '/' && path[1] == '/') {
-        path++;
-    }
-
-    // Strip leading /./: /./boot -> /boot
-    while (path[0] == '/' && path[1] == '.' && (path[2] == '/' || path[2] == '\0')) {
-        if (path[2] == '/') {
-            path += 2;
-        } else {
-            path = "/";
-            break;
-        }
-    }
-
-    // Root directory
-    if (strcmp(path, "/") == 0) {
-        snprintf(buffer, bufsize, "%s", g_cortex_root);
-        return buffer;
-    }
-
-    // Already inside Cortex rootfs
-    size_t root_len = strlen(g_cortex_root);
-    if (strncmp(path, g_cortex_root, root_len) == 0 &&
-        (path[root_len] == '/' || path[root_len] == '\0')) {
-        return path;
-    }
-
-    // POSIX shared memory (/dev/shm) redirection to Cortex rootfs tmp/shm
-    if (strncmp(path, "/dev/shm", 8) == 0 && (path[8] == '/' || path[8] == '\0')) {
-        snprintf(buffer, bufsize, "%s/tmp/shm%s", g_cortex_root, path + 8);
-        return buffer;
-    }
-
-    // Real host Android kernel & system mounts
-    if (strcmp(path, "/sbin/su") == 0 || strcmp(path, "/su") == 0 ||
-        is_path_prefix(path, "/proc", 5) ||
-        is_path_prefix(path, "/dev", 4) ||
-        is_path_prefix(path, "/sys", 4) ||
-        is_path_prefix(path, "/system", 7) ||
-        is_path_prefix(path, "/vendor", 7) ||
-        is_path_prefix(path, "/apex", 5) ||
-        is_path_prefix(path, "/product", 8) ||
-        is_path_prefix(path, "/system_ext", 11) ||
-        is_path_prefix(path, "/odm", 4) ||
-        is_path_prefix(path, "/oem", 4) ||
-        is_path_prefix(path, "/linkerconfig", 13) ||
-        is_path_prefix(path, "/config", 7) ||
-        is_path_prefix(path, "/d", 2) ||
-        is_path_prefix(path, "/data", 5) ||
-        is_path_prefix(path, "/sdcard", 7) ||
-        is_path_prefix(path, "/storage", 8)) {
-        return path;
-    }
-
-    // Any other absolute path belongs to Cortex rootfs (/boot, /media, /snap, /etc, /usr, ...)
-    if (path[0] == '/') {
-        snprintf(buffer, bufsize, "%s%s", g_cortex_root, path);
-        return buffer;
-    }
-
-    return path;
+// The other spelling of a missing rootfs path under bin/sbin, or NULL when there is none or both
+// spellings reach the same directory (the retry could only fail again).
+static const char *usrmerge_retry_path(const char *target, char *alt, size_t altsz) {
+    const char *sub = get_rootfs_subpath(target);
+    if (!sub) return NULL;
+    int pair = usrmerge_alt_path(sub, alt, altsz);
+    if (pair == 0 || rootfs_pair_is_merged(pair)) return NULL;
+    return alt;
 }
 
 static const char *rewrite_unix_socket_path(const char *sun_path, char *out_buf, size_t out_size) {
@@ -1305,96 +1537,6 @@ DIR *opendir(const char *name) {
     return orig_opendir(target);
 }
 
-// Helper for path normalization
-static void normalize_path(char *path) {
-    if (!path || !*path) return;
-    int is_abs = (path[0] == '/');
-    char *stack[128];
-    int top = 0;
-
-    char tmp[4096];
-    strncpy(tmp, path, sizeof(tmp) - 1);
-    tmp[sizeof(tmp) - 1] = '\0';
-
-    char *saveptr = NULL;
-    char *tok = strtok_r(tmp, "/", &saveptr);
-    while (tok) {
-        if (strcmp(tok, ".") == 0) {
-            // ignore
-        } else if (strcmp(tok, "..") == 0) {
-            if (top > 0) top--;
-        } else {
-            if (top < 128) stack[top++] = tok;
-        }
-        tok = strtok_r(NULL, "/", &saveptr);
-    }
-
-    char *dst = path;
-    if (is_abs) *dst++ = '/';
-    for (int i = 0; i < top; i++) {
-        size_t len = strlen(stack[i]);
-        memcpy(dst, stack[i], len);
-        dst += len;
-        if (i + 1 < top) *dst++ = '/';
-    }
-    if (dst == path && is_abs) *dst++ = '/';
-    *dst = '\0';
-}
-
-static ssize_t postprocess_readlink(const char *linkpath, char *buf, ssize_t ret, size_t bufsiz) {
-    if (ret <= 0) return ret;
-
-    // 1. Strip g_cortex_root if target starts with it
-    if (g_cortex_root[0] != '\0') {
-        size_t rlen = strlen(g_cortex_root);
-        if ((size_t)ret >= rlen && memcmp(buf, g_cortex_root, rlen) == 0 &&
-            ((size_t)ret == rlen || buf[rlen] == '/')) {
-            size_t new_len = ret - rlen;
-            if (new_len == 0) {
-                buf[0] = '/';
-                return 1;
-            } else {
-                memmove(buf, buf + rlen, new_len);
-                return (ssize_t)new_len;
-            }
-        }
-    }
-
-    // 2. Normalize relative alternatives links
-    if (linkpath && linkpath[0] == '/' && (size_t)ret < PATH_MAX) {
-        char link_copy[PATH_MAX];
-        memcpy(link_copy, buf, ret);
-        link_copy[ret] = '\0';
-
-        if (strncmp(link_copy, "..", 2) == 0) {
-            char parent[PATH_MAX];
-            snprintf(parent, sizeof(parent), "%s", linkpath);
-            char *last_slash = strrchr(parent, '/');
-            if (last_slash) {
-                if (last_slash == parent) {
-                    *(last_slash + 1) = '\0';
-                } else {
-                    *last_slash = '\0';
-                }
-            }
-            char combined[PATH_MAX * 2];
-            snprintf(combined, sizeof(combined), "%s/%s", parent, link_copy);
-            normalize_path(combined);
-
-            if (strncmp(combined, "/etc/alternatives", 17) == 0 ||
-                strncmp(linkpath, "/etc/alternatives", 17) == 0) {
-                size_t clen = strlen(combined);
-                if (clen <= bufsiz) {
-                    memcpy(buf, combined, clen);
-                    return (ssize_t)clen;
-                }
-            }
-        }
-    }
-
-    return ret;
-}
-
 // Hook stat
 int stat(const char *pathname, struct stat *statbuf) {
     static int (*orig_stat)(const char *, struct stat *) = NULL;
@@ -1403,23 +1545,9 @@ int stat(const char *pathname, struct stat *statbuf) {
     const char *target = rewrite_path(pathname, buf, sizeof(buf));
     int ret = orig_stat ? orig_stat(target, statbuf) : -1;
     if (ret != 0 && errno == ENOENT) {
-        const char *sub = get_rootfs_subpath(target);
-        if (sub) {
-            char alt[PATH_MAX];
-            if (strncmp(sub, "/usr/bin/", 9) == 0) {
-                snprintf(alt, sizeof(alt), "%s/bin/%s", g_cortex_root, sub + 9);
-                ret = orig_stat(alt, statbuf);
-            } else if (strncmp(sub, "/bin/", 5) == 0) {
-                snprintf(alt, sizeof(alt), "%s/usr/bin/%s", g_cortex_root, sub + 5);
-                ret = orig_stat(alt, statbuf);
-            } else if (strncmp(sub, "/usr/sbin/", 10) == 0) {
-                snprintf(alt, sizeof(alt), "%s/sbin/%s", g_cortex_root, sub + 10);
-                ret = orig_stat(alt, statbuf);
-            } else if (strncmp(sub, "/sbin/", 6) == 0) {
-                snprintf(alt, sizeof(alt), "%s/usr/sbin/%s", g_cortex_root, sub + 6);
-                ret = orig_stat(alt, statbuf);
-            }
-        }
+        char alt[PATH_MAX];
+        const char *retry = usrmerge_retry_path(target, alt, sizeof(alt));
+        if (retry) ret = orig_stat(retry, statbuf);
     }
     if (ret == 0 && statbuf && statbuf->st_nlink < 2) {
         ino_t uino = 0;
@@ -1438,27 +1566,12 @@ int lstat(const char *pathname, struct stat *statbuf) {
     char buf[PATH_MAX];
     const char *target = rewrite_path(pathname, buf, sizeof(buf));
     int ret = orig_lstat ? orig_lstat(target, statbuf) : -1;
+    char alt[PATH_MAX];
     if (ret != 0 && errno == ENOENT) {
-        const char *sub = get_rootfs_subpath(target);
-        if (sub) {
-            char alt[PATH_MAX];
-            if (strncmp(sub, "/usr/bin/", 9) == 0) {
-                snprintf(alt, sizeof(alt), "%s/bin/%s", g_cortex_root, sub + 9);
-                ret = orig_lstat(alt, statbuf);
-                if (ret == 0) target = alt;
-            } else if (strncmp(sub, "/bin/", 5) == 0) {
-                snprintf(alt, sizeof(alt), "%s/usr/bin/%s", g_cortex_root, sub + 5);
-                ret = orig_lstat(alt, statbuf);
-                if (ret == 0) target = alt;
-            } else if (strncmp(sub, "/usr/sbin/", 10) == 0) {
-                snprintf(alt, sizeof(alt), "%s/sbin/%s", g_cortex_root, sub + 10);
-                ret = orig_lstat(alt, statbuf);
-                if (ret == 0) target = alt;
-            } else if (strncmp(sub, "/sbin/", 6) == 0) {
-                snprintf(alt, sizeof(alt), "%s/usr/sbin/%s", g_cortex_root, sub + 6);
-                ret = orig_lstat(alt, statbuf);
-                if (ret == 0) target = alt;
-            }
+        const char *retry = usrmerge_retry_path(target, alt, sizeof(alt));
+        if (retry) {
+            ret = orig_lstat(retry, statbuf);
+            if (ret == 0) target = retry;
         }
     }
     if (ret == 0 && statbuf && S_ISLNK(statbuf->st_mode) && g_cortex_root[0] != '\0' && target) {
@@ -1490,27 +1603,12 @@ int fstatat(int dirfd, const char *pathname, struct stat *statbuf, int flags) {
     char buf[PATH_MAX];
     const char *target = (pathname && pathname[0] == '/') ? rewrite_path(pathname, buf, sizeof(buf)) : pathname;
     int ret = orig_fstatat ? orig_fstatat(dirfd, target, statbuf, flags) : -1;
+    char alt[PATH_MAX];
     if (ret != 0 && errno == ENOENT && pathname && pathname[0] == '/') {
-        const char *sub = get_rootfs_subpath(target);
-        if (sub) {
-            char alt[PATH_MAX];
-            if (strncmp(sub, "/usr/bin/", 9) == 0) {
-                snprintf(alt, sizeof(alt), "%s/bin/%s", g_cortex_root, sub + 9);
-                ret = orig_fstatat(dirfd, alt, statbuf, flags);
-                if (ret == 0) target = alt;
-            } else if (strncmp(sub, "/bin/", 5) == 0) {
-                snprintf(alt, sizeof(alt), "%s/usr/bin/%s", g_cortex_root, sub + 5);
-                ret = orig_fstatat(dirfd, alt, statbuf, flags);
-                if (ret == 0) target = alt;
-            } else if (strncmp(sub, "/usr/sbin/", 10) == 0) {
-                snprintf(alt, sizeof(alt), "%s/sbin/%s", g_cortex_root, sub + 10);
-                ret = orig_fstatat(dirfd, alt, statbuf, flags);
-                if (ret == 0) target = alt;
-            } else if (strncmp(sub, "/sbin/", 6) == 0) {
-                snprintf(alt, sizeof(alt), "%s/usr/sbin/%s", g_cortex_root, sub + 6);
-                ret = orig_fstatat(dirfd, alt, statbuf, flags);
-                if (ret == 0) target = alt;
-            }
+        const char *retry = usrmerge_retry_path(target, alt, sizeof(alt));
+        if (retry) {
+            ret = orig_fstatat(dirfd, retry, statbuf, flags);
+            if (ret == 0) target = retry;
         }
     }
     if (ret == 0 && statbuf && (flags & AT_SYMLINK_NOFOLLOW) && S_ISLNK(statbuf->st_mode) && g_cortex_root[0] != '\0' && target) {
@@ -1835,23 +1933,9 @@ ssize_t readlink(const char *pathname, char *buf, size_t bufsiz) {
     const char *target = rewrite_path(pathname, pbuf, sizeof(pbuf));
     ssize_t ret = orig_readlink ? orig_readlink(target, buf, bufsiz) : -1;
     if (ret < 0 && errno == ENOENT) {
-        const char *sub = get_rootfs_subpath(target);
-        if (sub) {
-            char alt[PATH_MAX];
-            if (strncmp(sub, "/usr/bin/", 9) == 0) {
-                snprintf(alt, sizeof(alt), "%s/bin/%s", g_cortex_root, sub + 9);
-                ret = orig_readlink(alt, buf, bufsiz);
-            } else if (strncmp(sub, "/bin/", 5) == 0) {
-                snprintf(alt, sizeof(alt), "%s/usr/bin/%s", g_cortex_root, sub + 5);
-                ret = orig_readlink(alt, buf, bufsiz);
-            } else if (strncmp(sub, "/usr/sbin/", 10) == 0) {
-                snprintf(alt, sizeof(alt), "%s/sbin/%s", g_cortex_root, sub + 10);
-                ret = orig_readlink(alt, buf, bufsiz);
-            } else if (strncmp(sub, "/sbin/", 6) == 0) {
-                snprintf(alt, sizeof(alt), "%s/usr/sbin/%s", g_cortex_root, sub + 6);
-                ret = orig_readlink(alt, buf, bufsiz);
-            }
-        }
+        char alt[PATH_MAX];
+        const char *retry = usrmerge_retry_path(target, alt, sizeof(alt));
+        if (retry) ret = orig_readlink(retry, buf, bufsiz);
     }
     return postprocess_readlink(pathname, buf, ret, bufsiz);
 }
@@ -1868,23 +1952,9 @@ ssize_t readlinkat(int dirfd, const char *pathname, char *buf, size_t bufsiz) {
     const char *target = (pathname && pathname[0] == '/') ? rewrite_path(pathname, pbuf, sizeof(pbuf)) : pathname;
     ssize_t ret = orig_readlinkat ? orig_readlinkat(dirfd, target, buf, bufsiz) : -1;
     if (ret < 0 && errno == ENOENT && pathname && pathname[0] == '/') {
-        const char *sub = get_rootfs_subpath(target);
-        if (sub) {
-            char alt[PATH_MAX];
-            if (strncmp(sub, "/usr/bin/", 9) == 0) {
-                snprintf(alt, sizeof(alt), "%s/bin/%s", g_cortex_root, sub + 9);
-                ret = orig_readlinkat(dirfd, alt, buf, bufsiz);
-            } else if (strncmp(sub, "/bin/", 5) == 0) {
-                snprintf(alt, sizeof(alt), "%s/usr/bin/%s", g_cortex_root, sub + 5);
-                ret = orig_readlinkat(dirfd, alt, buf, bufsiz);
-            } else if (strncmp(sub, "/usr/sbin/", 10) == 0) {
-                snprintf(alt, sizeof(alt), "%s/sbin/%s", g_cortex_root, sub + 10);
-                ret = orig_readlinkat(dirfd, alt, buf, bufsiz);
-            } else if (strncmp(sub, "/sbin/", 6) == 0) {
-                snprintf(alt, sizeof(alt), "%s/usr/sbin/%s", g_cortex_root, sub + 6);
-                ret = orig_readlinkat(dirfd, alt, buf, bufsiz);
-            }
-        }
+        char alt[PATH_MAX];
+        const char *retry = usrmerge_retry_path(target, alt, sizeof(alt));
+        if (retry) ret = orig_readlinkat(dirfd, retry, buf, bufsiz);
     }
     return postprocess_readlink(pathname, buf, ret, bufsiz);
 }
@@ -1896,6 +1966,94 @@ ssize_t __readlink_chk(const char *pathname, char *buf, size_t bufsiz, size_t bu
 
 ssize_t __readlinkat_chk(int dirfd, const char *pathname, char *buf, size_t bufsiz, size_t buflen) {
     return readlinkat(dirfd, pathname, buf, bufsiz);
+}
+
+// Extended attributes take the same paths as stat(). Without these hooks coreutils read
+// security.selinux with the Ubuntu path itself: `ls -l` printed an error line for every file
+// Android lacks (/etc/os-release) and showed Android's own label for the ones it has
+// (/etc/passwd). Ubuntu does not use SELinux, so its label is hidden altogether: `ls -l` looks as
+// on Ubuntu and cp/tar/rsync do not try to copy Android's labels.
+ssize_t getxattr(const char *path, const char *name, void *value, size_t size) {
+    static ssize_t (*orig_getxattr)(const char *, const char *, void *, size_t) = NULL;
+    if (!orig_getxattr) orig_getxattr = (ssize_t (*)(const char *, const char *, void *, size_t))dlsym(RTLD_NEXT, "getxattr");
+    if (is_selinux_xattr(name)) {
+        errno = ENODATA;
+        return -1;
+    }
+    char pbuf[PATH_MAX];
+    return orig_getxattr ? orig_getxattr(rewrite_path(path, pbuf, sizeof(pbuf)), name, value, size) : -1;
+}
+
+ssize_t lgetxattr(const char *path, const char *name, void *value, size_t size) {
+    static ssize_t (*orig_lgetxattr)(const char *, const char *, void *, size_t) = NULL;
+    if (!orig_lgetxattr) orig_lgetxattr = (ssize_t (*)(const char *, const char *, void *, size_t))dlsym(RTLD_NEXT, "lgetxattr");
+    if (is_selinux_xattr(name)) {
+        errno = ENODATA;
+        return -1;
+    }
+    char pbuf[PATH_MAX];
+    return orig_lgetxattr ? orig_lgetxattr(rewrite_path(path, pbuf, sizeof(pbuf)), name, value, size) : -1;
+}
+
+ssize_t listxattr(const char *path, char *list, size_t size) {
+    static ssize_t (*orig_listxattr)(const char *, char *, size_t) = NULL;
+    if (!orig_listxattr) orig_listxattr = (ssize_t (*)(const char *, char *, size_t))dlsym(RTLD_NEXT, "listxattr");
+    char pbuf[PATH_MAX];
+    ssize_t ret = orig_listxattr ? orig_listxattr(rewrite_path(path, pbuf, sizeof(pbuf)), list, size) : -1;
+    return size > 0 ? drop_selinux_xattr(list, ret) : ret;
+}
+
+ssize_t llistxattr(const char *path, char *list, size_t size) {
+    static ssize_t (*orig_llistxattr)(const char *, char *, size_t) = NULL;
+    if (!orig_llistxattr) orig_llistxattr = (ssize_t (*)(const char *, char *, size_t))dlsym(RTLD_NEXT, "llistxattr");
+    char pbuf[PATH_MAX];
+    ssize_t ret = orig_llistxattr ? orig_llistxattr(rewrite_path(path, pbuf, sizeof(pbuf)), list, size) : -1;
+    return size > 0 ? drop_selinux_xattr(list, ret) : ret;
+}
+
+ssize_t fgetxattr(int fd, const char *name, void *value, size_t size) {
+    static ssize_t (*orig_fgetxattr)(int, const char *, void *, size_t) = NULL;
+    if (!orig_fgetxattr) orig_fgetxattr = (ssize_t (*)(int, const char *, void *, size_t))dlsym(RTLD_NEXT, "fgetxattr");
+    if (is_selinux_xattr(name)) {
+        errno = ENODATA;
+        return -1;
+    }
+    return orig_fgetxattr ? orig_fgetxattr(fd, name, value, size) : -1;
+}
+
+ssize_t flistxattr(int fd, char *list, size_t size) {
+    static ssize_t (*orig_flistxattr)(int, char *, size_t) = NULL;
+    if (!orig_flistxattr) orig_flistxattr = (ssize_t (*)(int, char *, size_t))dlsym(RTLD_NEXT, "flistxattr");
+    ssize_t ret = orig_flistxattr ? orig_flistxattr(fd, list, size) : -1;
+    return size > 0 ? drop_selinux_xattr(list, ret) : ret;
+}
+
+int setxattr(const char *path, const char *name, const void *value, size_t size, int flags) {
+    static int (*orig_setxattr)(const char *, const char *, const void *, size_t, int) = NULL;
+    if (!orig_setxattr) orig_setxattr = (int (*)(const char *, const char *, const void *, size_t, int))dlsym(RTLD_NEXT, "setxattr");
+    char pbuf[PATH_MAX];
+    return orig_setxattr ? orig_setxattr(rewrite_path(path, pbuf, sizeof(pbuf)), name, value, size, flags) : -1;
+}
+
+int lsetxattr(const char *path, const char *name, const void *value, size_t size, int flags) {
+    static int (*orig_lsetxattr)(const char *, const char *, const void *, size_t, int) = NULL;
+    if (!orig_lsetxattr) orig_lsetxattr = (int (*)(const char *, const char *, const void *, size_t, int))dlsym(RTLD_NEXT, "lsetxattr");
+    char pbuf[PATH_MAX];
+    return orig_lsetxattr ? orig_lsetxattr(rewrite_path(path, pbuf, sizeof(pbuf)), name, value, size, flags) : -1;
+}
+
+int removexattr(const char *path, const char *name) {
+    static int (*orig_removexattr)(const char *, const char *) = NULL;
+    if (!orig_removexattr) orig_removexattr = (int (*)(const char *, const char *))dlsym(RTLD_NEXT, "removexattr");
+    char pbuf[PATH_MAX];
+    return orig_removexattr ? orig_removexattr(rewrite_path(path, pbuf, sizeof(pbuf)), name) : -1;
+}
+
+int lremovexattr(const char *path, const char *name) {
+    static int (*orig_lremovexattr)(const char *, const char *) = NULL;
+    if (!orig_lremovexattr) orig_lremovexattr = (int (*)(const char *, const char *))dlsym(RTLD_NEXT, "lremovexattr");
+    char pbuf[PATH_MAX];
+    return orig_lremovexattr ? orig_lremovexattr(rewrite_path(path, pbuf, sizeof(pbuf)), name) : -1;
 }
 
 // Hook symlink
@@ -2058,7 +2216,7 @@ char *realpath(const char *path, char *resolved_path) {
     const char *target = rewrite_path(path, pbuf, sizeof(pbuf));
     char *res = orig_realpath ? orig_realpath(target, resolved_path) : NULL;
     if (res && g_cortex_root[0] != '\0') {
-        size_t rlen = strlen(g_cortex_root);
+        size_t rlen = g_cortex_root_len;
         if (strncmp(res, g_cortex_root, rlen) == 0 && (res[rlen] == '/' || res[rlen] == '\0')) {
             size_t rem_len = strlen(res + rlen);
             if (rem_len == 0) {
@@ -3561,11 +3719,6 @@ static char **prepare_cortex_env(char *const envp[], const char *real_exe) {
     int has_debconf_frontend = 0;
     int has_debconf_seen = 0;
 
-    char hook_path[PATH_MAX] = {0};
-    if (g_cortex_root[0] != '\0') {
-        snprintf(hook_path, sizeof(hook_path), "%s/usr/lib/libcortex-hook.so", g_cortex_root);
-    }
-
     const char *chosen_real_exe = (real_exe && real_exe[0] != '\0') ? real_exe : (g_real_exe[0] != '\0' ? g_real_exe : NULL);
 
     while (envp && envp[count]) {
@@ -3607,26 +3760,38 @@ static char **prepare_cortex_env(char *const envp[], const char *real_exe) {
         new_env[dst++] = envp[i];
     }
 
+    // Exact-size strings: this runs before every exec, often in a freshly forked child where each
+    // newly touched page is a copy-on-write fault.
     if (chosen_real_exe) {
-        char *str = malloc(PATH_MAX + 32);
+        size_t len = strlen(chosen_real_exe);
+        char *str = malloc(16 + len + 1);
         if (str) {
-            snprintf(str, PATH_MAX + 32, "CORTEX_REAL_EXE=%s", chosen_real_exe);
+            memcpy(str, "CORTEX_REAL_EXE=", 16);
+            memcpy(str + 16, chosen_real_exe, len + 1);
             new_env[dst++] = str;
         }
     }
 
-    if (!has_preload && hook_path[0] != '\0') {
-        char *str = malloc(PATH_MAX + 16);
+    if (!has_preload && g_cortex_root[0] != '\0') {
+        static const char hook_rel[] = "/usr/lib/libcortex-hook.so";
+        size_t size = 11 + g_cortex_root_len + sizeof(hook_rel);
+        char *str = malloc(size);
         if (str) {
-            snprintf(str, PATH_MAX + 16, "LD_PRELOAD=%s", hook_path);
+            size_t n = cortex_append(str, size, 0, "LD_PRELOAD=", 11);
+            n = cortex_append(str, size, n, g_cortex_root, g_cortex_root_len);
+            cortex_append(str, size, n, hook_rel, sizeof(hook_rel) - 1);
             new_env[dst++] = str;
         }
     }
     if (!has_ld_library_path && g_cortex_root[0] != '\0') {
-        char *str = malloc(PATH_MAX * 4);
+        size_t size = 16 + 1;
+        for (size_t i = 0; i < sizeof(k_rootfs_lib_dirs) / sizeof(k_rootfs_lib_dirs[0]); i++) {
+            size += 1 + g_cortex_root_len + strlen(k_rootfs_lib_dirs[i]);
+        }
+        char *str = malloc(size);
         if (str) {
-            snprintf(str, PATH_MAX * 4, "LD_LIBRARY_PATH=%s/lib:%s/usr/lib:%s/lib/aarch64-linux-gnu:%s/usr/lib/aarch64-linux-gnu:%s/lib/arm-linux-gnueabihf:%s/usr/lib/arm-linux-gnueabihf:%s/usr/local/lib:%s/usr/lib/systemd:%s/lib/systemd:%s/usr/lib/aarch64-linux-gnu/systemd:%s/lib/aarch64-linux-gnu/systemd:%s/usr/lib/arm-linux-gnueabihf/systemd:%s/lib/arm-linux-gnueabihf/systemd",
-                     g_cortex_root, g_cortex_root, g_cortex_root, g_cortex_root, g_cortex_root, g_cortex_root, g_cortex_root, g_cortex_root, g_cortex_root, g_cortex_root, g_cortex_root, g_cortex_root, g_cortex_root);
+            size_t n = cortex_append(str, size, 0, "LD_LIBRARY_PATH=", 16);
+            append_rootfs_lib_dirs(str, size, n, 0);
             new_env[dst++] = str;
         }
     }
@@ -3697,27 +3862,9 @@ static char s_cached_ld_so[PATH_MAX] = {0};
 static char s_cached_ld_root[PATH_MAX] = {0};
 static uint16_t s_cached_e_machine = 0;
 
-#ifdef CORTEX_HOST_TEST
-#define CORTEX_FIND_LD_SYM hook_find_dynamic_linker
-#else
-#define CORTEX_FIND_LD_SYM find_dynamic_linker
-#endif
-
-static int CORTEX_FIND_LD_SYM(const char *cortex_root, const char *cmd, char *out_ld_so, size_t max_len) {
+// ld.so inside `cortex_root` for an ELF with machine type `e_machine` (0 when unknown).
+static int find_dynamic_linker_for_machine(const char *cortex_root, uint16_t e_machine, char *out_ld_so, size_t max_len) {
     if (!cortex_root || cortex_root[0] == '\0' || !out_ld_so || max_len == 0) return 0;
-
-    uint16_t e_machine = 0;
-    if (cmd && cmd[0] != '\0') {
-        int fd = open(cmd, O_RDONLY);
-        if (fd >= 0) {
-            unsigned char ehdr[20];
-            ssize_t n = read(fd, ehdr, sizeof(ehdr));
-            close(fd);
-            if (n >= 20 && ehdr[0] == 0x7f && ehdr[1] == 'E' && ehdr[2] == 'L' && ehdr[3] == 'F') {
-                e_machine = (uint16_t)(ehdr[18] | (ehdr[19] << 8));
-            }
-        }
-    }
 
     if (s_cached_ld_so[0] != '\0' && strcmp(s_cached_ld_root, cortex_root) == 0 &&
         e_machine != 0 && e_machine == s_cached_e_machine) {
@@ -3819,6 +3966,28 @@ static int CORTEX_FIND_LD_SYM(const char *cortex_root, const char *cmd, char *ou
     return 0;
 }
 
+#ifdef CORTEX_HOST_TEST
+// Test entry point taking a program instead of its machine type (cortex-pty.c, which the tests
+// include too, has a find_dynamic_linker of its own).
+static int hook_find_dynamic_linker(const char *cortex_root, const char *cmd, char *out_ld_so, size_t max_len) {
+    if (!cortex_root || cortex_root[0] == '\0' || !out_ld_so || max_len == 0) return 0;
+
+    uint16_t e_machine = 0;
+    if (cmd && cmd[0] != '\0') {
+        int fd = open(cmd, O_RDONLY);
+        if (fd >= 0) {
+            unsigned char ehdr[20];
+            ssize_t n = read(fd, ehdr, sizeof(ehdr));
+            close(fd);
+            if (n >= 20 && ehdr[0] == 0x7f && ehdr[1] == 'E' && ehdr[2] == 'L' && ehdr[3] == 'F') {
+                e_machine = (uint16_t)(ehdr[18] | (ehdr[19] << 8));
+            }
+        }
+    }
+    return find_dynamic_linker_for_machine(cortex_root, e_machine, out_ld_so, max_len);
+}
+#endif
+
 static int check_elf_dynamic(int fd, const unsigned char *ehdr, ssize_t n) {
     if (n < 52 || ehdr[0] != 0x7f || ehdr[1] != 'E' || ehdr[2] != 'L' || ehdr[3] != 'F') {
         return 0;
@@ -3863,14 +4032,89 @@ static int check_elf_dynamic(int fd, const unsigned char *ehdr, ssize_t n) {
     return 0;
 }
 
-static int is_elf_binary(const char *path) {
-    if (!path || path[0] == '\0') return 0;
-    int fd = open(path, O_RDONLY);
-    if (fd < 0) return 0;
-    unsigned char magic[4];
-    ssize_t n = read(fd, magic, sizeof(magic));
+// check_elf_dynamic() on the bytes already read: 1 or 0, or -1 when a program header lies past
+// the buffer and the file has to be read after all. Program headers normally follow the ELF
+// header directly, so this saves the lseek()/read() pairs.
+static int elf_interp_in_buffer(const unsigned char *ehdr, ssize_t n) {
+    if (n < 52 || ehdr[0] != 0x7f || ehdr[1] != 'E' || ehdr[2] != 'L' || ehdr[3] != 'F') {
+        return 0;
+    }
+    if ((ehdr[4] != 1 && ehdr[4] != 2) || ehdr[5] != 1 /* ELFDATA2LSB */) {
+        return 0;
+    }
+    int is_64 = (ehdr[4] == 2);
+    uint64_t phoff = 0;
+    uint16_t phentsize = 0;
+    uint16_t phnum = 0;
+    if (is_64) {
+        if (n < 64) return 0;
+        memcpy(&phoff, ehdr + 32, sizeof(uint64_t));
+        memcpy(&phentsize, ehdr + 54, sizeof(uint16_t));
+        memcpy(&phnum, ehdr + 56, sizeof(uint16_t));
+    } else {
+        uint32_t phoff32 = 0;
+        memcpy(&phoff32, ehdr + 28, sizeof(uint32_t));
+        phoff = phoff32;
+        memcpy(&phentsize, ehdr + 42, sizeof(uint16_t));
+        memcpy(&phnum, ehdr + 44, sizeof(uint16_t));
+    }
+    uint16_t min_phentsize = is_64 ? 56 : 32;
+    if (phoff == 0 || phentsize < min_phentsize || phentsize > 4096 || phnum == 0) {
+        return 0;
+    }
+    if ((off_t)phoff < 0 || (uint64_t)(off_t)phoff != phoff) {
+        return 0;
+    }
+    for (int i = 0; i < phnum && i < 128; i++) {
+        uint64_t off = phoff + (uint64_t)i * phentsize;
+        if (off > (uint64_t)n || (uint64_t)n - off < sizeof(uint32_t)) return -1;
+        uint32_t p_type = 0;
+        memcpy(&p_type, ehdr + off, sizeof(p_type));
+        if (p_type == 3 /* PT_INTERP */) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+// The kernel follows at most four nested "#!" interpreters, then fails with ELOOP.
+#define CORTEX_MAX_SHEBANG_DEPTH 4
+
+// What execve()/posix_spawn() need to know about the file they are about to start, from a
+// single open()/read() (they used to open it up to three times).
+struct exec_probe {
+    char hdr[256];      // first bytes of the file, NUL-terminated for "#!" parsing
+    ssize_t n;          // bytes read; -1 when the file could not be opened
+    int is_elf;
+    int is_dynamic;     // ELF with PT_INTERP: has to be started through ld.so
+    uint16_t e_machine;
+    mode_t mode;        // st_mode, filled in for dynamic ELF files only
+};
+
+static void probe_exec_file(const char *path, struct exec_probe *p) {
+    p->hdr[0] = '\0';
+    p->n = -1;
+    p->is_elf = 0;
+    p->is_dynamic = 0;
+    p->e_machine = 0;
+    p->mode = 0;
+    if (!path || path[0] == '\0') return;
+    int fd = open(path, O_RDONLY | O_CLOEXEC);
+    if (fd < 0) return;
+    ssize_t n = read(fd, p->hdr, sizeof(p->hdr) - 1);
+    p->n = n;
+    p->hdr[n > 0 ? n : 0] = '\0';
+    const unsigned char *h = (const unsigned char *)p->hdr;
+    if (n >= 4 && h[0] == 0x7f && h[1] == 'E' && h[2] == 'L' && h[3] == 'F') {
+        p->is_elf = 1;
+        if (n >= 20) p->e_machine = (uint16_t)(h[18] | (h[19] << 8));
+        int dynamic = elf_interp_in_buffer(h, n);
+        if (dynamic < 0) dynamic = check_elf_dynamic(fd, h, n);
+        p->is_dynamic = dynamic;
+        struct stat st;
+        if (dynamic && fstat(fd, &st) == 0) p->mode = st.st_mode;
+    }
     close(fd);
-    return (n == 4 && magic[0] == 0x7f && magic[1] == 'E' && magic[2] == 'L' && magic[3] == 'F');
 }
 
 static int is_ld_linux(const char *path) {
@@ -3878,6 +4122,70 @@ static int is_ld_linux(const char *path) {
     const char *base = strrchr(path, '/');
     base = base ? base + 1 : path;
     return (strncmp(base, "ld-linux", 8) == 0 || strncmp(base, "ld-2.", 5) == 0);
+}
+
+// Splits a "#!" line (NUL-terminated `hdr`, modified in place) into the interpreter and its
+// optional argument, the way execve() always has.
+static void parse_shebang(char *hdr, char **interp, char **interp_arg) {
+    char *newline = strchr(hdr, '\n');
+    if (newline) *newline = '\0';
+    char *p = hdr + 2;
+    while (*p == ' ' || *p == '\t') p++;
+    char *arg = strchr(p, ' ');
+    if (arg) {
+        *arg = '\0';
+        arg++;
+        while (*arg == ' ' || *arg == '\t') arg++;
+    }
+    *interp = p;
+    *interp_arg = arg;
+}
+
+// Interpreters outside the rootfs (Android's /system/bin/sh) run with Android's environment.
+static int is_host_interpreter(const char *interp) {
+    return strncmp(interp, "/system", 7) == 0 ||
+           (g_cortex_root[0] != '\0' && strncmp(interp, g_cortex_root, g_cortex_root_len) != 0);
+}
+
+// argv for running `script` with its interpreter: interp [arg] script args... (the script's own
+// argv[0] is dropped, as the kernel does). free() the result.
+static char **build_script_argv(const char *interp, const char *interp_arg, const char *script, char *const argv[]) {
+    int argc = 0;
+    while (argv && argv[argc]) argc++;
+    int has_arg = (interp_arg && *interp_arg) ? 1 : 0;
+    char **v = (char **)calloc(argc + has_arg + 3, sizeof(char *));
+    if (!v) return NULL;
+    int n = 0;
+    v[n++] = (char *)interp;
+    if (has_arg) v[n++] = (char *)interp_arg;
+    v[n++] = (char *)script;
+    for (int i = 1; i < argc; i++) v[n++] = argv[i];
+    v[n] = NULL;
+    return v;
+}
+
+// argv for "ld.so [--preload hook] --library-path dirs --argv0 name program args...".
+// free() the result; the strings stay owned by the caller.
+static char **build_ldso_argv(const char *ld_so, const char *hook, const char *lib_path,
+                              const char *program, const char *prog_name, char *const argv[]) {
+    int argc = 0;
+    while (argv && argv[argc]) argc++;
+    char **v = (char **)calloc(argc + 16, sizeof(char *));
+    if (!v) return NULL;
+    int n = 0;
+    v[n++] = (char *)ld_so;
+    if (hook) {
+        v[n++] = (char *)"--preload";
+        v[n++] = (char *)hook;
+    }
+    v[n++] = (char *)"--library-path";
+    v[n++] = (char *)lib_path;
+    v[n++] = (char *)"--argv0";
+    v[n++] = (char *)((argc > 0 && argv[0]) ? argv[0] : prog_name);
+    v[n++] = (char *)program;
+    for (int i = 1; i < argc; i++) v[n++] = argv[i];
+    v[n] = NULL;
+    return v;
 }
 
 #ifndef CORTEX_HOST_TEST
@@ -3947,7 +4255,9 @@ static void build_ld_library_path(char *const envp[], char *out_buf, size_t out_
         caller_ld = getenv("LD_LIBRARY_PATH");
     }
 
-    char rewritten_caller[PATH_MAX * 2] = {0};
+    // No "= {0}": zero-filling these buffers touched 8 KB of fresh stack in every forked child.
+    char rewritten_caller[PATH_MAX * 2];
+    rewritten_caller[0] = '\0';
     if (caller_ld && caller_ld[0] != '\0') {
         char copy[PATH_MAX * 2];
         strncpy(copy, caller_ld, sizeof(copy) - 1);
@@ -3969,31 +4279,66 @@ static void build_ld_library_path(char *const envp[], char *out_buf, size_t out_
         }
     }
 
-    if (rewritten_caller[0] != '\0') {
-        snprintf(out_buf, out_size,
-                 "%s:%s/lib:%s/usr/lib:%s/lib/aarch64-linux-gnu:%s/usr/lib/aarch64-linux-gnu:"
-                 "%s/usr/lib/aarch64-linux-gnu/systemd:%s/lib/aarch64-linux-gnu/systemd:"
-                 "%s/usr/lib/systemd:%s/lib/systemd:%s/lib/arm-linux-gnueabihf:%s/usr/lib/arm-linux-gnueabihf:"
-                 "%s/usr/lib/arm-linux-gnueabihf/systemd:%s/lib/arm-linux-gnueabihf/systemd:%s/usr/local/lib",
-                 rewritten_caller,
-                 g_cortex_root, g_cortex_root, g_cortex_root, g_cortex_root,
-                 g_cortex_root, g_cortex_root, g_cortex_root, g_cortex_root,
-                 g_cortex_root, g_cortex_root, g_cortex_root, g_cortex_root, g_cortex_root);
-    } else {
-        snprintf(out_buf, out_size,
-                 "%s/lib:%s/usr/lib:%s/lib/aarch64-linux-gnu:%s/usr/lib/aarch64-linux-gnu:"
-                 "%s/usr/lib/aarch64-linux-gnu/systemd:%s/lib/aarch64-linux-gnu/systemd:"
-                 "%s/usr/lib/systemd:%s/lib/systemd:%s/lib/arm-linux-gnueabihf:%s/usr/lib/arm-linux-gnueabihf:"
-                 "%s/usr/lib/arm-linux-gnueabihf/systemd:%s/lib/arm-linux-gnueabihf/systemd:%s/usr/local/lib",
-                 g_cortex_root, g_cortex_root, g_cortex_root, g_cortex_root,
-                 g_cortex_root, g_cortex_root, g_cortex_root, g_cortex_root,
-                 g_cortex_root, g_cortex_root, g_cortex_root, g_cortex_root, g_cortex_root);
+    size_t used = cortex_append(out_buf, out_size, 0, rewritten_caller, strlen(rewritten_caller));
+    append_rootfs_lib_dirs(out_buf, out_size, used, used > 0);
+}
+
+// The file whose header decides how to start `target`: the symlink-resolved ELF (so ld.so and
+// /proc/self/exe see the real program, as with the kernel), else `target` itself (scripts,
+// links to ld.so). `probe` describes the returned file.
+static const char *select_exec_target(const char *target, char *resolved, size_t resolved_size, struct exec_probe *probe) {
+    resolve_symlinks(target, resolved, resolved_size, 0);
+    probe_exec_file(resolved, probe);
+    if (probe->is_elf && !is_ld_linux(resolved)) return resolved;
+    if (strcmp(resolved, target) != 0) probe_exec_file(target, probe);
+    return target;
+}
+
+// The library children get with --preload: the one this process runs from, so that a program
+// always starts with the same build as its parent, else the first of usr/lib and lib that exists;
+// NULL if neither does.
+static const char *cortex_hook_library(char *buf, size_t bufsz) {
+    static const char usr_lib[] = "/usr/lib/libcortex-hook.so";
+    static const char lib[] = "/lib/libcortex-hook.so";
+    Dl_info info;
+    if (dladdr((void *)cortex_hook_library, &info) && info.dli_fname && info.dli_fname[0] == '/' &&
+        strlen(info.dli_fname) < bufsz) {
+        return strcpy(buf, info.dli_fname);  // loaded from there, so it exists
     }
+    size_t n = cortex_append(buf, bufsz, 0, g_cortex_root, g_cortex_root_len);
+    cortex_append(buf, bufsz, n, usr_lib, sizeof(usr_lib) - 1);
+    if (access(buf, F_OK) == 0) return buf;
+    n = cortex_append(buf, bufsz, 0, g_cortex_root, g_cortex_root_len);
+    cortex_append(buf, bufsz, n, lib, sizeof(lib) - 1);
+    return access(buf, F_OK) == 0 ? buf : NULL;
+}
+
+// ld.so does not need the exec bit on the program it loads, but other tools look at it: set
+// it as the old access(X_OK)/chmod() pair did, using the mode the probe already has.
+static void ensure_exec_bit(const char *path, mode_t mode) {
+    if (S_ISDIR(mode) || (mode & 0111) != 0) return;
+    if (strstr(path, "/bin/") || strstr(path, "/sbin/")) return;
+    chmod(path, 0755);
+}
+
+// Rootfs path of a "#!" interpreter; a missing /bin/sh falls back to Android's shell.
+static const char *shebang_interpreter(const char *interp, char *buf, size_t bufsz) {
+    const char *rewritten = rewrite_path(interp, buf, bufsz);
+    if (strcmp(interp, "/bin/sh") == 0 && access(rewritten, F_OK) != 0 && access("/system/bin/sh", X_OK) == 0) {
+        return "/system/bin/sh";
+    }
+    return rewritten;
+}
+
+static const char *exec_prog_name(const char *target) {
+    const char *slash = strrchr(target, '/');
+    return slash ? slash + 1 : target;
 }
 
 // Hook execve
 typedef int (*orig_execve_f_type)(const char *filename, char *const argv[], char *const envp[]);
-int execve(const char *filename, char *const argv[], char *const envp[]) {
+
+static int cortex_execve(const char *filename, char *const argv[], char *const envp[], int depth) {
     static orig_execve_f_type orig_execve = NULL;
     if (!orig_execve) orig_execve = (orig_execve_f_type)dlsym(RTLD_NEXT, "execve");
 
@@ -4061,155 +4406,98 @@ int execve(const char *filename, char *const argv[], char *const envp[]) {
     }
 
     // Only intercept binaries/scripts within CORTEX_ROOT
-    if (g_cortex_root[0] != '\0' && strncmp(target, g_cortex_root, strlen(g_cortex_root)) == 0) {
+    if (g_cortex_root[0] != '\0' && strncmp(target, g_cortex_root, g_cortex_root_len) == 0) {
         char resolved_target[PATH_MAX];
-        resolve_symlinks(target, resolved_target, sizeof(resolved_target), 0);
-        const char *elf_target = target;
-        if (is_elf_binary(resolved_target) && !is_ld_linux(resolved_target)) {
-            elf_target = resolved_target;
-        }
+        struct exec_probe probe;
+        const char *elf_target = select_exec_target(target, resolved_target, sizeof(resolved_target), &probe);
 
-        int fd = open(elf_target, O_RDONLY);
-        if (fd >= 0) {
-            char hdr[256];
-            ssize_t n = read(fd, hdr, sizeof(hdr) - 1);
+        // 1. Transparently route dynamically linked glibc ELF binaries through ld.so
+        // Note: Statically linked binaries (PT_INTERP absent, e.g. Meta Muse Code) must execute directly!
+        if (probe.is_dynamic) {
+            char ld_so[PATH_MAX];
+            ld_so[0] = '\0';
+            if (find_dynamic_linker_for_machine(g_cortex_root, probe.e_machine, ld_so, sizeof(ld_so)) && strcmp(elf_target, ld_so) != 0) {
+                ensure_exec_bit(elf_target, probe.mode);
 
-            // 1. Transparently route dynamically linked glibc ELF binaries through ld.so
-            // Note: Statically linked binaries (PT_INTERP absent, e.g. Meta Muse Code) must execute directly!
-            if (n >= 4 && (unsigned char)hdr[0] == 0x7f && hdr[1] == 'E' && hdr[2] == 'L' && hdr[3] == 'F') {
-                int is_dynamic = check_elf_dynamic(fd, (const unsigned char *)hdr, n);
-                close(fd);
-                if (is_dynamic) {
-                    char ld_so[PATH_MAX] = {0};
-                    if (find_dynamic_linker(g_cortex_root, elf_target, ld_so, sizeof(ld_so)) && strcmp(elf_target, ld_so) != 0) {
-                        static char s_last_chmoded_ld[PATH_MAX] = {0};
-                        if (strcmp(s_last_chmoded_ld, ld_so) != 0) {
-                            chmod(ld_so, 0755);
-                            strncpy(s_last_chmoded_ld, ld_so, sizeof(s_last_chmoded_ld) - 1);
-                        }
-                        if (access(elf_target, X_OK) != 0) {
-                            chmod(elf_target, 0755);
-                        }
+                strncpy(g_real_exe, elf_target, sizeof(g_real_exe) - 1);
+                g_real_exe[sizeof(g_real_exe) - 1] = '\0';
 
-                        strncpy(g_real_exe, elf_target, sizeof(g_real_exe) - 1);
-                        g_real_exe[sizeof(g_real_exe) - 1] = '\0';
-
-                        char *const *arg_ptr = argv;
-                        int argc = 0;
-                        while (arg_ptr && *arg_ptr) {
-                            argc++;
-                            arg_ptr++;
-                        }
-
-                        const char *prog_name = strrchr(target, '/');
-                        prog_name = (prog_name != NULL) ? prog_name + 1 : target;
-
-                        char hook_so[PATH_MAX] = {0};
-                        snprintf(hook_so, sizeof(hook_so), "%s/usr/lib/libcortex-hook.so", g_cortex_root);
-                        if (access(hook_so, F_OK) != 0) {
-                            snprintf(hook_so, sizeof(hook_so), "%s/lib/libcortex-hook.so", g_cortex_root);
-                        }
-
-                        char ld_lib_path[PATH_MAX * 6] = {0};
-                        build_ld_library_path(envp, ld_lib_path, sizeof(ld_lib_path));
-
-                        char **new_argv = (char **)calloc(argc + 16, sizeof(char *));
-                        int nidx = 0;
-                        new_argv[nidx++] = ld_so;
-                        if (hook_so[0] != '\0' && access(hook_so, F_OK) == 0) {
-                            new_argv[nidx++] = (char *)"--preload";
-                            new_argv[nidx++] = hook_so;
-                        }
-                        new_argv[nidx++] = (char *)"--library-path";
-                        new_argv[nidx++] = ld_lib_path;
-                        new_argv[nidx++] = (char *)"--argv0";
-                        new_argv[nidx++] = (char *)((argc > 0 && argv[0]) ? argv[0] : prog_name);
-                        new_argv[nidx++] = (char *)elf_target;
-                        for (int i = 1; i < argc; i++) {
-                            new_argv[nidx++] = (char *)argv[i];
-                        }
-                        new_argv[nidx] = NULL;
-                        char **new_env = ensure_hook_in_envp(envp, elf_target);
-                        int ret = orig_execve(ld_so, new_argv, new_env);
-                        free(new_argv);
-                        free_modified_env(new_env, envp);
-                        return ret;
-                    }
+                char hook_buf[PATH_MAX];
+                const char *hook_so = cortex_hook_library(hook_buf, sizeof(hook_buf));
+                char ld_lib_path[PATH_MAX * 6];
+                build_ld_library_path(envp, ld_lib_path, sizeof(ld_lib_path));
+                char **new_argv = build_ldso_argv(ld_so, hook_so, ld_lib_path, elf_target, exec_prog_name(target), argv);
+                if (!new_argv) {
+                    errno = ENOMEM;
+                    return -1;
                 }
-            } else {
-                close(fd);
-            }
-
-            // 2. Handle scripts with shebang lines (e.g., #!/bin/sh, #!/usr/bin/perl)
-            if (n >= 2 && hdr[0] == '#' && hdr[1] == '!') {
-                hdr[n] = '\0';
-                char *newline = strchr(hdr, '\n');
-                if (newline) *newline = '\0';
-
-                char *interp = hdr + 2;
-                while (*interp == ' ' || *interp == '\t') interp++;
-                char *interp_arg = strchr(interp, ' ');
-                if (interp_arg) {
-                    *interp_arg = '\0';
-                    interp_arg++;
-                    while (*interp_arg == ' ' || *interp_arg == '\t') interp_arg++;
+                char **new_env = ensure_hook_in_envp(envp, elf_target);
+                int ret = orig_execve(ld_so, new_argv, new_env);
+                if (errno == EACCES && chmod(ld_so, 0755) == 0) {
+                    // ld.so without its exec bit (an unusual restore): fix it once and retry
+                    ret = orig_execve(ld_so, new_argv, new_env);
                 }
-
-                char interp_buf[PATH_MAX];
-                const char *rewritten_interp = rewrite_path(interp, interp_buf, sizeof(interp_buf));
-                if (access(rewritten_interp, F_OK) != 0 && strcmp(interp, "/bin/sh") == 0) {
-                    if (access("/system/bin/sh", X_OK) == 0) {
-                        rewritten_interp = "/system/bin/sh";
-                    }
-                }
-
-                char *const *arg_ptr = argv;
-                int orig_argc = 0;
-                while (arg_ptr && *arg_ptr) {
-                    orig_argc++;
-                    arg_ptr++;
-                }
-
-                int has_arg = (interp_arg && *interp_arg) ? 1 : 0;
-                char **new_argv = (char **)calloc(orig_argc + has_arg + 3, sizeof(char *));
-                int idx = 0;
-                new_argv[idx++] = (char *)rewritten_interp;
-                if (has_arg) {
-                    new_argv[idx++] = interp_arg;
-                }
-                new_argv[idx++] = (char *)((caller_path && caller_path[0] != '/') ? caller_path : target);
-                for (int i = 1; i < orig_argc; i++) {
-                    new_argv[idx++] = argv[i];
-                }
-                new_argv[idx] = NULL;
-
-                if (strncmp(rewritten_interp, "/system", 7) == 0 ||
-                    (g_cortex_root[0] != '\0' && strncmp(rewritten_interp, g_cortex_root, strlen(g_cortex_root)) != 0)) {
-                    char **sys_env = clean_env_for_system(envp);
-                    int ret = orig_execve(rewritten_interp, new_argv, sys_env);
-                    free(new_argv);
-                    free_modified_env(sys_env, envp);
-                    return ret;
-                }
-                char **cortex_env = prepare_cortex_env(envp, NULL);
-                int ret = execve(rewritten_interp, new_argv, cortex_env);
+                int saved_errno = errno;
                 free(new_argv);
-                free_modified_env(cortex_env, envp);
+                free_modified_env(new_env, envp);
+                errno = saved_errno;
                 return ret;
             }
+        }
+
+        // 2. Handle scripts with shebang lines (e.g., #!/bin/sh, #!/usr/bin/perl)
+        if (!probe.is_elf && probe.n >= 2 && probe.hdr[0] == '#' && probe.hdr[1] == '!') {
+            char *interp;
+            char *interp_arg;
+            parse_shebang(probe.hdr, &interp, &interp_arg);
+            char interp_buf[PATH_MAX];
+            const char *rewritten_interp = shebang_interpreter(interp, interp_buf, sizeof(interp_buf));
+            const char *script = (caller_path && caller_path[0] != '/') ? caller_path : target;
+            char **new_argv = build_script_argv(rewritten_interp, interp_arg, script, argv);
+            if (!new_argv) {
+                errno = ENOMEM;
+                return -1;
+            }
+            int ret;
+            if (is_host_interpreter(rewritten_interp)) {
+                char **sys_env = clean_env_for_system(envp);
+                ret = orig_execve(rewritten_interp, new_argv, sys_env);
+                int saved_errno = errno;
+                free_modified_env(sys_env, envp);
+                errno = saved_errno;
+            } else if (depth >= CORTEX_MAX_SHEBANG_DEPTH) {
+                errno = ELOOP;
+                ret = -1;
+            } else {
+                char **cortex_env = prepare_cortex_env(envp, NULL);
+                ret = cortex_execve(rewritten_interp, new_argv, cortex_env, depth + 1);
+                int saved_errno = errno;
+                free_modified_env(cortex_env, envp);
+                errno = saved_errno;
+            }
+            free(new_argv);
+            return ret;
         }
     } else {
         // Any binary outside CORTEX_ROOT is an Android host binary (e.g. /system/bin/su, /sbin/su, /data/adb/...)
         char **sys_env = clean_env_for_system(envp);
         int ret = orig_execve(target, argv, sys_env);
+        int saved_errno = errno;
         free_modified_env(sys_env, envp);
+        errno = saved_errno;
         return ret;
     }
 
     char **cortex_env = prepare_cortex_env(envp, target);
     int ret = orig_execve(target, argv, cortex_env);
+    int saved_errno = errno;
     free_modified_env(cortex_env, envp);
+    errno = saved_errno;
     return ret;
+}
+
+int execve(const char *filename, char *const argv[], char *const envp[]) {
+    return cortex_execve(filename, argv, envp, 0);
 }
 
 extern char **environ;
@@ -4386,16 +4674,54 @@ int execvpe(const char *file, char *const argv[], char *const envp[]) {
     return execve(file, argv, envp);
 }
 
-int posix_spawn(pid_t *pid, const char *path,
-                const posix_spawn_file_actions_t *file_actions,
-                const posix_spawnattr_t *attrp,
-                char *const argv[], char *const envp[]) {
-    static int (*orig_posix_spawn)(pid_t *, const char *, const posix_spawn_file_actions_t *,
-                                  const posix_spawnattr_t *, char *const [], char *const []) = NULL;
-    if (!orig_posix_spawn) orig_posix_spawn = (int (*)(pid_t *, const char *, const posix_spawn_file_actions_t *,
-                                                      const posix_spawnattr_t *, char *const [], char *const []))
-                                             dlsym(RTLD_NEXT, "posix_spawn");
+typedef int (*orig_posix_spawn_f_type)(pid_t *, const char *, const posix_spawn_file_actions_t *,
+                                      const posix_spawnattr_t *, char *const [], char *const []);
 
+static orig_posix_spawn_f_type real_posix_spawn(void) {
+    static orig_posix_spawn_f_type orig_posix_spawn = NULL;
+    if (!orig_posix_spawn) orig_posix_spawn = (orig_posix_spawn_f_type)dlsym(RTLD_NEXT, "posix_spawn");
+    return orig_posix_spawn;
+}
+
+static int cortex_posix_spawn(pid_t *pid, const char *path,
+                              const posix_spawn_file_actions_t *file_actions,
+                              const posix_spawnattr_t *attrp,
+                              char *const argv[], char *const envp[], int depth);
+
+// A rootfs script: start its interpreter with the same file actions and attributes. Handing the
+// script to the kernel resolves "#!/bin/sh" to Android's own shell, which crashed on the glibc
+// hook in LD_PRELOAD (and "#!/usr/bin/env" etc. used to fall back to fork() + execve(), which
+// dropped the file actions).
+static int spawn_script(pid_t *pid, const char *script, struct exec_probe *probe,
+                        const posix_spawn_file_actions_t *file_actions, const posix_spawnattr_t *attrp,
+                        char *const argv[], char *const envp[], int depth) {
+    char *interp;
+    char *interp_arg;
+    parse_shebang(probe->hdr, &interp, &interp_arg);
+    char interp_buf[PATH_MAX];
+    const char *rewritten_interp = shebang_interpreter(interp, interp_buf, sizeof(interp_buf));
+    char **new_argv = build_script_argv(rewritten_interp, interp_arg, script, argv);
+    if (!new_argv) return ENOMEM;
+    int ret;
+    if (is_host_interpreter(rewritten_interp)) {
+        orig_posix_spawn_f_type orig_posix_spawn = real_posix_spawn();
+        char **sys_env = clean_env_for_system(envp);
+        ret = orig_posix_spawn ? orig_posix_spawn(pid, rewritten_interp, file_actions, attrp, new_argv, sys_env) : ENOSYS;
+        free_modified_env(sys_env, envp);
+    } else {
+        ret = cortex_posix_spawn(pid, rewritten_interp, file_actions, attrp, new_argv, envp, depth + 1);
+    }
+    free(new_argv);
+    return ret;
+}
+
+static int cortex_posix_spawn(pid_t *pid, const char *path,
+                              const posix_spawn_file_actions_t *file_actions,
+                              const posix_spawnattr_t *attrp,
+                              char *const argv[], char *const envp[], int depth) {
+    orig_posix_spawn_f_type orig_posix_spawn = real_posix_spawn();
+
+    const char *caller_path = path;
     char abs_buf[PATH_MAX];
     path = absolutize_exec_path(path, abs_buf, sizeof(abs_buf));
 
@@ -4407,8 +4733,7 @@ int posix_spawn(pid_t *pid, const char *path,
     const char *f_base = (path != NULL) ? strrchr(path, '/') : NULL;
     f_base = (f_base != NULL) ? f_base + 1 : (path != NULL ? path : "");
 
-    const char *prog_name = strrchr(target, '/');
-    prog_name = (prog_name != NULL) ? prog_name + 1 : target;
+    const char *prog_name = exec_prog_name(target);
 
     if (strcmp(f_base, "ldconfig") == 0 ||
         strcmp(f_base, "ldconfig.real") == 0 ||
@@ -4464,80 +4789,53 @@ int posix_spawn(pid_t *pid, const char *path,
         return errno;
     }
 
-    char resolved_target[PATH_MAX];
-    resolve_symlinks(target, resolved_target, sizeof(resolved_target), 0);
-    const char *elf_target = target;
-    if (is_elf_binary(resolved_target) && !is_ld_linux(resolved_target)) {
-        elf_target = resolved_target;
-    }
-
-    int is_elf = 0;
-    int is_dynamic = 0;
-    if (g_cortex_root[0] != '\0' && strncmp(target, g_cortex_root, strlen(g_cortex_root)) == 0) {
-        int fd = open(elf_target, O_RDONLY);
-        if (fd >= 0) {
-            unsigned char hdr[256];
-            ssize_t n = read(fd, hdr, sizeof(hdr));
-            if (n >= 4 && hdr[0] == 0x7f && hdr[1] == 'E' && hdr[2] == 'L' && hdr[3] == 'F') {
-                is_elf = 1;
-                is_dynamic = check_elf_dynamic(fd, hdr, n);
-            }
-            close(fd);
-        }
-    }
-
-    char ld_so[PATH_MAX] = {0};
-    int has_ld_so = (is_elf && is_dynamic && g_cortex_root[0] != '\0') ? find_dynamic_linker(g_cortex_root, elf_target, ld_so, sizeof(ld_so)) : 0;
-
     char *const *orig_ep = envp ? envp : environ;
-    char **new_envp = ensure_hook_in_envp((char *const *)orig_ep, elf_target);
+    int in_root = g_cortex_root[0] != '\0' && strncmp(target, g_cortex_root, g_cortex_root_len) == 0;
+
+    struct exec_probe probe;
+    char resolved_target[PATH_MAX];
+    const char *elf_target = target;
+    if (in_root) {
+        elf_target = select_exec_target(target, resolved_target, sizeof(resolved_target), &probe);
+        if (!probe.is_elf && probe.n >= 2 && probe.hdr[0] == '#' && probe.hdr[1] == '!') {
+            // Like the kernel, give up after a few nested "#!" interpreters.
+            if (depth >= CORTEX_MAX_SHEBANG_DEPTH) return ELOOP;
+            const char *script = (caller_path && caller_path[0] != '/') ? caller_path : target;
+            return spawn_script(pid, script, &probe, file_actions, attrp, argv, orig_ep, depth);
+        }
+    } else {
+        probe.hdr[0] = '\0';
+        probe.n = -1;
+        probe.is_elf = 0;
+        probe.is_dynamic = 0;
+        probe.e_machine = 0;
+        probe.mode = 0;
+    }
+
+    char ld_so[PATH_MAX];
+    ld_so[0] = '\0';
+    int has_ld_so = probe.is_dynamic ? find_dynamic_linker_for_machine(g_cortex_root, probe.e_machine, ld_so, sizeof(ld_so)) : 0;
+
+    // Android programs get Android's environment, as execve() gives them: the glibc hook in
+    // LD_PRELOAD crashes them.
+    char **new_envp = in_root ? ensure_hook_in_envp(orig_ep, elf_target) : clean_env_for_system(orig_ep);
 
     int ret = -1;
-    if (is_elf && has_ld_so && strcmp(elf_target, ld_so) != 0) {
-        static char s_last_chmoded_ld_spawn[PATH_MAX] = {0};
-        if (strcmp(s_last_chmoded_ld_spawn, ld_so) != 0) {
-            chmod(ld_so, 0755);
-            strncpy(s_last_chmoded_ld_spawn, ld_so, sizeof(s_last_chmoded_ld_spawn) - 1);
-        }
-        if (access(elf_target, X_OK) != 0) {
-            chmod(elf_target, 0755);
-        }
+    if (has_ld_so && strcmp(elf_target, ld_so) != 0) {
+        ensure_exec_bit(elf_target, probe.mode);
 
-        int argc = 0;
-        while (argv && argv[argc]) argc++;
-
-        const char *prog_name = strrchr(target, '/');
-        prog_name = (prog_name != NULL) ? prog_name + 1 : target;
-
-        char hook_so[PATH_MAX] = {0};
-        snprintf(hook_so, sizeof(hook_so), "%s/usr/lib/libcortex-hook.so", g_cortex_root);
-        if (access(hook_so, F_OK) != 0) {
-            snprintf(hook_so, sizeof(hook_so), "%s/lib/libcortex-hook.so", g_cortex_root);
-        }
-
-        char ld_lib_path[PATH_MAX * 6] = {0};
-        build_ld_library_path((char *const *)orig_ep, ld_lib_path, sizeof(ld_lib_path));
-
-        char **new_argv = (char **)calloc(argc + 16, sizeof(char *));
+        char hook_buf[PATH_MAX];
+        const char *hook_so = cortex_hook_library(hook_buf, sizeof(hook_buf));
+        char ld_lib_path[PATH_MAX * 6];
+        build_ld_library_path(orig_ep, ld_lib_path, sizeof(ld_lib_path));
+        char **new_argv = build_ldso_argv(ld_so, hook_so, ld_lib_path, elf_target, prog_name, argv);
         if (new_argv) {
-            int nidx = 0;
-            new_argv[nidx++] = ld_so;
-            if (hook_so[0] != '\0' && access(hook_so, F_OK) == 0) {
-                new_argv[nidx++] = (char *)"--preload";
-                new_argv[nidx++] = hook_so;
-            }
-            new_argv[nidx++] = (char *)"--library-path";
-            new_argv[nidx++] = ld_lib_path;
-            new_argv[nidx++] = (char *)"--argv0";
-            new_argv[nidx++] = (char *)((argc > 0 && argv && argv[0]) ? argv[0] : prog_name);
-            new_argv[nidx++] = (char *)elf_target;
-            for (int i = 1; i < argc; i++) {
-                new_argv[nidx++] = (char *)argv[i];
-            }
-            new_argv[nidx] = NULL;
-
             if (orig_posix_spawn) {
                 ret = orig_posix_spawn(pid, ld_so, file_actions, attrp, new_argv, new_envp);
+                if (ret == EACCES && chmod(ld_so, 0755) == 0) {
+                    // ld.so without its exec bit (an unusual restore): fix it once and retry
+                    ret = orig_posix_spawn(pid, ld_so, file_actions, attrp, new_argv, new_envp);
+                }
             }
             free(new_argv);
         }
@@ -4550,19 +4848,26 @@ int posix_spawn(pid_t *pid, const char *path,
     if (ret != 0) {
         pid_t child = fork();
         if (child < 0) {
-            free_modified_env(new_envp, (char *const *)orig_ep);
+            free_modified_env(new_envp, orig_ep);
             return errno;
         } else if (child == 0) {
             execve(target, argv, new_envp);
             _exit(127);
         } else {
             if (pid) *pid = child;
-            free_modified_env(new_envp, (char *const *)orig_ep);
+            free_modified_env(new_envp, orig_ep);
             return 0;
         }
     }
-    free_modified_env(new_envp, (char *const *)orig_ep);
+    free_modified_env(new_envp, orig_ep);
     return ret;
+}
+
+int posix_spawn(pid_t *pid, const char *path,
+                const posix_spawn_file_actions_t *file_actions,
+                const posix_spawnattr_t *attrp,
+                char *const argv[], char *const envp[]) {
+    return cortex_posix_spawn(pid, path, file_actions, attrp, argv, envp, 0);
 }
 
 int posix_spawnp(pid_t *pid, const char *file,

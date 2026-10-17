@@ -44,22 +44,7 @@ object Environment {
         )
         val pathStr = pathList.joinToString(":")
 
-        val ldLibraryPathList = listOf(
-            "$root/lib",
-            "$root/usr/lib",
-            "$root/lib/aarch64-linux-gnu",
-            "$root/usr/lib/aarch64-linux-gnu",
-            "$root/lib/arm-linux-gnueabihf",
-            "$root/usr/lib/arm-linux-gnueabihf",
-            "$root/usr/local/lib",
-            "$root/usr/lib/systemd",
-            "$root/lib/systemd",
-            "$root/usr/lib/aarch64-linux-gnu/systemd",
-            "$root/lib/aarch64-linux-gnu/systemd",
-            "$root/usr/lib/arm-linux-gnueabihf/systemd",
-            "$root/lib/arm-linux-gnueabihf/systemd"
-        )
-        val ldPathStr = ldLibraryPathList.joinToString(":")
+        val ldPathStr = LibraryPath.forRoot(root)
 
         val glibcHooks = listOf(
             File(root, "usr/lib/libcortex-hook.so"),
