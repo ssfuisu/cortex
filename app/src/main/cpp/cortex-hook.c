@@ -1534,10 +1534,13 @@ FILE *tmpfile(void) {
     return f;
 }
 
-// 32-bit programs built with _FILE_OFFSET_BITS=64 call this name
+#ifndef __USE_FILE_OFFSET64
+// Programs built with _LARGEFILE64_SOURCE call this name. With _FILE_OFFSET_BITS=64 (the 32-bit ARM
+// build) the headers already export the definition above as tmpfile64.
 FILE *tmpfile64(void) {
     return tmpfile();
 }
+#endif
 
 // Hook opendir
 DIR *opendir(const char *name) {
