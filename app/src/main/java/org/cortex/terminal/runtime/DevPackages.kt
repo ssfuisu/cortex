@@ -104,7 +104,7 @@ object DevPackages {
         if (!libc.startsWith("$GLIBC_SERIES-")) {
             return Outcome(Result.NOT_POSSIBLE, "libc6 $libc is not from glibc $GLIBC_SERIES")
         }
-        val present = PACKAGES.filter { isRegistered(status, it) }
+        val present = PACKAGES.filter { isInstalled(status, it) }
         if (present.isNotEmpty()) {
             writeMarker(marker, "already registered: ${present.joinToString()}")
             return Outcome(Result.NOT_NEEDED, present.joinToString())
@@ -130,7 +130,7 @@ object DevPackages {
                 updated != null
             }
             val after = statusFile.readText()
-            val missing = PACKAGES.filter { !isRegistered(after, it) }
+            val missing = PACKAGES.filter { !isInstalled(after, it) }
             if (missing.isNotEmpty()) return Outcome(Result.FAILED, "not registered: ${missing.joinToString()}")
             writeMarker(marker, "libc6 $libc: ${PACKAGES.joinToString()}")
             return Outcome(Result.INSTALLED, if (merged) "libc6 $libc" else "libc6 $libc, already merged")
@@ -151,19 +151,24 @@ object DevPackages {
         return null
     }
 
-    internal fun isRegistered(status: String, name: String) = stanzas(status).any { field(it, "Package") == name }
+    internal fun isInstalled(status: String, name: String) = installedVersion(status, name) != null
 
     /**
-     * [current] plus the stanzas of [additions] for packages that [current] does not know, or null
-     * when there is nothing to add. The result ends like dpkg's own file: stanzas separated by a blank
-     * line, a blank line after the last one.
+     * [current] plus the stanzas of [additions] for packages that are not installed in [current], or null
+     * when there is nothing to add. A leftover stanza of such a package (removed but not purged, half
+     * installed...) is replaced, not kept next to the new one. The result ends like dpkg's own file:
+     * stanzas separated by a blank line, a blank line after the last one.
      */
     internal fun mergeStatus(current: String, additions: String): String? {
-        val known = stanzas(current).mapNotNull { field(it, "Package") }.toSet()
-        val fresh = stanzas(additions).filter { field(it, "Package") !in known }
+        val installed = stanzas(current).filter { field(it, "Status")?.endsWith(" installed") == true }
+            .mapNotNull { field(it, "Package") }.toSet()
+        val fresh = stanzas(additions).filter { field(it, "Package") !in installed }
         if (fresh.isEmpty()) return null
-        val sb = StringBuilder(current.trimEnd('\n'))
-        sb.append("\n\n")
+        val replaced = fresh.mapNotNull { field(it, "Package") }.toSet()
+        val sb = StringBuilder()
+        for (s in stanzas(current)) {
+            if (field(s, "Package") !in replaced) sb.append(s.trimEnd('\n')).append("\n\n")
+        }
         for (s in fresh) sb.append(s.trimEnd('\n')).append("\n\n")
         return sb.toString()
     }

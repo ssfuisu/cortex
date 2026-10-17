@@ -308,7 +308,11 @@ def build_overlay(deb_paths, arch, out_path, log=print):
             with tarfile.open(fileobj=gz, mode="w", format=tarfile.GNU_FORMAT) as tf:
                 for e in entries:
                     tf.addfile(e.info, io.BytesIO(e.data) if e.data is not None else None)
-    verify_overlay(tmp, arch)
+    try:
+        verify_overlay(tmp, arch)
+    except BaseException:
+        os.unlink(tmp)
+        raise
     os.replace(tmp, out_path)
     log("overlay for %s: %s (%d files, %d bytes)" % (
         arch, ", ".join("%s %s" % (p, packages[p]["version"]) for p in PACKAGES),

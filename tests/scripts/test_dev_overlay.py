@@ -272,6 +272,8 @@ class OverlayTest(unittest.TestCase):
         with self.assertRaises(overlay.OverlayError) as ctx:
             overlay.build_overlay(built, "arm64", os.path.join(self.tmp, "x.tar.gz"), log=lambda _: None)
         self.assertIn("crt1.o", str(ctx.exception))
+        self.assertEqual([], [f for f in os.listdir(self.tmp) if f.endswith(".tmp") or f.startswith("x.tar")],
+                         "the temporary overlay of a failed verification must not stay behind")
 
     def test_a_failed_build_leaves_no_output_behind(self):
         out = os.path.join(self.tmp, "never.tar.gz")
