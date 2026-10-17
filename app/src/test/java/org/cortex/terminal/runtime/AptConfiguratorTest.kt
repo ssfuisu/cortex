@@ -176,4 +176,44 @@ class AptConfiguratorTest {
         assertTrue(profileText.contains("GODEBUG=netdns=cgo"))
         assertTrue(profileText.contains("/etc/cortex/autostart"))
     }
+    @Test
+    fun ensureAptSandbox_pinsTheGlibcPackagesButNotTheCrossToolchains() {
+        val root = tempFolder.newFolder("rootfs")
+
+        AptConfigurator.ensureAptSandbox(root)
+
+        val pins = File(root, "etc/apt/preferences.d/01cortex-pins").readText()
+        // stanzas in file order: "Package: <names>" followed by "Pin-Priority: -1"
+        val blocks = pins.split("\n\n").map { it.trim() }.filter { it.startsWith("Explanation:") || it.startsWith("Package:") }
+        val pinned = blocks.flatMap { block ->
+            block.lines().first { it.startsWith("Package:") }.removePrefix("Package:").trim().split(" ")
+        }.toSet()
+        assertTrue(pinned.containsAll(listOf("libc6", "libc6-dev", "libc6-dbg", "libc-bin", "libc-dev-bin", "locales")))
+        // a glob such as libc6* also blocked the 200 libc6-*-cross packages, which do not touch the runtime libc
+        assertFalse("no glob over the libc6 family", pinned.any { it.contains("*") })
+        assertTrue(pins.lines().filter { it.startsWith("Pin-Priority:") }.all { it == "Pin-Priority: -1" })
+    }
+
+    @Test
+    fun ensureAptSandbox_holdsTheInstalledGlibcPackagesInTheStatusFile() {
+        val root = tempFolder.newFolder("rootfs")
+        val status = File(root, "var/lib/dpkg/status").apply {
+            parentFile?.mkdirs()
+            writeText(
+                "Package: libc6\nStatus: install ok installed\nVersion: 2.39-0ubuntu8.9\n\n" +
+                    "Package: libc-dev-bin\nStatus: install ok installed\nVersion: 2.39-0ubuntu8.9\n\n" +
+                    "Package: libc6-dev\nStatus: install ok installed\nVersion: 2.39-0ubuntu8.9\n\n" +
+                    "Package: bash\nStatus: install ok installed\nVersion: 5.2.21-2ubuntu4\n"
+            )
+        }
+
+        AptConfigurator.ensureAptSandbox(root)
+
+        val text = status.readText()
+        assertTrue(text.contains("Package: libc6\nStatus: hold ok installed"))
+        assertTrue(text.contains("Package: libc-dev-bin\nStatus: hold ok installed"))
+        // libc6-dev is protected by the pin; a user who wants it gone can still remove it
+        assertTrue(text.contains("Package: libc6-dev\nStatus: install ok installed"))
+        assertTrue(text.contains("Package: bash\nStatus: install ok installed"))
+    }
 }

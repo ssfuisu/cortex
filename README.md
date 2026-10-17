@@ -200,6 +200,9 @@ Not yet. Cortex is a terminal; there is no X11 or Wayland server.
 **Will every Ubuntu package work?**
 Most command-line tools do. Packages that depend on kernel features Android does not allow for apps (for example systemd services or privileged device access) cannot work.
 
+**Can I compile C and C++ programs?**
+Yes. `apt install build-essential` installs gcc, g++ and make, and the C library headers and libraries (`libc6-dev`, `linux-libc-dev`) come with the app, so `-dev` packages such as `zlib1g-dev` or `python3-dev` install too. Two limits: statically linked programs (`gcc -static`) are killed at start by Android's seccomp filter, so link dynamically; and Cortex keeps the C library itself (`libc6`, `libc-bin`) at the version it ships, because Ubuntu's own build does not start under Android's filter, so `apt upgrade` leaves those packages alone.
+
 **How do I back up my files?**
 Run `cortex-backup`. See [Backup and Restore](#backup-and-restore).
 

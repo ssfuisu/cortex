@@ -314,6 +314,12 @@ class MainActivity : AppCompatActivity() {
             } catch (e: Exception) {
                 android.util.Log.e("MainActivity", "Startup filesystem init failed", e)
             }
+            // libc6-dev and its dependencies, for older installations that never had them
+            try {
+                BootstrapManager.ensureDevPackages(this@MainActivity, root)
+            } catch (e: Exception) {
+                android.util.Log.e("MainActivity", "Startup C development packages failed", e)
+            }
         }
         if (!bootstrapInstalledAtStart) {
             isBootstrapping = true
@@ -462,6 +468,7 @@ class MainActivity : AppCompatActivity() {
                     BootstrapManager.updateTimezone(this, root)
                     BootstrapManager.ensureEssentialBinaries(root, Environment.getHomeDir(this), this)
                     BootstrapManager.initializeFileSystem(this)
+                    BootstrapManager.ensureDevPackages(this, root)
                 } catch (t: Throwable) {
                     android.util.Log.e("MainActivity", "Post-bootstrap setup failed", t)
                 }

@@ -198,7 +198,7 @@ object AptConfigurator {
             val cortexPins = File(aptPrefDir, "01cortex-pins")
             cortexPins.writeText(
                 "Explanation: Pin core glibc and linker packages to prevent upgrading to stock upstream packages that fail Android SECCOMP\n" +
-                "Package: libc6*\n" +
+                "Package: libc6 libc6-dev libc6-dbg\n" +
                 "Pin: release *\n" +
                 "Pin-Priority: -1\n\n" +
                 "Package: libc-bin\n" +
@@ -218,40 +218,42 @@ object AptConfigurator {
             val dpkgStatusFile = File(root, "var/lib/dpkg/status")
             if (dpkgStatusFile.exists() && dpkgStatusFile.isFile) {
                 try {
-                    val content = dpkgStatusFile.readText()
-                    val packagesToHold = setOf(
-                        "libc6", "libc6:arm64", "libc6:armhf",
-                        "libc-bin", "libc-bin:arm64", "libc-bin:armhf",
-                        "libc-dev-bin", "libc-dev-bin:arm64", "libc-dev-bin:armhf",
-                        "locales", "locales:all"
-                    )
-                    var updated = false
-                    val blocks = content.split(Regex("\\n\\n+"))
-                    val newBlocks = blocks.map { block ->
-                        val pkgLine = block.lines().firstOrNull { it.startsWith("Package:") }
-                        val pkgName = pkgLine?.substringAfter(":")?.trim()
-                        if (pkgName != null && packagesToHold.contains(pkgName)) {
-                            val lines = block.lines().toMutableList()
-                            val statusIdx = lines.indexOfFirst { it.startsWith("Status:") }
-                            if (statusIdx != -1) {
-                                if (lines[statusIdx] != "Status: hold ok installed") {
-                                    lines[statusIdx] = "Status: hold ok installed"
+                    synchronized(DpkgStatus.lock) {
+                        val content = dpkgStatusFile.readText()
+                        val packagesToHold = setOf(
+                            "libc6", "libc6:arm64", "libc6:armhf",
+                            "libc-bin", "libc-bin:arm64", "libc-bin:armhf",
+                            "libc-dev-bin", "libc-dev-bin:arm64", "libc-dev-bin:armhf",
+                            "locales", "locales:all"
+                        )
+                        var updated = false
+                        val blocks = content.split(Regex("\\n\\n+"))
+                        val newBlocks = blocks.map { block ->
+                            val pkgLine = block.lines().firstOrNull { it.startsWith("Package:") }
+                            val pkgName = pkgLine?.substringAfter(":")?.trim()
+                            if (pkgName != null && packagesToHold.contains(pkgName)) {
+                                val lines = block.lines().toMutableList()
+                                val statusIdx = lines.indexOfFirst { it.startsWith("Status:") }
+                                if (statusIdx != -1) {
+                                    if (lines[statusIdx] != "Status: hold ok installed") {
+                                        lines[statusIdx] = "Status: hold ok installed"
+                                        updated = true
+                                    }
+                                } else {
+                                    val pkgIdx = lines.indexOfFirst { it.startsWith("Package:") }
+                                    lines.add(pkgIdx + 1, "Status: hold ok installed")
                                     updated = true
                                 }
+                                lines.joinToString("\n")
                             } else {
-                                val pkgIdx = lines.indexOfFirst { it.startsWith("Package:") }
-                                lines.add(pkgIdx + 1, "Status: hold ok installed")
-                                updated = true
+                                block
                             }
-                            lines.joinToString("\n")
-                        } else {
-                            block
                         }
-                    }
-                    if (updated) {
-                        dpkgStatusFile.writeText(newBlocks.joinToString("\n\n") + "\n")
-                        dpkgStatusFile.setReadable(true, false)
-                        dpkgStatusFile.setWritable(true, true)
+                        if (updated) {
+                            dpkgStatusFile.writeText(newBlocks.joinToString("\n\n") + "\n")
+                            dpkgStatusFile.setReadable(true, false)
+                            dpkgStatusFile.setWritable(true, true)
+                        }
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to update dpkg status holds", e)

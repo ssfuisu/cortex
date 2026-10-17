@@ -14,6 +14,8 @@
 *.jks
 extra-rootfs/
 hook-libs/
+/app/src/main/assets/devpkgs-*.tar.gz
+__pycache__/
 
 *.p12
 *.pfx

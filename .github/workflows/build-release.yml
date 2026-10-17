@@ -217,7 +217,7 @@ jobs:
           chmod 0644 extra-rootfs/etc/apt/sources.list.d/ubuntu.sources
           echo "# Disabled for Cortex" > extra-rootfs/etc/apt/apt.conf.d/docker-clean
           mkdir -p extra-rootfs/etc/apt/preferences.d
-          printf 'Explanation: Pin core glibc and linker packages to prevent upgrading to stock upstream packages that fail Android SECCOMP\nPackage: libc6*\nPin: release *\nPin-Priority: -1\n\nPackage: libc-bin\nPin: release *\nPin-Priority: -1\n\nPackage: libc-dev-bin\nPin: release *\nPin-Priority: -1\n\nPackage: locales\nPin: release *\nPin-Priority: -1\n' > extra-rootfs/etc/apt/preferences.d/01cortex-pins
+          printf 'Explanation: Pin core glibc and linker packages to prevent upgrading to stock upstream packages that fail Android SECCOMP\nPackage: libc6 libc6-dev libc6-dbg\nPin: release *\nPin-Priority: -1\n\nPackage: libc-bin\nPin: release *\nPin-Priority: -1\n\nPackage: libc-dev-bin\nPin: release *\nPin-Priority: -1\n\nPackage: locales\nPin: release *\nPin-Priority: -1\n' > extra-rootfs/etc/apt/preferences.d/01cortex-pins
           printf 'force-confdef\nforce-confold\nforce-unsafe-io\nno-debsig\n' > extra-rootfs/etc/dpkg/dpkg.cfg.d/01cortex
           printf 'export DPKG_DEB_THREADS_MAX=1\nexport XZ_OPT=-T1\nexport XZ_DEFAULTS=-T1\nexport TAR_OPTIONS=--no-same-owner\nexport DEBIAN_FRONTEND=noninteractive\nexport DEBCONF_FRONTEND=noninteractive\nexport DEBCONF_NONINTERACTIVE_SEEN=true\nunset PREFIX\nexport GODEBUG=netdns=cgo\nshopt -s checkwinsize 2>/dev/null\nexport PATH="/home/.opencode/bin:/home/.local/bin:$HOME/.opencode/bin:$HOME/.local/bin:$PATH"\nif [ -n "$CORTEX_ROOT" ]; then\n  export SSL_CERT_FILE="$CORTEX_ROOT/etc/ssl/certs/ca-certificates.crt"\n  export SSL_CERT_DIR="$CORTEX_ROOT/etc/ssl/certs:/system/etc/security/cacerts"\n  export CURL_CA_BUNDLE="$CORTEX_ROOT/etc/ssl/certs/ca-certificates.crt"\n  export NODE_EXTRA_CA_CERTS="$CORTEX_ROOT/etc/ssl/certs/ca-certificates.crt"\n  export REQUESTS_CA_BUNDLE="$CORTEX_ROOT/etc/ssl/certs/ca-certificates.crt"\nelse\n  export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt\n  export CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt\nfi\nexport TZDIR=/usr/share/zoneinfo\npython3 -c "import glob, os; [os.remove(f) for f in glob.glob(\"/var/lib/apt/lists/*_Packages\") if any(b and not b.startswith(b\"Package:\") for b in [x.strip() for x in open(f, \"rb\").read().split(b\"\\n\\n\")])]\" 2>/dev/null || true\nrm -rf /var/lib/apt/lists/partial/* 2>/dev/null || true\nif [ -d /etc/cortex/autostart ]; then\n  for s in /etc/cortex/autostart/*; do\n    if [ -f "$s" ]; then\n      sname="$(basename "$s")"\n      service "$sname" start >/dev/null 2>&1 || true\n    fi\n  done\nfi\n' > extra-rootfs/etc/profile.d/01cortex.sh
 
@@ -299,6 +299,17 @@ jobs:
 
           ls -lh app/src/main/assets/
 
+      - name: Build C development overlays (libc6-dev and its dependencies)
+        run: |
+          set -euo pipefail
+          # Cortex pins its patched glibc, which keeps Ubuntu's libc6-dev (and build-essential, g++, every -dev
+          # package) from being installed. These tarballs hold the stock libc6-dev, libc-dev-bin, libcrypt-dev,
+          # linux-libc-dev and rpcsvc-proto, registered in dpkg's database; the app unpacks them next to the
+          # pinned glibc (DevPackages.kt). The indexes are checked against the pinned archive keyring.
+          python3 scripts/build-dev-overlay.py --arch arm64 --keyring app/src/main/assets/ubuntu-archive-keyring.gpg --out app/src/main/assets/devpkgs-arm64.tar.gz
+          python3 scripts/build-dev-overlay.py --arch armhf --keyring app/src/main/assets/ubuntu-archive-keyring.gpg --out app/src/main/assets/devpkgs-arm.tar.gz
+          ls -lh app/src/main/assets/devpkgs-*
+
       - name: Run Native & Shell Script Tests and Verify PR Debug Build
         if: github.event_name == 'pull_request'
         run: |
@@ -306,6 +317,7 @@ jobs:
           /tmp/test_cortex_native
           gcc -std=gnu11 -O2 -Wall -Wextra tests/bench/micro.c -o /tmp/micro_bench
           bash tests/scripts/test_shell_scripts.sh
+          python3 -m unittest discover -s tests/scripts -p 'test_dev_overlay.py'
           ./gradlew testDebugUnitTest lintDebug assembleDebug --build-cache --parallel --stacktrace
 
           DEBUG_ARM64_APK=$(find app/build/outputs/apk/debug -name "*arm64-v8a*.apk" | head -n 1)
@@ -343,6 +355,7 @@ jobs:
           /tmp/test_cortex_native
           gcc -std=gnu11 -O2 -Wall -Wextra tests/bench/micro.c -o /tmp/micro_bench
           bash tests/scripts/test_shell_scripts.sh
+          python3 -m unittest discover -s tests/scripts -p 'test_dev_overlay.py'
           ./gradlew testDebugUnitTest lintDebug assembleRelease --build-cache --parallel --stacktrace
 
       - name: Prepare and Verify Signed APKs
@@ -409,14 +422,14 @@ jobs:
 
           # 1. Strip opposite arch assets from 64-bit APK to minimize download size
           echo "Optimizing 64-bit APK size: stripping 32-bit assets..."
-          zip -d "$ARM64_RAW" "assets/bootstrap-arm.tar*" "assets/libcortex-hook-arm.so" || true
+          zip -d "$ARM64_RAW" "assets/bootstrap-arm.tar*" "assets/devpkgs-arm.tar*" "assets/libcortex-hook-arm.so" || true
           $ZIPALIGN -f -p 4 "$ARM64_RAW" release-apks/arm64-aligned.apk
           sign_apk release-apks/arm64-aligned.apk release-apks/Cortex-arm64-v8a-signed.apk
           rm -f release-apks/arm64-aligned.apk
 
           # 2. Strip opposite arch assets from 32-bit APK to minimize download size
           echo "Optimizing 32-bit APK size: stripping 64-bit assets..."
-          zip -d "$ARM32_RAW" "assets/bootstrap-arm64.tar*" "assets/libcortex-hook-arm64.so" || true
+          zip -d "$ARM32_RAW" "assets/bootstrap-arm64.tar*" "assets/devpkgs-arm64.tar*" "assets/libcortex-hook-arm64.so" || true
           $ZIPALIGN -f -p 4 "$ARM32_RAW" release-apks/arm32-aligned.apk
           sign_apk release-apks/arm32-aligned.apk release-apks/Cortex-armeabi-v7a-signed.apk
           rm -f release-apks/arm32-aligned.apk
@@ -458,6 +471,19 @@ jobs:
               exit 1
             fi
           done
+
+          # Each APK carries the bootstrap, the hook and the C development overlay of its own architecture only
+          check_assets() {
+            unzip -l "$1" > /tmp/apk-assets.txt
+            for need in "assets/bootstrap-$2.tar" "assets/devpkgs-$2.tar.gz" "assets/libcortex-hook-$2.so"; do
+              grep -q "$need" /tmp/apk-assets.txt || { echo "ERROR: $1 has no $need"; exit 1; }
+            done
+            for stray in "assets/bootstrap-$3.tar" "assets/devpkgs-$3.tar" "assets/libcortex-hook-$3.so"; do
+              if grep -q "$stray" /tmp/apk-assets.txt; then echo "ERROR: $1 still carries $stray"; exit 1; fi
+            done
+          }
+          check_assets release-apks/Cortex-arm64-v8a-signed.apk arm64 arm
+          check_assets release-apks/Cortex-armeabi-v7a-signed.apk arm arm64
 
           echo "Final optimized APK sizes:"
           ls -lh release-apks/

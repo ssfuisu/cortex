@@ -323,6 +323,45 @@ object BootstrapManager {
         }
     }
 
+    /**
+     * Installs the C development packages (libc6-dev and what it needs) that the pinned glibc keeps apt
+     * from installing, see [DevPackages]. Unpacks about 17 MB, so call it from a background thread.
+     */
+    fun ensureDevPackages(context: Context, root: File) {
+        val outcome = DevPackages.ensureInstalled(
+            root = root,
+            tmpDir = context.cacheDir,
+            openOverlay = {
+                try {
+                    context.assets.open(DevPackages.assetName(Process.is64Bit()))
+                } catch (e: java.io.IOException) {
+                    null
+                }
+            },
+            extract = { tar, dest -> extractTarInto(tar, dest) },
+            log = { Log.i(TAG, it) }
+        )
+        if (outcome.result == DevPackages.Result.FAILED) {
+            Log.e(TAG, "C development packages were not installed: $outcome")
+        }
+    }
+
+    private fun extractTarInto(tar: File, dest: File): Boolean {
+        if (PtyNative.extractTar(tar.absolutePath, dest.absolutePath) == 0) return true
+        val cmd = when {
+            File("/system/bin/tar").exists() -> listOf("/system/bin/tar", "-xf", tar.absolutePath, "-C", dest.absolutePath)
+            File("/system/bin/toybox").exists() -> listOf("/system/bin/toybox", "tar", "-xf", tar.absolutePath, "-C", dest.absolutePath)
+            else -> return false
+        }
+        return try {
+            val process = ProcessBuilder(cmd).redirectErrorStream(true).start()
+            process.inputStream.readBytes()
+            process.waitFor() == 0
+        } catch (e: Exception) {
+            false
+        }
+    }
+
     fun getInitialShellCommand(context: Context): String {
         val root = Environment.getCortexRoot(context)
         val debianBash = File(root, "usr/bin/bash")
