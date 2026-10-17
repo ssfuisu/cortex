@@ -46,10 +46,13 @@ if ! command -v "$CC" >/dev/null 2>&1; then
     exit 64
 fi
 
-# The CPU to pin to: the highest-numbered online one is a big core on most phones.
+# The CPU to pin to: the highest-numbered online one is a big core on most phones. /sys lists the
+# online CPUs as ranges ("0-3,6-7"); nproc --all would also count CPUs that are switched off.
 if [ -z "$CPU" ]; then
-    CPU="$(nproc --all 2>/dev/null || echo 1)"
-    CPU=$((CPU - 1))
+    CPU="$(sed 's/.*[-,]//' /sys/devices/system/cpu/online 2>/dev/null)"
+    case "$CPU" in
+        '' | *[!0-9]*) CPU=$(($(nproc 2>/dev/null || echo 1) - 1)) ;;
+    esac
 fi
 
 WORK="$(mktemp -d)"

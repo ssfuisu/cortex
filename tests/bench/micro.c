@@ -279,7 +279,7 @@ int main(int argc, char **argv) {
         cpu_set_t set;
         CPU_ZERO(&set);
         CPU_SET(atoi(cpu), &set);
-        sched_setaffinity(0, sizeof set, &set);
+        if (sched_setaffinity(0, sizeof set, &set) != 0) die("sched_setaffinity", cpu);
     }
     long n = atol(argv[3]);
     for (size_t i = 0; i < sizeof TESTS / sizeof TESTS[0]; i++) {

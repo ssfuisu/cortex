@@ -34,7 +34,7 @@ With full APT package management, high-speed developer launchers, and a modern M
 | How Linux programs run | Directly on the Android kernel; a small `LD_PRELOAD` library maps `/usr`, `/etc`, ... into the app's private storage | Directly, as programs built for Android | Inside PRoot, a user-space chroot that intercepts system calls with `ptrace` | Inside a virtual machine (Android Virtualization Framework, supported devices only) |
 | C library | glibc 2.39 (Ubuntu) | Bionic (Android's libc) | glibc of the chosen distribution | glibc (Debian) |
 | Package source | Ubuntu 24.04 archive via `apt` | Termux repositories via `pkg` | The distribution's own `apt` | Debian `apt` |
-| Cost of running programs | No `ptrace`. The library adds 0.04 to 0.4 µs to a file-path call and about 0.3 ms to starting a program ([details](#performance)) | None | `ptrace` stops on every system call | Virtualization overhead |
+| Cost of running programs | No `ptrace`. The library adds 0.04 to 0.4 µs to most file-path calls (1.3 µs to `lstat()` of a symbolic link) and about 0.3 ms to starting a program ([details](#performance)) | None | `ptrace` stops on every system call | Virtualization overhead |
 
 Pick Cortex when you need Ubuntu's own `.deb` packages and a genuine glibc without the layers PRoot or a VM add. Termux remains a great choice for its large, Android-specific package set.
 

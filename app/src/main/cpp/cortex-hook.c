@@ -1525,7 +1525,18 @@ FILE *tmpfile(void) {
     int fd = mkstemp(template_buf);
     if (fd < 0) return NULL;
     unlink(template_buf);
-    return fdopen(fd, "w+b");
+    FILE *f = fdopen(fd, "w+b");
+    if (!f) {
+        int saved_errno = errno;
+        close(fd);
+        errno = saved_errno;
+    }
+    return f;
+}
+
+// 32-bit programs built with _FILE_OFFSET_BITS=64 call this name
+FILE *tmpfile64(void) {
+    return tmpfile();
 }
 
 // Hook opendir
