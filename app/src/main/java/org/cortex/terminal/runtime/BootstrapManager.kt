@@ -26,7 +26,7 @@ object BootstrapManager {
             dir.setReadable(true, true)
             dir.setWritable(true, true)
             dir.setExecutable(true, true)
-            try { android.system.Os.chmod(dir.absolutePath, 448) } catch (e: Exception) {} // 0700
+            setMode(dir, 448) // 0700
         }
         ensureRootTools(root, context)
         ensureBrowserOpener(root, context)
@@ -48,8 +48,8 @@ object BootstrapManager {
                 }
                 etcProfile.setReadable(true, true)
                 etcProfile.setWritable(true, true)
-                try { android.system.Os.chmod(etcProfile.absolutePath, 384) } catch (e: Exception) {}
-            } catch (e: Exception) {}
+                setMode(etcProfile, 384)
+            } catch (e: Exception) { Log.w(TAG, "Could not adjust ${etcProfile.path}", e) }
         }
 
         ensureHookLibrary(context, root)
@@ -70,7 +70,7 @@ object BootstrapManager {
         if (!storageLink.exists()) {
             try {
                 android.system.Os.symlink("/sdcard", storageLink.absolutePath)
-            } catch (e: Exception) {}
+            } catch (e: Exception) { Log.w(TAG, "Could not link ${storageLink.path} to /sdcard", e) }
         }
 
         File(root, "var/cache/apt/archives/partial").mkdirs()
@@ -82,10 +82,19 @@ object BootstrapManager {
             d.setReadable(true, true)
             d.setWritable(true, true)
             d.setExecutable(true, true)
-            try { android.system.Os.chmod(d.absolutePath, 448) } catch (e: Exception) {}
+            setMode(d, 448)
         }
 
         ensureEssentialBinaries(root, home, context)
+    }
+
+    /** chmod that never throws: a failure is logged and the file keeps its mode. */
+    private fun setMode(file: File, mode: Int) {
+        try {
+            android.system.Os.chmod(file.absolutePath, mode)
+        } catch (e: Exception) {
+            Log.w(TAG, "chmod ${Integer.toOctalString(mode)} ${file.path} failed: ${e.message}")
+        }
     }
 
     fun hasDynamicLinker(root: File): Boolean {
@@ -121,14 +130,14 @@ object BootstrapManager {
                             }
                         }
                         File(root, "var/lib/apt/lists/partial").listFiles()?.forEach { it.delete() }
-                    } catch (e: Exception) {}
+                    } catch (e: Exception) { Log.w(TAG, "Could not clear stale apt package lists", e) }
                     ensureMachineId(root)
                     ensureEssentialBinaries(root, Environment.getHomeDir(context), context)
                     ensureDynamicLinkerSymlinks(root)
                     versionFile.writeText(CURRENT_BOOTSTRAP_VERSION.toString())
                     versionFile.setReadable(true, true)
                     versionFile.setWritable(true, true)
-                    try { android.system.Os.chmod(versionFile.absolutePath, 384) } catch (e: Exception) {}
+                    setMode(versionFile, 384)
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to perform non-destructive bootstrap update", e)
                 }
@@ -201,7 +210,7 @@ object BootstrapManager {
                 if (!linkFile.exists()) {
                     try {
                         android.system.Os.symlink(target, linkFile.absolutePath)
-                    } catch (e: Exception) {}
+                    } catch (e: Exception) { Log.w(TAG, "Could not link /$link to $target", e) }
                 }
             }
 
@@ -224,18 +233,18 @@ object BootstrapManager {
                     file.setReadable(true, true)
                     file.setWritable(true, true)
                     file.setExecutable(true, true)
-                    try { android.system.Os.chmod(file.absolutePath, 448) } catch (e: Exception) {}
+                    setMode(file, 448)
                 } else if (file.isFile) {
                     val pName = file.parentFile?.name
                     if (pName in listOf("bin", "sbin") || file.name.startsWith("ld-linux") || file.name.startsWith("ld-2.")) {
                         file.setExecutable(true, true)
                         file.setReadable(true, true)
                         file.setWritable(true, true)
-                        try { android.system.Os.chmod(file.absolutePath, 448) } catch (e: Exception) {}
+                        setMode(file, 448)
                     } else {
                         file.setReadable(true, true)
                         file.setWritable(true, true)
-                        try { android.system.Os.chmod(file.absolutePath, 384) } catch (e: Exception) {}
+                        setMode(file, 384)
                     }
                 }
             }
@@ -259,7 +268,7 @@ object BootstrapManager {
                 }
                 etcProfile.setReadable(true, true)
                 etcProfile.setWritable(true, true)
-                try { android.system.Os.chmod(etcProfile.absolutePath, 384) } catch (e: Exception) {}
+                setMode(etcProfile, 384)
             }
 
             // Ensure /etc/passwd and /etc/group exist with root and cortex user definitions
@@ -286,7 +295,7 @@ object BootstrapManager {
             }
             statusFile.setReadable(true, true)
             statusFile.setWritable(true, true)
-            try { android.system.Os.chmod(statusFile.absolutePath, 384) } catch (e: Exception) {}
+            setMode(statusFile, 384)
 
             ensureAptSandbox(root)
             ensureDpkgTables(root)
@@ -307,7 +316,7 @@ object BootstrapManager {
                 versionFile.writeText(CURRENT_BOOTSTRAP_VERSION.toString())
                 versionFile.setReadable(true, true)
                 versionFile.setWritable(true, true)
-                try { android.system.Os.chmod(versionFile.absolutePath, 384) } catch (e: Exception) {}
+                setMode(versionFile, 384)
                 true
             } else {
                 Log.e(TAG, "Bootstrap extraction finished but dynamic linker not found!")
@@ -566,18 +575,18 @@ object BootstrapManager {
             if (cUtf8.exists() && !cUTF8.exists()) {
                 try {
                     android.system.Os.symlink("C.utf8", cUTF8.absolutePath)
-                } catch (e: Exception) {}
+                } catch (e: Exception) { Log.w(TAG, "Could not link locale C.UTF-8", e) }
             } else if (!cUtf8.exists() && cUTF8.exists()) {
                 try {
                     android.system.Os.symlink("C.UTF-8", cUtf8.absolutePath)
-                } catch (e: Exception) {}
+                } catch (e: Exception) { Log.w(TAG, "Could not link locale C.utf8", e) }
             }
 
             val baseLocale = if (cUtf8.exists()) "C.utf8" else if (cUTF8.exists()) "C.UTF-8" else null
             if (baseLocale != null && !enUtf8.exists()) {
                 try {
                     android.system.Os.symlink(baseLocale, enUtf8.absolutePath)
-                } catch (e: Exception) {}
+                } catch (e: Exception) { Log.w(TAG, "Could not link locale en_US.UTF-8", e) }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to ensure locale", e)
@@ -618,13 +627,13 @@ object BootstrapManager {
                 tmpHook.setExecutable(true, false)
                 tmpHook.setReadable(true, false)
                 tmpHook.setWritable(true, true)
-                try { android.system.Os.chmod(tmpHook.absolutePath, 493) } catch (e: Exception) {}
+                setMode(tmpHook, 493)
 
                 ElfLinkerPatcher.atomicReplace(tmpHook, targetHook)
                 targetHook.setExecutable(true, false)
                 targetHook.setReadable(true, false)
                 targetHook.setWritable(true, true)
-                try { android.system.Os.chmod(targetHook.absolutePath, 493) } catch (e: Exception) {}
+                setMode(targetHook, 493)
             }
 
             val libDir = File(root, "lib")
@@ -635,7 +644,7 @@ object BootstrapManager {
                         ElfLinkerPatcher.deleteIfExists(libHook)
                     }
                     ElfLinkerPatcher.createSymlink(targetHook.absolutePath, libHook)
-                } catch (e: Exception) {}
+                } catch (e: Exception) { Log.w(TAG, "Could not link ${libHook.path}", e) }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to update hook library from assets", e)
@@ -654,7 +663,7 @@ object BootstrapManager {
                         name.startsWith("bun-") || name.startsWith("node-")) {
                         try {
                             file.deleteRecursively()
-                        } catch (e: Exception) {}
+                        } catch (e: Exception) { Log.w(TAG, "Could not remove stale ${file.path}", e) }
                     }
                 }
             } else {
@@ -667,7 +676,7 @@ object BootstrapManager {
                     if (name.endsWith(".lock") || name.endsWith("+") || name.endsWith(".tmp") || name.contains(".pwd.lock")) {
                         try {
                             file.deleteRecursively()
-                        } catch (e: Exception) {}
+                        } catch (e: Exception) { Log.w(TAG, "Could not remove stale ${file.path}", e) }
                     }
                 }
             }
@@ -680,7 +689,7 @@ object BootstrapManager {
                         name.endsWith(".lock") || name.endsWith(".pid")) {
                         try {
                             file.deleteRecursively()
-                        } catch (e: Exception) {}
+                        } catch (e: Exception) { Log.w(TAG, "Could not remove stale ${file.path}", e) }
                     }
                 }
             }
@@ -692,7 +701,7 @@ object BootstrapManager {
                     if (name.endsWith(".sock") || name.endsWith(".lock") || name.endsWith(".pid")) {
                         try {
                             file.deleteRecursively()
-                        } catch (e: Exception) {}
+                        } catch (e: Exception) { Log.w(TAG, "Could not remove stale ${file.path}", e) }
                     }
                 }
             }
@@ -713,14 +722,14 @@ object BootstrapManager {
                 hostsFile.writeText(defaultHosts)
                 hostsFile.setReadable(true, true)
                 hostsFile.setWritable(true, true)
-                try { android.system.Os.chmod(hostsFile.absolutePath, 384) } catch (e: Exception) {}
+                setMode(hostsFile, 384)
             } else {
                 val currentText = hostsFile.readText()
                 if (currentText.contains("ports.ubuntu.com") || currentText.contains("api.meta.ai")) {
                     hostsFile.writeText(defaultHosts)
                     hostsFile.setReadable(true, true)
                     hostsFile.setWritable(true, true)
-                    try { android.system.Os.chmod(hostsFile.absolutePath, 384) } catch (e: Exception) {}
+                    setMode(hostsFile, 384)
                 }
             }
         } catch (e: Exception) {
@@ -748,7 +757,7 @@ object BootstrapManager {
                 )
                 nssFile.setReadable(true, true)
                 nssFile.setWritable(true, true)
-                try { android.system.Os.chmod(nssFile.absolutePath, 384) } catch (e: Exception) {}
+                setMode(nssFile, 384)
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to ensure nsswitch.conf", e)
@@ -793,7 +802,7 @@ object BootstrapManager {
             resolvFile.writeText(resolvConf)
             resolvFile.setReadable(true, true)
             resolvFile.setWritable(true, true)
-            try { android.system.Os.chmod(resolvFile.absolutePath, 384) } catch (_: Exception) {}
+            setMode(resolvFile, 384)
 
             ensureHosts(root)
             ensureNsswitch(root)
@@ -821,7 +830,7 @@ object BootstrapManager {
                     }
                     caBundle.setReadable(true, true)
                     caBundle.setWritable(true, true)
-                    try { android.system.Os.chmod(caBundle.absolutePath, 384) } catch (e: Exception) {}
+                    setMode(caBundle, 384)
                     Log.i(TAG, "Copied bundled cacert.pem from assets (${caBundle.length()} bytes)")
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to extract bundled cacert.pem", e)
@@ -849,9 +858,9 @@ object BootstrapManager {
                                     f.copyTo(targetFile, overwrite = true)
                                     targetFile.setReadable(true, true)
                                     targetFile.setWritable(true, true)
-                                    try { android.system.Os.chmod(targetFile.absolutePath, 384) } catch (e: Exception) {}
+                                    setMode(targetFile, 384)
                                 }
-                            } catch (e: Exception) {}
+                            } catch (e: Exception) { Log.w(TAG, "Could not copy CA certificate ${f.name}", e) }
                             try {
                                 val content = f.readText()
                                 val start = content.indexOf("-----BEGIN CERTIFICATE-----")
@@ -872,7 +881,7 @@ object BootstrapManager {
                                         appended = true
                                     }
                                 }
-                            } catch (e: Exception) {}
+                            } catch (e: Exception) { Log.w(TAG, "Could not read CA certificate ${f.name}", e) }
                         }
                     }
                 }
@@ -886,7 +895,7 @@ object BootstrapManager {
 
             caBundle.setReadable(true, true)
             caBundle.setWritable(true, true)
-            try { android.system.Os.chmod(caBundle.absolutePath, 384) } catch (e: Exception) {}
+            setMode(caBundle, 384)
 
             val certAliases = listOf(
                 File(root, "etc/ssl/cert.pem"),
@@ -909,10 +918,10 @@ object BootstrapManager {
                             aliasFile.writeBytes(caBundle.readBytes())
                             aliasFile.setReadable(true, true)
                             aliasFile.setWritable(true, true)
-                            try { android.system.Os.chmod(aliasFile.absolutePath, 384) } catch (e: Exception) {}
+                            setMode(aliasFile, 384)
                         }
                     }
-                } catch (e: Exception) {}
+                } catch (e: Exception) { Log.w(TAG, "Could not create ${aliasFile.path}", e) }
             }
             Log.i(TAG, "ensureCaCertificates finished (${caBundle.length()} bytes)")
         } catch (e: Exception) {
@@ -950,7 +959,7 @@ object BootstrapManager {
             passwdFile.writeText(passwdText)
             passwdFile.setReadable(true, false)
             passwdFile.setWritable(true, true)
-            try { android.system.Os.chmod(passwdFile.absolutePath, 420) } catch (e: Exception) {}
+            setMode(passwdFile, 420)
 
             val groupFile = File(etcDir, "group")
             var groupText = if (groupFile.exists()) groupFile.readText() else ""
@@ -969,7 +978,7 @@ object BootstrapManager {
             groupFile.writeText(groupText)
             groupFile.setReadable(true, false)
             groupFile.setWritable(true, true)
-            try { android.system.Os.chmod(groupFile.absolutePath, 420) } catch (e: Exception) {}
+            setMode(groupFile, 420)
 
             val shadowFile = File(etcDir, "shadow")
             var shadowText = if (shadowFile.exists()) shadowFile.readText() else ""
@@ -980,7 +989,7 @@ object BootstrapManager {
             shadowFile.writeText(shadowText)
             shadowFile.setReadable(true, false)
             shadowFile.setWritable(true, true)
-            try { android.system.Os.chmod(shadowFile.absolutePath, 420) } catch (e: Exception) {}
+            setMode(shadowFile, 420)
 
             val gshadowFile = File(etcDir, "gshadow")
             var gshadowText = if (gshadowFile.exists()) gshadowFile.readText() else ""
@@ -991,7 +1000,7 @@ object BootstrapManager {
             gshadowFile.writeText(gshadowText)
             gshadowFile.setReadable(true, false)
             gshadowFile.setWritable(true, true)
-            try { android.system.Os.chmod(gshadowFile.absolutePath, 420) } catch (e: Exception) {}
+            setMode(gshadowFile, 420)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to ensure passwd/group", e)
         }
@@ -1036,12 +1045,12 @@ object BootstrapManager {
                         tmp.setReadable(true, true)
                         tmp.setWritable(true, true)
                         tmp.setExecutable(true, true)
-                        try { android.system.Os.chmod(tmp.absolutePath, 448) } catch (e: Exception) {}
+                        setMode(tmp, 448)
                         ElfLinkerPatcher.atomicReplace(tmp, target)
                         target.setReadable(true, true)
                         target.setWritable(true, true)
                         target.setExecutable(true, true)
-                        try { android.system.Os.chmod(target.absolutePath, 448) } catch (e: Exception) {}
+                        setMode(target, 448)
                     } catch (e: Exception) {
                         Log.e(TAG, "Failed to copy awk to ${target.absolutePath}", e)
                     }
@@ -1076,12 +1085,12 @@ object BootstrapManager {
                     tmp.setReadable(true, true)
                     tmp.setWritable(true, true)
                     tmp.setExecutable(true, true)
-                    try { android.system.Os.chmod(tmp.absolutePath, 448) } catch (e: Exception) {}
+                    setMode(tmp, 448)
                     ElfLinkerPatcher.atomicReplace(tmp, target)
                     target.setReadable(true, true)
                     target.setWritable(true, true)
                     target.setExecutable(true, true)
-                    try { android.system.Os.chmod(target.absolutePath, 448) } catch (e: Exception) {}
+                    setMode(target, 448)
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to setup which at ${target.absolutePath}", e)
                 }
@@ -1112,7 +1121,7 @@ object BootstrapManager {
                 gpgv.setExecutable(true, true)
                 gpgv.setReadable(true, true)
                 gpgv.setWritable(true, true)
-                try { android.system.Os.chmod(gpgv.absolutePath, 448) } catch (e: Exception) {}
+                setMode(gpgv, 448)
                 gpgvOrig.delete()
                 Log.i(TAG, "Restored native gpgv binary from gpgv.orig")
             }
@@ -1130,7 +1139,7 @@ object BootstrapManager {
                 machineId.writeText("$uuid\n")
                 machineId.setReadable(true, true)
                 machineId.setWritable(true, true)
-                try { android.system.Os.chmod(machineId.absolutePath, 384) } catch (e: Exception) {}
+                setMode(machineId, 384)
             }
             val dbusDir = File(root, "var/lib/dbus")
             dbusDir.mkdirs()
@@ -1161,8 +1170,8 @@ object BootstrapManager {
                         tb.setReadable(true, true)
                         tb.setWritable(true, true)
                         tb.setExecutable(true, true)
-                        try { android.system.Os.chmod(tb.absolutePath, 448) } catch (_: Exception) {}
-                    } catch (_: Exception) {}
+                        setMode(tb, 448)
+                    } catch (e: Exception) { Log.w(TAG, "Could not write $bDir/$tool", e) }
                 }
             }
 
@@ -1195,7 +1204,7 @@ object BootstrapManager {
                 diversionsFile.writeText(newDivBuilder.toString())
                 diversionsFile.setReadable(true, true)
                 diversionsFile.setWritable(true, true)
-                try { android.system.Os.chmod(diversionsFile.absolutePath, 384) } catch (_: Exception) {}
+                setMode(diversionsFile, 384)
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to ensure machine-id", e)
@@ -1235,7 +1244,7 @@ object BootstrapManager {
             tmpShm.setReadable(true, true)
             tmpShm.setWritable(true, true)
             tmpShm.setExecutable(true, true)
-            try { android.system.Os.chmod(tmpShm.absolutePath, 448) } catch (_: Exception) {}
+            setMode(tmpShm, 448)
 
             val devDir = File(root, "dev")
             devDir.mkdirs()
@@ -1248,7 +1257,7 @@ object BootstrapManager {
                     devShm.setReadable(true, true)
                     devShm.setWritable(true, true)
                     devShm.setExecutable(true, true)
-                    try { android.system.Os.chmod(devShm.absolutePath, 448) } catch (_: Exception) {}
+                    setMode(devShm, 448)
                 }
             }
         } catch (e: Exception) {
@@ -1276,7 +1285,7 @@ object BootstrapManager {
                                 try {
                                     android.system.Os.symlink(libFile.absolutePath, destUsr.absolutePath)
                                 } catch (_: Exception) {
-                                    try { libFile.copyTo(destUsr, overwrite = false) } catch (_: Exception) {}
+                                    try { libFile.copyTo(destUsr, overwrite = false) } catch (e: Exception) { Log.w(TAG, "Could not link or copy ${libFile.name} to ${destUsr.path}", e) }
                                 }
                             }
                             val destLib = File(libDir, libFile.name)
@@ -1284,7 +1293,7 @@ object BootstrapManager {
                                 try {
                                     android.system.Os.symlink(libFile.absolutePath, destLib.absolutePath)
                                 } catch (_: Exception) {
-                                    try { libFile.copyTo(destLib, overwrite = false) } catch (_: Exception) {}
+                                    try { libFile.copyTo(destLib, overwrite = false) } catch (e: Exception) { Log.w(TAG, "Could not link or copy ${libFile.name} to ${destLib.path}", e) }
                                 }
                             }
                         }
@@ -1297,7 +1306,7 @@ object BootstrapManager {
             if (!usrLibSystemd.exists() && archSystemd.exists()) {
                 try {
                     android.system.Os.symlink(archSystemd.absolutePath, usrLibSystemd.absolutePath)
-                } catch (_: Exception) {}
+                } catch (e: Exception) { Log.w(TAG, "Could not link ${usrLibSystemd.path}", e) }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to ensure systemd shared libs", e)
@@ -1330,8 +1339,8 @@ object BootstrapManager {
                         t.setExecutable(true, true)
                         t.setReadable(true, true)
                         t.setWritable(true, true)
-                        try { android.system.Os.chmod(t.absolutePath, 448) } catch (_: Exception) {}
-                    } catch (_: Exception) {}
+                        setMode(t, 448)
+                    } catch (e: Exception) { Log.w(TAG, "Could not write ${t.path}", e) }
                 }
             }
         } catch (e: Exception) {
@@ -1391,7 +1400,7 @@ object BootstrapManager {
             }
             envSh.setReadable(true, true)
             envSh.setWritable(true, true)
-            try { android.system.Os.chmod(envSh.absolutePath, 384) } catch (e: Exception) {}
+            setMode(envSh, 384)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to ensure profile environment", e)
         }
@@ -1467,7 +1476,7 @@ object BootstrapManager {
                     zoneinfoFile.copyTo(localTimeFile, overwrite = true)
                     localTimeFile.setReadable(true, true)
                     localTimeFile.setWritable(true, true)
-                    try { android.system.Os.chmod(localTimeFile.absolutePath, 384) } catch (e: Exception) {}
+                    setMode(localTimeFile, 384)
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to copy zoneinfo to localtime", e)
                 }
@@ -1480,7 +1489,7 @@ object BootstrapManager {
                     localTimeFile.writeBytes(tzifBytes)
                     localTimeFile.setReadable(true, true)
                     localTimeFile.setWritable(true, true)
-                    try { android.system.Os.chmod(localTimeFile.absolutePath, 384) } catch (e: Exception) {}
+                    setMode(localTimeFile, 384)
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to write generated localtime", e)
                 }
@@ -1490,7 +1499,7 @@ object BootstrapManager {
             tzFile.writeText(effectiveTz + "\n")
             tzFile.setReadable(true, true)
             tzFile.setWritable(true, true)
-            try { android.system.Os.chmod(tzFile.absolutePath, 384) } catch (e: Exception) {}
+            setMode(tzFile, 384)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to update timezone", e)
         }
