@@ -38,6 +38,7 @@ import org.cortex.terminal.R
 import org.cortex.terminal.emulator.KeyMapper
 import org.cortex.terminal.emulator.TerminalBuffer
 import org.cortex.terminal.emulator.TerminalColor
+import org.cortex.terminal.emulator.TerminalEmulator
 import org.cortex.terminal.emulator.TerminalSearch
 import org.cortex.terminal.session.TerminalSession
 import kotlin.concurrent.withLock
@@ -53,6 +54,7 @@ class TerminalView @JvmOverloads constructor(
 
     var session: TerminalSession? = null
         set(value) {
+            val previous = field
             field?.onRedraw = null
             field?.emulator?.onScreenUpdate = null
             field = value
@@ -67,7 +69,12 @@ class TerminalView @JvmOverloads constructor(
                         try { startSearch(searchQuery) } catch (_: Exception) {}
                     }
                 }
-                postInvalidate()
+                postScreenUpdate()
+            }
+            if (previous !== value) {
+                previous?.setFocused(false)
+                value?.setFocused(hasWindowFocus())
+                cursorBlinkOn = true
             }
             isCtrlPressed = false
             isAltPressed = false
@@ -84,7 +91,7 @@ class TerminalView @JvmOverloads constructor(
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         session?.onRedraw = { postInvalidate() }
-        session?.emulator?.onScreenUpdate = { postInvalidate() }
+        session?.emulator?.onScreenUpdate = { postScreenUpdate() }
         updateTerminalDimensions()
         postInvalidate()
     }
@@ -95,11 +102,74 @@ class TerminalView @JvmOverloads constructor(
         removeCallbacks(flingRunnable)
         selectionAutoScrollDirection = 0
         removeCallbacks(selectionAutoScrollRunnable)
+        removeCallbacks(syncUpdateTimeoutRunnable)
+        stopCursorBlink()
         hideActionPopup()
         isSelecting = false
+        session?.setFocused(false)
         session?.onRedraw = null
         session?.emulator?.onScreenUpdate = null
     }
+
+    override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
+        super.onWindowFocusChanged(hasWindowFocus)
+        session?.setFocused(hasWindowFocus)
+        if (hasWindowFocus) invalidate() else stopCursorBlink()
+    }
+
+    // Redraws for new output. While the program draws a synchronized frame (mode 2026) the previous
+    // frame stays on screen until the new one is complete or times out. Runs on the PTY reader thread.
+    private fun postScreenUpdate() {
+        val wait = session?.emulator?.synchronizedUpdateRemainingMs() ?: 0L
+        removeCallbacks(syncUpdateTimeoutRunnable)
+        if (wait > 0L) {
+            postDelayed(syncUpdateTimeoutRunnable, wait)
+        } else {
+            postInvalidate()
+        }
+    }
+
+    private val syncUpdateTimeoutRunnable = Runnable { postScreenUpdate() }
+
+    private companion object {
+        const val CURSOR_BLINK_MS = 500L
+    }
+
+    // Blink phase of a blinking cursor (DECSCUSR 1, 3, 5). Main thread only.
+    private var cursorBlinkOn = true
+    private var isCursorBlinkScheduled = false
+
+    private val cursorBlinkRunnable = object : Runnable {
+        override fun run() {
+            if (session?.emulator?.isCursorBlinking != true || !hasWindowFocus()) {
+                stopCursorBlink()
+                return
+            }
+            cursorBlinkOn = !cursorBlinkOn
+            invalidate()
+            postDelayed(this, CURSOR_BLINK_MS)
+        }
+    }
+
+    private fun stopCursorBlink() {
+        removeCallbacks(cursorBlinkRunnable)
+        isCursorBlinkScheduled = false
+        if (!cursorBlinkOn) {
+            cursorBlinkOn = true
+            invalidate()
+        }
+    }
+
+    // Keeps a blinking cursor visible while typing: every key starts the blink again from "on".
+    private fun restartCursorBlink() {
+        if (!isCursorBlinkScheduled) return
+        removeCallbacks(cursorBlinkRunnable)
+        cursorBlinkOn = true
+        postDelayed(cursorBlinkRunnable, CURSOR_BLINK_MS)
+        invalidate()
+    }
+
+    private val cursorThickness = 2f * resources.displayMetrics.density
 
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         typeface = Typeface.MONOSPACE
@@ -626,21 +696,37 @@ class TerminalView @JvmOverloads constructor(
                 }
             }
 
+            val blinking = emulator.isCursorBlinking
+            if (blinking && !isCursorBlinkScheduled && hasWindowFocus()) {
+                isCursorBlinkScheduled = true
+                postDelayed(cursorBlinkRunnable, CURSOR_BLINK_MS)
+            }
+
             // Draw cursor if at bottom of scrollback and not selecting
-            if (!isSelecting && scrollOffset == 0 && buffer.isCursorVisible) {
+            if (!isSelecting && scrollOffset == 0 && buffer.isCursorVisible && (cursorBlinkOn || !blinking)) {
                 val cRow = buffer.cursorRow
                 val cCol = buffer.cursorCol
                 if (cRow in 0 until rows && cCol in 0 until cols && cRow in 0 until buffer.screen.size) {
                     val cursorX = cCol * charWidth
                     val cursorY = cRow * charHeight
-                    canvas.drawRect(cursorX, cursorY, cursorX + charWidth, cursorY + charHeight, cursorPaint)
+                    when (emulator.cursorShape) {
+                        TerminalEmulator.CursorShape.BLOCK -> {
+                            canvas.drawRect(cursorX, cursorY, cursorX + charWidth, cursorY + charHeight, cursorPaint)
 
-                    // Draw inverse char on cursor
-                    val row = buffer.screen[cRow]
-                    val char = if (cCol in 0 until row.chars.size) row.chars[cCol] else ' '
-                    if (char != ' ') {
-                        textPaint.color = TerminalColor.DEFAULT_BG
-                        canvas.drawText(row.chars, cCol, 1, cursorX, cursorY + charBaseline, textPaint)
+                            // Draw inverse char on cursor
+                            val row = buffer.screen[cRow]
+                            val char = if (cCol in 0 until row.chars.size) row.chars[cCol] else ' '
+                            if (char != ' ') {
+                                textPaint.color = TerminalColor.DEFAULT_BG
+                                canvas.drawText(row.chars, cCol, 1, cursorX, cursorY + charBaseline, textPaint)
+                            }
+                        }
+                        TerminalEmulator.CursorShape.UNDERLINE -> canvas.drawRect(
+                            cursorX, cursorY + charHeight - cursorThickness, cursorX + charWidth, cursorY + charHeight, cursorPaint
+                        )
+                        TerminalEmulator.CursorShape.BAR -> canvas.drawRect(
+                            cursorX, cursorY, cursorX + cursorThickness, cursorY + charHeight, cursorPaint
+                        )
                     }
                 }
             }
@@ -1020,13 +1106,21 @@ class TerminalView @JvmOverloads constructor(
         }
 
         val rawText = item?.coerceToText(context)?.toString() ?: return
-        val text = sanitizePastedText(rawText)
+        val text = pastedText(rawText)
         if (text.isNotEmpty()) {
             session?.write(text)
             scrollOffset = 0
             invalidate()
         }
         clearSelection()
+    }
+
+    /**
+     * What to send for pasted text: with its line breaks inside a bracketed paste when the program asked
+     * for one (TerminalEmulator.bracketedPaste), else flattened to one line so a paste never runs a command.
+     */
+    private fun pastedText(raw: String): String {
+        return session?.emulator?.bracketedPaste(raw) ?: sanitizePastedText(raw)
     }
 
     private fun pruneClipboardImages(dir: File) {
@@ -1303,6 +1397,18 @@ class TerminalView @JvmOverloads constructor(
                         sendKeySequence(KeyEvent.KEYCODE_ENTER)
                         return true
                     }
+                    // Several lines at once come from the keyboard's clipboard: a paste, which keeps its
+                    // lines when the program takes bracketed pastes.
+                    if (text.length > 1 && session?.emulator?.isBracketedPasteMode == true &&
+                        text.any { it == '\n' || it == '\r' }
+                    ) {
+                        val paste = pastedText(text.toString())
+                        if (paste.isNotEmpty()) {
+                            scrollOffset = 0
+                            session?.write(paste)
+                        }
+                        return true
+                    }
                     val str = if (text.length > 1) sanitizePastedText(text.toString()) else text.toString()
                     for (i in 0 until str.length) {
                         val c = str[i]
@@ -1424,6 +1530,7 @@ class TerminalView @JvmOverloads constructor(
         val targetChar = if (ch == '\n') '\r' else ch
         val bytes = KeyMapper.getCharBytes(targetChar, isCtrlPressed, isAltPressed)
         sess.write(bytes)
+        restartCursorBlink()
         isCtrlPressed = false
         isAltPressed = false
     }
@@ -1443,6 +1550,7 @@ class TerminalView @JvmOverloads constructor(
         val bytes = KeyMapper.getEscapeSequence(keyCode, isCtrlPressed, isAltPressed, isAppCursor)
         return if (bytes != null) {
             sess.write(bytes)
+            restartCursorBlink()
             isCtrlPressed = false
             isAltPressed = false
             true

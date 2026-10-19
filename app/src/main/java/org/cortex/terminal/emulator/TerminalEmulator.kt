@@ -34,12 +34,15 @@ class TerminalEmulator(
     private var csiIntermediate: Char? = null
     private val oscBuffer = StringBuilder()
 
-    private companion object {
+    internal companion object {
         const val MAX_OSC_CHARS = 8192
         // base64 of 256 KiB; larger clipboard payloads are dropped instead of truncated.
         const val MAX_OSC52_CHARS = 350_000
         const val MAX_OSC52_BYTES = 256 * 1024
         const val MAX_LINK_CHARS = 2048
+        // Longest a program can hold the previous frame on screen with mode 2026 (a program that
+        // crashes in the middle of a frame must not freeze the display).
+        const val SYNC_UPDATE_TIMEOUT_MS = 150L
     }
 
     var onTitleChange: ((String) -> Unit)? = null
@@ -77,6 +80,81 @@ class TerminalEmulator(
     val isMouseTrackingActive: Boolean
         get() = mouseMode != MouseMode.OFF
 
+    /** Mode 2004: pastes are wrapped in ESC [200~ ... ESC [201~, see [bracketedPaste]. */
+    @Volatile
+    var isBracketedPasteMode = false
+        private set
+
+    /** Mode 1004: the program wants ESC [I / ESC [O when the terminal gains or loses focus, see [focusReport]. */
+    @Volatile
+    var isFocusReportingMode = false
+        private set
+
+    enum class CursorShape { BLOCK, UNDERLINE, BAR }
+
+    /** DECSCUSR (CSI Ps SP q). Ps 0 restores Cortex's own cursor, a steady block. */
+    @Volatile
+    var cursorShape = CursorShape.BLOCK
+        private set
+
+    @Volatile
+    var isCursorBlinking = false
+        private set
+
+    // Mode 2026 (synchronized output): when the program started its current frame, or -1 outside of one.
+    @Volatile
+    private var syncUpdateSinceMs = -1L
+    // Whether a frame ended during the latest processInput(); that frame is complete and can be drawn.
+    @Volatile
+    private var syncFrameEnded = false
+
+    /**
+     * How long the view should keep showing the previous frame because the program is still drawing the
+     * next one (mode 2026), or 0 when the screen can be drawn now. A frame that is never ended holds the
+     * screen for [SYNC_UPDATE_TIMEOUT_MS] at most.
+     */
+    fun synchronizedUpdateRemainingMs(): Long {
+        val since = syncUpdateSinceMs
+        if (since < 0L || syncFrameEnded) return 0L
+        return (SYNC_UPDATE_TIMEOUT_MS - (monotonicMs() - since)).coerceAtLeast(0L)
+    }
+
+    /** What to send when the terminal gains or loses focus: ESC [I / ESC [O in mode 1004, else null. */
+    fun focusReport(focused: Boolean): String? {
+        if (!isFocusReportingMode) return null
+        return if (focused) "\u001b[I" else "\u001b[O"
+    }
+
+    /**
+     * What a paste of [text] sends in bracketed paste mode (2004), or null when the program did not ask
+     * for it. The text keeps its line breaks (as CR, like the Enter key), wrapped in ESC [200~ ... ESC [201~
+     * so the program knows it was pasted: a shell lets you edit the lines instead of running them, an
+     * editor does not auto-indent them. Control characters other than tab are removed, so the text cannot
+     * end the bracket early ("ESC [201~") and then type commands; trailing line breaks are dropped, as in
+     * an unbracketed paste. Returns "" when nothing is left to paste.
+     */
+    fun bracketedPaste(text: String): String? {
+        if (!isBracketedPasteMode) return null
+        val clean = StringBuilder(text.length)
+        var i = 0
+        while (i < text.length) {
+            val c = text[i]
+            when {
+                c == '\r' || c == '\n' -> {
+                    clean.append('\r')
+                    if (c == '\r' && i + 1 < text.length && text[i + 1] == '\n') i++
+                }
+                c == '\t' -> clean.append(c)
+                c < ' ' || c.code in 0x7f..0x9f -> {}
+                else -> clean.append(c)
+            }
+            i++
+        }
+        val body = clean.trimEnd('\r')
+        if (body.isEmpty()) return ""
+        return "\u001b[200~$body\u001b[201~"
+    }
+
     fun getMouseScrollSequence(isUp: Boolean, col: Int, row: Int): String {
         val button = if (isUp) 64 else 65
         return if (isMouseSgr) {
@@ -112,6 +190,7 @@ class TerminalEmulator(
     fun processInput(bytes: ByteArray, offset: Int, length: Int) {
         if (length <= 0 || offset < 0 || offset + length > bytes.size) return
         lock.withLock {
+            syncFrameEnded = false
             var pos = offset
             val end = offset + length
             while (pos < end) {
@@ -235,6 +314,11 @@ class TerminalEmulator(
                 isMouseSgr = false
                 isMouseUrxvt = false
                 isMouseUtf8 = false
+                isBracketedPasteMode = false
+                isFocusReportingMode = false
+                cursorShape = CursorShape.BLOCK
+                isCursorBlinking = false
+                syncUpdateSinceMs = -1L
                 state = State.NORMAL
             }
             '7' -> { // Save cursor (DECSC)
@@ -326,6 +410,16 @@ class TerminalEmulator(
     private fun executeCsi(cmd: Char) {
         val p1 = if (csiParams.isNotEmpty()) csiParams[0] else 0
         val p2 = if (csiParams.size > 1) csiParams[1] else 0
+
+        // An intermediate byte makes a different command of the same final byte (CSI Ps SP A is
+        // "scroll right", not "cursor up"), so only the ones Cortex knows are run.
+        if (csiIntermediate != null) {
+            when {
+                csiIntermediate == ' ' && cmd == 'q' && csiPrefix == null -> setCursorStyle(p1)
+                csiIntermediate == '$' && cmd == 'p' -> reportMode(p1)
+            }
+            return
+        }
 
         when (cmd) {
             'A' -> { // Cursor Up
@@ -451,7 +545,8 @@ class TerminalEmulator(
                 buffer.isWrapPending = false
             }
             'm' -> { // SGR (Select Graphic Rendition)
-                handleSgr()
+                // CSI > 4 ; 2 m (xterm modifyOtherKeys, sent by vim and others) is not a colour change.
+                if (csiPrefix == null) handleSgr()
             }
             'n' -> { // Device Status Report (DSR)
                 if (csiPrefix == null) {
@@ -476,7 +571,8 @@ class TerminalEmulator(
                     onSendResponse?.invoke("\u001b[8;${buffer.rows};${buffer.cols}t")
                 }
             }
-            'r' -> { // Set Scroll Margins (DECSTBM)
+            'r' -> { // Set Scroll Margins (DECSTBM); CSI ? Pm r restores DEC modes instead
+                if (csiPrefix != null) return
                 if (csiParams.isEmpty()) {
                     buffer.scrollTop = 0
                     buffer.scrollBottom = buffer.rows - 1
@@ -502,9 +598,12 @@ class TerminalEmulator(
                             1000, 1001 -> mouseMode = MouseMode.VT200
                             1002 -> mouseMode = MouseMode.CELL_MOTION
                             1003 -> mouseMode = MouseMode.ALL_MOTION
+                            1004 -> isFocusReportingMode = true
                             1005 -> isMouseUtf8 = true
                             1006 -> isMouseSgr = true
                             1015 -> isMouseUrxvt = true
+                            2004 -> isBracketedPasteMode = true
+                            2026 -> if (syncUpdateSinceMs < 0L) syncUpdateSinceMs = monotonicMs()
                         }
                     }
                 }
@@ -518,26 +617,73 @@ class TerminalEmulator(
                             9, 1000, 1001, 1002, 1003 -> mouseMode = MouseMode.OFF
                             25 -> buffer.isCursorVisible = false
                             47, 1047, 1049 -> buffer.useAlternateScreen(false)
+                            1004 -> isFocusReportingMode = false
                             1005 -> isMouseUtf8 = false
                             1006 -> isMouseSgr = false
                             1015 -> isMouseUrxvt = false
+                            2004 -> isBracketedPasteMode = false
+                            2026 -> if (syncUpdateSinceMs >= 0L) {
+                                syncUpdateSinceMs = -1L
+                                syncFrameEnded = true
+                            }
                         }
                     }
                 }
             }
-            's' -> { // Save Cursor
+            // With a prefix these are other commands: CSI ? s saves DEC modes, and CSI ? u / > u / = u / < u
+            // are the kitty keyboard protocol (fish and neovim send CSI ? u at start-up).
+            's' -> if (csiPrefix == null) { // Save Cursor
                 savedCursorRow = buffer.cursorRow
                 savedCursorCol = buffer.cursorCol
             }
-            'u' -> { // Restore Cursor
+            'u' -> if (csiPrefix == null) { // Restore Cursor
                 buffer.cursorRow = savedCursorRow.coerceIn(0, buffer.rows - 1)
                 buffer.cursorCol = savedCursorCol.coerceIn(0, buffer.cols - 1)
                 buffer.isWrapPending = false
             }
-            'q' -> { // Cursor Style (DECSCUSR)
-                // Ignored gracefully
-            }
         }
+    }
+
+    /** DECSCUSR: 1/2 block, 3/4 underline, 5/6 bar (odd blinks, even is steady), 0 the default. */
+    private fun setCursorStyle(ps: Int) {
+        val shape = when (ps) {
+            0, 1, 2 -> CursorShape.BLOCK
+            3, 4 -> CursorShape.UNDERLINE
+            5, 6 -> CursorShape.BAR
+            else -> return
+        }
+        cursorShape = shape
+        isCursorBlinking = ps % 2 == 1
+    }
+
+    /**
+     * DECRQM (CSI ? Ps $ p, CSI Ps $ p): reports whether a mode is set (1), reset (2), always set (3),
+     * or unknown (0). Programs use it to find out whether the terminal supports a mode such as 2026.
+     */
+    private fun reportMode(mode: Int) {
+        if (csiPrefix != '?') {
+            onSendResponse?.invoke("\u001b[$mode;0\$y")
+            return
+        }
+        fun flag(set: Boolean) = if (set) 1 else 2
+        val status = when (mode) {
+            1 -> flag(isApplicationCursorKeys)
+            7 -> 3 // autowrap cannot be turned off
+            9 -> flag(mouseMode == MouseMode.X10)
+            25 -> flag(buffer.isCursorVisible)
+            47, 1047, 1049 -> flag(buffer.isAlternate)
+            1000, 1001 -> flag(mouseMode == MouseMode.VT200)
+            1002 -> flag(mouseMode == MouseMode.CELL_MOTION)
+            1003 -> flag(mouseMode == MouseMode.ALL_MOTION)
+            1004 -> flag(isFocusReportingMode)
+            1005 -> flag(isMouseUtf8)
+            1006 -> flag(isMouseSgr)
+            1015 -> flag(isMouseUrxvt)
+            2004 -> flag(isBracketedPasteMode)
+            2026 -> flag(syncUpdateSinceMs >= 0L)
+            else -> 0
+        }
+        onSendResponse?.invoke("\u001b[?$mode;$status\$y")
     }
 
     private fun handleSgr() {

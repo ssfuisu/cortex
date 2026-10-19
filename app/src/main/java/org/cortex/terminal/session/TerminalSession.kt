@@ -152,6 +152,16 @@ class TerminalSession(
         write(text.toByteArray(Charsets.UTF_8))
     }
 
+    // Whether this session is on screen in the focused window. Main thread only.
+    private var isFocused = false
+
+    /** Called when the session gains or loses focus; tells the program if it asked (mode 1004). */
+    fun setFocused(focused: Boolean) {
+        if (focused == isFocused) return
+        isFocused = focused
+        emulator.focusReport(focused)?.let { write(it) }
+    }
+
     fun updateDimensions(newRows: Int, newCols: Int, newWidthPx: Int, newHeightPx: Int) {
         if (newRows <= 0 || newCols <= 0) return
         this.rows = newRows

@@ -144,6 +144,10 @@ Programs talk to the Android side through standard terminal escape sequences, so
 - **Clipboard (OSC 52):** `tmux` (`set -g set-clipboard on`), `vim`/`neovim` clipboard providers and `ssh` sessions can copy text to the Android clipboard. Only writing is supported; programs can never read your clipboard. Switch it off under *Settings > Notifications & Clipboard*.
 - **Long command notifications (OSC 133):** the shell reports when each command starts and ends. If a command that ran longer than the limit (15 s / 30 s / 1 min / 5 min, default 30 s) finishes while Cortex is in the background, you get a notification with the exit status. Inside `tmux` the marks are swallowed by `tmux` itself. Opt out in the shell with `export CORTEX_COMMAND_MARKS=0`.
 - **Hyperlinks (OSC 8):** output such as `ls --hyperlink=auto` or `gcc` diagnostics is underlined and tapping it copies the target. Plain `https://` text is detected as before.
+- **Bracketed paste (mode 2004):** programs that ask for it (bash, zsh, fish, vim, neovim) are told that text was pasted, so a multi-line paste keeps its lines and nothing runs until you press Enter. Control characters in the pasted text are removed. Other programs get the paste joined into one line, as before.
+- **Cursor shape (DECSCUSR):** programs can switch between a block, underline or bar cursor, steady or blinking, such as neovim's bar cursor in insert mode.
+- **Focus events (mode 1004):** `tmux` (`set -g focus-events on`), vim and neovim are told when Cortex goes to the background or another session is shown, which `autoread` and similar features use.
+- **Synchronized output (mode 2026):** programs that announce their frames, such as neovim 0.10 and newer, are only shown complete frames, so full-screen redraws no longer flicker.
 
 > The prompt hooks are added to `PROMPT_COMMAND` at login. If your `~/.bashrc` *replaces* `PROMPT_COMMAND` instead of appending to it (`PROMPT_COMMAND="...;$PROMPT_COMMAND"`), automatic reload and the marks are lost.
 
