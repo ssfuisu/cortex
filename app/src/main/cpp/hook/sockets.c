@@ -9,7 +9,7 @@ int bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen) {
     static int (*orig_bind)(int, const struct sockaddr *, socklen_t) = NULL;
     if (!orig_bind) orig_bind = (int (*)(int, const struct sockaddr *, socklen_t))dlsym(RTLD_NEXT, "bind");
 
-    if (addr && addrlen >= sizeof(sa_family_t) && addr->sa_family == AF_UNIX) {
+    if (addr && addrlen > offsetof(struct sockaddr_un, sun_path) && addr->sa_family == AF_UNIX) {
         const struct sockaddr_un *sun = (const struct sockaddr_un *)addr;
         if (sun->sun_path[0] != '\0') {
             struct sockaddr_un mod_sun;
@@ -26,7 +26,7 @@ int connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen) {
     static int (*orig_connect)(int, const struct sockaddr *, socklen_t) = NULL;
     if (!orig_connect) orig_connect = (int (*)(int, const struct sockaddr *, socklen_t))dlsym(RTLD_NEXT, "connect");
 
-    if (addr && addrlen >= sizeof(sa_family_t) && addr->sa_family == AF_UNIX) {
+    if (addr && addrlen > offsetof(struct sockaddr_un, sun_path) && addr->sa_family == AF_UNIX) {
         const struct sockaddr_un *sun = (const struct sockaddr_un *)addr;
         if (sun->sun_path[0] != '\0') {
             struct sockaddr_un mod_sun;

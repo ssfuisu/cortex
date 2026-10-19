@@ -136,13 +136,17 @@ static int dns_skip_name(const unsigned char *msg, int n, int off) {
 }
 
 // Copies the first address of type `qtype` (4 bytes for A, 16 for AAAA) from the reply `msg` to the
-// query `txid`. Returns -1 for an error reply (such as NXDOMAIN), a reply to another query, a reply
-// without such an address (only a CNAME, say) and a malformed one.
+// query `txid` and returns 0. Returns 1 when the reply says there is no such address (the name does
+// not exist, or has no record of that type): asking other servers would only send the name to more
+// of them. Returns -1 for anything that is worth asking another server about: a failure (SERVFAIL,
+// REFUSED), a truncated, malformed or foreign reply.
 static int dns_parse_answer(const unsigned char *msg, int n, uint16_t txid, int qtype, unsigned char *out) {
     if (!msg || n < 12) return -1;
     if (((msg[0] << 8) | msg[1]) != txid) return -1;
-    if (!(msg[2] & 0x80)) return -1;     // not a reply
-    if ((msg[3] & 0x0f) != 0) return -1; // response code
+    if (!(msg[2] & 0x80)) return -1; // not a reply
+    int rcode = msg[3] & 0x0f;
+    if (rcode == 3) return 1;        // NXDOMAIN
+    if (rcode != 0) return -1;
     int qdcount = (msg[4] << 8) | msg[5];
     int ancount = (msg[6] << 8) | msg[7];
     int off = 12;
@@ -166,7 +170,7 @@ static int dns_parse_answer(const unsigned char *msg, int n, uint16_t txid, int 
         }
         off += rdlen;
     }
-    return -1;
+    return (msg[2] & 0x02) ? -1 : 1; // no such record, unless the reply was truncated
 }
 
 #ifndef CORTEX_HOST_TEST
@@ -522,9 +526,11 @@ static void add_dns_server(cortex_dns_server_t *list, int *count, int max, const
 }
 
 // Looks one address of `name` up itself, for when glibc found none: asks the network's DNS servers,
-// then public ones (IPv4 first, then IPv6, for IPv6-only networks without IPv4 translation).
-// `qtype` is CORTEX_DNS_TYPE_A (4 bytes into `out`) or CORTEX_DNS_TYPE_AAAA (16 bytes).
-static int dns_lookup(const char *name, int qtype, unsigned char *out) {
+// then public ones (IPv4 first, then IPv6, for IPv6-only networks without IPv4 translation), and
+// stops at the first that answers. `qtype` is CORTEX_DNS_TYPE_A (4 bytes into `out`) or
+// CORTEX_DNS_TYPE_AAAA (16 bytes). `*server` is -1 to ask them in turn, or the index of the only
+// server to ask; on return it holds the server that answered (-1 when none did).
+static int dns_lookup(const char *name, int qtype, unsigned char *out, int *server) {
     if (!name || !out) return -1;
     int family = qtype == CORTEX_DNS_TYPE_AAAA ? AF_INET6 : AF_INET;
     if (inet_pton(family, name, out) == 1) return 0;
@@ -553,7 +559,9 @@ static int dns_lookup(const char *name, int qtype, unsigned char *out) {
     int packet_len = dns_build_query(name, qtype, txid, packet, sizeof(packet));
     if (packet_len < 0) return -1;
 
-    for (int i = 0; i < count; i++) {
+    int only = *server;
+    *server = -1;
+    for (int i = (only >= 0 ? only : 0); i < count && (only < 0 || i == only); i++) {
         int sock = socket(servers[i].addr.ss_family, SOCK_DGRAM | SOCK_CLOEXEC, 0);
         if (sock < 0) continue;
 
@@ -571,9 +579,23 @@ static int dns_lookup(const char *name, int qtype, unsigned char *out) {
         unsigned char resp[1500];
         ssize_t n = recv(sock, resp, sizeof(resp), 0);
         close(sock);
-        if (n > 0 && dns_parse_answer(resp, (int)n, txid, qtype, out) == 0) return 0;
+        int result = n > 0 ? dns_parse_answer(resp, (int)n, txid, qtype, out) : -1;
+        if (result >= 0) {
+            *server = i;
+            return result == 0 ? 0 : -1;
+        }
     }
     return -1;
+}
+
+// Whether the network's DNS servers are all IPv6 ones, as on an IPv6-only mobile network.
+static int network_dns_is_ipv6_only(void) {
+    cortex_dns_server_t servers[CORTEX_DNS_MAX_SERVERS];
+    int n = get_dns_servers(servers, CORTEX_DNS_MAX_SERVERS);
+    for (int i = 0; i < n; i++) {
+        if (servers[i].addr.ss_family != AF_INET6) return 0;
+    }
+    return n > 0;
 }
 
 static int domain_matches(const char *node, const char *suffix) {
@@ -619,14 +641,27 @@ static int synthesize_fallback_addrinfo(const char *node, const char *service,
         }
     }
 
-    // The address family the caller asked for: an IPv6-only caller must not get an IPv4 address.
+    // The address families the caller asked for: an IPv6-only caller must not get an IPv4 address,
+    // and AF_UNSPEC gets both, IPv6 first on a network whose DNS servers are all IPv6 ones. The second
+    // lookup only asks the server that answered the first, and is skipped when none answered.
+    int want4 = family == AF_UNSPEC || family == AF_INET;
+    int want6 = family == AF_UNSPEC || family == AF_INET6;
+    int v6_first = want6 && (!want4 || network_dns_is_ipv6_only());
     unsigned char resolved[16];
-    struct addrinfo *ai = NULL;
-    if ((family == AF_UNSPEC || family == AF_INET) && dns_lookup(node, CORTEX_DNS_TYPE_A, resolved) == 0) {
-        ai = alloc_addrinfo(node, AF_INET, resolved, port, socktype, protocol);
-    } else if ((family == AF_UNSPEC || family == AF_INET6) && dns_lookup(node, CORTEX_DNS_TYPE_AAAA, resolved) == 0) {
-        ai = alloc_addrinfo(node, AF_INET6, resolved, port, socktype, protocol);
+    int server = -1;
+    struct addrinfo *first = NULL;
+    struct addrinfo *second = NULL;
+    if (dns_lookup(node, v6_first ? CORTEX_DNS_TYPE_AAAA : CORTEX_DNS_TYPE_A, resolved, &server) == 0) {
+        first = alloc_addrinfo(node, v6_first ? AF_INET6 : AF_INET, resolved, port, socktype, protocol);
     }
+    if (want4 && want6 && server >= 0 &&
+        dns_lookup(node, v6_first ? CORTEX_DNS_TYPE_A : CORTEX_DNS_TYPE_AAAA, resolved, &server) == 0) {
+        second = alloc_addrinfo(node, v6_first ? AF_INET : AF_INET6, resolved, port, socktype, protocol);
+    }
+    if (first && second) {
+        first->ai_next = second;
+    }
+    struct addrinfo *ai = first ? first : second;
     if (ai) {
         *res = ai;
         return 0;

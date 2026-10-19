@@ -37,14 +37,24 @@ of a GitHub release from the section of its version here. Older versions are des
   number of names as their link count (it was always 2), a relative name and an absolute name of a
   file are recognised as the same file, a copy keeps the times of the original, and a process can
   make any number of links (after 128, earlier ones were lost).
-- **Name resolution.** When glibc finds no address, Cortex's own lookup no longer turns a numeric-only
-  lookup (`AI_NUMERICHOST`) into a DNS query, looks service names such as `ssh` up in
+- **Name resolution.** When glibc finds no address, Cortex's own lookup now returns both IPv4 and
+  IPv6 addresses to programs that accept either, stops at the first server that says a name does not
+  exist (it used to send the name on to the other servers and the public resolvers), no longer turns
+  a numeric-only lookup (`AI_NUMERICHOST`) into a DNS query, looks service names such as `ssh` up in
   `/etc/services`, and keeps glibc's error ("try again later" or "no such name") when it finds
   nothing either. It also reads compressed names in replies correctly (lookups behind a CNAME could
   fail) and only accepts replies from the server it asked.
 
 ### Fixed
 
+- Security: where the kernel or Android's filter has no `openat2()`, opening a file with
+  `RESOLVE_BENEATH` or `RESOLVE_NO_SYMLINKS` ignored those limits for symbolic links inside the path.
+  Such calls now report "not supported", so programs such as GNU tar check the path themselves.
+- `mknod()` of a regular file emptied an existing file instead of failing, and a mode without a file
+  type created nothing.
+- `getgrouplist()` reported success when the caller's buffer was too small.
+- Binding a Unix socket with only the address family (autobind) could bind to a random path.
+- Spaces in underlined text were drawn without their underline.
 - `res_init()` replaced a resolver configuration that only lists IPv6 servers with IPv4 servers.
 - `rename()` over an emulated hard link left the replaced file counted as a link.
 

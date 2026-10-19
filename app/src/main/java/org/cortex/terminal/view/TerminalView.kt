@@ -273,6 +273,9 @@ class TerminalView @JvmOverloads constructor(
     var charHeight = 0f
         private set
     private var charBaseline = 0f
+    // Whether every printable ASCII character of the font is one cell wide, so that a run of them can
+    // be drawn in one call (drawRowText). A proportional custom font is drawn character by character.
+    private var isFixedPitch = true
 
     var rows = 24
         private set
@@ -581,6 +584,9 @@ class TerminalView @JvmOverloads constructor(
     private fun measureCharDimensions() {
         textPaint.getTextBounds("X", 0, 1, textBounds)
         charWidth = textPaint.measureText("M")
+        isFixedPitch = kotlin.math.abs(textPaint.measureText("i") - charWidth) < 0.01f &&
+            kotlin.math.abs(textPaint.measureText("W") - charWidth) < 0.01f &&
+            kotlin.math.abs(textPaint.measureText(".") - charWidth) < 0.01f
         val fontMetrics = textPaint.fontMetrics
         charHeight = fontMetrics.bottom - fontMetrics.top
         charBaseline = -fontMetrics.top
@@ -761,12 +767,10 @@ class TerminalView @JvmOverloads constructor(
         while (c < n) {
             val ch = chars[c]
             val selected = isSelected(sel, bufferRow, c)
-            if (ch == ' ') {
-                if (selected && (row.styles[c].toInt() and 2) != 0) {
-                    // an underlined space shows its underline
-                    setTextPaint(Color.BLACK, false, true)
-                    canvas.drawText(chars, c, 1, c * charWidth, baseline, textPaint)
-                } else if (!selected && isLinkCell(row, c)) {
+            // A space shows nothing unless it is underlined (then it is drawn below, on its own, with
+            // its underline) or, outside the selection, part of a link.
+            if (ch == ' ' && (row.styles[c].toInt() and 2) == 0) {
+                if (!selected && isLinkCell(row, c)) {
                     canvas.drawLine(c * charWidth, y + charHeight - 3f, (c + 1) * charWidth, y + charHeight - 3f, linkUnderlinePaint)
                 }
                 c++
@@ -776,7 +780,7 @@ class TerminalView @JvmOverloads constructor(
             val bold = (row.styles[c].toInt() and 1) != 0
             val underline = cellUnderlined(row, c, selected)
             setTextPaint(color, bold, underline)
-            if (ch.code !in 0x21..0x7e) {
+            if (!isFixedPitch || ch.code !in 0x21..0x7e) {
                 canvas.drawText(chars, c, 1, c * charWidth, baseline, textPaint)
                 c++
                 continue
@@ -789,7 +793,7 @@ class TerminalView @JvmOverloads constructor(
                 val next = chars[end]
                 val nextSelected = isSelected(sel, bufferRow, end)
                 if (next == ' ') {
-                    if (underline || (!nextSelected && isLinkCell(row, end)) || (nextSelected && (row.styles[end].toInt() and 2) != 0)) break
+                    if (underline || (row.styles[end].toInt() and 2) != 0 || (!nextSelected && isLinkCell(row, end))) break
                 } else {
                     if (next.code !in 0x21..0x7e) break
                     if (cellForeground(row, end, nextSelected) != color) break

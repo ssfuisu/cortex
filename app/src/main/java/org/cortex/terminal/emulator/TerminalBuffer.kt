@@ -240,6 +240,11 @@ class TerminalBuffer(var rows: Int, var cols: Int, private val maxHistory: Int =
 
         var screenStart = minOf(newTopIndex, newCursorIndex)
         if (newCursorIndex - screenStart >= newRows) screenStart = newCursorIndex - newRows + 1
+        // Rows that no longer fit below (a long line under the cursor got narrower): move the top into
+        // the scrollback instead of dropping them, as far as the cursor allows.
+        if (out.size - screenStart > newRows) {
+            screenStart = maxOf(screenStart, minOf(newCursorIndex, out.size - newRows))
+        }
 
         history.clear()
         for (k in 0 until screenStart) history.addLast(out[k])

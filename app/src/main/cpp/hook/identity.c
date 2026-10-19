@@ -29,13 +29,18 @@ int initgroups(const char *user, gid_t group) { (void)user; (void)group; return 
 
 int getgrouplist(const char *user, gid_t group, gid_t *groups, int *ngroups) {
     (void)user;
-    if (ngroups && *ngroups > 0 && groups) {
+    if (!ngroups) {
+        errno = EINVAL;
+        return -1;
+    }
+    if (*ngroups > 0 && groups) {
         groups[0] = group;
         *ngroups = 1;
         return 1;
     }
-    if (ngroups) *ngroups = 1;
-    return 1;
+    // Too small (a caller asking for the size first): -1 and the number needed, as glibc does.
+    *ngroups = 1;
+    return -1;
 }
 
 #endif /* !CORTEX_HOST_TEST */

@@ -166,36 +166,12 @@ int openat2(int dirfd, const char *pathname, struct cortex_open_how *how, size_t
     int flags = (int)(how->flags & 0xffffffffu);
     mode_t mode = (mode_t)(how->mode & 07777u);
 
-    // If resolve flags are specified on a kernel lacking openat2, ensure containment
+    // RESOLVE_BENEATH, RESOLVE_NO_SYMLINKS and the other resolve flags restrict every component of
+    // the path, which a plain openat() cannot do (a symlink in the middle would still be followed).
+    // Say so: callers such as gnulib's openat2 (GNU tar) then walk the path safely themselves.
     if (how->resolve != 0) {
-        if ((how->resolve & 0x08 /* RESOLVE_BENEATH */) && target[0] == '/') {
-            errno = EXDEV;
-            return -1;
-        }
-        int depth = 0;
-        const char *p = target;
-        while (*p) {
-            while (*p == '/') p++;
-            if (!*p) break;
-            const char *end = p;
-            while (*end && *end != '/') end++;
-            size_t clen = end - p;
-            if (clen == 2 && p[0] == '.' && p[1] == '.') {
-                depth--;
-                if (depth < 0 && (how->resolve & 0x08 /* RESOLVE_BENEATH */)) {
-                    errno = EXDEV;
-                    return -1;
-                }
-            } else if (clen == 1 && p[0] == '.') {
-                // current dir
-            } else {
-                depth++;
-            }
-            p = end;
-        }
-        if (how->resolve & 0x04 /* RESOLVE_NO_SYMLINKS */) {
-            flags |= O_NOFOLLOW;
-        }
+        errno = ENOSYS;
+        return -1;
     }
 
     if (open_needs_mode(flags)) {

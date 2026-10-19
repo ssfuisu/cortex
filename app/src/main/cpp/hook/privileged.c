@@ -26,11 +26,13 @@ int mknodat(int dirfd, const char *pathname, mode_t mode, dev_t dev) {
     }
     char buf[PATH_MAX];
     const char *target = (pathname[0] == '/') ? rewrite_path(pathname, buf, sizeof(buf)) : pathname;
-    if (S_ISREG(mode)) {
+    // A file type of 0 means a regular file, as in mknod(2), which also fails with EEXIST instead
+    // of touching an existing file.
+    if (S_ISREG(mode) || (mode & S_IFMT) == 0) {
         // mknod(2) returns 0 on success, never a file descriptor: close the
         // transient fd instead of leaking one per call (tar/dpkg extract
         // thousands of files; leaked fds exhaust the table -> EBADF noise).
-        int fd = openat(dirfd, target, O_CREAT | O_WRONLY | O_TRUNC, mode);
+        int fd = openat(dirfd, target, O_CREAT | O_EXCL | O_WRONLY | O_CLOEXEC, mode & 07777);
         if (fd >= 0) {
             close(fd);
             return 0;

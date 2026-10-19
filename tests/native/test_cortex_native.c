@@ -806,12 +806,19 @@ static void test_dns_helpers(void) {
     struct in6_addr want6;
     inet_pton(AF_INET6, "2001:db8::1", &want6);
     ASSERT_EQ(memcmp(addr, &want6, 16), 0, "the AAAA address");
-    ASSERT_EQ(dns_parse_answer(r, n, 0xbeef, CORTEX_DNS_TYPE_A, addr), -1, "no A record in it");
-    ASSERT_EQ(dns_parse_answer(r, n, 0xbeee, CORTEX_DNS_TYPE_AAAA, addr), -1, "a reply to another query");
-    ASSERT_EQ(dns_parse_answer(r, n - 4, 0xbeef, CORTEX_DNS_TYPE_AAAA, addr), -1, "a truncated reply");
+    // An answer that there is no such address ends the lookup (1): other servers are not asked.
+    ASSERT_EQ(dns_parse_answer(r, n, 0xbeef, CORTEX_DNS_TYPE_A, addr), 1, "no A record in it: a final answer");
     r[3] = 0x83; // NXDOMAIN
-    ASSERT_EQ(dns_parse_answer(r, n, 0xbeef, CORTEX_DNS_TYPE_AAAA, addr), -1, "an error reply");
+    ASSERT_EQ(dns_parse_answer(r, n, 0xbeef, CORTEX_DNS_TYPE_AAAA, addr), 1, "no such name: a final answer");
+    // Worth asking another server about (-1)
+    r[3] = 0x82; // SERVFAIL
+    ASSERT_EQ(dns_parse_answer(r, n, 0xbeef, CORTEX_DNS_TYPE_AAAA, addr), -1, "a server failure");
     r[3] = 0x80;
+    ASSERT_EQ(dns_parse_answer(r, n, 0xbeee, CORTEX_DNS_TYPE_AAAA, addr), -1, "a reply to another query");
+    ASSERT_EQ(dns_parse_answer(r, n - 4, 0xbeef, CORTEX_DNS_TYPE_AAAA, addr), -1, "a cut-off reply");
+    r[2] = 0x83; // truncated (TC), and no A record in what arrived
+    ASSERT_EQ(dns_parse_answer(r, n, 0xbeef, CORTEX_DNS_TYPE_A, addr), -1, "a truncated reply is not a final answer");
+    r[2] = 0x81;
     r[2] = 0x01; // a query, not a reply
     ASSERT_EQ(dns_parse_answer(r, n, 0xbeef, CORTEX_DNS_TYPE_AAAA, addr), -1, "not a reply");
     r[2] = 0x81;

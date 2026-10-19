@@ -135,6 +135,21 @@ class TerminalReflowTest {
     }
 
     @Test
+    fun rowsBelowTheCursorThatNoLongerFitGoIntoTheScrollback() {
+        val e = TerminalEmulator(rows = 4, cols = 20)
+        e.feed("aaaaaaaaaabbbbbbbbbbccccccccccddddddddddeeeeeeeeee")
+        e.feed("$esc[2;1H") // the cursor in the middle of the line, on the "c"s
+
+        e.resize(4, 10)
+
+        // five rows now: one moves into the scrollback, none is dropped
+        assertEquals(listOf("aaaaaaaaaa"), e.buffer.history.map { it.getText() })
+        assertEquals(listOf("bbbbbbbbbb", "cccccccccc", "dddddddddd", "eeeeeeeeee"), e.screenText())
+        assertEquals(1, e.buffer.cursorRow)
+        assertEquals(0, e.buffer.cursorCol)
+    }
+
+    @Test
     fun coloursAndLinksMoveWithTheirCharacters() {
         val e = TerminalEmulator(rows = 4, cols = 10)
         e.feed("abcdefghij")
