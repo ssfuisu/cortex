@@ -6,7 +6,7 @@ package org.cortex.terminal.runtime
  * ld.so tries every directory for every library a program needs, so the multiarch directories
  * that hold nearly all of them come first, as in glibc's own default order: the usual library is
  * then found on the first try instead of after two failed lookups. Keep in sync with
- * k_rootfs_lib_dirs in cortex-hook.c and CORTEX_LD in su.sh (LibraryPathTest checks both).
+ * k_rootfs_lib_dirs in hook/paths.c and CORTEX_LD in su.sh (LibraryPathTest checks both).
  */
 object LibraryPath {
     val DIRS = listOf(

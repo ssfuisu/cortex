@@ -3,7 +3,7 @@
 directories in the same order (stdlib only, run by tests/scripts/test_shell_scripts.sh):
 
   * LibraryPath.kt        the app's session environment and /etc/profile.d/00-env.sh
-  * cortex-hook.c         k_rootfs_lib_dirs, used for the programs the hook starts
+  * hook/paths.c          k_rootfs_lib_dirs, used for the programs the hook starts
   * su.sh                 CORTEX_LD
   * setup-extra-rootfs.sh CORTEX_LD and the LD_LIBRARY_PATH exported into extra roots
 
@@ -33,9 +33,9 @@ kt = read('app/src/main/java/org/cortex/terminal/runtime/LibraryPath.kt')
 m = re.search(r'val DIRS = listOf\((.*?)\)', kt, re.S)
 sources['LibraryPath.kt'] = re.findall(r'"([^"]+)"', m.group(1)) if m else []
 
-c = read('app/src/main/cpp/cortex-hook.c')
+c = read('app/src/main/cpp/hook/paths.c')
 m = re.search(r'k_rootfs_lib_dirs\[\]\s*=\s*\{(.*?)\};', c, re.S)
-sources['cortex-hook.c'] = re.findall(r'"([^"]+)"', m.group(1)) if m else []
+sources['hook/paths.c'] = re.findall(r'"([^"]+)"', m.group(1)) if m else []
 
 su = read('app/src/main/assets/scripts/su.sh')
 m = re.search(r'^CORTEX_LD="([^"]+)"', su, re.M)

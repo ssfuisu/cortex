@@ -112,7 +112,7 @@ jobs:
         id: cache-hook
         with:
           path: hook-libs
-          key: cortex-hook-${{ hashFiles('app/src/main/cpp/cortex-hook.c', '.github/workflows/build-release.yml') }}
+          key: cortex-hook-${{ hashFiles('app/src/main/cpp/cortex-hook.c', 'app/src/main/cpp/hook/**', '.github/workflows/build-release.yml') }}
 
       - name: Build Glibc cortex-hook Libraries
         if: steps.cache-hook.outputs.cache-hit != 'true'
@@ -156,7 +156,7 @@ jobs:
             app/src/main/assets/bootstrap-arm64.tar.gz
             app/src/main/assets/bootstrap-arm.tar.gz
             app/src/main/assets/cacert.pem
-          key: bootstrap-rootfs-v4-${{ hashFiles('scripts/setup-extra-rootfs.sh', 'scripts/patch-bootstrap-ld.py', 'app/src/main/cpp/cortex-hook.c', 'app/src/main/assets/*.gpg', '.github/workflows/build-release.yml') }}
+          key: bootstrap-rootfs-v4-${{ hashFiles('scripts/setup-extra-rootfs.sh', 'scripts/patch-bootstrap-ld.py', 'app/src/main/cpp/cortex-hook.c', 'app/src/main/cpp/hook/**', 'app/src/main/assets/*.gpg', '.github/workflows/build-release.yml') }}
 
       - name: Set up QEMU for multi-arch containers
         if: steps.cache-bootstrap.outputs.cache-hit != 'true'
