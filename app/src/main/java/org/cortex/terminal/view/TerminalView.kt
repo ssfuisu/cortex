@@ -39,6 +39,7 @@ import org.cortex.terminal.emulator.KeyMapper
 import org.cortex.terminal.emulator.TerminalBuffer
 import org.cortex.terminal.emulator.TerminalColor
 import org.cortex.terminal.emulator.TerminalEmulator
+import org.cortex.terminal.emulator.TerminalRow
 import org.cortex.terminal.emulator.TerminalSearch
 import org.cortex.terminal.session.TerminalSession
 import kotlin.concurrent.withLock
@@ -174,6 +175,9 @@ class TerminalView @JvmOverloads constructor(
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         typeface = Typeface.MONOSPACE
         textSize = 28f
+        // Runs of characters are drawn in one call (drawRowText): no ligatures or kerning, so every
+        // character stays in its cell exactly as when they were drawn one by one.
+        fontFeatureSettings = "'liga' 0, 'clig' 0, 'calt' 0, 'kern' 0"
     }
 
     private val bgPaint = Paint()
@@ -616,59 +620,14 @@ class TerminalView @JvmOverloads constructor(
             return
         }
         try {
+            val sel = if (isSelecting) getNormalizedSelection() else null
             for (r in 0 until rows) {
                 val row = buffer.getVisibleRow(r, scrollOffset)
                 val bufferRow = r - scrollOffset
                 val y = r * charHeight
-
-                for (c in 0 until min(cols, row.cols)) {
-                    val x = c * charWidth
-                    val char = row.chars[c]
-                    val fg = row.fgColors[c]
-                    val bg = row.bgColors[c]
-                    val style = row.styles[c]
-
-                    val selected = isCellSelected(bufferRow, c)
-
-                    if (selected) {
-                        // Highlight selected region with crisp white background
-                        canvas.drawRect(x, y, x + charWidth, y + charHeight, selectionBgPaint)
-
-                        // Render character in dark black so underlying text is crystal clear
-                        textPaint.color = Color.BLACK
-                        textPaint.isFakeBoldText = (style.toInt() and 1) != 0
-                        textPaint.isUnderlineText = (style.toInt() and 2) != 0
-                        canvas.drawText(row.chars, c, 1, x, y + charBaseline, textPaint)
-                    } else {
-                        val isInverse = (style.toInt() and 4) != 0
-                        val drawBg = if (isInverse) fg else bg
-                        val drawFg = if (isInverse) bg else fg
-
-                        // Draw cell background
-                        if (drawBg != TerminalColor.DEFAULT_BG) {
-                            bgPaint.color = drawBg
-                            canvas.drawRect(x, y, x + charWidth, y + charHeight, bgPaint)
-                        }
-
-                        val isMatch = if (c < row.isSearchMatch.size) row.isSearchMatch[c] else false
-                        val isCurrent = if (c < row.isSearchCurrent.size) row.isSearchCurrent[c] else false
-                        val isLink = (c < row.isUrlLink.size && row.isUrlLink[c]) || row.hasLinkAt(c)
-                        if (isMatch) {
-                            canvas.drawRect(x, y, x + charWidth, y + charHeight,
-                                if (isCurrent) searchCurrentPaint else searchMatchPaint)
-                        }
-
-                        // Draw character
-                        if (char != ' ') {
-                            textPaint.color = if (isCurrent) Color.BLACK else drawFg
-                            textPaint.isFakeBoldText = (style.toInt() and 1) != 0
-                            textPaint.isUnderlineText = (style.toInt() and 2) != 0 || isLink
-                            canvas.drawText(row.chars, c, 1, x, y + charBaseline, textPaint)
-                        } else if (isLink) {
-                            canvas.drawLine(x, y + charHeight - 3f, x + charWidth, y + charHeight - 3f, linkUnderlinePaint)
-                        }
-                    }
-                }
+                val n = min(cols, row.cols)
+                drawRowBackground(canvas, row, bufferRow, n, y, sel)
+                drawRowText(canvas, row, bufferRow, n, y, sel)
             }
 
             // Draw selection pin handles
@@ -732,6 +691,116 @@ class TerminalView @JvmOverloads constructor(
             }
         } finally {
             emulator.lock.unlock()
+        }
+    }
+
+    // ---- Drawing rows ----
+    // Cells are drawn in runs: one rectangle for neighbouring cells of one background colour and one
+    // drawText() for neighbouring characters of one colour and style, instead of a call per cell.
+    // Runs hold printable ASCII only: other characters can come from a fallback font whose glyphs
+    // are not exactly one cell wide, so they are still drawn one by one at their cell.
+
+    private fun isSelected(sel: IntArray?, bufferRow: Int, col: Int): Boolean {
+        if (sel == null) return false
+        val minR = sel[0]
+        val minC = sel[1]
+        val maxR = sel[2]
+        val maxC = sel[3]
+        if (bufferRow < minR || bufferRow > maxR) return false
+        if (bufferRow == minR && bufferRow == maxR) return col in minC..maxC
+        if (bufferRow == minR) return col >= minC
+        if (bufferRow == maxR) return col <= maxC
+        return true
+    }
+
+    private fun isLinkCell(row: TerminalRow, c: Int): Boolean =
+        (c < row.isUrlLink.size && row.isUrlLink[c]) || row.hasLinkAt(c)
+
+    /** The colour behind a cell (selection, search hit, or its own; inverse video swaps). */
+    private fun cellBackground(row: TerminalRow, c: Int, selected: Boolean): Int {
+        if (selected) return selectionBgPaint.color
+        if (c < row.isSearchMatch.size && row.isSearchMatch[c]) {
+            return if (c < row.isSearchCurrent.size && row.isSearchCurrent[c]) searchCurrentPaint.color else searchMatchPaint.color
+        }
+        return if ((row.styles[c].toInt() and 4) != 0) row.fgColors[c] else row.bgColors[c]
+    }
+
+    /** The colour of a cell's character: black on the selection and on the current search hit. */
+    private fun cellForeground(row: TerminalRow, c: Int, selected: Boolean): Int {
+        if (selected || (c < row.isSearchCurrent.size && row.isSearchCurrent[c])) return Color.BLACK
+        return if ((row.styles[c].toInt() and 4) != 0) row.bgColors[c] else row.fgColors[c]
+    }
+
+    private fun cellUnderlined(row: TerminalRow, c: Int, selected: Boolean): Boolean =
+        (row.styles[c].toInt() and 2) != 0 || (!selected && isLinkCell(row, c))
+
+    private fun drawRowBackground(canvas: Canvas, row: TerminalRow, bufferRow: Int, n: Int, y: Float, sel: IntArray?) {
+        var c = 0
+        while (c < n) {
+            val color = cellBackground(row, c, isSelected(sel, bufferRow, c))
+            var end = c + 1
+            while (end < n && cellBackground(row, end, isSelected(sel, bufferRow, end)) == color) end++
+            if (color != TerminalColor.DEFAULT_BG) {
+                bgPaint.color = color
+                canvas.drawRect(c * charWidth, y, end * charWidth, y + charHeight, bgPaint)
+            }
+            c = end
+        }
+    }
+
+    private fun setTextPaint(color: Int, bold: Boolean, underline: Boolean) {
+        textPaint.color = color
+        textPaint.isFakeBoldText = bold
+        textPaint.isUnderlineText = underline
+    }
+
+    private fun drawRowText(canvas: Canvas, row: TerminalRow, bufferRow: Int, n: Int, y: Float, sel: IntArray?) {
+        val chars = row.chars
+        val baseline = y + charBaseline
+        var c = 0
+        while (c < n) {
+            val ch = chars[c]
+            val selected = isSelected(sel, bufferRow, c)
+            if (ch == ' ') {
+                if (selected && (row.styles[c].toInt() and 2) != 0) {
+                    // an underlined space shows its underline
+                    setTextPaint(Color.BLACK, false, true)
+                    canvas.drawText(chars, c, 1, c * charWidth, baseline, textPaint)
+                } else if (!selected && isLinkCell(row, c)) {
+                    canvas.drawLine(c * charWidth, y + charHeight - 3f, (c + 1) * charWidth, y + charHeight - 3f, linkUnderlinePaint)
+                }
+                c++
+                continue
+            }
+            val color = cellForeground(row, c, selected)
+            val bold = (row.styles[c].toInt() and 1) != 0
+            val underline = cellUnderlined(row, c, selected)
+            setTextPaint(color, bold, underline)
+            if (ch.code !in 0x21..0x7e) {
+                canvas.drawText(chars, c, 1, c * charWidth, baseline, textPaint)
+                c++
+                continue
+            }
+            // Extend the run over characters drawn the same way. Spaces draw nothing, so a run that
+            // is not underlined takes them along; trailing ones are left out.
+            var end = c + 1
+            var last = c
+            while (end < n) {
+                val next = chars[end]
+                val nextSelected = isSelected(sel, bufferRow, end)
+                if (next == ' ') {
+                    if (underline || (!nextSelected && isLinkCell(row, end)) || (nextSelected && (row.styles[end].toInt() and 2) != 0)) break
+                } else {
+                    if (next.code !in 0x21..0x7e) break
+                    if (cellForeground(row, end, nextSelected) != color) break
+                    if (((row.styles[end].toInt() and 1) != 0) != bold) break
+                    if (cellUnderlined(row, end, nextSelected) != underline) break
+                    last = end
+                }
+                end++
+            }
+            canvas.drawText(chars, c, last - c + 1, c * charWidth, baseline, textPaint)
+            c = last + 1
         }
     }
 
@@ -907,23 +976,6 @@ class TerminalView @JvmOverloads constructor(
 
     private fun screenXToCol(x: Float): Int {
         return (x / charWidth).toInt().coerceIn(0, cols - 1)
-    }
-
-    private fun isCellSelected(bufferRow: Int, col: Int): Boolean {
-        if (!isSelecting) return false
-        val norm = getNormalizedSelection()
-        val minR = norm[0]
-        val minC = norm[1]
-        val maxR = norm[2]
-        val maxC = norm[3]
-
-        if (bufferRow < minR || bufferRow > maxR) return false
-        if (bufferRow == minR && bufferRow == maxR) {
-            return col in minC..maxC
-        }
-        if (bufferRow == minR) return col >= minC
-        if (bufferRow == maxR) return col <= maxC
-        return true
     }
 
     private fun getNormalizedSelection(): IntArray {
