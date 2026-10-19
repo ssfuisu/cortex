@@ -9,7 +9,7 @@ Cortex is a free and open-source terminal app and a native alternative to Termux
 [![Telegram](https://img.shields.io/badge/Telegram-@ratzgn-2CA5E0?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/ratzgn)
 [![License](https://img.shields.io/badge/License-Apache_2.0-green.svg?style=for-the-badge)](LICENSE)
 
-**[Download the latest APK](https://github.com/ssfuisu/cortex/releases/latest)** · [Website](https://ssfuisu.github.io/cortex/) · [Report a bug](https://github.com/ssfuisu/cortex/issues) · [Telegram](https://t.me/ratzgn)
+**[Download the latest APK](https://github.com/ssfuisu/cortex/releases/latest)** · [Website](https://ssfuisu.github.io/cortex/) · [Changelog](CHANGELOG.md) · [Report a bug](https://github.com/ssfuisu/cortex/issues) · [Telegram](https://t.me/ratzgn)
 
 <p align="center">
   <img src="docs/screenshots/cortex-neofetch.jpg" width="31%" alt="neofetch in Cortex Terminal showing Ubuntu 24.04 LTS running natively on an Android phone" />
@@ -148,6 +148,7 @@ Programs talk to the Android side through standard terminal escape sequences, so
 - **Cursor shape (DECSCUSR):** programs can switch between a block, underline or bar cursor, steady or blinking, such as neovim's bar cursor in insert mode.
 - **Focus events (mode 1004):** `tmux` (`set -g focus-events on`), vim and neovim are told when Cortex goes to the background or another session is shown, which `autoread` and similar features use.
 - **Synchronized output (mode 2026):** programs that announce their frames, such as neovim 0.10 and newer, are only shown complete frames, so full-screen redraws no longer flicker.
+- **Rewrapping:** when the phone is turned or the font size changes, long lines in the scrollback and on the screen are rewrapped for the new width instead of staying broken or cut off.
 
 > The prompt hooks are added to `PROMPT_COMMAND` at login. If your `~/.bashrc` *replaces* `PROMPT_COMMAND` instead of appending to it (`PROMPT_COMMAND="...;$PROMPT_COMMAND"`), automatic reload and the marks are lost.
 
@@ -205,7 +206,13 @@ Not yet. Cortex is a terminal; there is no X11 or Wayland server.
 Most command-line tools do. Packages that depend on kernel features Android does not allow for apps (for example systemd services or privileged device access) cannot work.
 
 **Can I compile C and C++ programs?**
-Yes. `apt install build-essential` installs gcc, g++ and make, and the C library headers and libraries (`libc6-dev`, `linux-libc-dev`) come with the app, so `-dev` packages such as `zlib1g-dev` or `python3-dev` install too. Two limits: statically linked programs (`gcc -static`) are killed at start by Android's seccomp filter, so link dynamically; and Cortex keeps the C library itself (`libc6`, `libc-bin`) at the version it ships, because Ubuntu's own build does not start under Android's filter, so `apt upgrade` leaves those packages alone.
+Yes. `apt install build-essential` installs gcc, g++ and make, and the C library headers and libraries (`libc6-dev`, `linux-libc-dev`) come with the app, so `-dev` packages such as `zlib1g-dev` or `python3-dev` install too. Statically linked programs (`gcc -static`) run as well: before such a program starts for the first time, Cortex patches the system calls that Android's seccomp filter forbids for apps in its file (once; the file keeps its times and mode). One limit: Cortex keeps the C library itself (`libc6`, `libc-bin`) at the version it ships, because Ubuntu's own build does not start under Android's filter, so `apt upgrade` leaves those packages alone.
+
+**Do programs downloaded as a single static binary work?**
+Static C and C++ programs do (see above). Go programs built without cgo start, but they make their system calls without the C library, so they do not see Cortex's Ubuntu files: they cannot read `/etc/resolv.conf` (name resolution fails) or start Ubuntu programs. Prefer the package from `apt` or a build that uses cgo.
+
+**Does it work on IPv6-only mobile networks?**
+Yes. On networks that only give IPv6 DNS servers, Cortex uses them, and its fallback resolver asks for IPv6 addresses when a program wants one.
 
 **How do I back up my files?**
 Run `cortex-backup`. See [Backup and Restore](#backup-and-restore).

@@ -540,22 +540,30 @@ jobs:
           git tag -d "$VERSION" 2>/dev/null || true
           git push --delete origin "$VERSION" 2>/dev/null || true
 
-          cat << EOFNOTES > release-notes.md
-          ### Cortex Release $VERSION
-
-          Cortex turns your Android device into a complete, native development powerhouse powered by **Ubuntu 24.04 LTS (Noble Numbat)** and **Glibc 2.39** — with **ZERO virtualization, ZERO PRoot, and ZERO containers**.
-
-          #### Features & Assets:
-          - Ultra-compact APK size with genuine Glibc 2.39 & Ubuntu 24.04 runtime.
-          - Native OpenCode, Meta Muse Code, and OpenJDK 17 support.
-          - High-speed native terminal emulator with hardware acceleration.
-
-          #### Included Packages & Assets:
-          - \`Cortex-arm64-v8a-signed.apk\` (64-bit ARM)
-          - \`Cortex-armeabi-v7a-signed.apk\` (32-bit ARM)
-          EOFNOTES
-
-          sed -i 's/^          //' release-notes.md
+          # The notes are the section of this version in CHANGELOG.md ("## 1.26.33 (date)" up to the
+          # next "## "), with "###" headings one level down; a version without a section gets the
+          # general description.
+          awk -v ver="${VERSION#v}" '
+            /^## / { if (found) exit; if ($2 == ver) { found = 1; next } }
+            found { sub(/^### /, "#### "); print }
+          ' CHANGELOG.md > changes.md
+          {
+            echo "### Cortex Release $VERSION"
+            echo
+            if grep -q '[^[:space:]]' changes.md; then
+              cat changes.md
+            else
+              echo "Cortex runs **Ubuntu 24.04 LTS (Noble Numbat)** with **glibc 2.39** natively on Android: no root, no PRoot, no containers, no virtual machine."
+            fi
+            echo
+            echo "#### Downloads"
+            echo "- \`Cortex-arm64-v8a-signed.apk\`: 64-bit ARM (almost all current phones)"
+            echo "- \`Cortex-armeabi-v7a-signed.apk\`: 32-bit ARM"
+            echo
+            echo "How to verify a download: [signing/README.md](https://github.com/${GITHUB_REPOSITORY}/blob/main/signing/README.md). All versions: [CHANGELOG.md](https://github.com/${GITHUB_REPOSITORY}/blob/main/CHANGELOG.md)."
+          } > release-notes.md
+          echo "Release notes:"
+          cat release-notes.md
 
           gh release create "$VERSION" \
             release-apks/Cortex-arm64-v8a-signed.apk \
