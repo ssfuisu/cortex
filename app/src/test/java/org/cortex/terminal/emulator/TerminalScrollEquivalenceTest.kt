@@ -23,6 +23,8 @@ class TerminalScrollEquivalenceTest {
         var rows = 5 + rnd.nextInt(8)
         var cols = 10 + rnd.nextInt(21)
         val emu = TerminalEmulator(rows = rows, cols = cols)
+        // The recorded states come from before width changes rewrapped the lines.
+        emu.buffer.reflowOnResize = false
         val words = listOf("alpha", "beta", "gamma", "Türkçe", "şğüöçı", "日本", "x", "cortex", "  ", "0123456789", "~", "ünï")
 
         fun feed(text: String) {

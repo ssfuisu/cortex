@@ -47,9 +47,19 @@ class TerminalBuffer(var rows: Int, var cols: Int, private val maxHistory: Int =
         private set
     var isWrapPending = false
 
+    /**
+     * Whether a change of width rewraps the lines (see [reflow]). Off only in
+     * TerminalScrollEquivalenceTest, whose recorded states come from before reflowing.
+     */
+    var reflowOnResize = true
+
     fun resize(newRows: Int, newCols: Int) {
         if (newRows == rows && newCols == cols) return
         if (newRows <= 0 || newCols <= 0) return
+        if (newCols != cols && !isAlternate && reflowOnResize) {
+            reflow(newRows, newCols)
+            return
+        }
 
         val newScreen = Array(newRows) { TerminalRow(newCols) }
 
@@ -120,6 +130,135 @@ class TerminalBuffer(var rows: Int, var cols: Int, private val maxHistory: Int =
         scrollTop = 0
         scrollBottom = rows - 1
         cursorCol = cursorCol.coerceIn(0, cols - 1)
+    }
+
+    /** A cell that shows nothing: a space without background, underline, inverse video or link. */
+    private fun isBlankCell(row: TerminalRow, c: Int): Boolean =
+        row.chars[c] == ' ' && row.bgColors[c] == TerminalColor.DEFAULT_BG &&
+            (row.styles[c].toInt() and 6) == 0 && row.linkAt(c) == null
+
+    /** Number of cells up to the last one that shows something. */
+    private fun contentLength(row: TerminalRow): Int {
+        var n = row.cols
+        while (n > 0 && isBlankCell(row, n - 1)) n--
+        return n
+    }
+
+    /**
+     * Rewraps the scrollback and the screen for a new width, the way a long command line or a long
+     * line of output would have wrapped at that width: rows joined by a wrap become one line again
+     * and are split anew, so turning the phone or changing the font size does not cut lines off or
+     * leave them broken in the middle. The row at the top of the screen stays at the top (unless the
+     * cursor would fall off the bottom), and the cursor keeps its place in its line. Rows below the
+     * cursor that show nothing are dropped. Used for the primary screen only: full-screen programs on
+     * the alternate screen redraw themselves when told the new size.
+     */
+    private fun reflow(newRows: Int, newCols: Int) {
+        var lastRow = cursorRow.coerceIn(0, rows - 1)
+        for (r in rows - 1 downTo lastRow + 1) {
+            if (contentLength(screen[r]) > 0) {
+                lastRow = r
+                break
+            }
+        }
+        val src = ArrayList<TerminalRow>(history.size + lastRow + 1)
+        src.addAll(history)
+        for (r in 0..lastRow) src.add(screen[r])
+        val cursorSrc = history.size + cursorRow.coerceIn(0, rows - 1)
+        val topSrc = history.size
+
+        val out = ArrayList<TerminalRow>(src.size + 8)
+        var newCursorIndex = 0
+        var newCursorCol = 0
+        var newWrapPending = false
+        var newTopIndex = 0
+        var i = 0
+        while (i < src.size) {
+            // Rows i..j form one line: every row but the last ends in a wrap.
+            var j = i
+            while (j < src.size - 1 && src[j].isWrapped) j++
+            // Cells each row adds to the line: all of a wrapped row, the visible part of the last.
+            val segment = IntArray(j - i + 1) { k -> if (i + k < j) src[i + k].cols else contentLength(src[i + k]) }
+            var length = 0
+            var cursorOffset = -1
+            var topOffset = -1
+            for (k in i..j) {
+                if (k == topSrc) topOffset = length
+                if (k == cursorSrc) cursorOffset = length + cursorCol.coerceIn(0, src[k].cols - 1)
+                length += segment[k - i]
+            }
+            // Where the cursor goes in the rewrapped line. A pending wrap means the next character
+            // starts a new row; at the new width it may fit on the same row.
+            var cursorPos = -1
+            var wrapPending = false
+            if (cursorOffset >= 0) {
+                if (isWrapPending) {
+                    val next = cursorOffset + 1
+                    if (next % newCols == 0) {
+                        cursorPos = cursorOffset
+                        wrapPending = true
+                    } else {
+                        cursorPos = next
+                    }
+                } else {
+                    cursorPos = cursorOffset
+                }
+            }
+            var needed = maxOf(1, (length + newCols - 1) / newCols)
+            if (cursorPos >= 0) needed = maxOf(needed, cursorPos / newCols + 1)
+
+            val base = out.size
+            var srcRow = i
+            var srcCol = 0
+            for (n in 0 until needed) {
+                val row = TerminalRow(newCols)
+                var c = 0
+                var copied = n * newCols
+                while (c < newCols && copied < length) {
+                    // skip to the next source row when this one is used up
+                    while (srcCol >= segment[srcRow - i]) {
+                        srcRow++
+                        srcCol = 0
+                    }
+                    val from = src[srcRow]
+                    row.setChar(c, from.chars[srcCol], from.fgColors[srcCol], from.bgColors[srcCol], from.styles[srcCol], from.linkAt(srcCol))
+                    c++
+                    srcCol++
+                    copied++
+                }
+                row.isWrapped = n < needed - 1
+                out.add(row)
+            }
+            if (cursorPos >= 0) {
+                newCursorIndex = base + cursorPos / newCols
+                newCursorCol = cursorPos % newCols
+                newWrapPending = wrapPending
+            }
+            if (topOffset >= 0) newTopIndex = base + topOffset / newCols
+            i = j + 1
+        }
+
+        var screenStart = minOf(newTopIndex, newCursorIndex)
+        if (newCursorIndex - screenStart >= newRows) screenStart = newCursorIndex - newRows + 1
+
+        history.clear()
+        for (k in 0 until screenStart) history.addLast(out[k])
+        while (history.size > maxHistory) history.removeFirst()
+        historyGeneration++
+        historyArrayCache = null
+
+        screen = Array(newRows) { k ->
+            val idx = screenStart + k
+            if (idx < out.size) out[idx] else TerminalRow(newCols)
+        }
+        screenGeneration++
+        rows = newRows
+        cols = newCols
+        scrollTop = 0
+        scrollBottom = rows - 1
+        cursorRow = (newCursorIndex - screenStart).coerceIn(0, rows - 1)
+        cursorCol = newCursorCol.coerceIn(0, cols - 1)
+        isWrapPending = newWrapPending
     }
 
     fun useAlternateScreen(enable: Boolean) {
