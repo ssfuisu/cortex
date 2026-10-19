@@ -757,20 +757,27 @@ object BootstrapManager {
 
     fun updateDnsConfiguration(context: Context, root: File) {
         try {
-            val dnsServers = mutableListOf<String>()
+            val ipv4Servers = mutableListOf<String>()
+            val ipv6Servers = mutableListOf<String>()
             val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
             val activeNet = cm?.activeNetwork
             if (activeNet != null) {
                 val lp = cm.getLinkProperties(activeNet)
                 lp?.dnsServers?.forEach { addr ->
+                    val host = addr.hostAddress
+                    if (host.isNullOrBlank() || addr.isLoopbackAddress || addr.isAnyLocalAddress) return@forEach
                     if (addr is java.net.Inet4Address) {
-                        val host = addr.hostAddress
-                        if (!host.isNullOrBlank() && !host.startsWith("127.") && !host.contains("%")) {
-                            dnsServers.add(host)
-                        }
+                        if (!host.contains("%")) ipv4Servers.add(host)
+                    } else if (addr is java.net.Inet6Address) {
+                        // A link-local server is only reachable with its interface ("fe80::1%wlan0").
+                        if (!addr.isLinkLocalAddress || host.contains("%")) ipv6Servers.add(host)
                     }
                 }
             }
+            // IPv6 servers only on networks that have no IPv4 ones (IPv6-only mobile networks): on a
+            // dual-stack network a broken IPv6 path would slow every lookup down, since resolv.conf
+            // rotates through the servers.
+            val dnsServers = (if (ipv4Servers.isNotEmpty()) ipv4Servers else ipv6Servers).toMutableList()
             if (!dnsServers.contains("8.8.8.8")) dnsServers.add("8.8.8.8")
             if (!dnsServers.contains("1.1.1.1")) dnsServers.add("1.1.1.1")
 

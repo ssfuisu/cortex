@@ -32,6 +32,12 @@
 #include <pthread.h>
 #include <sys/sendfile.h>
 #include <sys/xattr.h>
+#include <sys/sysmacros.h>
+#include <net/if.h>
+
+#ifndef RENAME_EXCHANGE
+#define RENAME_EXCHANGE (1 << 1)
+#endif
 
 static int is_sigsys_synthetic_success_syscall(int sys_nr) {
 #if defined(__NR_setuid)
@@ -156,90 +162,151 @@ static int is_handled_sigsys_syscall(int sys_nr) {
     return 0;
 }
 
-// Emulated hard links tracker (for filesystems/Android where link() fails with EACCES/EPERM)
-#define CORTEX_MAX_HARDLINKS 128
+// Emulated hard links. Android does not let apps create hard links, so link() falls back to a copy
+// (cortex_emulate_hardlinkat). Programs that check the result through the link count, such as the
+// lock files of shadow (link(file.PID, file.lock), then stat(file.PID).st_nlink == 2), are shown what
+// a real link would give: every copy of one emulated link reports the inode number of the original
+// and the number of copies as its link count. Copies are tracked by device and inode, so a relative
+// name, an absolute name and an open descriptor of the same file all match. Per process.
 typedef struct {
-    char path1[PATH_MAX];
-    char path2[PATH_MAX];
-    ino_t ino1;
-    ino_t ino2;
-    int active;
-} cortex_hardlink_pair_t;
+    dev_t dev;
+    ino_t ino;        // this copy
+    dev_t group_dev;  // the original, whose inode number every copy reports
+    ino_t group_ino;
+} cortex_hardlink_t;
 
-static cortex_hardlink_pair_t g_hardlinks[CORTEX_MAX_HARDLINKS];
-static int g_active_hardlinks_count = 0;
-#ifdef PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP
-static pthread_mutex_t g_hardlinks_lock = PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP;
-#else
+#define CORTEX_MAX_HARDLINKS 4096
+static cortex_hardlink_t *g_hardlinks = NULL;
+static size_t g_hardlinks_len = 0;
+static size_t g_hardlinks_cap = 0;
+// Read without the lock by the stat() hooks: they only take the lock once a copy exists.
+static volatile int g_hardlinks_any = 0;
 static pthread_mutex_t g_hardlinks_lock = PTHREAD_MUTEX_INITIALIZER;
-#endif
 
-static int register_emulated_hardlink(const char *p1, const char *p2, ino_t ino1, ino_t ino2) {
-    if (!p1 || !p2) return -1;
-    pthread_mutex_lock(&g_hardlinks_lock);
-    int slot = -1;
-    for (int i = 0; i < CORTEX_MAX_HARDLINKS; i++) {
-        if (!g_hardlinks[i].active) {
-            slot = i;
-            break;
-        }
+static ssize_t hardlink_find_locked(dev_t dev, ino_t ino) {
+    for (size_t i = 0; i < g_hardlinks_len; i++) {
+        if (g_hardlinks[i].ino == ino && g_hardlinks[i].dev == dev) return (ssize_t)i;
     }
-    if (slot == -1) {
-        slot = 0;
+    return -1;
+}
+
+static size_t hardlink_group_size_locked(dev_t group_dev, ino_t group_ino) {
+    size_t n = 0;
+    for (size_t i = 0; i < g_hardlinks_len; i++) {
+        if (g_hardlinks[i].group_ino == group_ino && g_hardlinks[i].group_dev == group_dev) n++;
     }
-    strncpy(g_hardlinks[slot].path1, p1, PATH_MAX - 1);
-    g_hardlinks[slot].path1[PATH_MAX - 1] = '\0';
-    strncpy(g_hardlinks[slot].path2, p2, PATH_MAX - 1);
-    g_hardlinks[slot].path2[PATH_MAX - 1] = '\0';
-    g_hardlinks[slot].ino1 = ino1;
-    g_hardlinks[slot].ino2 = ino2;
-    if (!g_hardlinks[slot].active) {
-        g_active_hardlinks_count++;
+    return n;
+}
+
+static void hardlink_remove_locked(size_t i) {
+    memmove(&g_hardlinks[i], &g_hardlinks[i + 1], (g_hardlinks_len - i - 1) * sizeof(g_hardlinks[0]));
+    g_hardlinks_len--;
+}
+
+// Adds or updates a copy. The table only grows up to CORTEX_MAX_HARDLINKS, after which the oldest
+// entry is forgotten (that copy then shows a link count of 1 again, as before it was linked).
+static int hardlink_put_locked(dev_t dev, ino_t ino, dev_t group_dev, ino_t group_ino) {
+    ssize_t i = hardlink_find_locked(dev, ino);
+    if (i >= 0) {
+        g_hardlinks[i].group_dev = group_dev;
+        g_hardlinks[i].group_ino = group_ino;
+        return 0;
     }
-    g_hardlinks[slot].active = 1;
-    pthread_mutex_unlock(&g_hardlinks_lock);
+    if (g_hardlinks_len == CORTEX_MAX_HARDLINKS) hardlink_remove_locked(0);
+    if (g_hardlinks_len == g_hardlinks_cap) {
+        size_t cap = g_hardlinks_cap ? g_hardlinks_cap * 2 : 16;
+        if (cap > CORTEX_MAX_HARDLINKS) cap = CORTEX_MAX_HARDLINKS;
+        cortex_hardlink_t *grown = (cortex_hardlink_t *)realloc(g_hardlinks, cap * sizeof(g_hardlinks[0]));
+        if (!grown) return -1;
+        g_hardlinks = grown;
+        g_hardlinks_cap = cap;
+    }
+    g_hardlinks[g_hardlinks_len].dev = dev;
+    g_hardlinks[g_hardlinks_len].ino = ino;
+    g_hardlinks[g_hardlinks_len].group_dev = group_dev;
+    g_hardlinks[g_hardlinks_len].group_ino = group_ino;
+    g_hardlinks_len++;
     return 0;
 }
 
-static void unregister_emulated_hardlink(const char *path) {
-    if (!path || g_active_hardlinks_count <= 0) return;
+// Records that the file (new_dev, new_ino) is an emulated hard link of (old_dev, old_ino).
+static void register_emulated_hardlink(dev_t old_dev, ino_t old_ino, dev_t new_dev, ino_t new_ino) {
     pthread_mutex_lock(&g_hardlinks_lock);
-    for (int i = 0; i < CORTEX_MAX_HARDLINKS; i++) {
-        if (g_hardlinks[i].active) {
-            if (strcmp(g_hardlinks[i].path1, path) == 0 || strcmp(g_hardlinks[i].path2, path) == 0) {
-                g_hardlinks[i].active = 0;
-                if (g_active_hardlinks_count > 0) {
-                    g_active_hardlinks_count--;
+    dev_t group_dev = old_dev;
+    ino_t group_ino = old_ino;
+    ssize_t i = hardlink_find_locked(old_dev, old_ino);
+    if (i >= 0) {
+        // Linking a copy again: the new copy joins the same group.
+        group_dev = g_hardlinks[i].group_dev;
+        group_ino = g_hardlinks[i].group_ino;
+    } else {
+        hardlink_put_locked(old_dev, old_ino, group_dev, group_ino);
+    }
+    hardlink_put_locked(new_dev, new_ino, group_dev, group_ino);
+    g_hardlinks_any = g_hardlinks_len > 0;
+    pthread_mutex_unlock(&g_hardlinks_lock);
+}
+
+// Forgets a copy whose name was removed; the last copy of a group goes back to a plain file.
+static void unregister_emulated_hardlink(dev_t dev, ino_t ino) {
+    pthread_mutex_lock(&g_hardlinks_lock);
+    ssize_t i = hardlink_find_locked(dev, ino);
+    if (i >= 0) {
+        dev_t group_dev = g_hardlinks[i].group_dev;
+        ino_t group_ino = g_hardlinks[i].group_ino;
+        hardlink_remove_locked((size_t)i);
+        if (hardlink_group_size_locked(group_dev, group_ino) == 1) {
+            for (size_t j = 0; j < g_hardlinks_len; j++) {
+                if (g_hardlinks[j].group_ino == group_ino && g_hardlinks[j].group_dev == group_dev) {
+                    hardlink_remove_locked(j);
+                    break;
                 }
             }
         }
+    }
+    g_hardlinks_any = g_hardlinks_len > 0;
+    pthread_mutex_unlock(&g_hardlinks_lock);
+}
+
+// Makes a stat() result of an emulated hard link look like a real one: the inode number of the
+// original and the number of copies as the link count.
+static void apply_emulated_hardlink(struct stat *st) {
+    if (!st || !g_hardlinks_any) return;
+    pthread_mutex_lock(&g_hardlinks_lock);
+    ssize_t i = hardlink_find_locked(st->st_dev, st->st_ino);
+    if (i >= 0) {
+        size_t n = hardlink_group_size_locked(g_hardlinks[i].group_dev, g_hardlinks[i].group_ino);
+        if (n > (size_t)st->st_nlink) st->st_nlink = (nlink_t)n;
+        st->st_ino = g_hardlinks[i].group_ino;
     }
     pthread_mutex_unlock(&g_hardlinks_lock);
 }
 
-static int is_emulated_hardlink(const char *path, ino_t ino, ino_t *unified_ino) {
-    if (g_active_hardlinks_count <= 0) return 0;
-    if (!path && !ino) return 0;
+static int real_fstatat(int dirfd, const char *path, struct stat *st, int flags) {
+#ifdef CORTEX_HOST_TEST
+    return fstatat(dirfd, path, st, flags);
+#else
+    static int (*orig_fstatat)(int, const char *, struct stat *, int) = NULL;
+    if (!orig_fstatat) orig_fstatat = (int (*)(int, const char *, struct stat *, int))dlsym(RTLD_NEXT, "fstatat");
+    return orig_fstatat ? orig_fstatat(dirfd, path, st, flags) : fstatat(dirfd, path, st, flags);
+#endif
+}
+
+// Before a name is removed or replaced (unlink, rename over it): whether it is an emulated hard
+// link, and which. Costs nothing until the process has made one.
+static int lookup_emulated_hardlink_at(int dirfd, const char *path, dev_t *dev, ino_t *ino) {
+    if (!g_hardlinks_any || !path) return 0;
+    int saved_errno = errno;
+    struct stat st;
     int found = 0;
-    pthread_mutex_lock(&g_hardlinks_lock);
-    for (int i = 0; i < CORTEX_MAX_HARDLINKS; i++) {
-        if (g_hardlinks[i].active) {
-            int match = 0;
-            if (path && (strcmp(g_hardlinks[i].path1, path) == 0 || strcmp(g_hardlinks[i].path2, path) == 0)) {
-                match = 1;
-            } else if (ino && (g_hardlinks[i].ino1 == ino || g_hardlinks[i].ino2 == ino)) {
-                match = 1;
-            }
-            if (match) {
-                found = 1;
-                if (unified_ino) {
-                    *unified_ino = g_hardlinks[i].ino1;
-                }
-                break;
-            }
-        }
+    if (real_fstatat(dirfd, path, &st, AT_SYMLINK_NOFOLLOW) == 0) {
+        pthread_mutex_lock(&g_hardlinks_lock);
+        found = hardlink_find_locked(st.st_dev, st.st_ino) >= 0;
+        pthread_mutex_unlock(&g_hardlinks_lock);
+        *dev = st.st_dev;
+        *ino = st.st_ino;
     }
-    pthread_mutex_unlock(&g_hardlinks_lock);
+    errno = saved_errno;
     return found;
 }
 
@@ -351,6 +418,9 @@ static int cortex_emulate_hardlinkat(int olddirfd, const char *rold, int newdirf
     }
 
     fchmod(fd_new, st.st_mode & 0777);
+    // A hard link shares the times of the original (tar, dpkg and make compare them).
+    const struct timespec times[2] = { st.st_atim, st.st_mtim };
+    futimens(fd_new, times);
     struct stat st_new;
     memset(&st_new, 0, sizeof(st_new));
 #ifndef CORTEX_HOST_TEST
@@ -371,7 +441,7 @@ static int cortex_emulate_hardlinkat(int olddirfd, const char *rold, int newdirf
         return -1;
     }
 
-    register_emulated_hardlink(rold, rnew, st.st_ino, st_new.st_ino);
+    register_emulated_hardlink(st.st_dev, st.st_ino, st_new.st_dev, st_new.st_ino);
     return 0;
 }
 
@@ -1563,13 +1633,7 @@ int stat(const char *pathname, struct stat *statbuf) {
         const char *retry = usrmerge_retry_path(target, alt, sizeof(alt));
         if (retry) ret = orig_stat(retry, statbuf);
     }
-    if (ret == 0 && statbuf && statbuf->st_nlink < 2) {
-        ino_t uino = 0;
-        if (is_emulated_hardlink(target, statbuf->st_ino, &uino)) {
-            statbuf->st_nlink = 2;
-            if (uino) statbuf->st_ino = uino;
-        }
-    }
+    if (ret == 0) apply_emulated_hardlink(statbuf);
     return ret;
 }
 
@@ -1600,13 +1664,7 @@ int lstat(const char *pathname, struct stat *statbuf) {
             }
         }
     }
-    if (ret == 0 && statbuf && statbuf->st_nlink < 2) {
-        ino_t uino = 0;
-        if (is_emulated_hardlink(target, statbuf->st_ino, &uino)) {
-            statbuf->st_nlink = 2;
-            if (uino) statbuf->st_ino = uino;
-        }
-    }
+    if (ret == 0) apply_emulated_hardlink(statbuf);
     return ret;
 }
 
@@ -1637,13 +1695,7 @@ int fstatat(int dirfd, const char *pathname, struct stat *statbuf, int flags) {
             }
         }
     }
-    if (ret == 0 && statbuf && statbuf->st_nlink < 2) {
-        ino_t uino = 0;
-        if (is_emulated_hardlink(target, statbuf->st_ino, &uino)) {
-            statbuf->st_nlink = 2;
-            if (uino) statbuf->st_ino = uino;
-        }
-    }
+    if (ret == 0) apply_emulated_hardlink(statbuf);
     return ret;
 }
 
@@ -1652,13 +1704,7 @@ int fstat(int fd, struct stat *statbuf) {
     static int (*orig_fstat)(int, struct stat *) = NULL;
     if (!orig_fstat) orig_fstat = (int (*)(int, struct stat *))dlsym(RTLD_NEXT, "fstat");
     int ret = orig_fstat ? orig_fstat(fd, statbuf) : -1;
-    if (ret == 0 && statbuf && statbuf->st_nlink < 2) {
-        ino_t uino = 0;
-        if (is_emulated_hardlink(NULL, statbuf->st_ino, &uino)) {
-            statbuf->st_nlink = 2;
-            if (uino) statbuf->st_ino = uino;
-        }
-    }
+    if (ret == 0) apply_emulated_hardlink(statbuf);
     return ret;
 }
 
@@ -1712,13 +1758,23 @@ int __fxstatat64(int ver, int dirfd, const char *pathname, struct stat64 *statbu
 }
 
 // Hook statx
-struct statx;
 int statx(int dirfd, const char *pathname, int flags, unsigned int mask, struct statx *statxbuf) {
     static int (*orig_statx)(int, const char *, int, unsigned int, struct statx *) = NULL;
     if (!orig_statx) orig_statx = (int (*)(int, const char *, int, unsigned int, struct statx *))dlsym(RTLD_NEXT, "statx");
     char buf[PATH_MAX];
     const char *target = (pathname && pathname[0] == '/') ? rewrite_path(pathname, buf, sizeof(buf)) : pathname;
-    return orig_statx ? orig_statx(dirfd, target, flags, mask, statxbuf) : -1;
+    int ret = orig_statx ? orig_statx(dirfd, target, flags, mask, statxbuf) : -1;
+    if (ret == 0 && statxbuf && g_hardlinks_any && (statxbuf->stx_mask & STATX_INO)) {
+        struct stat st;
+        memset(&st, 0, sizeof(st));
+        st.st_dev = makedev(statxbuf->stx_dev_major, statxbuf->stx_dev_minor);
+        st.st_ino = statxbuf->stx_ino;
+        st.st_nlink = statxbuf->stx_nlink;
+        apply_emulated_hardlink(&st);
+        statxbuf->stx_ino = st.st_ino;
+        statxbuf->stx_nlink = st.st_nlink;
+    }
+    return ret;
 }
 
 // Hook faccessat
@@ -1827,8 +1883,12 @@ int unlink(const char *pathname) {
     char buf[PATH_MAX];
     const char *target = rewrite_path(pathname, buf, sizeof(buf));
     unlink_mapped_unix_socket(target);
-    unregister_emulated_hardlink(target);
-    return orig_unlink(target);
+    dev_t hl_dev = 0;
+    ino_t hl_ino = 0;
+    int hardlinked = lookup_emulated_hardlink_at(AT_FDCWD, target, &hl_dev, &hl_ino);
+    int ret = orig_unlink(target);
+    if (ret == 0 && hardlinked) unregister_emulated_hardlink(hl_dev, hl_ino);
+    return ret;
 }
 
 // Hook unlinkat
@@ -1837,11 +1897,16 @@ int unlinkat(int dirfd, const char *pathname, int flags) {
     if (!orig_unlinkat) orig_unlinkat = (int (*)(int, const char *, int))dlsym(RTLD_NEXT, "unlinkat");
     char buf[PATH_MAX];
     const char *target = (pathname && pathname[0] == '/') ? rewrite_path(pathname, buf, sizeof(buf)) : pathname;
+    dev_t hl_dev = 0;
+    ino_t hl_ino = 0;
+    int hardlinked = 0;
     if (target) {
         unlink_mapped_unix_socket(target);
-        unregister_emulated_hardlink(target);
+        hardlinked = lookup_emulated_hardlink_at(dirfd, target, &hl_dev, &hl_ino);
     }
-    return orig_unlinkat ? orig_unlinkat(dirfd, target, flags) : -1;
+    int ret = orig_unlinkat ? orig_unlinkat(dirfd, target, flags) : -1;
+    if (ret == 0 && hardlinked) unregister_emulated_hardlink(hl_dev, hl_ino);
+    return ret;
 }
 
 // Hook rmdir
@@ -1907,7 +1972,12 @@ int rename(const char *oldpath, const char *newpath) {
     char buf2[PATH_MAX];
     const char *target_old = rewrite_path(oldpath, buf1, sizeof(buf1));
     const char *target_new = rewrite_path(newpath, buf2, sizeof(buf2));
-    return orig_rename(target_old, target_new);
+    dev_t hl_dev = 0;
+    ino_t hl_ino = 0;
+    int hardlinked = lookup_emulated_hardlink_at(AT_FDCWD, target_new, &hl_dev, &hl_ino);
+    int ret = orig_rename(target_old, target_new);
+    if (ret == 0 && hardlinked) unregister_emulated_hardlink(hl_dev, hl_ino);
+    return ret;
 }
 
 // Hook renameat
@@ -1918,7 +1988,12 @@ int renameat(int olddirfd, const char *oldpath, int newdirfd, const char *newpat
     char buf2[PATH_MAX];
     const char *target_old = (oldpath && oldpath[0] == '/') ? rewrite_path(oldpath, buf1, sizeof(buf1)) : oldpath;
     const char *target_new = (newpath && newpath[0] == '/') ? rewrite_path(newpath, buf2, sizeof(buf2)) : newpath;
-    return orig_renameat(olddirfd, target_old, newdirfd, target_new);
+    dev_t hl_dev = 0;
+    ino_t hl_ino = 0;
+    int hardlinked = lookup_emulated_hardlink_at(newdirfd, target_new, &hl_dev, &hl_ino);
+    int ret = orig_renameat(olddirfd, target_old, newdirfd, target_new);
+    if (ret == 0 && hardlinked) unregister_emulated_hardlink(hl_dev, hl_ino);
+    return ret;
 }
 
 // Hook renameat2
@@ -1932,7 +2007,13 @@ int renameat2(int olddirfd, const char *oldpath, int newdirfd, const char *newpa
     char buf2[PATH_MAX];
     const char *target_old = (oldpath && oldpath[0] == '/') ? rewrite_path(oldpath, buf1, sizeof(buf1)) : oldpath;
     const char *target_new = (newpath && newpath[0] == '/') ? rewrite_path(newpath, buf2, sizeof(buf2)) : newpath;
-    return orig_renameat2(olddirfd, target_old, newdirfd, target_new, flags);
+    dev_t hl_dev = 0;
+    ino_t hl_ino = 0;
+    // RENAME_EXCHANGE keeps both files, so nothing is replaced.
+    int hardlinked = !(flags & RENAME_EXCHANGE) && lookup_emulated_hardlink_at(newdirfd, target_new, &hl_dev, &hl_ino);
+    int ret = orig_renameat2(olddirfd, target_old, newdirfd, target_new, flags);
+    if (ret == 0 && hardlinked) unregister_emulated_hardlink(hl_dev, hl_ino);
+    return ret;
 }
 
 // Hook readlink
@@ -2397,19 +2478,17 @@ int hook_linkat(int olddirfd, const char *oldpath, int newdirfd, const char *new
 
 int hook_stat(const char *path, struct stat *st) {
     int ret = stat(path, st);
-    if (ret == 0 && st && st->st_nlink < 2) {
-        ino_t uino = 0;
-        if (is_emulated_hardlink(path, st->st_ino, &uino)) {
-            st->st_nlink = 2;
-            if (uino) st->st_ino = uino;
-        }
-    }
+    if (ret == 0) apply_emulated_hardlink(st);
     return ret;
 }
 
 int hook_unlink(const char *path) {
-    unregister_emulated_hardlink(path);
-    return unlink(path);
+    dev_t hl_dev = 0;
+    ino_t hl_ino = 0;
+    int hardlinked = lookup_emulated_hardlink_at(AT_FDCWD, path, &hl_dev, &hl_ino);
+    int ret = unlink(path);
+    if (ret == 0 && hardlinked) unregister_emulated_hardlink(hl_dev, hl_ino);
+    return ret;
 }
 #else
 #define CORTEX_NSS_SYM(name) name
@@ -4228,6 +4307,313 @@ static const posix_spawnattr_t *spawn_attr_for_android(const posix_spawnattr_t *
     return copy;
 }
 
+// ---- Static programs ----------------------------------------------------------------------
+// A statically linked program (gcc -static) carries its own copy of glibc, whose system calls the
+// preloaded hook never sees. The ones Android's seccomp filter answers with SIGSYS therefore kill it:
+// set_robust_list at start-up, clone3 for every thread, rseq, and the others the hook's SIGSYS
+// handler catches for dynamic programs. Before such a program runs, Cortex patches those call sites
+// in its file to what that handler answers (0 for set_robust_list and the set*id family, -ENOSYS,
+// which glibc falls back from, for the rest), as scripts/patch-bootstrap-ld.py does to the rootfs
+// ld.so and libc at build time. The scanning is a pure function over a buffer, so tests/native can
+// check it against the script.
+
+#define CORTEX_STATIC_WINDOW 16 // instructions between "mov x8, #nr" and its "svc #0"
+
+// AArch64: what the SIGSYS handler answers for syscall `nr`: 1 for 0, 2 for -ENOSYS, 0 to leave it.
+// set_robust_list keeps the script's no-op (x0 then holds its non-error first argument).
+static int a64_blocked_syscall(unsigned int nr) {
+    switch (nr) {
+    case 99: // set_robust_list
+        return 3;
+    case 100: // get_robust_list
+    case 143: case 144: case 145: case 146: case 147: case 149: // setregid setgid setreuid setuid setresuid setresgid
+    case 151: case 152: case 159: // setfsuid setfsgid setgroups
+        return 1;
+    case 97: case 217: case 218: case 219: // unshare add_key request_key keyctl
+    case 268: case 277: case 280: case 293: // setns seccomp bpf rseq
+        return 2;
+    default:
+        return (nr >= 424 && nr < 512) ? 2 : 0; // newer than Android's filter (clone3, close_range, ...)
+    }
+}
+
+static uint32_t rd32(const unsigned char *p) { return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24); }
+static uint16_t rd16(const unsigned char *p) { return (uint16_t)(p[0] | (p[1] << 8)); }
+static void wr32(unsigned char *p, uint32_t v) { p[0] = v & 0xff; p[1] = (v >> 8) & 0xff; p[2] = (v >> 16) & 0xff; p[3] = (v >> 24) & 0xff; }
+static void wr16(unsigned char *p, uint16_t v) { p[0] = v & 0xff; p[1] = (v >> 8) & 0xff; }
+
+// An AArch64 instruction that ends the search for the "svc #0" of a "mov x8, #nr": a branch, another
+// svc, or anything with x8 in its first register field (another write to x8, most likely).
+static int a64_ends_syscall_window(uint32_t insn) {
+    if ((insn & 0x1f) == 8) return 1;
+    if ((insn & 0xffe0001f) == 0xd4000001u) return 1;  // svc #imm
+    if ((insn & 0x7c000000u) == 0x14000000u) return 1; // b, bl
+    if ((insn & 0xff000010u) == 0x54000000u) return 1; // b.cond
+    if ((insn & 0x7e000000u) == 0x34000000u) return 1; // cbz, cbnz
+    if ((insn & 0x7e000000u) == 0x36000000u) return 1; // tbz, tbnz
+    if ((insn & 0xfe000000u) == 0xd6000000u) return 1; // br, blr, ret
+    return 0;
+}
+
+static size_t a64_patch_seccomp_syscalls(unsigned char *data, size_t start, size_t end) {
+    size_t patched = 0;
+    start = (start + 3) & ~(size_t)3;
+    for (size_t pos = start; pos + 4 <= end; pos += 4) {
+        uint32_t insn = rd32(data + pos);
+        // movz x8, #nr / movz w8, #nr
+        if ((insn & 0x7fe0001fu) != 0x52800008u) continue;
+        int result = a64_blocked_syscall((insn >> 5) & 0xffff);
+        if (!result) continue;
+        for (size_t s = pos + 4, i = 0; s + 4 <= end && i < CORTEX_STATIC_WINDOW; s += 4, i++) {
+            uint32_t next = rd32(data + s);
+            if (next == 0xd4000001u) { // svc #0
+                wr32(data + s, result == 3 ? 0xd503201fu  /* nop */
+                             : result == 1 ? 0xd2800000u  /* mov x0, #0 */
+                                           : 0x928004a0u); /* mov x0, #-38 */
+                patched++;
+                break;
+            }
+            if (a64_ends_syscall_window(next)) break;
+        }
+    }
+    return patched;
+}
+
+// 32-bit ARM: the three calls glibc makes on its own, with the exact patterns of the script
+// (ARM mode, Thumb-2 with r7, and Thumb-2 through __libc_do_syscall with r12).
+static long thumb_bl_target(const unsigned char *data, size_t size, size_t off) {
+    if (off + 4 > size) return -1;
+    uint16_t hw1 = rd16(data + off), hw2 = rd16(data + off + 2);
+    if ((hw1 & 0xf800) != 0xf000 || (hw2 & 0xd000) != 0xd000) return -1;
+    long s = (hw1 >> 10) & 1;
+    long imm10 = hw1 & 0x3ff;
+    long j1 = (hw2 >> 13) & 1, j2 = (hw2 >> 11) & 1;
+    long imm11 = hw2 & 0x7ff;
+    long i1 = (j1 ^ s) ^ 1, i2 = (j2 ^ s) ^ 1;
+    long imm25 = (s << 24) | (i1 << 23) | (i2 << 22) | (imm10 << 12) | (imm11 << 1);
+    if (s) imm25 -= (1L << 25);
+    return (long)off + 4 + imm25;
+}
+
+static size_t arm_patch_seccomp_syscalls(unsigned char *data, size_t start, size_t end) {
+    static const struct { uint32_t movw_r7; uint32_t repl; } arm[] = {
+        { 0xe3007152u, 0xe320f000u }, // movw r7, #338 (set_robust_list) -> nop
+        { 0xe30071b3u, 0xe3e00025u }, // movw r7, #435 (clone3) -> mvn r0, #37
+        { 0xe300718eu, 0xe3e00025u }, // movw r7, #398 (rseq) -> mvn r0, #37
+    };
+    static const struct { uint16_t hw1, hw2; int nop_only; } thumb_r7[] = {
+        { 0xf240, 0x1752, 1 }, // movw r7, #338
+        { 0xf240, 0x17b3, 0 }, // movw r7, #435
+        { 0xf240, 0x178e, 0 }, // movw r7, #398
+    };
+    static const struct { uint16_t hw1, hw2; uint16_t repl1, repl2; } thumb_r12[] = {
+        { 0xf44f, 0x7ca9, 0xf04f, 0x0000 }, // mov.w r12, #338 -> mov.w r0, #0
+        { 0xf44f, 0x7cc7, 0xf06f, 0x0025 }, // mov.w r12, #398 -> mvn.w r0, #37
+        { 0xf240, 0x1cb3, 0xf06f, 0x0025 }, // movw r12, #435 -> mvn.w r0, #37
+    };
+    static const unsigned char do_syscall_stub[6] = { 0x80, 0xb5, 0x67, 0x46, 0x00, 0xdf };
+    size_t patched = 0;
+
+    size_t a4 = (start + 3) & ~(size_t)3, e4 = end & ~(size_t)3;
+    for (size_t pos = a4; pos + 4 < e4; pos += 4) {
+        uint32_t insn = rd32(data + pos);
+        for (size_t k = 0; k < sizeof(arm) / sizeof(arm[0]); k++) {
+            if (insn != arm[k].movw_r7) continue;
+            for (size_t s = pos + 4; s < e4 && s < pos + 68; s += 4) {
+                if (rd32(data + s) == 0xef000000u) { // svc #0
+                    wr32(data + s, arm[k].repl);
+                    patched++;
+                    break;
+                }
+            }
+        }
+    }
+
+    size_t a2 = (start + 1) & ~(size_t)1, e2 = end & ~(size_t)1;
+    for (size_t t = a2; t + 4 < e2; t += 2) {
+        uint16_t hw1 = rd16(data + t), hw2 = rd16(data + t + 2);
+        int matched_r7 = 0;
+        for (size_t k = 0; k < sizeof(thumb_r7) / sizeof(thumb_r7[0]); k++) {
+            if (hw1 != thumb_r7[k].hw1 || hw2 != thumb_r7[k].hw2) continue;
+            matched_r7 = 1;
+            size_t limit = (e2 - 2 < t + 64 ? e2 - 2 : t + 64) + 2;
+            for (size_t s = t + 4; s < limit; s += 2) {
+                if (rd16(data + s) == 0xdf00) { // svc #0
+                    if (!thumb_r7[k].nop_only) {
+                        wr16(data + t, 0xf06f); // mvn.w r0, #37 in place of the movw
+                        wr16(data + t + 2, 0x0025);
+                    }
+                    wr16(data + s, 0xbf00); // nop
+                    patched++;
+                    break;
+                }
+            }
+            break;
+        }
+        if (matched_r7) continue;
+        for (size_t k = 0; k < sizeof(thumb_r12) / sizeof(thumb_r12[0]); k++) {
+            if (hw1 != thumb_r12[k].hw1 || hw2 != thumb_r12[k].hw2) continue;
+            size_t limit = (e2 - 4 < t + 48 ? e2 - 4 : t + 48) + 2;
+            for (size_t s = t + 4; s < limit; s += 2) {
+                long target = thumb_bl_target(data, end, s);
+                if (target >= (long)start && target + 6 <= (long)end && memcmp(data + target, do_syscall_stub, 6) == 0) {
+                    wr16(data + s, thumb_r12[k].repl1);
+                    wr16(data + s + 2, thumb_r12[k].repl2);
+                    patched++;
+                    break;
+                }
+            }
+            break;
+        }
+    }
+    return patched;
+}
+
+#ifndef EM_ARM
+#define EM_ARM 40
+#endif
+#ifndef EM_AARCH64
+#define EM_AARCH64 183
+#endif
+
+// Patches the blocked syscalls in data[start, end), code of an ELF for `e_machine`; returns how many.
+static size_t patch_seccomp_syscalls(unsigned char *data, size_t start, size_t end, uint16_t e_machine) {
+    if (!data || end <= start) return 0;
+    if (e_machine == EM_AARCH64) return a64_patch_seccomp_syscalls(data, start, end);
+    if (e_machine == EM_ARM) return arm_patch_seccomp_syscalls(data, start, end);
+    return 0;
+}
+
+// Reads the program headers of an ELF file into `ph` (as 64-bit fields); returns their number, or -1.
+struct cortex_phdr { uint32_t type, flags; uint64_t offset, filesz; };
+static int read_elf_phdrs(int fd, uint16_t *machine, struct cortex_phdr *ph, int max) {
+    unsigned char eh[64];
+    if (pread(fd, eh, sizeof(eh), 0) < 52 || memcmp(eh, "\x7f" "ELF", 4) != 0 || eh[5] != 1) return -1;
+    int is64 = eh[4] == 2;
+    uint64_t phoff = is64 ? ((uint64_t)rd32(eh + 32) | ((uint64_t)rd32(eh + 36) << 32)) : rd32(eh + 28);
+    uint16_t phentsize = rd16(eh + (is64 ? 54 : 42));
+    uint16_t phnum = rd16(eh + (is64 ? 56 : 44));
+    *machine = rd16(eh + 18);
+    if (phentsize < (is64 ? 56 : 32) || phnum == 0 || phnum > max) return -1;
+    for (int i = 0; i < phnum; i++) {
+        unsigned char e[64];
+        if (pread(fd, e, phentsize < sizeof(e) ? phentsize : sizeof(e), (off_t)(phoff + (uint64_t)i * phentsize)) < (is64 ? 56 : 32)) return -1;
+        ph[i].type = rd32(e);
+        if (is64) {
+            ph[i].flags = rd32(e + 4);
+            ph[i].offset = (uint64_t)rd32(e + 8) | ((uint64_t)rd32(e + 12) << 32);
+            ph[i].filesz = (uint64_t)rd32(e + 32) | ((uint64_t)rd32(e + 36) << 32);
+        } else {
+            ph[i].offset = rd32(e + 4);
+            ph[i].filesz = rd32(e + 16);
+            ph[i].flags = rd32(e + 24);
+        }
+    }
+    return phnum;
+}
+
+// Whether the ELF has a Go build-ID note: Go programs make their own system calls and never these.
+static int elf_is_go(int fd, const struct cortex_phdr *ph, int n) {
+    for (int i = 0; i < n; i++) {
+        if (ph[i].type != 4 /* PT_NOTE */ || ph[i].filesz < 16) continue;
+        unsigned char note[16];
+        if (pread(fd, note, sizeof(note), (off_t)ph[i].offset) != sizeof(note)) continue;
+        if (rd32(note) == 4 && memcmp(note + 12, "Go\0\0", 4) == 0) return 1;
+    }
+    return 0;
+}
+
+#define CORTEX_STATIC_XATTR "user.cortex.seccomp"
+#define CORTEX_STATIC_MAX_CODE (256u * 1024 * 1024)
+
+static void static_marker(const struct stat *st, char *buf, size_t size) {
+    snprintf(buf, size, "1 %lld %lld.%09ld", (long long)st->st_size, (long long)st->st_mtim.tv_sec, (long)st->st_mtim.tv_nsec);
+}
+
+// Makes a static program safe to start (see above). Runs before every start of one, so a program
+// already handled (marked by an extended attribute that holds its size and modification time) costs
+// one fstat and one getxattr; without extended attributes it is scanned again each time. Returns the
+// number of patched calls, 0 when there was nothing to do, -1 when the file could not be handled
+// (it is then started as it is).
+static int prepare_static_program(const char *path) {
+    int fd = open(path, O_RDONLY | O_CLOEXEC);
+    if (fd < 0) return -1;
+    struct stat st;
+    char marker[96], seen[96];
+    if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode)) {
+        close(fd);
+        return -1;
+    }
+    static_marker(&st, marker, sizeof(marker));
+    ssize_t seen_len = fgetxattr(fd, CORTEX_STATIC_XATTR, seen, sizeof(seen) - 1);
+    if (seen_len > 0) {
+        seen[seen_len] = '\0';
+        if (strcmp(seen, marker) == 0) {
+            close(fd);
+            return 0;
+        }
+    }
+
+    struct cortex_phdr ph[64];
+    uint16_t machine = 0;
+    int n = read_elf_phdrs(fd, &machine, ph, 64);
+    if (n < 0 || (machine != EM_AARCH64 && machine != EM_ARM) || elf_is_go(fd, ph, n)) {
+        if (n >= 0) fsetxattr(fd, CORTEX_STATIC_XATTR, marker, strlen(marker), 0);
+        close(fd);
+        return n < 0 ? -1 : 0;
+    }
+
+    int total = 0;
+    int wfd = -1;
+    int made_writable = 0;
+    for (int i = 0; i < n; i++) {
+        if (ph[i].type != 1 /* PT_LOAD */ || !(ph[i].flags & 1 /* PF_X */) || ph[i].filesz == 0) continue;
+        if (ph[i].filesz > CORTEX_STATIC_MAX_CODE || ph[i].offset > (uint64_t)st.st_size ||
+            ph[i].filesz > (uint64_t)st.st_size - ph[i].offset) continue;
+        size_t len = (size_t)ph[i].filesz;
+        unsigned char *code = (unsigned char *)malloc(len);
+        if (!code) continue;
+        if (pread(fd, code, len, (off_t)ph[i].offset) != (ssize_t)len) {
+            free(code);
+            continue;
+        }
+        size_t patched = patch_seccomp_syscalls(code, 0, len, machine);
+        if (patched > 0) {
+            if (wfd < 0) {
+                wfd = open(path, O_WRONLY | O_CLOEXEC);
+                if (wfd < 0 && errno == EACCES && fchmod(fd, (st.st_mode | S_IWUSR) & 07777) == 0) {
+                    made_writable = 1;
+                    wfd = open(path, O_WRONLY | O_CLOEXEC);
+                }
+            }
+            // ETXTBSY: the program is running right now, so it was handled when it started.
+            if (wfd < 0 || pwrite(wfd, code, len, (off_t)ph[i].offset) != (ssize_t)len) {
+                free(code);
+                total = -1;
+                break;
+            }
+            total += (int)patched;
+        }
+        free(code);
+    }
+    if (wfd >= 0) {
+        // Keep the times: make and friends must not see a rebuilt program.
+        const struct timespec times[2] = { st.st_atim, st.st_mtim };
+        futimens(wfd, times);
+        close(wfd);
+    }
+    if (made_writable) fchmod(fd, st.st_mode & 07777);
+    if (total >= 0) {
+        struct stat after;
+        if (fstat(fd, &after) == 0) {
+            static_marker(&after, marker, sizeof(marker));
+            fsetxattr(fd, CORTEX_STATIC_XATTR, marker, strlen(marker), 0);
+        }
+    }
+    close(fd);
+    return total;
+}
+
 #ifndef CORTEX_HOST_TEST
 
 static void resolve_symlinks(const char *path, char *out, size_t out_size, int depth) {
@@ -4445,11 +4831,15 @@ static int cortex_execve(const char *filename, char *const argv[], char *const e
         _exit(101);
     }
 
+    // A static program inside the rootfs, to be made safe to start (prepare_static_program)
+    const char *static_elf = NULL;
+    char resolved_target[PATH_MAX];
+
     // Only intercept binaries/scripts within CORTEX_ROOT
     if (g_cortex_root[0] != '\0' && strncmp(target, g_cortex_root, g_cortex_root_len) == 0) {
-        char resolved_target[PATH_MAX];
         struct exec_probe probe;
         const char *elf_target = select_exec_target(target, resolved_target, sizeof(resolved_target), &probe);
+        if (probe.is_elf && !probe.is_dynamic) static_elf = elf_target;
 
         // 1. Transparently route dynamically linked glibc ELF binaries through ld.so
         // Note: Statically linked binaries (PT_INTERP absent, e.g. Meta Muse Code) must execute directly!
@@ -4528,6 +4918,7 @@ static int cortex_execve(const char *filename, char *const argv[], char *const e
         return ret;
     }
 
+    if (static_elf) prepare_static_program(static_elf);
     char **cortex_env = prepare_cortex_env(envp, target);
     int ret = orig_execve(target, argv, cortex_env);
     int saved_errno = errno;
@@ -4880,6 +5271,7 @@ static int cortex_posix_spawn(pid_t *pid, const char *path,
             free(new_argv);
         }
     } else {
+        if (in_root && probe.is_elf && !probe.is_dynamic) prepare_static_program(elf_target);
         if (orig_posix_spawn) {
             ret = orig_posix_spawn(pid, target, file_actions, attrp, argv, new_envp);
         }
@@ -4957,23 +5349,193 @@ int posix_spawnp(pid_t *pid, const char *file,
     return ENOENT;
 }
 
+#endif /* !CORTEX_HOST_TEST */
+
+// ---- DNS packets and servers -------------------------------------------------------------
+// Pure functions (no syscalls apart from if_nametoindex), so tests/native can check them directly.
+
+#define CORTEX_DNS_TYPE_A 1
+#define CORTEX_DNS_TYPE_AAAA 28
+#define CORTEX_DNS_MAX_SERVERS 8
+
+typedef struct {
+    struct sockaddr_storage addr;
+    socklen_t len;
+} cortex_dns_server_t;
+
+// Fills `server` with the DNS server `text` (an IPv4 or IPv6 address, IPv6 optionally with a
+// "%interface" scope) on port 53. Returns 0 for loopback and unspecified addresses (nothing answers
+// there on Android), for a link-local IPv6 address without a scope, and for anything invalid.
+static int dns_server_from_string(const char *text, cortex_dns_server_t *server) {
+    memset(server, 0, sizeof(*server));
+    if (!text) return 0;
+    struct in_addr a4;
+    if (inet_pton(AF_INET, text, &a4) == 1) {
+        if ((ntohl(a4.s_addr) >> 24) == 127 || a4.s_addr == 0) return 0;
+        struct sockaddr_in *sin = (struct sockaddr_in *)&server->addr;
+        sin->sin_family = AF_INET;
+        sin->sin_port = htons(53);
+        sin->sin_addr = a4;
+        server->len = sizeof(*sin);
+        return 1;
+    }
+    char host[INET6_ADDRSTRLEN + IF_NAMESIZE + 2];
+    if (strlen(text) >= sizeof(host)) return 0;
+    strcpy(host, text);
+    unsigned int scope = 0;
+    char *pct = strchr(host, '%');
+    if (pct) {
+        *pct++ = '\0';
+        if (*pct >= '0' && *pct <= '9') {
+            scope = (unsigned int)strtoul(pct, NULL, 10);
+        } else {
+            scope = if_nametoindex(pct);
+        }
+    }
+    struct in6_addr a6;
+    if (inet_pton(AF_INET6, host, &a6) != 1) return 0;
+    if (IN6_IS_ADDR_LOOPBACK(&a6) || IN6_IS_ADDR_UNSPECIFIED(&a6)) return 0;
+    if (IN6_IS_ADDR_V4MAPPED(&a6) && (a6.s6_addr[12] == 127 || (a6.s6_addr[12] | a6.s6_addr[13] | a6.s6_addr[14] | a6.s6_addr[15]) == 0)) return 0;
+    if (IN6_IS_ADDR_LINKLOCAL(&a6) && scope == 0) return 0;
+    struct sockaddr_in6 *sin6 = (struct sockaddr_in6 *)&server->addr;
+    sin6->sin6_family = AF_INET6;
+    sin6->sin6_port = htons(53);
+    sin6->sin6_addr = a6;
+    sin6->sin6_scope_id = scope;
+    server->len = sizeof(*sin6);
+    return 1;
+}
+
+// The "nameserver" lines of a resolv.conf, in order: up to `max` usable servers, IPv4 and IPv6.
+static int parse_nameservers(const char *text, cortex_dns_server_t *out, int max) {
+    int count = 0;
+    const char *line = text;
+    while (line && *line && count < max) {
+        const char *next = strchr(line, '\n');
+        size_t len = next ? (size_t)(next - line) : strlen(line);
+        char buf[256];
+        if (len >= sizeof(buf)) len = sizeof(buf) - 1;
+        memcpy(buf, line, len);
+        buf[len] = '\0';
+        char *p = buf;
+        while (*p == ' ' || *p == '\t') p++;
+        if (strncmp(p, "nameserver", 10) == 0 && (p[10] == ' ' || p[10] == '\t')) {
+            p += 10;
+            while (*p == ' ' || *p == '\t') p++;
+            char *end = p;
+            while (*end && *end != ' ' && *end != '\t' && *end != '\r' && *end != '#' && *end != ';') end++;
+            *end = '\0';
+            if (dns_server_from_string(p, &out[count])) count++;
+        }
+        line = next ? next + 1 : NULL;
+    }
+    return count;
+}
+
+static int dns_server_equal(const cortex_dns_server_t *a, const cortex_dns_server_t *b) {
+    return a->len == b->len && memcmp(&a->addr, &b->addr, a->len) == 0;
+}
+
+// Builds a recursive query for one name and record type; returns its length, or -1 when the name
+// is not a valid DNS name (an empty label, a label over 63 bytes, over 253 bytes in all).
+static int dns_build_query(const char *name, int qtype, uint16_t txid, unsigned char *packet, size_t size) {
+    if (!name || !packet || size < 12) return -1;
+    size_t name_len = strlen(name);
+    if (name_len > 0 && name[name_len - 1] == '.') name_len--; // "example.com." is absolute
+    if (name_len == 0 || name_len > 253) return -1;
+    memset(packet, 0, 12);
+    packet[0] = (unsigned char)(txid >> 8);
+    packet[1] = (unsigned char)(txid & 0xff);
+    packet[2] = 0x01; // recursion desired
+    packet[5] = 0x01; // one question
+    size_t pos = 12;
+    size_t start = 0;
+    for (;;) {
+        size_t end = start;
+        while (end < name_len && name[end] != '.') end++;
+        size_t len = end - start;
+        if (len == 0 || len > 63 || pos + 1 + len + 1 + 4 > size) return -1;
+        packet[pos++] = (unsigned char)len;
+        memcpy(packet + pos, name + start, len);
+        pos += len;
+        if (end == name_len) break;
+        start = end + 1;
+    }
+    packet[pos++] = 0;
+    packet[pos++] = (unsigned char)(qtype >> 8);
+    packet[pos++] = (unsigned char)(qtype & 0xff);
+    packet[pos++] = 0x00;
+    packet[pos++] = 0x01; // class IN
+    return (int)pos;
+}
+
+// Offset after the (possibly compressed) name at `off`, or -1 when it is malformed.
+static int dns_skip_name(const unsigned char *msg, int n, int off) {
+    for (int labels = 0; labels < 128; labels++) {
+        if (off >= n) return -1;
+        unsigned char len = msg[off];
+        if (len == 0) return off + 1;
+        if ((len & 0xc0) == 0xc0) return off + 2 <= n ? off + 2 : -1;
+        if (len & 0xc0) return -1;
+        off += 1 + len;
+    }
+    return -1;
+}
+
+// Copies the first address of type `qtype` (4 bytes for A, 16 for AAAA) from the reply `msg` to the
+// query `txid`. Returns -1 for an error reply (such as NXDOMAIN), a reply to another query, a reply
+// without such an address (only a CNAME, say) and a malformed one.
+static int dns_parse_answer(const unsigned char *msg, int n, uint16_t txid, int qtype, unsigned char *out) {
+    if (!msg || n < 12) return -1;
+    if (((msg[0] << 8) | msg[1]) != txid) return -1;
+    if (!(msg[2] & 0x80)) return -1;     // not a reply
+    if ((msg[3] & 0x0f) != 0) return -1; // response code
+    int qdcount = (msg[4] << 8) | msg[5];
+    int ancount = (msg[6] << 8) | msg[7];
+    int off = 12;
+    for (int q = 0; q < qdcount; q++) {
+        off = dns_skip_name(msg, n, off);
+        if (off < 0 || off + 4 > n) return -1;
+        off += 4;
+    }
+    int want = qtype == CORTEX_DNS_TYPE_AAAA ? 16 : 4;
+    for (int a = 0; a < ancount; a++) {
+        off = dns_skip_name(msg, n, off);
+        if (off < 0 || off + 10 > n) return -1;
+        int rtype = (msg[off] << 8) | msg[off + 1];
+        int rclass = (msg[off + 2] << 8) | msg[off + 3];
+        int rdlen = (msg[off + 8] << 8) | msg[off + 9];
+        off += 10;
+        if (off + rdlen > n) return -1;
+        if (rtype == qtype && rclass == 1 && rdlen == want) {
+            memcpy(out, msg + off, (size_t)want);
+            return 0;
+        }
+        off += rdlen;
+    }
+    return -1;
+}
+
+#ifndef CORTEX_HOST_TEST
+
 // DNS resolution hooking and localhost DNS redirect
 #define DNS_REDIRECT_MAX 64
 static struct {
     int fd;
-    in_addr_t orig_ip;
-    in_port_t orig_port;
+    struct sockaddr_storage orig;
+    socklen_t orig_len;
     uint32_t active;
 } g_dns_redirects[DNS_REDIRECT_MAX];
 static pthread_mutex_t g_dns_redirect_mutex = PTHREAD_MUTEX_INITIALIZER;
 
-static void record_dns_redirect(int fd, in_addr_t orig_ip, in_port_t orig_port) {
-    if (fd < 0) return;
+static void record_dns_redirect(int fd, const struct sockaddr *orig, socklen_t orig_len) {
+    if (fd < 0 || !orig) return;
+    if (orig_len > sizeof(struct sockaddr_storage)) orig_len = sizeof(struct sockaddr_storage);
     pthread_mutex_lock(&g_dns_redirect_mutex);
     int target_idx = (fd >= 0 ? fd : -fd) % DNS_REDIRECT_MAX;
     g_dns_redirects[target_idx].fd = fd;
-    g_dns_redirects[target_idx].orig_ip = orig_ip;
-    g_dns_redirects[target_idx].orig_port = orig_port;
+    memcpy(&g_dns_redirects[target_idx].orig, orig, orig_len);
+    g_dns_redirects[target_idx].orig_len = orig_len;
     g_dns_redirects[target_idx].active = 1;
     pthread_mutex_unlock(&g_dns_redirect_mutex);
 }
@@ -4988,8 +5550,7 @@ static void clear_dns_redirect(int fd) {
     if (g_dns_redirects[target_idx].active && g_dns_redirects[target_idx].fd == fd) {
         g_dns_redirects[target_idx].active = 0;
         g_dns_redirects[target_idx].fd = -1;
-        g_dns_redirects[target_idx].orig_ip = 0;
-        g_dns_redirects[target_idx].orig_port = 0;
+        g_dns_redirects[target_idx].orig_len = 0;
     }
     pthread_mutex_unlock(&g_dns_redirect_mutex);
 }
@@ -5019,25 +5580,34 @@ int dup3(int oldfd, int newfd, int flags) {
     return orig_dup3 ? orig_dup3(oldfd, newfd, flags) : -1;
 }
 
-static int get_dns_redirect(int fd, in_addr_t *orig_ip, in_port_t *orig_port) {
+static int get_dns_redirect(int fd, struct sockaddr_storage *orig, socklen_t *orig_len) {
     if (fd < 0) return 0;
     int found = 0;
     pthread_mutex_lock(&g_dns_redirect_mutex);
     int target_idx = (fd >= 0 ? fd : -fd) % DNS_REDIRECT_MAX;
     if (g_dns_redirects[target_idx].active && g_dns_redirects[target_idx].fd == fd) {
-        if (orig_ip) *orig_ip = g_dns_redirects[target_idx].orig_ip;
-        if (orig_port) *orig_port = g_dns_redirects[target_idx].orig_port;
+        if (orig) *orig = g_dns_redirects[target_idx].orig;
+        if (orig_len) *orig_len = g_dns_redirects[target_idx].orig_len;
         found = 1;
     }
     pthread_mutex_unlock(&g_dns_redirect_mutex);
     return found;
 }
 
+// A DNS query to 127.0.0.0/8 or ::1 (or ::ffff:127.x), where nothing listens on Android.
 static inline int is_loopback_dns(const struct sockaddr *addr, socklen_t addrlen) {
-    if (!addr || addrlen < sizeof(struct sockaddr_in)) return 0;
-    if (addr->sa_family != AF_INET) return 0;
-    const struct sockaddr_in *sin = (const struct sockaddr_in *)addr;
-    return (sin->sin_port == htons(53) && ((ntohl(sin->sin_addr.s_addr) >> 24) == 127));
+    if (!addr || addrlen < sizeof(sa_family_t)) return 0;
+    if (addr->sa_family == AF_INET && addrlen >= sizeof(struct sockaddr_in)) {
+        const struct sockaddr_in *sin = (const struct sockaddr_in *)addr;
+        return (sin->sin_port == htons(53) && ((ntohl(sin->sin_addr.s_addr) >> 24) == 127));
+    }
+    if (addr->sa_family == AF_INET6 && addrlen >= sizeof(struct sockaddr_in6)) {
+        const struct sockaddr_in6 *sin6 = (const struct sockaddr_in6 *)addr;
+        if (sin6->sin6_port != htons(53)) return 0;
+        return IN6_IS_ADDR_LOOPBACK(&sin6->sin6_addr) ||
+               (IN6_IS_ADDR_V4MAPPED(&sin6->sin6_addr) && sin6->sin6_addr.s6_addr[12] == 127);
+    }
+    return 0;
 }
 
 static in_addr_t get_primary_dns(void) {
@@ -5134,29 +5704,130 @@ static in_addr_t get_primary_dns(void) {
 }
 
 
+// The DNS servers in the rootfs resolv.conf (which the app writes from Android's network settings),
+// read again at most every 5 seconds.
+static int get_dns_servers(cortex_dns_server_t *out, int max) {
+    static cortex_dns_server_t cached[CORTEX_DNS_MAX_SERVERS];
+    static int cached_count = 0;
+    static time_t last_check = 0;
+    static int checked = 0;
+    static pthread_mutex_t servers_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    pthread_mutex_lock(&servers_mutex);
+    if (!checked || ts.tv_sec - last_check >= 5) {
+        checked = 1;
+        last_check = ts.tv_sec;
+        init_cortex_hook();
+        char path[PATH_MAX];
+        snprintf(path, sizeof(path), "%s/etc/resolv.conf", g_cortex_root[0] ? g_cortex_root : "");
+        char text[4096];
+        ssize_t n = -1;
+        int fd = open(path, O_RDONLY | O_CLOEXEC);
+        if (fd >= 0) {
+            n = read(fd, text, sizeof(text) - 1);
+            close(fd);
+        }
+        text[n > 0 ? n : 0] = '\0';
+        cached_count = parse_nameservers(text, cached, CORTEX_DNS_MAX_SERVERS);
+    }
+    int count = cached_count < max ? cached_count : max;
+    memcpy(out, cached, (size_t)count * sizeof(cached[0]));
+    pthread_mutex_unlock(&servers_mutex);
+    return count;
+}
+
+// Where a DNS query to a loopback address goes instead: the network's DNS server, in the family of
+// the socket (an IPv6 socket gets the first IPv6 server, else the IPv4 one as ::ffff:a.b.c.d).
+// Returns the length of the address written to `out`.
+static socklen_t dns_redirect_target(const struct sockaddr *orig, struct sockaddr_storage *out) {
+    memset(out, 0, sizeof(*out));
+    if (orig->sa_family == AF_INET) {
+        memcpy(out, orig, sizeof(struct sockaddr_in));
+        ((struct sockaddr_in *)out)->sin_addr.s_addr = get_primary_dns();
+        return sizeof(struct sockaddr_in);
+    }
+    struct sockaddr_in6 *dst = (struct sockaddr_in6 *)out;
+    memcpy(dst, orig, sizeof(*dst));
+    cortex_dns_server_t servers[CORTEX_DNS_MAX_SERVERS];
+    int n = get_dns_servers(servers, CORTEX_DNS_MAX_SERVERS);
+    for (int i = 0; i < n; i++) {
+        if (servers[i].addr.ss_family == AF_INET6) {
+            const struct sockaddr_in6 *s6 = (const struct sockaddr_in6 *)&servers[i].addr;
+            dst->sin6_addr = s6->sin6_addr;
+            dst->sin6_scope_id = s6->sin6_scope_id;
+            return sizeof(*dst);
+        }
+    }
+    in_addr_t v4 = get_primary_dns();
+    memset(&dst->sin6_addr, 0, sizeof(dst->sin6_addr));
+    dst->sin6_addr.s6_addr[10] = 0xff;
+    dst->sin6_addr.s6_addr[11] = 0xff;
+    memcpy(&dst->sin6_addr.s6_addr[12], &v4, 4);
+    dst->sin6_scope_id = 0;
+    return sizeof(*dst);
+}
+
+// Puts the loopback address that a DNS socket was redirected from back into the source address of a
+// reply (`cap` is the size of the caller's buffer), so resolvers that check the sender accept it.
+static void restore_dns_source(int fd, struct sockaddr *addr, socklen_t cap, socklen_t *len) {
+    if (!addr || cap < sizeof(sa_family_t)) return;
+    in_port_t port;
+    if (addr->sa_family == AF_INET && cap >= sizeof(struct sockaddr_in)) {
+        port = ((const struct sockaddr_in *)addr)->sin_port;
+    } else if (addr->sa_family == AF_INET6 && cap >= sizeof(struct sockaddr_in6)) {
+        port = ((const struct sockaddr_in6 *)addr)->sin6_port;
+    } else {
+        return;
+    }
+    if (port != htons(53)) return;
+    struct sockaddr_storage orig;
+    socklen_t orig_len = 0;
+    if (!get_dns_redirect(fd, &orig, &orig_len) || orig.ss_family != addr->sa_family) return;
+    memcpy(addr, &orig, orig_len < cap ? orig_len : cap);
+    if (len) *len = orig_len;
+}
+
 #define CORTEX_ADDRINFO_MAGIC 0x434f5254
 
-static struct addrinfo *alloc_one_addrinfo(const char *node, const char *ip_str, int port, int socktype, int protocol) {
+// One addrinfo for an IPv4 (4 bytes) or IPv6 (16 bytes) address; freed by the freeaddrinfo hook.
+static struct addrinfo *alloc_addrinfo(const char *node, int family, const void *addr, int port, int socktype, int protocol) {
     struct addrinfo *ai = (struct addrinfo *)calloc(1, sizeof(struct addrinfo));
     if (!ai) return NULL;
-    struct sockaddr_in *sa = (struct sockaddr_in *)calloc(1, sizeof(struct sockaddr_in));
+    socklen_t len = family == AF_INET6 ? sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in);
+    void *sa = calloc(1, len);
     if (!sa) {
         free(ai);
         return NULL;
     }
-    sa->sin_family = AF_INET;
-    sa->sin_port = htons((uint16_t)port);
-    inet_pton(AF_INET, ip_str, &sa->sin_addr);
+    if (family == AF_INET6) {
+        struct sockaddr_in6 *sin6 = (struct sockaddr_in6 *)sa;
+        sin6->sin6_family = AF_INET6;
+        sin6->sin6_port = htons((uint16_t)port);
+        memcpy(&sin6->sin6_addr, addr, 16);
+    } else {
+        struct sockaddr_in *sin = (struct sockaddr_in *)sa;
+        sin->sin_family = AF_INET;
+        sin->sin_port = htons((uint16_t)port);
+        memcpy(&sin->sin_addr, addr, 4);
+    }
 
     ai->ai_flags = CORTEX_ADDRINFO_MAGIC;
-    ai->ai_family = AF_INET;
+    ai->ai_family = family;
     ai->ai_socktype = socktype ? socktype : SOCK_STREAM;
     ai->ai_protocol = protocol ? protocol : IPPROTO_TCP;
-    ai->ai_addrlen = sizeof(struct sockaddr_in);
+    ai->ai_addrlen = len;
     ai->ai_addr = (struct sockaddr *)sa;
     ai->ai_canonname = node ? strdup(node) : NULL;
     ai->ai_next = NULL;
     return ai;
+}
+
+static struct addrinfo *alloc_one_addrinfo(const char *node, const char *ip_str, int port, int socktype, int protocol) {
+    struct in_addr a;
+    if (inet_pton(AF_INET, ip_str, &a) != 1) return NULL;
+    return alloc_addrinfo(node, AF_INET, &a, port, socktype, protocol);
 }
 
 static uint16_t generate_dns_txid(void) {
@@ -5189,61 +5860,48 @@ static uint16_t generate_dns_txid(void) {
     return txid;
 }
 
-static int dns_lookup_ipv4(const char *hostname, struct in_addr *out_addr) {
-    if (!hostname || !out_addr) return -1;
+static void add_dns_server(cortex_dns_server_t *list, int *count, int max, const cortex_dns_server_t *server) {
+    if (*count >= max) return;
+    for (int i = 0; i < *count; i++) {
+        if (dns_server_equal(&list[i], server)) return;
+    }
+    list[(*count)++] = *server;
+}
 
-    if (inet_aton(hostname, out_addr)) {
-        return 0;
+// Looks one address of `name` up itself, for when glibc found none: asks the network's DNS servers,
+// then public ones (IPv4 first, then IPv6, for IPv6-only networks without IPv4 translation).
+// `qtype` is CORTEX_DNS_TYPE_A (4 bytes into `out`) or CORTEX_DNS_TYPE_AAAA (16 bytes).
+static int dns_lookup(const char *name, int qtype, unsigned char *out) {
+    if (!name || !out) return -1;
+    int family = qtype == CORTEX_DNS_TYPE_AAAA ? AF_INET6 : AF_INET;
+    if (inet_pton(family, name, out) == 1) return 0;
+
+    static const char *const k_public_dns[] = {
+        "8.8.8.8", "1.1.1.1", "9.9.9.9", "2001:4860:4860::8888", "2606:4700:4700::1111",
+    };
+    cortex_dns_server_t servers[CORTEX_DNS_MAX_SERVERS + 6];
+    int max = (int)(sizeof(servers) / sizeof(servers[0]));
+    int count = 0;
+    cortex_dns_server_t s;
+    char primary[INET_ADDRSTRLEN];
+    in_addr_t p_dns = get_primary_dns(); // also covers net.dns1 of older Android versions
+    if (inet_ntop(AF_INET, &p_dns, primary, sizeof(primary)) && dns_server_from_string(primary, &s)) {
+        add_dns_server(servers, &count, max, &s);
+    }
+    cortex_dns_server_t network[CORTEX_DNS_MAX_SERVERS];
+    int network_count = get_dns_servers(network, CORTEX_DNS_MAX_SERVERS);
+    for (int i = 0; i < network_count; i++) add_dns_server(servers, &count, max, &network[i]);
+    for (size_t i = 0; i < sizeof(k_public_dns) / sizeof(k_public_dns[0]); i++) {
+        if (dns_server_from_string(k_public_dns[i], &s)) add_dns_server(servers, &count, max, &s);
     }
 
     unsigned char packet[512];
-    memset(packet, 0, sizeof(packet));
-
     uint16_t txid = generate_dns_txid();
-    packet[0] = (unsigned char)(txid >> 8);
-    packet[1] = (unsigned char)(txid & 0xff);
-    packet[2] = 0x01;
-    packet[3] = 0x00;
-    packet[4] = 0x00;
-    packet[5] = 0x01;
+    int packet_len = dns_build_query(name, qtype, txid, packet, sizeof(packet));
+    if (packet_len < 0) return -1;
 
-    int pos = 12;
-    const char *p = hostname;
-    while (*p) {
-        const char *dot = strchr(p, '.');
-        size_t len = dot ? (size_t)(dot - p) : strlen(p);
-        if (len > 63 || pos + len + 1 >= (int)sizeof(packet) - 10) return -1;
-        packet[pos++] = (unsigned char)len;
-        memcpy(&packet[pos], p, len);
-        pos += len;
-        if (!dot) break;
-        p = dot + 1;
-    }
-    packet[pos++] = 0;
-
-    packet[pos++] = 0x00;
-    packet[pos++] = 0x01; // QTYPE A
-    packet[pos++] = 0x00;
-    packet[pos++] = 0x01; // QCLASS IN
-    int packet_len = pos;
-
-    in_addr_t dns_servers[4];
-    int server_count = 0;
-    in_addr_t p_dns = get_primary_dns();
-    if (p_dns != 0 && (ntohl(p_dns) >> 24) != 127) {
-        dns_servers[server_count++] = p_dns;
-    }
-    in_addr_t g_dns = inet_addr("8.8.8.8");
-    if (g_dns != p_dns) dns_servers[server_count++] = g_dns;
-    in_addr_t c_dns = inet_addr("1.1.1.1");
-    if (c_dns != p_dns && c_dns != g_dns) dns_servers[server_count++] = c_dns;
-    in_addr_t o_dns = inet_addr("9.9.9.9");
-    if (o_dns != p_dns && o_dns != g_dns && o_dns != c_dns) dns_servers[server_count++] = o_dns;
-
-    for (int s = 0; s < server_count; s++) {
-        if (dns_servers[s] == 0) continue;
-
-        int sock = socket(AF_INET, SOCK_DGRAM, 0);
+    for (int i = 0; i < count; i++) {
+        int sock = socket(servers[i].addr.ss_family, SOCK_DGRAM | SOCK_CLOEXEC, 0);
         if (sock < 0) continue;
 
         struct timeval tv;
@@ -5251,51 +5909,16 @@ static int dns_lookup_ipv4(const char *hostname, struct in_addr *out_addr) {
         tv.tv_usec = 600000; // 600ms fast failover
         setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
-        struct sockaddr_in dest;
-        memset(&dest, 0, sizeof(dest));
-        dest.sin_family = AF_INET;
-        dest.sin_port = htons(53);
-        dest.sin_addr.s_addr = dns_servers[s];
-
-        sendto(sock, packet, packet_len, 0, (struct sockaddr *)&dest, sizeof(dest));
-
-        unsigned char resp[1024];
-        ssize_t n = recvfrom(sock, resp, sizeof(resp), 0, NULL, NULL);
-        close(sock);
-
-        if (n > 12 && resp[0] == packet[0] && resp[1] == packet[1]) {
-            int ancount = (resp[6] << 8) | resp[7];
-            if (ancount > 0) {
-                int offset = 12;
-                while (offset < n && resp[offset] != 0) {
-                    if ((resp[offset] & 0xc0) == 0xc0) {
-                        offset += 2;
-                        break;
-                    }
-                    offset += 1 + resp[offset];
-                }
-                if (offset < n && resp[offset] == 0) offset++;
-                offset += 4; // Skip QTYPE and QCLASS
-
-                for (int a = 0; a < ancount && offset + 10 <= n; a++) {
-                    if ((resp[offset] & 0xc0) == 0xc0) {
-                        offset += 2;
-                    } else {
-                        while (offset < n && resp[offset] != 0) offset++;
-                        if (offset < n) offset++;
-                    }
-                    if (offset + 10 > n) break;
-                    int rtype = (resp[offset] << 8) | resp[offset + 1];
-                    int rdlen = (resp[offset + 8] << 8) | resp[offset + 9];
-                    offset += 10;
-                    if (rtype == 1 && rdlen == 4 && offset + 4 <= n) {
-                        memcpy(&out_addr->s_addr, &resp[offset], 4);
-                        return 0;
-                    }
-                    offset += rdlen;
-                }
-            }
+        // A connected socket only receives datagrams from that server.
+        if (connect(sock, (const struct sockaddr *)&servers[i].addr, servers[i].len) != 0 ||
+            send(sock, packet, (size_t)packet_len, 0) != packet_len) {
+            close(sock);
+            continue;
         }
+        unsigned char resp[1500];
+        ssize_t n = recv(sock, resp, sizeof(resp), 0);
+        close(sock);
+        if (n > 0 && dns_parse_answer(resp, (int)n, txid, qtype, out) == 0) return 0;
     }
     return -1;
 }
@@ -5315,13 +5938,17 @@ static int synthesize_fallback_addrinfo(const char *node, const char *service,
                                         struct addrinfo **res) {
     if (!node || !res) return EAI_NONAME;
 
+    int socktype = (hints && hints->ai_socktype) ? hints->ai_socktype : SOCK_STREAM;
+    int protocol = (hints && hints->ai_protocol) ? hints->ai_protocol : IPPROTO_TCP;
+    int family = hints ? hints->ai_family : AF_UNSPEC;
+
     int port = 80;
     if (service) {
         if (strcmp(service, "https") == 0 || strcmp(service, "443") == 0) {
             port = 443;
         } else if (strcmp(service, "http") == 0 || strcmp(service, "80") == 0) {
             port = 80;
-        } else {
+        } else if (service[0] >= '0' && service[0] <= '9') {
             int p = 0;
             const char *sp = service;
             while (*sp >= '0' && *sp <= '9') {
@@ -5329,22 +5956,31 @@ static int synthesize_fallback_addrinfo(const char *node, const char *service,
                 sp++;
             }
             if (p > 0 && p < 65536) port = p;
+        } else {
+            // A service name such as "ssh" or "domain", from /etc/services
+            struct servent se, *found = NULL;
+            char se_buf[1024];
+            if (getservbyname_r(service, socktype == SOCK_DGRAM ? "udp" : "tcp", &se, se_buf, sizeof(se_buf), &found) == 0 && found) {
+                port = ntohs((uint16_t)found->s_port);
+            }
         }
     }
 
-    int socktype = (hints && hints->ai_socktype) ? hints->ai_socktype : SOCK_STREAM;
-    int protocol = (hints && hints->ai_protocol) ? hints->ai_protocol : IPPROTO_TCP;
-
-    struct in_addr resolved_addr;
-    if (dns_lookup_ipv4(node, &resolved_addr) == 0) {
-        char ip_str[INET_ADDRSTRLEN];
-        inet_ntop(AF_INET, &resolved_addr, ip_str, sizeof(ip_str));
-        struct addrinfo *ai = alloc_one_addrinfo(node, ip_str, port, socktype, protocol);
-        if (ai) {
-            *res = ai;
-            return 0;
-        }
+    // The address family the caller asked for: an IPv6-only caller must not get an IPv4 address.
+    unsigned char resolved[16];
+    struct addrinfo *ai = NULL;
+    if ((family == AF_UNSPEC || family == AF_INET) && dns_lookup(node, CORTEX_DNS_TYPE_A, resolved) == 0) {
+        ai = alloc_addrinfo(node, AF_INET, resolved, port, socktype, protocol);
+    } else if ((family == AF_UNSPEC || family == AF_INET6) && dns_lookup(node, CORTEX_DNS_TYPE_AAAA, resolved) == 0) {
+        ai = alloc_addrinfo(node, AF_INET6, resolved, port, socktype, protocol);
     }
+    if (ai) {
+        *res = ai;
+        return 0;
+    }
+
+    // The built-in addresses below are IPv4 ones.
+    if (family == AF_INET6) return EAI_NONAME;
 
     if (domain_matches(node, "ubuntu.com")) {
         struct addrinfo *ai1 = alloc_one_addrinfo(node, "91.189.91.103", port, socktype, protocol);
@@ -5455,10 +6091,12 @@ int getaddrinfo(const char *node, const char *service,
     }
 
     int ret = orig_getaddrinfo ? orig_getaddrinfo(node, service, &mod_hints, res) : EAI_FAIL;
-    if (ret != 0 || !res || !*res) {
-        if (node) {
-            ret = synthesize_fallback_addrinfo(node, service, hints, res);
-        }
+    // A numeric-only lookup must never turn into a DNS query.
+    if ((ret != 0 || !res || !*res) && node && !(hints && (hints->ai_flags & AI_NUMERICHOST))) {
+        int fallback = synthesize_fallback_addrinfo(node, service, hints, res);
+        // When the fallback finds nothing either, glibc's own error (EAI_AGAIN: try again later,
+        // EAI_NONAME: no such name) is the more precise one.
+        if (fallback == 0 || ret == 0) ret = fallback;
     }
     return ret;
 }
@@ -5482,20 +6120,28 @@ void freeaddrinfo(struct addrinfo *res) {
     if (orig_freeaddrinfo) orig_freeaddrinfo(res);
 }
 
+// Whether a resolver state names a server other than loopback. glibc keeps IPv6 servers in the
+// extension (their nsaddr_list entry has family 0), so an IPv6-only resolv.conf counts too.
+static int res_state_has_usable_server(res_state statp) {
+    for (int i = 0; i < statp->nscount && i < MAXNS; i++) {
+        if (statp->nsaddr_list[i].sin_family == AF_INET) {
+            in_addr_t a = statp->nsaddr_list[i].sin_addr.s_addr;
+            if ((ntohl(a) >> 24) != 127 && a != 0) return 1;
+        } else if (statp->_u._ext.nsaddrs[i] != NULL) {
+            const struct in6_addr *a6 = &statp->_u._ext.nsaddrs[i]->sin6_addr;
+            if (!IN6_IS_ADDR_LOOPBACK(a6) && !IN6_IS_ADDR_UNSPECIFIED(a6)) return 1;
+        }
+    }
+    return 0;
+}
+
 int res_init(void) {
     static int (*orig_res_init)(void) = NULL;
     if (!orig_res_init) orig_res_init = (int (*)(void))dlsym(RTLD_NEXT, "res_init");
     int ret = orig_res_init ? orig_res_init() : 0;
     res_state statp = __res_state();
     if (statp) {
-        int has_non_loopback = 0;
-        for (int i = 0; i < statp->nscount; i++) {
-            if ((ntohl(statp->nsaddr_list[i].sin_addr.s_addr) >> 24) != 127 && statp->nsaddr_list[i].sin_addr.s_addr != 0) {
-                has_non_loopback = 1;
-                break;
-            }
-        }
-        if (!has_non_loopback || statp->nscount <= 0) {
+        if (!res_state_has_usable_server(statp)) {
             statp->nscount = 2;
             statp->nsaddr_list[0].sin_family = AF_INET;
             statp->nsaddr_list[0].sin_port = htons(53);
@@ -5522,14 +6168,7 @@ int res_ninit(res_state statp) {
     }
     int ret = orig_res_ninit ? orig_res_ninit(statp) : 0;
     if (statp) {
-        int has_non_loopback = 0;
-        for (int i = 0; i < statp->nscount; i++) {
-            if ((ntohl(statp->nsaddr_list[i].sin_addr.s_addr) >> 24) != 127 && statp->nsaddr_list[i].sin_addr.s_addr != 0) {
-                has_non_loopback = 1;
-                break;
-            }
-        }
-        if (!has_non_loopback || statp->nscount <= 0) {
+        if (!res_state_has_usable_server(statp)) {
             statp->nscount = 2;
             statp->nsaddr_list[0].sin_family = AF_INET;
             statp->nsaddr_list[0].sin_port = htons(53);
@@ -5671,12 +6310,13 @@ int connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen) {
     }
 
     if (addr && is_loopback_dns(addr, addrlen)) {
-        struct sockaddr_in redirected;
-        memcpy(&redirected, addr, sizeof(redirected));
-        redirected.sin_addr.s_addr = get_primary_dns();
-        int ret = orig_connect ? orig_connect(sockfd, (struct sockaddr *)&redirected, sizeof(redirected)) : -1;
-        if (ret == 0) {
-            record_dns_redirect(sockfd, ((const struct sockaddr_in *)addr)->sin_addr.s_addr, ((const struct sockaddr_in *)addr)->sin_port);
+        struct sockaddr_storage redirected;
+        socklen_t redirected_len = dns_redirect_target(addr, &redirected);
+        int ret = orig_connect ? orig_connect(sockfd, (struct sockaddr *)&redirected, redirected_len) : -1;
+        if (ret == 0 || errno == EINPROGRESS) {
+            int saved_errno = errno;
+            record_dns_redirect(sockfd, addr, addrlen);
+            errno = saved_errno;
         }
         return ret;
     }
@@ -5689,11 +6329,10 @@ ssize_t sendto(int sockfd, const void *buf, size_t len, int flags,
     if (!orig_sendto) orig_sendto = (ssize_t (*)(int, const void *, size_t, int, const struct sockaddr *, socklen_t))dlsym(RTLD_NEXT, "sendto");
 
     if (dest_addr && is_loopback_dns(dest_addr, addrlen)) {
-        struct sockaddr_in redirected;
-        memcpy(&redirected, dest_addr, sizeof(redirected));
-        redirected.sin_addr.s_addr = get_primary_dns();
-        record_dns_redirect(sockfd, ((const struct sockaddr_in *)dest_addr)->sin_addr.s_addr, ((const struct sockaddr_in *)dest_addr)->sin_port);
-        return orig_sendto ? orig_sendto(sockfd, buf, len, flags, (struct sockaddr *)&redirected, sizeof(redirected)) : -1;
+        struct sockaddr_storage redirected;
+        socklen_t redirected_len = dns_redirect_target(dest_addr, &redirected);
+        record_dns_redirect(sockfd, dest_addr, addrlen);
+        return orig_sendto ? orig_sendto(sockfd, buf, len, flags, (struct sockaddr *)&redirected, redirected_len) : -1;
     }
     return orig_sendto ? orig_sendto(sockfd, buf, len, flags, dest_addr, addrlen) : -1;
 }
@@ -5703,13 +6342,13 @@ ssize_t sendmsg(int sockfd, const struct msghdr *msg, int flags) {
     if (!orig_sendmsg) orig_sendmsg = (ssize_t (*)(int, const struct msghdr *, int))dlsym(RTLD_NEXT, "sendmsg");
 
     if (msg && msg->msg_name && is_loopback_dns((const struct sockaddr *)msg->msg_name, msg->msg_namelen)) {
-        struct sockaddr_in redirected;
-        memcpy(&redirected, msg->msg_name, sizeof(redirected));
-        redirected.sin_addr.s_addr = get_primary_dns();
+        struct sockaddr_storage redirected;
+        socklen_t redirected_len = dns_redirect_target((const struct sockaddr *)msg->msg_name, &redirected);
         struct msghdr mod_msg;
         memcpy(&mod_msg, msg, sizeof(mod_msg));
         mod_msg.msg_name = &redirected;
-        record_dns_redirect(sockfd, ((const struct sockaddr_in *)msg->msg_name)->sin_addr.s_addr, ((const struct sockaddr_in *)msg->msg_name)->sin_port);
+        mod_msg.msg_namelen = redirected_len;
+        record_dns_redirect(sockfd, (const struct sockaddr *)msg->msg_name, msg->msg_namelen);
         return orig_sendmsg ? orig_sendmsg(sockfd, &mod_msg, flags) : -1;
     }
     return orig_sendmsg ? orig_sendmsg(sockfd, msg, flags) : -1;
@@ -5720,19 +6359,12 @@ ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
     static ssize_t (*orig_recvfrom)(int, void *, size_t, int, struct sockaddr *, socklen_t *) = NULL;
     if (!orig_recvfrom) orig_recvfrom = (ssize_t (*)(int, void *, size_t, int, struct sockaddr *, socklen_t *))dlsym(RTLD_NEXT, "recvfrom");
 
+    socklen_t cap = addrlen ? *addrlen : 0;
     ssize_t ret = orig_recvfrom ? orig_recvfrom(sockfd, buf, len, flags, src_addr, addrlen) : -1;
-    if (ret > 0 && src_addr && addrlen && *addrlen >= sizeof(struct sockaddr_in)) {
-        if (src_addr->sa_family == AF_INET) {
-            struct sockaddr_in *sin = (struct sockaddr_in *)src_addr;
-            if (sin->sin_port == htons(53)) {
-                in_addr_t orig_ip;
-                in_port_t orig_port;
-                if (get_dns_redirect(sockfd, &orig_ip, &orig_port)) {
-                    sin->sin_addr.s_addr = orig_ip;
-                    sin->sin_port = orig_port;
-                }
-            }
-        }
+    if (ret > 0 && src_addr && addrlen) {
+        int saved_errno = errno;
+        restore_dns_source(sockfd, src_addr, cap, addrlen);
+        errno = saved_errno;
     }
     return ret;
 }
@@ -5741,17 +6373,12 @@ ssize_t recvmsg(int sockfd, struct msghdr *msg, int flags) {
     static ssize_t (*orig_recvmsg)(int, struct msghdr *, int) = NULL;
     if (!orig_recvmsg) orig_recvmsg = (ssize_t (*)(int, struct msghdr *, int))dlsym(RTLD_NEXT, "recvmsg");
 
+    socklen_t cap = msg ? msg->msg_namelen : 0;
     ssize_t ret = orig_recvmsg ? orig_recvmsg(sockfd, msg, flags) : -1;
-    if (ret > 0 && msg && msg->msg_name && msg->msg_namelen >= sizeof(struct sockaddr_in)) {
-        struct sockaddr_in *sin = (struct sockaddr_in *)msg->msg_name;
-        if (sin->sin_family == AF_INET && sin->sin_port == htons(53)) {
-            in_addr_t orig_ip;
-            in_port_t orig_port;
-            if (get_dns_redirect(sockfd, &orig_ip, &orig_port)) {
-                sin->sin_addr.s_addr = orig_ip;
-                sin->sin_port = orig_port;
-            }
-        }
+    if (ret > 0 && msg && msg->msg_name) {
+        int saved_errno = errno;
+        restore_dns_source(sockfd, (struct sockaddr *)msg->msg_name, cap, &msg->msg_namelen);
+        errno = saved_errno;
     }
     return ret;
 }
@@ -5760,20 +6387,9 @@ int getpeername(int sockfd, struct sockaddr *addr, socklen_t *addrlen) {
     static int (*orig_getpeername)(int, struct sockaddr *, socklen_t *) = NULL;
     if (!orig_getpeername) orig_getpeername = (int (*)(int, struct sockaddr *, socklen_t *))dlsym(RTLD_NEXT, "getpeername");
 
+    socklen_t cap = addrlen ? *addrlen : 0;
     int ret = orig_getpeername ? orig_getpeername(sockfd, addr, addrlen) : -1;
-    if (ret == 0 && addr && addrlen && *addrlen >= sizeof(struct sockaddr_in)) {
-        if (addr->sa_family == AF_INET) {
-            struct sockaddr_in *sin = (struct sockaddr_in *)addr;
-            if (sin->sin_port == htons(53)) {
-                in_addr_t orig_ip;
-                in_port_t orig_port;
-                if (get_dns_redirect(sockfd, &orig_ip, &orig_port)) {
-                    sin->sin_addr.s_addr = orig_ip;
-                    sin->sin_port = orig_port;
-                }
-            }
-        }
-    }
+    if (ret == 0 && addr && addrlen) restore_dns_source(sockfd, addr, cap, addrlen);
     return ret;
 }
 

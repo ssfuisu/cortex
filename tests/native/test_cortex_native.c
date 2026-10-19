@@ -648,6 +648,283 @@ static void test_hardlink_emulation_and_st_nlink(void) {
     ASSERT_EQ(hook_ulckpwdf(), 0, "hook_ulckpwdf() must return 0");
 }
 
+/* 9b. The copy path itself (what Android takes): link counts, shared inode, relative names, removal */
+static void test_emulated_hardlink_groups(void) {
+    const char *tmp = get_test_tmp_dir();
+    char dir[PATH_MAX], a[PATH_MAX], b[PATH_MAX], c[PATH_MAX], d[PATH_MAX];
+    snprintf(dir, sizeof(dir), "%s/cortex_hlg_%d", tmp, getpid());
+    rm_rf(dir);
+    ASSERT_EQ(mkdir(dir, 0700), 0, "mkdir test dir");
+    snprintf(a, sizeof(a), "%s/a", dir);
+    snprintf(b, sizeof(b), "%s/b", dir);
+    snprintf(c, sizeof(c), "%s/c", dir);
+    snprintf(d, sizeof(d), "%s/d", dir);
+
+    int fd = open(a, O_CREAT | O_WRONLY | O_TRUNC, 0640);
+    ASSERT_TRUE(fd >= 0, "create a");
+    ASSERT_EQ(write(fd, "data", 4), 4, "write a");
+    close(fd);
+    struct timespec old_times[2] = { { 1600000000, 0 }, { 1600000000, 0 } };
+    ASSERT_EQ(utimensat(AT_FDCWD, a, old_times, 0), 0, "set an old mtime on a");
+    struct stat plain;
+    ASSERT_EQ(stat(a, &plain), 0, "stat a");
+
+    // a -> b by absolute name, then b -> c relative to a directory descriptor
+    ASSERT_EQ(cortex_emulate_hardlink(a, b), 0, "emulated link a -> b");
+    int dirfd = open(dir, O_RDONLY | O_DIRECTORY);
+    ASSERT_TRUE(dirfd >= 0, "open dir");
+    ASSERT_EQ(cortex_emulate_hardlinkat(dirfd, "b", dirfd, "c"), 0, "emulated link b -> c (relative)");
+
+    struct stat sa, sb, sc;
+    ASSERT_EQ(hook_stat(a, &sa), 0, "stat a");
+    ASSERT_EQ(hook_stat(b, &sb), 0, "stat b");
+    ASSERT_EQ(hook_stat(c, &sc), 0, "stat c");
+    ASSERT_EQ(sa.st_nlink, 3, "a counts all three names");
+    ASSERT_EQ(sb.st_nlink, 3, "b counts all three names");
+    ASSERT_EQ(sc.st_nlink, 3, "c (linked through a relative name) counts all three names");
+    ASSERT_EQ(sb.st_ino, plain.st_ino, "b reports the inode of a");
+    ASSERT_EQ(sc.st_ino, plain.st_ino, "c reports the inode of a");
+    ASSERT_EQ(sc.st_mtime, 1600000000, "the copy keeps the modification time of the original");
+    ASSERT_EQ(sc.st_mode & 0777, 0640, "the copy keeps the mode");
+
+    // fstat of an open copy matches too
+    int fdc = open(c, O_RDONLY);
+    ASSERT_TRUE(fdc >= 0, "open c");
+    struct stat sfd;
+    ASSERT_EQ(fstat(fdc, &sfd), 0, "fstat c");
+    apply_emulated_hardlink(&sfd);
+    ASSERT_EQ(sfd.st_nlink, 3, "fstat of c counts all three names");
+    close(fdc);
+
+    // Removing a name lowers the count of the others
+    ASSERT_EQ(hook_unlink(a), 0, "unlink a");
+    ASSERT_EQ(hook_stat(b, &sb), 0, "stat b after a went away");
+    ASSERT_EQ(sb.st_nlink, 2, "b and c are left");
+    ASSERT_EQ(sb.st_ino, plain.st_ino, "b still reports the inode of the link group");
+    dev_t hl_dev = 0;
+    ino_t hl_ino = 0;
+    ASSERT_EQ(lookup_emulated_hardlink_at(dirfd, "b", &hl_dev, &hl_ino), 1, "b, named relative to the directory, is found");
+    ASSERT_EQ(lookup_emulated_hardlink_at(dirfd, "missing", &hl_dev, &hl_ino), 0, "a missing name is not");
+    ASSERT_EQ(hook_unlink(b), 0, "unlink b");
+    ASSERT_EQ(hook_stat(c, &sc), 0, "stat c");
+    ASSERT_EQ(sc.st_nlink, 1, "the last copy is a plain file again");
+    ASSERT_TRUE(sc.st_ino != plain.st_ino, "and reports its own inode");
+    ASSERT_EQ(g_hardlinks_any, 0, "nothing is tracked any more");
+
+    // Many links in one process (dpkg unpacking a package full of hard links) are all kept
+    for (int i = 0; i < 300; i++) {
+        snprintf(d, sizeof(d), "%s/many_%d", dir, i);
+        ASSERT_EQ(cortex_emulate_hardlink(c, d), 0, "emulated link c -> many_i");
+    }
+    ASSERT_EQ(hook_stat(c, &sc), 0, "stat c");
+    ASSERT_EQ(sc.st_nlink, 301, "all 300 copies and c are counted");
+
+    close(dirfd);
+    rm_rf(dir);
+    pthread_mutex_lock(&g_hardlinks_lock);
+    g_hardlinks_len = 0;
+    g_hardlinks_any = 0;
+    pthread_mutex_unlock(&g_hardlinks_lock);
+}
+
+/* 9c. DNS servers of both families, queries and replies (the hook's own resolver) */
+static void test_dns_helpers(void) {
+    cortex_dns_server_t s;
+    ASSERT_EQ(dns_server_from_string("8.8.8.8", &s), 1, "IPv4 server");
+    ASSERT_EQ(s.addr.ss_family, AF_INET, "IPv4 family");
+    ASSERT_EQ(ntohs(((struct sockaddr_in *)&s.addr)->sin_port), 53, "port 53");
+    ASSERT_EQ(dns_server_from_string("2001:4860:4860::8888", &s), 1, "IPv6 server");
+    ASSERT_EQ(s.addr.ss_family, AF_INET6, "IPv6 family");
+    ASSERT_EQ(s.len, sizeof(struct sockaddr_in6), "IPv6 length");
+    cortex_dns_server_t java_form;
+    ASSERT_EQ(dns_server_from_string("2001:4860:4860:0:0:0:0:8888", &java_form), 1, "Java's uncompressed IPv6 form");
+    ASSERT_EQ(dns_server_equal(&s, &java_form), 1, "both spellings are the same server");
+    ASSERT_EQ(dns_server_from_string("127.0.0.53", &s), 0, "IPv4 loopback is skipped");
+    ASSERT_EQ(dns_server_from_string("0.0.0.0", &s), 0, "unspecified IPv4 is skipped");
+    ASSERT_EQ(dns_server_from_string("::1", &s), 0, "IPv6 loopback is skipped");
+    ASSERT_EQ(dns_server_from_string("::", &s), 0, "unspecified IPv6 is skipped");
+    ASSERT_EQ(dns_server_from_string("::ffff:127.0.0.1", &s), 0, "IPv4-mapped loopback is skipped");
+    ASSERT_EQ(dns_server_from_string("fe80::1", &s), 0, "link-local without a scope is skipped");
+    ASSERT_EQ(dns_server_from_string("fe80::1%7", &s), 1, "link-local with a numeric scope");
+    ASSERT_EQ(((struct sockaddr_in6 *)&s.addr)->sin6_scope_id, 7, "scope id kept");
+    ASSERT_EQ(dns_server_from_string("dns.google", &s), 0, "names are not addresses");
+
+    cortex_dns_server_t list[3];
+    const char *conf =
+        "# written by Cortex\n"
+        "nameserver 127.0.0.53\n"
+        "nameserver\t2001:4860:4860::8844 # comment\n"
+        "options timeout:1 attempts:2 rotate\n"
+        "  nameserver 1.1.1.1\r\n"
+        "nameservers 9.9.9.9\n"
+        "nameserver 8.8.8.8\n"
+        "nameserver 8.8.4.4\n";
+    ASSERT_EQ(parse_nameservers(conf, list, 3), 3, "three usable servers, at most three");
+    ASSERT_EQ(list[0].addr.ss_family, AF_INET6, "the IPv6 server first, loopback skipped");
+    ASSERT_EQ(list[1].addr.ss_family, AF_INET, "then 1.1.1.1 (leading spaces, CRLF)");
+    ASSERT_EQ(((struct sockaddr_in *)&list[2].addr)->sin_addr.s_addr, inet_addr("8.8.8.8"), "\"nameservers\" is not a nameserver line");
+    ASSERT_EQ(parse_nameservers("", list, 3), 0, "an empty file has none");
+
+    unsigned char q[512];
+    int qlen = dns_build_query("example.com", CORTEX_DNS_TYPE_AAAA, 0xbeef, q, sizeof(q));
+    static const unsigned char expected[] = {
+        0xbe, 0xef, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        7, 'e', 'x', 'a', 'm', 'p', 'l', 'e', 3, 'c', 'o', 'm', 0, 0x00, 28, 0x00, 0x01,
+    };
+    ASSERT_EQ(qlen, (int)sizeof(expected), "query length");
+    ASSERT_EQ(memcmp(q, expected, sizeof(expected)), 0, "query bytes");
+    ASSERT_EQ(dns_build_query("example.com.", CORTEX_DNS_TYPE_AAAA, 0xbeef, q, sizeof(q)), (int)sizeof(expected), "a trailing dot is the same name");
+    ASSERT_EQ(dns_build_query("a..b", CORTEX_DNS_TYPE_A, 1, q, sizeof(q)), -1, "empty label");
+    ASSERT_EQ(dns_build_query("", CORTEX_DNS_TYPE_A, 1, q, sizeof(q)), -1, "empty name");
+    char long_label[80];
+    memset(long_label, 'a', 64);
+    strcpy(long_label + 64, ".com");
+    ASSERT_EQ(dns_build_query(long_label, CORTEX_DNS_TYPE_A, 1, q, sizeof(q)), -1, "label over 63 bytes");
+
+    // Reply: www.example.com is a CNAME of edge.example.net, which has the AAAA 2001:db8::1
+    unsigned char r[512];
+    int n = 0;
+    static const unsigned char head[] = { 0xbe, 0xef, 0x81, 0x80, 0x00, 0x01, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00 };
+    memcpy(r, head, sizeof(head)); n = sizeof(head);
+    static const unsigned char question[] = { 3, 'w', 'w', 'w', 7, 'e', 'x', 'a', 'm', 'p', 'l', 'e', 3, 'c', 'o', 'm', 0, 0, 28, 0, 1 };
+    memcpy(r + n, question, sizeof(question)); n += sizeof(question);
+    // answer 1: name -> question (offset 12), CNAME, rdata "edge" + "example" label + "net"
+    static const unsigned char cname[] = {
+        0xc0, 12, 0, 5, 0, 1, 0, 0, 0, 60, 0, 18,
+        4, 'e', 'd', 'g', 'e', 7, 'e', 'x', 'a', 'm', 'p', 'l', 'e', 3, 'n', 'e', 't', 0,
+    };
+    int cname_rdata = n + 12;
+    memcpy(r + n, cname, sizeof(cname)); n += sizeof(cname);
+    // answer 2: name "edge" + pointer to "example.net" inside the CNAME rdata (labels, then a pointer)
+    unsigned char aaaa[] = { 4, 'e', 'd', 'g', 'e', 0xc0, 0, 0, 28, 0, 1, 0, 0, 0, 60, 0, 16,
+                             0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 };
+    aaaa[6] = (unsigned char)(cname_rdata + 5);
+    memcpy(r + n, aaaa, sizeof(aaaa)); n += sizeof(aaaa);
+
+    unsigned char addr[16];
+    ASSERT_EQ(dns_parse_answer(r, n, 0xbeef, CORTEX_DNS_TYPE_AAAA, addr), 0, "AAAA behind a CNAME and a compressed name");
+    struct in6_addr want6;
+    inet_pton(AF_INET6, "2001:db8::1", &want6);
+    ASSERT_EQ(memcmp(addr, &want6, 16), 0, "the AAAA address");
+    ASSERT_EQ(dns_parse_answer(r, n, 0xbeef, CORTEX_DNS_TYPE_A, addr), -1, "no A record in it");
+    ASSERT_EQ(dns_parse_answer(r, n, 0xbeee, CORTEX_DNS_TYPE_AAAA, addr), -1, "a reply to another query");
+    ASSERT_EQ(dns_parse_answer(r, n - 4, 0xbeef, CORTEX_DNS_TYPE_AAAA, addr), -1, "a truncated reply");
+    r[3] = 0x83; // NXDOMAIN
+    ASSERT_EQ(dns_parse_answer(r, n, 0xbeef, CORTEX_DNS_TYPE_AAAA, addr), -1, "an error reply");
+    r[3] = 0x80;
+    r[2] = 0x01; // a query, not a reply
+    ASSERT_EQ(dns_parse_answer(r, n, 0xbeef, CORTEX_DNS_TYPE_AAAA, addr), -1, "not a reply");
+    r[2] = 0x81;
+    // a pointer loop must not hang
+    unsigned char loop[] = { 0xbe, 0xef, 0x81, 0x80, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 1, 'a', 1, 'b' };
+    ASSERT_EQ(dns_parse_answer(loop, (int)sizeof(loop), 0xbeef, CORTEX_DNS_TYPE_A, addr), -1, "an unterminated name");
+}
+
+/* 9d. Static programs: blocked syscall sites are patched the way the hook's SIGSYS handler answers */
+static void put32(unsigned char *p, uint32_t v) { p[0] = v; p[1] = v >> 8; p[2] = v >> 16; p[3] = v >> 24; }
+static void put16(unsigned char *p, uint16_t v) { p[0] = v; p[1] = v >> 8; }
+
+static void test_static_syscall_patching(void) {
+    // AArch64
+    static const uint32_t code[] = {
+        0xd2800c68, 0xd4000001,             // mov x8, #99 (set_robust_list); svc #0      -> nop
+        0xd2803668, 0xaa0203e1, 0xd4000001, // mov x8, #435 (clone3); mov x1, x2; svc     -> mov x0, #-38
+        0x52801268, 0xd4000001,             // mov w8, #147 (setresuid); svc              -> mov x0, #0
+        0xd2800808, 0xd4000001,             // mov x8, #64 (write); svc                   untouched
+        0xd28024a8, 0x14000002, 0xd4000001, // mov x8, #293 (rseq); b; svc               untouched: a branch
+        0xd2803668, 0xd2800808, 0xd4000001, // mov x8, #435; mov x8, #64; svc            untouched: x8 rewritten
+    };
+    unsigned char buf[sizeof(code)];
+    for (size_t i = 0; i < sizeof(code) / 4; i++) put32(buf + i * 4, code[i]);
+    ASSERT_EQ(patch_seccomp_syscalls(buf, 0, sizeof(buf), 183), 3, "three AArch64 sites");
+    ASSERT_EQ(rd32(buf + 4), 0xd503201fu, "set_robust_list -> nop (as the script)");
+    ASSERT_EQ(rd32(buf + 16), 0x928004a0u, "clone3 -> mov x0, #-38");
+    ASSERT_EQ(rd32(buf + 24), 0xd2800000u, "setresuid (w8 form) -> mov x0, #0");
+    ASSERT_EQ(rd32(buf + 32), 0xd4000001u, "write is left alone");
+    ASSERT_EQ(rd32(buf + 44), 0xd4000001u, "no patch across a branch");
+    ASSERT_EQ(rd32(buf + 56), 0xd4000001u, "no patch after x8 is rewritten");
+    ASSERT_EQ(patch_seccomp_syscalls(buf, 0, sizeof(buf), 183), 0, "patching twice changes nothing");
+
+    unsigned char far[4 * 19];
+    put32(far, 0xd2803668);
+    for (int i = 1; i < 18; i++) put32(far + i * 4, 0xd503201f); // 17 nops
+    put32(far + 18 * 4, 0xd4000001);
+    ASSERT_EQ(patch_seccomp_syscalls(far, 0, sizeof(far), 183), 0, "an svc beyond 16 instructions is not the call");
+    ASSERT_EQ(patch_seccomp_syscalls(buf, 0, sizeof(buf), 62 /* x86-64 */), 0, "other machines are left alone");
+
+    // 32-bit ARM, the script's patterns
+    unsigned char arm[16];
+    put32(arm, 0xe30071b3); put32(arm + 4, 0xef000000); put32(arm + 8, 0xe1a00000); put32(arm + 12, 0xe1a00000);
+    ASSERT_EQ(patch_seccomp_syscalls(arm, 0, sizeof(arm), 40), 1, "ARM clone3");
+    ASSERT_EQ(rd32(arm + 4), 0xe3e00025u, "ARM svc -> mvn r0, #37");
+    unsigned char th[24];
+    put16(th, 0xf240); put16(th + 2, 0x1752); put16(th + 4, 0x2000); put16(th + 6, 0xdf00); // movw r7, #338; movs r0, #0; svc
+    put16(th + 8, 0xf240); put16(th + 10, 0x17b3); put16(th + 12, 0xdf00);               // movw r7, #435; svc
+    for (int i = 14; i < 24; i += 2) put16(th + i, 0xbf00);
+    ASSERT_EQ(patch_seccomp_syscalls(th, 0, sizeof(th), 40), 2, "two Thumb sites");
+    ASSERT_EQ(rd16(th + 6), 0xbf00, "Thumb set_robust_list svc -> nop");
+    ASSERT_EQ(rd16(th + 0), 0xf240, "and its movw stays");
+    ASSERT_EQ(rd16(th + 8), 0xf06f, "Thumb clone3 movw -> mvn.w r0, #37");
+    ASSERT_EQ(rd16(th + 10), 0x0025, "(second half)");
+    ASSERT_EQ(rd16(th + 12), 0xbf00, "and its svc -> nop");
+
+    // A whole static AArch64 program on disk
+    const char *tmp = get_test_tmp_dir();
+    char path[PATH_MAX];
+    snprintf(path, sizeof(path), "%s/cortex_static_%d", tmp, getpid());
+    unsigned char elf[0x1000 + sizeof(code)];
+    memset(elf, 0, sizeof(elf));
+    memcpy(elf, "\x7f" "ELF", 4);
+    elf[4] = 2; elf[5] = 1; elf[6] = 1;
+    put16(elf + 16, 2); put16(elf + 18, 183);                 // ET_EXEC, EM_AARCH64
+    put32(elf + 32, 64);                                      // e_phoff
+    put16(elf + 52, 64); put16(elf + 54, 56); put16(elf + 56, 1);
+    unsigned char *ph = elf + 64;
+    put32(ph, 1); put32(ph + 4, 5);                           // PT_LOAD, R+X
+    put32(ph + 8, 0x1000);                                    // p_offset
+    put32(ph + 32, sizeof(code)); put32(ph + 40, sizeof(code)); // p_filesz, p_memsz
+    for (size_t i = 0; i < sizeof(code) / 4; i++) put32(elf + 0x1000 + i * 4, code[i]);
+    int fd = open(path, O_CREAT | O_WRONLY | O_TRUNC, 0755);
+    ASSERT_TRUE(fd >= 0, "create static program");
+    ASSERT_EQ(write(fd, elf, sizeof(elf)), (ssize_t)sizeof(elf), "write static program");
+    close(fd);
+    struct timespec old_times[2] = { { 1500000000, 0 }, { 1500000000, 0 } };
+    utimensat(AT_FDCWD, path, old_times, 0);
+    ASSERT_EQ(chmod(path, 0555), 0, "make it read-only");
+
+    ASSERT_EQ(prepare_static_program(path), 3, "three sites patched in the file");
+    unsigned char back[sizeof(elf)];
+    fd = open(path, O_RDONLY);
+    ASSERT_EQ(read(fd, back, sizeof(back)), (ssize_t)sizeof(back), "read it back");
+    close(fd);
+    ASSERT_EQ(rd32(back + 0x1000 + 16), 0x928004a0u, "clone3 patched on disk");
+    ASSERT_EQ(memcmp(back, elf, 0x1000), 0, "headers untouched");
+    struct stat st;
+    ASSERT_EQ(stat(path, &st), 0, "stat");
+    ASSERT_EQ(st.st_mtime, 1500000000, "modification time kept");
+    ASSERT_EQ(st.st_mode & 07777, 0555, "mode restored after making it writable");
+    ASSERT_EQ(prepare_static_program(path), 0, "the second start has nothing to do");
+
+    // A Go program (build-ID note) is left alone
+    put16(elf + 56, 2);
+    unsigned char *note_ph = elf + 64 + 56;
+    put32(note_ph, 4); put32(note_ph + 4, 4);                 // PT_NOTE
+    put32(note_ph + 8, 0x200); put32(note_ph + 32, 16);
+    put32(elf + 0x200, 4); put32(elf + 0x204, 0); put32(elf + 0x208, 4); memcpy(elf + 0x20c, "Go\0\0", 4);
+    chmod(path, 0755);
+    fd = open(path, O_WRONLY | O_TRUNC);
+    ASSERT_TRUE(fd >= 0, "rewrite as a Go program");
+    ASSERT_EQ(write(fd, elf, sizeof(elf)), (ssize_t)sizeof(elf), "write Go program");
+    close(fd);
+    ASSERT_EQ(prepare_static_program(path), 0, "Go programs are not patched");
+    fd = open(path, O_RDONLY);
+    ASSERT_EQ(read(fd, back, sizeof(back)), (ssize_t)sizeof(back), "read Go program back");
+    close(fd);
+    ASSERT_EQ(rd32(back + 0x1000 + 16), 0xd4000001u, "its code is untouched");
+    unlink(path);
+    ASSERT_EQ(prepare_static_program(path), -1, "a missing file is reported");
+}
+
 /* 9. Relative exec paths ("./script.sh") must be routed like absolute ones */
 static void test_absolutize_exec_path(void) {
     char tmp_root[PATH_MAX];
@@ -1133,6 +1410,9 @@ int main(void) {
     test_nss_fallback_semantics();
     test_sigsys_and_close_fds();
     test_hardlink_emulation_and_st_nlink();
+    test_emulated_hardlink_groups();
+    test_dns_helpers();
+    test_static_syscall_patching();
     test_absolutize_exec_path();
     test_rewrite_path_matches_reference();
     test_path_helpers();
