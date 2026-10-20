@@ -4,7 +4,7 @@ What changed in each version of Cortex Terminal, newest first. The release workf
 of a GitHub release from the section of its version here. Older versions are described on the
 [GitHub releases](https://github.com/ssfuisu/cortex/releases) page.
 
-## Unreleased
+## 1.26.34 (2026-10-20)
 
 ### New
 
@@ -18,6 +18,14 @@ of a GitHub release from the section of its version here. Older versions are des
   and `sudo` runs the command directly. Root sessions are marked ROOT in the session list.
   Turning root mode off closes them and gives the files created as root back to the app, so that
   normal sessions can change them again.
+
+### Good to know
+
+- While root mode is on, normal sessions that are still open cannot change files created as root.
+- When root mode is turned off, every file belongs to the app again: owners set in root mode (for
+  example a database directory owned by `postgres`) have to be set again in the next root session.
+- systemd still cannot run as the init system, and Android commands such as `am` are not inside the
+  chroot.
 
 ### For developers
 
