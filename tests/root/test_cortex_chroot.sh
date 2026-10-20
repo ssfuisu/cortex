@@ -98,7 +98,7 @@ check "/dev/ptmx exists" "$(echo "$OUT" | grep '^ptmx=')" "ptmx=ok"
 check "/dev/fd links to /proc/self/fd" "$(echo "$OUT" | grep '^fd=')" "fd=/proc/self/fd"
 check "/dev/shm can be written" "$(echo "$OUT" | grep '^shm=')" "shm=written"
 check "/dev/shm is ROOT/tmp/shm, shared with normal mode" "$(cat "$ROOT/tmp/shm/cortex-test" 2>/dev/null)" "shared"
-check "the chroot sees only its own mounts (proc sys dev pts shm data)" "$(echo "$OUT" | grep '^mounts=')" "mounts=6"
+check "the chroot sees only its own mounts (/ proc sys dev pts shm data)" "$(echo "$OUT" | grep '^mounts=')" "mounts=7"
 check "/ and /tmp are open to other users in the chroot" "$(stat -c %a "$ROOT" "$ROOT/tmp" | tr '\n' ' ')" "755 1777 "
 check "nothing is mounted outside the session" "$(grep -c " $ROOT" /proc/self/mounts)" "0"
 
@@ -121,6 +121,14 @@ echo "data=$(readlink -f /data/data/'"$PKG_B"'/files/cortex/home)"
 check "the app's /data/user/0 path resolves when it is a link" "$(echo "$OUT_B" | grep '^user0=')" "user0=/etc"
 check "the canonical /data/data path resolves too" "$(echo "$OUT_B" | grep '^data=')" "data=/home"
 rm -rf "/data/data/$PKG_B" "/data/user/0/$PKG_B"
+
+echo "=== a rootfs on a nosuid,nodev file system (Android's /data) ==="
+mount --bind "$ROOT" "$ROOT" && mount -o remount,bind,nosuid,nodev "$ROOT"
+check "the test rootfs is nosuid outside" "$(grep " $ROOT " /proc/self/mounts | grep -c nosuid)" "1"
+OUT_S="$("$HELPER" enter "$ROOT" -- /bin/bash -c 'grep "^[^ ]* / " /proc/self/mounts')"
+check "/ is in the chroot's mount table" "$(echo "$OUT_S" | grep -c .)" "1"
+check "/ allows set-user-ID programs and devices in the chroot" "$(echo "$OUT_S" | grep -c -E 'nosuid|nodev')" "0"
+umount "$ROOT"
 
 echo "=== argument checks ==="
 "$HELPER" enter /tmp 2>/dev/null

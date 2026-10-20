@@ -7,6 +7,7 @@
 //
 // enter sets the session up in mount and UTS namespaces of its own, so nothing it mounts is seen by
 // Android, by the app or by other sessions, and it all goes away with the session's last process:
+//   /               ROOT bound onto itself without Android's nosuid and nodev;
 //   /proc, /sys     fresh proc and sysfs mounts;
 //   /dev            a tmpfs with the host's device nodes recreated, /dev/pts bound in, the usual
 //                   fd/stdin/stdout/stderr links and /dev/shm bound to ROOT/tmp/shm (where normal
@@ -332,6 +333,12 @@ static int setup_session(const char *root) {
     }
     if (uts && sethostname(HOSTNAME, strlen(HOSTNAME)) != 0) {
         warn_msg("hostname: %s", strerror(errno));
+    }
+    // Android mounts /data nosuid and nodev. A bind of ROOT remounted without them gives the chroot
+    // a / of its own, so set-user-ID programs and file capabilities work as on Ubuntu (sudo, passwd
+    // and ping for other users) and / is in the mount table (df, findmnt).
+    if (bind_mount(root, root, 1) != 0 || mount(NULL, root, NULL, MS_REMOUNT | MS_BIND, NULL) != 0) {
+        warn_msg("remounting the rootfs with set-user-ID support: %s", strerror(errno));
     }
 
     if (mount_kernel_fs(root, "proc", "proc") != 0) return EXIT_MOUNT;

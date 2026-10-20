@@ -11,7 +11,8 @@ of a GitHub release from the section of its version here. Older versions are des
 - **Root mode.** On a rooted phone (Magisk, KernelSU or APatch), *Settings > Root mode* runs new
   sessions as real root in a chroot of the same Ubuntu files that normal sessions use, with nothing
   translated or emulated: statically linked Go programs, `mount`, real `chown`, hard links,
-  services that switch users and ports below 1024 work as on a Linux PC. The switch first checks
+  set-user-ID programs such as `sudo` for other users, services that switch users and ports below
+  1024 work as on a Linux PC. The switch first checks
   that su gives root and that the chroot can be set up (with an animation), and stays on across
   restarts until it is turned off. Each root session gets its own `/proc`, `/sys`, `/dev` and
   `/sdcard` mounts, which nothing outside the session sees. In root mode `su` is Ubuntu's own su
