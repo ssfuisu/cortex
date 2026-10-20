@@ -108,4 +108,19 @@
     <string name="threshold_30s">30 de secunde</string>
     <string name="threshold_1m">1 minut</string>
     <string name="threshold_5m">5 minute</string>
+    <string name="pref_cat_root">Root</string>
+    <string name="pref_root_mode_title">Mod root</string>
+    <string name="pref_root_mode_summary">Sesiunile noi rulează ca root real într-un chroot al aceluiași Ubuntu. Necesită un telefon cu root (Magisk, KernelSU sau APatch).</string>
+    <string name="root_checking">Se verifică root…</string>
+    <string name="root_enabled">Modul root este activat</string>
+    <string name="root_unavailable">Modul root nu este disponibil</string>
+    <string name="root_failed_no_su">Nu există acces root: su nu a fost găsit sau cererea a fost refuzată.</string>
+    <string name="root_failed_setup">Root funcționează, dar chroot nu a putut fi configurat: %1$s</string>
+    <string name="root_exit_title">Ieșiți din modul root?</string>
+    <string name="root_exit_message">Sesiunile root deschise vor fi închise, iar fișierele create ca root vor fi returnate aplicației, astfel încât sesiunile normale să le poată modifica.</string>
+    <string name="root_exit_confirm">Ieșiți</string>
+    <string name="root_exiting">Se iese din modul root…</string>
+    <string name="root_disabled">Modul normal este activat</string>
+    <string name="root_exit_failed">Accesul root nu a fost disponibil: fișierele create ca root își păstrează proprietarul, iar sesiunile normale s-ar putea să nu le poată modifica.</string>
+    <string name="root_session_failed">Sesiunea root nu a putut porni. Dacă accesul root a dispărut, modul root poate fi dezactivat din Setări.</string>
 </resources>

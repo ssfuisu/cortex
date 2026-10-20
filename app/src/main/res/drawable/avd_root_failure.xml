@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Root mode check failed: the circle is drawn, then the cross. -->
+<animated-vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt">
+    <aapt:attr name="android:drawable">
+        <vector
+            android:width="80dp"
+            android:height="80dp"
+            android:viewportWidth="80"
+            android:viewportHeight="80">
+            <path
+                android:name="circle"
+                android:pathData="M40,6 a34,34 0 1,1 0,68 a34,34 0 1,1 0,-68"
+                android:strokeWidth="4"
+                android:strokeColor="@color/cortex_accent"
+                android:strokeLineCap="round"
+                android:trimPathEnd="0" />
+            <path
+                android:name="stroke1"
+                android:pathData="M28,28 L52,52"
+                android:strokeWidth="5"
+                android:strokeColor="@color/cortex_accent"
+                android:strokeLineCap="round"
+                android:trimPathEnd="0" />
+            <path
+                android:name="stroke2"
+                android:pathData="M52,28 L28,52"
+                android:strokeWidth="5"
+                android:strokeColor="@color/cortex_accent"
+                android:strokeLineCap="round"
+                android:trimPathEnd="0" />
+        </vector>
+    </aapt:attr>
+    <target android:name="circle">
+        <aapt:attr name="android:animation">
+            <objectAnimator
+                android:duration="450"
+                android:interpolator="@android:interpolator/fast_out_slow_in"
+                android:propertyName="trimPathEnd"
+                android:valueFrom="0"
+                android:valueTo="1"
+                android:valueType="floatType" />
+        </aapt:attr>
+    </target>
+    <target android:name="stroke1">
+        <aapt:attr name="android:animation">
+            <objectAnimator
+                android:duration="220"
+                android:interpolator="@android:interpolator/fast_out_slow_in"
+                android:propertyName="trimPathEnd"
+                android:startOffset="380"
+                android:valueFrom="0"
+                android:valueTo="1"
+                android:valueType="floatType" />
+        </aapt:attr>
+    </target>
+    <target android:name="stroke2">
+        <aapt:attr name="android:animation">
+            <objectAnimator
+                android:duration="220"
+                android:interpolator="@android:interpolator/fast_out_slow_in"
+                android:propertyName="trimPathEnd"
+                android:startOffset="560"
+                android:valueFrom="0"
+                android:valueTo="1"
+                android:valueType="floatType" />
+        </aapt:attr>
+    </target>
+</animated-vector>

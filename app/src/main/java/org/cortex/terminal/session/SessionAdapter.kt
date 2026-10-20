@@ -25,6 +25,8 @@ class SessionAdapter(
         val binding = holder.binding
 
         binding.sessionLabelText.text = holder.itemView.context.getString(R.string.session_label, position + 1)
+        val session = synchronized(sessionManager.sessions) { sessionManager.sessions.getOrNull(position) }
+        binding.sessionRootBadge.visibility = if (session?.isRoot == true) View.VISIBLE else View.GONE
 
         // The active session is marked by its highlighted background only.
         binding.sessionItemRoot.setBackgroundResource(

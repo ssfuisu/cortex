@@ -108,4 +108,19 @@
     <string name="threshold_30s">30 saniyə</string>
     <string name="threshold_1m">1 dəqiqə</string>
     <string name="threshold_5m">5 dəqiqə</string>
+    <string name="pref_cat_root">Root</string>
+    <string name="pref_root_mode_title">Root rejimi</string>
+    <string name="pref_root_mode_summary">Yeni sessiyalar eyni Ubuntu-nun chroot mühitində həqiqi root kimi işləyir. Root edilmiş telefon tələb olunur (Magisk, KernelSU və ya APatch).</string>
+    <string name="root_checking">Root yoxlanılır…</string>
+    <string name="root_enabled">Root rejimi aktivdir</string>
+    <string name="root_unavailable">Root rejimi əlçatan deyil</string>
+    <string name="root_failed_no_su">Root girişi yoxdur: su tapılmadı və ya sorğu rədd edildi.</string>
+    <string name="root_failed_setup">Root işləyir, lakin chroot qurula bilmədi: %1$s</string>
+    <string name="root_exit_title">Root rejimindən çıxılsın?</string>
+    <string name="root_exit_message">Açıq root sessiyaları bağlanacaq və root kimi yaradılan fayllar adi sessiyaların onları dəyişə bilməsi üçün tətbiqə qaytarılacaq.</string>
+    <string name="root_exit_confirm">Çıx</string>
+    <string name="root_exiting">Root rejimindən çıxılır…</string>
+    <string name="root_disabled">Adi rejim aktivdir</string>
+    <string name="root_exit_failed">Root girişi əlçatan olmadı: root kimi yaradılan fayllar sahiblərini saxlayır və adi sessiyalar onları dəyişə bilməyə bilər.</string>
+    <string name="root_session_failed">Root sessiyası başladıla bilmədi. Root girişi itibsə, root rejimini Ayarlarda söndürmək olar.</string>
 </resources>

@@ -108,4 +108,19 @@
     <string name="threshold_30s">30 வினாடிகள்</string>
     <string name="threshold_1m">1 நிமிடம்</string>
     <string name="threshold_5m">5 நிமிடங்கள்</string>
+    <string name="pref_cat_root">ரூட்</string>
+    <string name="pref_root_mode_title">ரூட் பயன்முறை</string>
+    <string name="pref_root_mode_summary">புதிய அமர்வுகள் அதே Ubuntu-வின் chroot-இல் உண்மையான root ஆக இயங்கும். ரூட் செய்யப்பட்ட ஃபோன் தேவை (Magisk, KernelSU அல்லது APatch).</string>
+    <string name="root_checking">ரூட் சரிபார்க்கப்படுகிறது…</string>
+    <string name="root_enabled">ரூட் பயன்முறை இயக்கத்தில் உள்ளது</string>
+    <string name="root_unavailable">ரூட் பயன்முறை கிடைக்கவில்லை</string>
+    <string name="root_failed_no_su">ரூட் அணுகல் இல்லை: su கண்டறியப்படவில்லை, அல்லது கோரிக்கை மறுக்கப்பட்டது.</string>
+    <string name="root_failed_setup">ரூட் வேலை செய்கிறது, ஆனால் chroot-ஐ அமைக்க முடியவில்லை: %1$s</string>
+    <string name="root_exit_title">ரூட் பயன்முறையிலிருந்து வெளியேறவா?</string>
+    <string name="root_exit_message">திறந்திருக்கும் ரூட் அமர்வுகள் மூடப்படும், மேலும் root ஆக உருவாக்கப்பட்ட கோப்புகளைச் சாதாரண அமர்வுகள் மாற்றும் வகையில் அவை ஆப்ஸுக்குத் திருப்பி அளிக்கப்படும்.</string>
+    <string name="root_exit_confirm">வெளியேறு</string>
+    <string name="root_exiting">ரூட் பயன்முறையிலிருந்து வெளியேறுகிறது…</string>
+    <string name="root_disabled">சாதாரண பயன்முறை இயக்கத்தில் உள்ளது</string>
+    <string name="root_exit_failed">ரூட் அணுகல் கிடைக்கவில்லை: root ஆக உருவாக்கப்பட்ட கோப்புகள் அவற்றின் உரிமையாளரைத் தக்கவைக்கும், சாதாரண அமர்வுகளால் அவற்றை மாற்ற முடியாமல் போகலாம்.</string>
+    <string name="root_session_failed">ரூட் அமர்வைத் தொடங்க முடியவில்லை. ரூட் அணுகல் இல்லையெனில், அமைப்புகளில் ரூட் பயன்முறையை முடக்கலாம்.</string>
 </resources>

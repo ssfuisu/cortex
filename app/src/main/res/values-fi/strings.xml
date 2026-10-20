@@ -108,4 +108,19 @@
     <string name="threshold_30s">30 sekuntia</string>
     <string name="threshold_1m">1 minuutti</string>
     <string name="threshold_5m">5 minuuttia</string>
+    <string name="pref_cat_root">Root</string>
+    <string name="pref_root_mode_title">Root-tila</string>
+    <string name="pref_root_mode_summary">Uudet istunnot toimivat aitona rootina saman Ubuntun chrootissa. Vaatii rootatun puhelimen (Magisk, KernelSU tai APatch).</string>
+    <string name="root_checking">Tarkistetaan rootia…</string>
+    <string name="root_enabled">Root-tila on käytössä</string>
+    <string name="root_unavailable">Root-tila ei ole käytettävissä</string>
+    <string name="root_failed_no_su">Ei root-oikeuksia: su:ta ei löytynyt tai pyyntö hylättiin.</string>
+    <string name="root_failed_setup">Root toimii, mutta chrootia ei voitu määrittää: %1$s</string>
+    <string name="root_exit_title">Poistutaanko root-tilasta?</string>
+    <string name="root_exit_message">Avoimet root-istunnot suljetaan, ja rootina luodut tiedostot palautetaan sovellukselle, jotta tavalliset istunnot voivat muuttaa niitä.</string>
+    <string name="root_exit_confirm">Poistu</string>
+    <string name="root_exiting">Poistutaan root-tilasta…</string>
+    <string name="root_disabled">Tavallinen tila on käytössä</string>
+    <string name="root_exit_failed">Root-oikeuksia ei ollut saatavilla: rootina luodut tiedostot säilyttävät omistajansa, eivätkä tavalliset istunnot ehkä voi muuttaa niitä.</string>
+    <string name="root_session_failed">Root-istuntoa ei voitu käynnistää. Jos root-oikeudet ovat poissa, root-tilan voi poistaa käytöstä asetuksista.</string>
 </resources>

@@ -1370,16 +1370,23 @@ object BootstrapManager {
             val envSh = File(profileD, "00-env.sh")
             val envContent = "# Cortex environment. Managed by the app and rewritten on every start;\n" +
                 "# put personal settings in ~/.bashrc and ~/.profile instead.\n" +
-                "if [ -z \"\$CORTEX_ROOT\" ]; then\n" +
-                "    if [ -d \"\$HOME/../etc\" ]; then\n" +
-                "        export CORTEX_ROOT=\"\$(cd \"\$HOME/..\" && pwd)\"\n" +
-                "    else\n" +
-                "        export CORTEX_ROOT=\"" + root.absolutePath + "\"\n" +
+                "if [ -n \"\${CORTEX_CHROOT:-}\" ] || [ ! -d /system/bin ]; then\n" +
+                "    # Root mode: a real chroot of this rootfs (Android's /system is not in it), so the\n" +
+                "    # preloaded library is not used. Marked again for shells that reset the environment.\n" +
+                "    export CORTEX_CHROOT=1\n" +
+                "    unset CORTEX_ROOT LD_PRELOAD LD_LIBRARY_PATH\n" +
+                "else\n" +
+                "    if [ -z \"\$CORTEX_ROOT\" ]; then\n" +
+                "        if [ -d \"\$HOME/../etc\" ]; then\n" +
+                "            export CORTEX_ROOT=\"\$(cd \"\$HOME/..\" && pwd)\"\n" +
+                "        else\n" +
+                "            export CORTEX_ROOT=\"" + root.absolutePath + "\"\n" +
+                "        fi\n" +
                 "    fi\n" +
+                "    export LD_LIBRARY_PATH=\"" + LibraryPath.forRoot("\$CORTEX_ROOT") + "\"\n" +
+                "    export LD_PRELOAD=\"\$CORTEX_ROOT/usr/lib/libcortex-hook.so\"\n" +
                 "fi\n" +
                 "export SHELL=\"\${SHELL:-/bin/bash}\"\n" +
-                "export LD_LIBRARY_PATH=\"" + LibraryPath.forRoot("\$CORTEX_ROOT") + "\"\n" +
-                "export LD_PRELOAD=\"\$CORTEX_ROOT/usr/lib/libcortex-hook.so\"\n" +
                 "# Ubuntu's default PATH (normally already set by /etc/profile) plus ~/.local/bin,\n" +
                 "# each entry only once.\n" +
                 "for __cortex_d in /usr/local/sbin /usr/local/bin /usr/sbin /usr/bin /sbin /bin; do\n" +

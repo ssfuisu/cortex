@@ -108,4 +108,19 @@
     <string name="threshold_30s">30 sekunder</string>
     <string name="threshold_1m">1 minut</string>
     <string name="threshold_5m">5 minuter</string>
+    <string name="pref_cat_root">Root</string>
+    <string name="pref_root_mode_title">Root-läge</string>
+    <string name="pref_root_mode_summary">Nya sessioner körs som riktig root i en chroot av samma Ubuntu. Kräver en rootad telefon (Magisk, KernelSU eller APatch).</string>
+    <string name="root_checking">Kontrollerar root…</string>
+    <string name="root_enabled">Root-läge är på</string>
+    <string name="root_unavailable">Root-läge är inte tillgängligt</string>
+    <string name="root_failed_no_su">Ingen root-åtkomst: su hittades inte, eller så nekades begäran.</string>
+    <string name="root_failed_setup">Root fungerar, men chroot kunde inte konfigureras: %1$s</string>
+    <string name="root_exit_title">Lämna root-läge?</string>
+    <string name="root_exit_message">Öppna root-sessioner stängs, och filer som skapats som root lämnas tillbaka till appen så att vanliga sessioner kan ändra dem.</string>
+    <string name="root_exit_confirm">Lämna</string>
+    <string name="root_exiting">Lämnar root-läge…</string>
+    <string name="root_disabled">Vanligt läge är på</string>
+    <string name="root_exit_failed">Root-åtkomst var inte tillgänglig: filer som skapats som root behåller sin ägare, och vanliga sessioner kanske inte kan ändra dem.</string>
+    <string name="root_session_failed">Root-sessionen kunde inte starta. Om root-åtkomsten är borta kan root-läge stängas av i inställningarna.</string>
 </resources>

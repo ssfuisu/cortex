@@ -54,6 +54,7 @@ Pick Cortex when you need Ubuntu's own `.deb` packages and a genuine glibc witho
 - **Clickable Links & Clipboard Image Insertion**: Underlined URLs and OSC 8 hyperlinks are copied to the clipboard when tapped; tapping images in your keyboard clipboard automatically saves and types their file path.
 - **Multi-Session Management**: Seamlessly spawn, switch between, and manage multiple active terminal sessions from the left navigation drawer.
 - **Full Storage & Background Services**: Deep `/sdcard` device storage integration and standard background service controls via `service`, `/etc/init.d/`, and `/etc/cortex/autostart`.
+- **Root Mode**: On a rooted phone, sessions can run as real root in a chroot of the same Ubuntu files, with nothing translated or emulated (see [Root Mode](#root-mode)).
 
 ---
 
@@ -166,6 +167,14 @@ Caches (`~/.cache`, `~/.npm/_cacache`) and the `~/storage` link are skipped (`--
 
 The Cortex home directory shows up as **Cortex** in Android's *Files* app and in every file picker, so you can open, share, create, rename and delete files without copying them to shared storage first. Only the home directory is exposed (never the Ubuntu system tree), links that point outside it such as `~/storage` stay hidden, and other apps can only reach files you pick yourself. Turn it off under *Settings > Files*.
 
+## Root Mode
+
+On a rooted phone (Magisk, KernelSU or APatch), *Settings > Root mode* runs new sessions as real root in a chroot of the same Ubuntu files that normal sessions use. Before switching, Cortex checks that `su` gives root and that the chroot can be set up. The setting stays on across restarts until you turn it off, and sessions that run as root are marked **ROOT** in the session list.
+
+In root mode nothing is translated or emulated: the preloaded library is not used, and programs see the kernel as root does. Statically linked Go programs, `mount`, real `chown` and file owners, hard links, services that switch users and ports below 1024 work as on a Linux PC. Each root session gets its own mount namespace with `/proc`, `/sys`, `/dev`, `/dev/pts` and `/sdcard` (and `/dev/shm` shared with normal mode); these mounts exist only inside the session and go away with it, so nothing is mounted for Android or other apps. `su` is Ubuntu's own `su` there, and `sudo` runs the command directly (`sudo -u USER` through `runuser`). The home directory is the same as in normal mode.
+
+Turning root mode off closes the root sessions and gives the files they created back to the app (owner and SELinux label), because normal sessions run as the app and could not change files owned by root. Owners set inside root mode, for example a database directory owned by `postgres`, are replaced then; set them again after switching back to root mode. systemd still cannot run as the init system, and Android-only commands such as `am` are not inside the chroot.
+
 ## Languages
 
 The interface follows the system language and can be switched under *Settings > Language*. Available: English, Arabic, Azerbaijani, Bengali, Bulgarian, Catalan, Chinese (Simplified and Traditional), Croatian, Czech, Danish, Dutch, Filipino, Finnish, French, German, Greek, Gujarati, Hebrew, Hindi, Hungarian, Indonesian, Italian, Japanese, Kannada, Kazakh, Korean, Malay, Malayalam, Marathi, Nepali, Norwegian Bokmål, Persian, Polish, Portuguese (Brazil), Punjabi, Romanian, Russian, Serbian, Slovak, Spanish, Swahili, Swedish, Tamil, Telugu, Thai, Turkish, Ukrainian, Urdu and Vietnamese. On Android 13+ the language can also be set per app in the system settings.
@@ -203,13 +212,13 @@ Use `apt` like on any Ubuntu system, for example `apt update && apt install git 
 Not yet. Cortex is a terminal; there is no X11 or Wayland server.
 
 **Will every Ubuntu package work?**
-Most command-line tools do. Packages that depend on kernel features Android does not allow for apps (for example systemd services or privileged device access) cannot work.
+Most command-line tools do. Packages that depend on kernel features Android does not allow for apps (for example systemd services or privileged device access) cannot work. On a rooted phone, [root mode](#root-mode) removes the limits that come from running as an app; systemd cannot be the init system in either mode.
 
 **Can I compile C and C++ programs?**
 Yes. `apt install build-essential` installs gcc, g++ and make, and the C library headers and libraries (`libc6-dev`, `linux-libc-dev`) come with the app, so `-dev` packages such as `zlib1g-dev` or `python3-dev` install too. Statically linked programs (`gcc -static`) run as well: before such a program starts for the first time, Cortex patches the system calls that Android's seccomp filter forbids for apps in its file (once; the file keeps its times and mode). One limit: Cortex keeps the C library itself (`libc6`, `libc-bin`) at the version it ships, because Ubuntu's own build does not start under Android's filter, so `apt upgrade` leaves those packages alone.
 
 **Do programs downloaded as a single static binary work?**
-Static C and C++ programs do (see above). Go programs built without cgo start, but they make their system calls without the C library, so they do not see Cortex's Ubuntu files: they cannot read `/etc/resolv.conf` (name resolution fails) or start Ubuntu programs. Prefer the package from `apt` or a build that uses cgo.
+Static C and C++ programs do (see above). Go programs built without cgo start, but they make their system calls without the C library, so they do not see Cortex's Ubuntu files: they cannot read `/etc/resolv.conf` (name resolution fails) or start Ubuntu programs. Prefer the package from `apt` or a build that uses cgo. In [root mode](#root-mode) they work like any other program.
 
 **Does it work on IPv6-only mobile networks?**
 Yes. On networks that only give IPv6 DNS servers, Cortex uses them, and its fallback resolver asks for IPv6 addresses when a program wants one.

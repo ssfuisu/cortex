@@ -108,4 +108,19 @@
     <string name="threshold_30s">30 שניות</string>
     <string name="threshold_1m">דקה אחת</string>
     <string name="threshold_5m">5 דקות</string>
+    <string name="pref_cat_root">Root</string>
+    <string name="pref_root_mode_title">מצב root</string>
+    <string name="pref_root_mode_summary">הפעלות חדשות רצות כ-root אמיתי בתוך chroot של אותו Ubuntu. נדרש טלפון עם root (Magisk, KernelSU או APatch).</string>
+    <string name="root_checking">בדיקת root…</string>
+    <string name="root_enabled">מצב root פעיל</string>
+    <string name="root_unavailable">מצב root אינו זמין</string>
+    <string name="root_failed_no_su">אין גישת root: su לא נמצא, או שהבקשה נדחתה.</string>
+    <string name="root_failed_setup">root עובד, אבל לא ניתן היה להגדיר את ה-chroot: %1$s</string>
+    <string name="root_exit_title">לצאת ממצב root?</string>
+    <string name="root_exit_message">הפעלות root פתוחות ייסגרו, והקבצים שנוצרו כ-root יוחזרו לאפליקציה כדי שהפעלות רגילות יוכלו לשנות אותם.</string>
+    <string name="root_exit_confirm">יציאה</string>
+    <string name="root_exiting">יציאה ממצב root…</string>
+    <string name="root_disabled">המצב הרגיל פעיל</string>
+    <string name="root_exit_failed">גישת root לא הייתה זמינה: הקבצים שנוצרו כ-root שומרים על הבעלים שלהם, וייתכן שהפעלות רגילות לא יוכלו לשנות אותם.</string>
+    <string name="root_session_failed">הפעלת ה-root לא הצליחה להתחיל. אם גישת ה-root אבדה, אפשר לכבות את מצב root בהגדרות.</string>
 </resources>

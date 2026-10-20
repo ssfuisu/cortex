@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Root mode: shown while the switch checks root (or leaves root mode), then the result. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:gravity="center_horizontal"
+    android:orientation="vertical"
+    android:paddingStart="24dp"
+    android:paddingTop="32dp"
+    android:paddingEnd="24dp"
+    android:paddingBottom="20dp">
+
+    <FrameLayout
+        android:layout_width="80dp"
+        android:layout_height="80dp">
+
+        <com.google.android.material.progressindicator.CircularProgressIndicator
+            android:id="@+id/rootCheckProgress"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:indeterminate="true"
+            app:indicatorColor="@color/cortex_primary"
+            app:indicatorSize="64dp"
+            app:trackThickness="4dp" />
+
+        <ImageView
+            android:id="@+id/rootCheckIcon"
+            android:layout_width="80dp"
+            android:layout_height="80dp"
+            android:importantForAccessibility="no"
+            android:visibility="invisible"
+            tools:src="@drawable/avd_root_success"
+            tools:visibility="visible" />
+    </FrameLayout>
+
+    <TextView
+        android:id="@+id/rootCheckText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="20dp"
+        android:accessibilityLiveRegion="polite"
+        android:gravity="center"
+        android:textColor="@color/cortex_text_primary"
+        android:textSize="17sp"
+        android:textStyle="bold"
+        tools:text="Checking root…" />
+
+    <TextView
+        android:id="@+id/rootCheckDetail"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:gravity="center"
+        android:textColor="@color/cortex_text_secondary"
+        android:textSize="14sp"
+        android:visibility="gone"
+        tools:text="No root access. su was not found, or the request was denied."
+        tools:visibility="visible" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/rootCheckClose"
+        style="@style/Widget.Material3.Button.TextButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="end"
+        android:layout_marginTop="16dp"
+        android:text="@android:string/ok"
+        android:visibility="gone"
+        tools:visibility="visible" />
+</LinearLayout>

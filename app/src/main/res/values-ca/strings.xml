@@ -108,4 +108,19 @@
     <string name="threshold_30s">30 segons</string>
     <string name="threshold_1m">1 minut</string>
     <string name="threshold_5m">5 minuts</string>
+    <string name="pref_cat_root">Root</string>
+    <string name="pref_root_mode_title">Mode root</string>
+    <string name="pref_root_mode_summary">Les sessions noves s’executen com a root real en un chroot del mateix Ubuntu. Cal un telèfon amb root (Magisk, KernelSU o APatch).</string>
+    <string name="root_checking">S’està comprovant el root…</string>
+    <string name="root_enabled">El mode root està activat</string>
+    <string name="root_unavailable">El mode root no està disponible</string>
+    <string name="root_failed_no_su">No hi ha accés root: no s’ha trobat su o s’ha denegat la sol·licitud.</string>
+    <string name="root_failed_setup">El root funciona, però no s’ha pogut configurar el chroot: %1$s</string>
+    <string name="root_exit_title">Voleu sortir del mode root?</string>
+    <string name="root_exit_message">Es tancaran les sessions root obertes i els fitxers creats com a root es tornaran a l’aplicació perquè les sessions normals els puguin modificar.</string>
+    <string name="root_exit_confirm">Surt</string>
+    <string name="root_exiting">S’està sortint del mode root…</string>
+    <string name="root_disabled">El mode normal està activat</string>
+    <string name="root_exit_failed">No hi havia accés root: els fitxers creats com a root conserven el propietari i és possible que les sessions normals no els puguin modificar.</string>
+    <string name="root_session_failed">No s’ha pogut iniciar la sessió root. Si ja no hi ha accés root, el mode root es pot desactivar a Configuració.</string>
 </resources>

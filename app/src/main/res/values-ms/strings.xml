@@ -108,4 +108,19 @@
     <string name="threshold_30s">30 saat</string>
     <string name="threshold_1m">1 minit</string>
     <string name="threshold_5m">5 minit</string>
+    <string name="pref_cat_root">Root</string>
+    <string name="pref_root_mode_title">Mod root</string>
+    <string name="pref_root_mode_summary">Sesi baharu berjalan sebagai root sebenar dalam chroot Ubuntu yang sama. Memerlukan telefon yang telah di-root (Magisk, KernelSU atau APatch).</string>
+    <string name="root_checking">Menyemak root…</string>
+    <string name="root_enabled">Mod root dihidupkan</string>
+    <string name="root_unavailable">Mod root tidak tersedia</string>
+    <string name="root_failed_no_su">Tiada akses root: su tidak ditemui, atau permintaan ditolak.</string>
+    <string name="root_failed_setup">Root berfungsi, tetapi chroot tidak dapat disediakan: %1$s</string>
+    <string name="root_exit_title">Keluar daripada mod root?</string>
+    <string name="root_exit_message">Sesi root yang terbuka akan ditutup, dan fail yang dicipta sebagai root akan dikembalikan kepada apl supaya sesi biasa boleh mengubahnya.</string>
+    <string name="root_exit_confirm">Keluar</string>
+    <string name="root_exiting">Keluar daripada mod root…</string>
+    <string name="root_disabled">Mod biasa dihidupkan</string>
+    <string name="root_exit_failed">Akses root tidak tersedia: fail yang dicipta sebagai root mengekalkan pemiliknya, dan sesi biasa mungkin tidak dapat mengubahnya.</string>
+    <string name="root_session_failed">Sesi root tidak dapat dimulakan. Jika akses root sudah tiada, mod root boleh dimatikan dalam Tetapan.</string>
 </resources>

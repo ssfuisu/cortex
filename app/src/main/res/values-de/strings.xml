@@ -108,4 +108,19 @@
     <string name="threshold_30s">30 Sekunden</string>
     <string name="threshold_1m">1 Minute</string>
     <string name="threshold_5m">5 Minuten</string>
+    <string name="pref_cat_root">Root</string>
+    <string name="pref_root_mode_title">Root-Modus</string>
+    <string name="pref_root_mode_summary">Neue Sitzungen laufen als echter Root in einem chroot desselben Ubuntu. Erfordert ein gerootetes Smartphone (Magisk, KernelSU oder APatch).</string>
+    <string name="root_checking">Root wird geprüft…</string>
+    <string name="root_enabled">Root-Modus ist aktiv</string>
+    <string name="root_unavailable">Root-Modus ist nicht verfügbar</string>
+    <string name="root_failed_no_su">Kein Root-Zugriff: su wurde nicht gefunden oder die Anfrage wurde abgelehnt.</string>
+    <string name="root_failed_setup">Root funktioniert, aber chroot konnte nicht eingerichtet werden: %1$s</string>
+    <string name="root_exit_title">Root-Modus verlassen?</string>
+    <string name="root_exit_message">Offene Root-Sitzungen werden geschlossen, und als Root erstellte Dateien werden der App zurückgegeben, damit normale Sitzungen sie ändern können.</string>
+    <string name="root_exit_confirm">Verlassen</string>
+    <string name="root_exiting">Root-Modus wird verlassen…</string>
+    <string name="root_disabled">Normaler Modus ist aktiv</string>
+    <string name="root_exit_failed">Kein Root-Zugriff verfügbar: Als Root erstellte Dateien behalten ihren Besitzer, und normale Sitzungen können sie möglicherweise nicht ändern.</string>
+    <string name="root_session_failed">Die Root-Sitzung konnte nicht starten. Wenn der Root-Zugriff weg ist, lässt sich der Root-Modus in den Einstellungen ausschalten.</string>
 </resources>

@@ -108,4 +108,19 @@
     <string name="threshold_30s">Sekunde 30</string>
     <string name="threshold_1m">Dakika 1</string>
     <string name="threshold_5m">Dakika 5</string>
+    <string name="pref_cat_root">Root</string>
+    <string name="pref_root_mode_title">Hali ya root</string>
+    <string name="pref_root_mode_summary">Vipindi vipya vinaendeshwa kama root halisi ndani ya chroot ya Ubuntu ileile. Inahitaji simu iliyo na root (Magisk, KernelSU au APatch).</string>
+    <string name="root_checking">Inakagua root…</string>
+    <string name="root_enabled">Hali ya root imewashwa</string>
+    <string name="root_unavailable">Hali ya root haipatikani</string>
+    <string name="root_failed_no_su">Hakuna ruhusa ya root: su haikupatikana, au ombi lilikataliwa.</string>
+    <string name="root_failed_setup">Root inafanya kazi, lakini chroot haikuweza kusanidiwa: %1$s</string>
+    <string name="root_exit_title">Ungependa kutoka kwenye hali ya root?</string>
+    <string name="root_exit_message">Vipindi vya root vilivyo wazi vitafungwa, na faili zilizoundwa kama root zitarudishwa kwa programu ili vipindi vya kawaida viweze kuzibadilisha.</string>
+    <string name="root_exit_confirm">Toka</string>
+    <string name="root_exiting">Inatoka kwenye hali ya root…</string>
+    <string name="root_disabled">Hali ya kawaida imewashwa</string>
+    <string name="root_exit_failed">Ruhusa ya root haikupatikana: faili zilizoundwa kama root zinabaki na mmiliki wake, na huenda vipindi vya kawaida visiweze kuzibadilisha.</string>
+    <string name="root_session_failed">Kipindi cha root hakikuweza kuanza. Ikiwa ruhusa ya root imeondoka, hali ya root inaweza kuzimwa katika Mipangilio.</string>
 </resources>

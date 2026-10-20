@@ -108,4 +108,19 @@
     <string name="threshold_30s">30 سیکنڈ</string>
     <string name="threshold_1m">1 منٹ</string>
     <string name="threshold_5m">5 منٹ</string>
+    <string name="pref_cat_root">روٹ</string>
+    <string name="pref_root_mode_title">روٹ موڈ</string>
+    <string name="pref_root_mode_summary">نئے سیشن اسی Ubuntu کے chroot میں حقیقی root کے طور پر چلتے ہیں۔ روٹ شدہ فون درکار ہے (Magisk، KernelSU یا APatch)۔</string>
+    <string name="root_checking">روٹ کی جانچ ہو رہی ہے…</string>
+    <string name="root_enabled">روٹ موڈ آن ہے</string>
+    <string name="root_unavailable">روٹ موڈ دستیاب نہیں ہے</string>
+    <string name="root_failed_no_su">روٹ رسائی نہیں ہے: su نہیں ملا، یا درخواست مسترد کر دی گئی۔</string>
+    <string name="root_failed_setup">روٹ کام کر رہا ہے، لیکن chroot سیٹ اپ نہیں ہو سکا: %1$s</string>
+    <string name="root_exit_title">روٹ موڈ سے باہر نکلیں؟</string>
+    <string name="root_exit_message">کھلے روٹ سیشن بند کر دیے جائیں گے، اور root کے طور پر بنائی گئی فائلیں ایپ کو واپس کر دی جائیں گی تاکہ عام سیشن انہیں تبدیل کر سکیں۔</string>
+    <string name="root_exit_confirm">باہر نکلیں</string>
+    <string name="root_exiting">روٹ موڈ سے باہر نکل رہے ہیں…</string>
+    <string name="root_disabled">عام موڈ آن ہے</string>
+    <string name="root_exit_failed">روٹ رسائی دستیاب نہیں تھی: root کے طور پر بنائی گئی فائلوں کا مالک وہی رہتا ہے، اور ممکن ہے عام سیشن انہیں تبدیل نہ کر سکیں۔</string>
+    <string name="root_session_failed">روٹ سیشن شروع نہیں ہو سکا۔ اگر روٹ رسائی ختم ہو گئی ہے تو ترتیبات میں روٹ موڈ بند کیا جا سکتا ہے۔</string>
 </resources>

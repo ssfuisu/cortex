@@ -22,7 +22,8 @@
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_weight="1"
-        android:orientation="vertical">
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
 
         <TextView
             android:id="@+id/sessionLabelText"
@@ -32,6 +33,24 @@
             android:textColor="@color/cortex_text_primary"
             android:textSize="15sp"
             android:textStyle="bold" />
+
+        <!-- Shown for sessions that run as real root (root mode) -->
+        <TextView
+            android:id="@+id/sessionRootBadge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:background="@drawable/root_badge_bg"
+            android:paddingStart="6dp"
+            android:paddingTop="1dp"
+            android:paddingEnd="6dp"
+            android:paddingBottom="1dp"
+            android:text="@string/session_root_badge"
+            android:textColor="@color/cortex_accent"
+            android:textSize="11sp"
+            android:textStyle="bold"
+            android:visibility="gone"
+            tools:visibility="visible" />
     </LinearLayout>
 
     <TextView

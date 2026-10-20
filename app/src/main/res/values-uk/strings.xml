@@ -108,4 +108,19 @@
     <string name="threshold_30s">30 секунд</string>
     <string name="threshold_1m">1 хвилина</string>
     <string name="threshold_5m">5 хвилин</string>
+    <string name="pref_cat_root">Root</string>
+    <string name="pref_root_mode_title">Режим root</string>
+    <string name="pref_root_mode_summary">Нові сеанси працюють від справжнього root у chroot того самого Ubuntu. Потрібен телефон із root (Magisk, KernelSU або APatch).</string>
+    <string name="root_checking">Перевірка root…</string>
+    <string name="root_enabled">Режим root увімкнено</string>
+    <string name="root_unavailable">Режим root недоступний</string>
+    <string name="root_failed_no_su">Немає доступу root: su не знайдено, або запит відхилено.</string>
+    <string name="root_failed_setup">Root працює, але налаштувати chroot не вдалося: %1$s</string>
+    <string name="root_exit_title">Вийти з режиму root?</string>
+    <string name="root_exit_message">Відкриті сеанси root буде закрито, а файли, створені від root, буде повернуто застосунку, щоб звичайні сеанси могли їх змінювати.</string>
+    <string name="root_exit_confirm">Вийти</string>
+    <string name="root_exiting">Вихід із режиму root…</string>
+    <string name="root_disabled">Звичайний режим увімкнено</string>
+    <string name="root_exit_failed">Доступ root був недоступний: файли, створені від root, зберігають свого власника, і звичайні сеанси, можливо, не зможуть їх змінити.</string>
+    <string name="root_session_failed">Не вдалося запустити сеанс root. Якщо доступу root більше немає, режим root можна вимкнути в налаштуваннях.</string>
 </resources>

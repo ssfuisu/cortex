@@ -108,4 +108,19 @@
     <string name="threshold_30s">30 ಸೆಕೆಂಡುಗಳು</string>
     <string name="threshold_1m">1 ನಿಮಿಷ</string>
     <string name="threshold_5m">5 ನಿಮಿಷಗಳು</string>
+    <string name="pref_cat_root">ರೂಟ್</string>
+    <string name="pref_root_mode_title">ರೂಟ್ ಮೋಡ್</string>
+    <string name="pref_root_mode_summary">ಹೊಸ ಸೆಷನ್‌ಗಳು ಅದೇ Ubuntu ನ chroot ನಲ್ಲಿ ನಿಜವಾದ root ಆಗಿ ರನ್ ಆಗುತ್ತವೆ. ರೂಟ್ ಮಾಡಿದ ಫೋನ್ ಅಗತ್ಯವಿದೆ (Magisk, KernelSU ಅಥವಾ APatch).</string>
+    <string name="root_checking">ರೂಟ್ ಪರಿಶೀಲಿಸಲಾಗುತ್ತಿದೆ…</string>
+    <string name="root_enabled">ರೂಟ್ ಮೋಡ್ ಆನ್ ಆಗಿದೆ</string>
+    <string name="root_unavailable">ರೂಟ್ ಮೋಡ್ ಲಭ್ಯವಿಲ್ಲ</string>
+    <string name="root_failed_no_su">ರೂಟ್ ಪ್ರವೇಶವಿಲ್ಲ: su ಕಂಡುಬಂದಿಲ್ಲ, ಅಥವಾ ವಿನಂತಿಯನ್ನು ನಿರಾಕರಿಸಲಾಗಿದೆ.</string>
+    <string name="root_failed_setup">ರೂಟ್ ಕೆಲಸ ಮಾಡುತ್ತದೆ, ಆದರೆ chroot ಅನ್ನು ಹೊಂದಿಸಲು ಸಾಧ್ಯವಾಗಲಿಲ್ಲ: %1$s</string>
+    <string name="root_exit_title">ರೂಟ್ ಮೋಡ್‌ನಿಂದ ನಿರ್ಗಮಿಸಬೇಕೆ?</string>
+    <string name="root_exit_message">ತೆರೆದಿರುವ ರೂಟ್ ಸೆಷನ್‌ಗಳನ್ನು ಮುಚ್ಚಲಾಗುತ್ತದೆ, ಮತ್ತು root ಆಗಿ ರಚಿಸಿದ ಫೈಲ್‌ಗಳನ್ನು ಸಾಮಾನ್ಯ ಸೆಷನ್‌ಗಳು ಬದಲಾಯಿಸುವಂತೆ ಆ್ಯಪ್‌ಗೆ ಹಿಂತಿರುಗಿಸಲಾಗುತ್ತದೆ.</string>
+    <string name="root_exit_confirm">ನಿರ್ಗಮಿಸಿ</string>
+    <string name="root_exiting">ರೂಟ್ ಮೋಡ್‌ನಿಂದ ನಿರ್ಗಮಿಸಲಾಗುತ್ತಿದೆ…</string>
+    <string name="root_disabled">ಸಾಮಾನ್ಯ ಮೋಡ್ ಆನ್ ಆಗಿದೆ</string>
+    <string name="root_exit_failed">ರೂಟ್ ಪ್ರವೇಶ ಲಭ್ಯವಿರಲಿಲ್ಲ: root ಆಗಿ ರಚಿಸಿದ ಫೈಲ್‌ಗಳು ತಮ್ಮ ಮಾಲೀಕರನ್ನು ಉಳಿಸಿಕೊಳ್ಳುತ್ತವೆ, ಮತ್ತು ಸಾಮಾನ್ಯ ಸೆಷನ್‌ಗಳು ಅವುಗಳನ್ನು ಬದಲಾಯಿಸಲು ಸಾಧ್ಯವಾಗದಿರಬಹುದು.</string>
+    <string name="root_session_failed">ರೂಟ್ ಸೆಷನ್ ಪ್ರಾರಂಭಿಸಲು ಸಾಧ್ಯವಾಗಲಿಲ್ಲ. ರೂಟ್ ಪ್ರವೇಶ ಇಲ್ಲದಿದ್ದರೆ, ಸೆಟ್ಟಿಂಗ್‌ಗಳಲ್ಲಿ ರೂಟ್ ಮೋಡ್ ಆಫ್ ಮಾಡಬಹುದು.</string>
 </resources>

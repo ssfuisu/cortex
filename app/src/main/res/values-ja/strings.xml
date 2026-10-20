@@ -108,4 +108,19 @@
     <string name="threshold_30s">30 秒</string>
     <string name="threshold_1m">1 分</string>
     <string name="threshold_5m">5 分</string>
+    <string name="pref_cat_root">root</string>
+    <string name="pref_root_mode_title">root モード</string>
+    <string name="pref_root_mode_summary">新しいセッションは、同じ Ubuntu の chroot 内で本物の root として実行されます。root 化されたスマートフォンが必要です（Magisk、KernelSU、APatch）。</string>
+    <string name="root_checking">root を確認しています…</string>
+    <string name="root_enabled">root モードがオンです</string>
+    <string name="root_unavailable">root モードは使用できません</string>
+    <string name="root_failed_no_su">root アクセスがありません: su が見つからないか、要求が拒否されました。</string>
+    <string name="root_failed_setup">root は使用できますが、chroot を設定できませんでした: %1$s</string>
+    <string name="root_exit_title">root モードを終了しますか？</string>
+    <string name="root_exit_message">開いている root セッションは閉じられ、root として作成されたファイルは、通常のセッションで変更できるようにアプリに戻されます。</string>
+    <string name="root_exit_confirm">終了</string>
+    <string name="root_exiting">root モードを終了しています…</string>
+    <string name="root_disabled">通常モードがオンです</string>
+    <string name="root_exit_failed">root アクセスを利用できませんでした: root として作成されたファイルの所有者はそのままのため、通常のセッションでは変更できない場合があります。</string>
+    <string name="root_session_failed">root セッションを開始できませんでした。root アクセスがなくなった場合は、設定で root モードをオフにできます。</string>
 </resources>

@@ -108,4 +108,19 @@
     <string name="threshold_30s">30 sekúnd</string>
     <string name="threshold_1m">1 minúta</string>
     <string name="threshold_5m">5 minút</string>
+    <string name="pref_cat_root">Root</string>
+    <string name="pref_root_mode_title">Režim root</string>
+    <string name="pref_root_mode_summary">Nové relácie bežia ako skutočný root v chroote toho istého Ubuntu. Vyžaduje telefón s rootom (Magisk, KernelSU alebo APatch).</string>
+    <string name="root_checking">Kontroluje sa root…</string>
+    <string name="root_enabled">Režim root je zapnutý</string>
+    <string name="root_unavailable">Režim root nie je k dispozícii</string>
+    <string name="root_failed_no_su">Žiadny prístup root: su sa nenašlo alebo bola žiadosť zamietnutá.</string>
+    <string name="root_failed_setup">Root funguje, ale chroot sa nepodarilo nastaviť: %1$s</string>
+    <string name="root_exit_title">Ukončiť režim root?</string>
+    <string name="root_exit_message">Otvorené relácie root sa zatvoria a súbory vytvorené ako root sa vrátia aplikácii, aby ich bežné relácie mohli meniť.</string>
+    <string name="root_exit_confirm">Ukončiť</string>
+    <string name="root_exiting">Ukončuje sa režim root…</string>
+    <string name="root_disabled">Bežný režim je zapnutý</string>
+    <string name="root_exit_failed">Prístup root nebol k dispozícii: súbory vytvorené ako root si ponechávajú vlastníka a bežné relácie ich možno nebudú môcť meniť.</string>
+    <string name="root_session_failed">Reláciu root sa nepodarilo spustiť. Ak prístup root zmizol, režim root sa dá vypnúť v Nastaveniach.</string>
 </resources>

@@ -108,4 +108,19 @@
     <string name="threshold_30s">30 saniye</string>
     <string name="threshold_1m">1 dakika</string>
     <string name="threshold_5m">5 dakika</string>
+    <string name="pref_cat_root">Root</string>
+    <string name="pref_root_mode_title">Root modu</string>
+    <string name="pref_root_mode_summary">Yeni oturumlar aynı Ubuntu’nun chroot’unda gerçek root olarak çalışır. Root’lu bir telefon gerekir (Magisk, KernelSU veya APatch).</string>
+    <string name="root_checking">Root kontrol ediliyor…</string>
+    <string name="root_enabled">Root modu açık</string>
+    <string name="root_unavailable">Root modu kullanılamıyor</string>
+    <string name="root_failed_no_su">Root erişimi yok: su bulunamadı ya da istek reddedildi.</string>
+    <string name="root_failed_setup">Root çalışıyor ancak chroot kurulamadı: %1$s</string>
+    <string name="root_exit_title">Root modundan çıkılsın mı?</string>
+    <string name="root_exit_message">Açık root oturumları kapatılacak ve root olarak oluşturulan dosyalar, normal oturumlar bunları değiştirebilsin diye uygulamaya geri verilecek.</string>
+    <string name="root_exit_confirm">Çık</string>
+    <string name="root_exiting">Root modundan çıkılıyor…</string>
+    <string name="root_disabled">Normal mod açık</string>
+    <string name="root_exit_failed">Root erişimi alınamadı: root olarak oluşturulan dosyalar sahiplerini koruyor ve normal oturumlar bunları değiştiremeyebilir.</string>
+    <string name="root_session_failed">Root oturumu başlatılamadı. Root erişimi kalmadıysa root modu Ayarlar’dan kapatılabilir.</string>
 </resources>

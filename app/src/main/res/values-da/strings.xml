@@ -108,4 +108,19 @@
     <string name="threshold_30s">30 sekunder</string>
     <string name="threshold_1m">1 minut</string>
     <string name="threshold_5m">5 minutter</string>
+    <string name="pref_cat_root">Root</string>
+    <string name="pref_root_mode_title">Root-tilstand</string>
+    <string name="pref_root_mode_summary">Nye sessioner kører som ægte root i en chroot af den samme Ubuntu. Kræver en rootet telefon (Magisk, KernelSU eller APatch).</string>
+    <string name="root_checking">Tjekker root…</string>
+    <string name="root_enabled">Root-tilstand er slået til</string>
+    <string name="root_unavailable">Root-tilstand er ikke tilgængelig</string>
+    <string name="root_failed_no_su">Ingen root-adgang: su blev ikke fundet, eller anmodningen blev afvist.</string>
+    <string name="root_failed_setup">Root virker, men chroot kunne ikke sættes op: %1$s</string>
+    <string name="root_exit_title">Forlad root-tilstand?</string>
+    <string name="root_exit_message">Åbne root-sessioner lukkes, og filer oprettet som root gives tilbage til appen, så normale sessioner kan ændre dem.</string>
+    <string name="root_exit_confirm">Forlad</string>
+    <string name="root_exiting">Forlader root-tilstand…</string>
+    <string name="root_disabled">Normal tilstand er slået til</string>
+    <string name="root_exit_failed">Root-adgang var ikke tilgængelig: filer oprettet som root beholder deres ejer, og normale sessioner kan muligvis ikke ændre dem.</string>
+    <string name="root_session_failed">Root-sessionen kunne ikke starte. Hvis root-adgangen er væk, kan root-tilstand slås fra i Indstillinger.</string>
 </resources>

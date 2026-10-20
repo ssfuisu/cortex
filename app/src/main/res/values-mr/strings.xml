@@ -108,4 +108,19 @@
     <string name="threshold_30s">30 सेकंद</string>
     <string name="threshold_1m">1 मिनिट</string>
     <string name="threshold_5m">5 मिनिटे</string>
+    <string name="pref_cat_root">रूट</string>
+    <string name="pref_root_mode_title">रूट मोड</string>
+    <string name="pref_root_mode_summary">नवीन सत्रे त्याच Ubuntu च्या chroot मध्ये खऱ्या root म्हणून चालतात. रूट केलेला फोन आवश्यक आहे (Magisk, KernelSU किंवा APatch).</string>
+    <string name="root_checking">रूट तपासत आहे…</string>
+    <string name="root_enabled">रूट मोड चालू आहे</string>
+    <string name="root_unavailable">रूट मोड उपलब्ध नाही</string>
+    <string name="root_failed_no_su">रूट अ‍ॅक्सेस नाही: su सापडले नाही, किंवा विनंती नाकारली गेली.</string>
+    <string name="root_failed_setup">रूट कार्य करते, पण chroot सेट करता आले नाही: %1$s</string>
+    <string name="root_exit_title">रूट मोडमधून बाहेर पडायचे?</string>
+    <string name="root_exit_message">उघडी रूट सत्रे बंद केली जातील, आणि root म्हणून तयार केलेल्या फाइल्स अ‍ॅपला परत दिल्या जातील जेणेकरून सामान्य सत्रे त्यात बदल करू शकतील.</string>
+    <string name="root_exit_confirm">बाहेर पडा</string>
+    <string name="root_exiting">रूट मोडमधून बाहेर पडत आहे…</string>
+    <string name="root_disabled">सामान्य मोड चालू आहे</string>
+    <string name="root_exit_failed">रूट अ‍ॅक्सेस उपलब्ध नव्हता: root म्हणून तयार केलेल्या फाइल्सचा मालक तसाच राहतो, आणि सामान्य सत्रे कदाचित त्यात बदल करू शकणार नाहीत.</string>
+    <string name="root_session_failed">रूट सत्र सुरू होऊ शकले नाही. रूट अ‍ॅक्सेस गेला असल्यास, सेटिंग्जमध्ये रूट मोड बंद करता येतो.</string>
 </resources>

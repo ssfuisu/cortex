@@ -108,4 +108,19 @@
     <string name="threshold_30s">30 સેકન્ડ</string>
     <string name="threshold_1m">1 મિનિટ</string>
     <string name="threshold_5m">5 મિનિટ</string>
+    <string name="pref_cat_root">રૂટ</string>
+    <string name="pref_root_mode_title">રૂટ મોડ</string>
+    <string name="pref_root_mode_summary">નવા સત્રો એ જ Ubuntu ના chroot માં વાસ્તવિક root તરીકે ચાલે છે. રૂટ કરેલો ફોન જરૂરી છે (Magisk, KernelSU અથવા APatch).</string>
+    <string name="root_checking">રૂટ તપાસી રહ્યાં છીએ…</string>
+    <string name="root_enabled">રૂટ મોડ ચાલુ છે</string>
+    <string name="root_unavailable">રૂટ મોડ ઉપલબ્ધ નથી</string>
+    <string name="root_failed_no_su">રૂટ ઍક્સેસ નથી: su મળ્યું નથી, અથવા વિનંતી નકારવામાં આવી.</string>
+    <string name="root_failed_setup">રૂટ કામ કરે છે, પરંતુ chroot સેટ કરી શકાયું નથી: %1$s</string>
+    <string name="root_exit_title">રૂટ મોડમાંથી બહાર નીકળવું છે?</string>
+    <string name="root_exit_message">ખુલ્લા રૂટ સત્રો બંધ કરવામાં આવશે, અને root તરીકે બનાવેલી ફાઇલો ઍપને પાછી આપવામાં આવશે જેથી સામાન્ય સત્રો તેમાં ફેરફાર કરી શકે.</string>
+    <string name="root_exit_confirm">બહાર નીકળો</string>
+    <string name="root_exiting">રૂટ મોડમાંથી બહાર નીકળી રહ્યાં છીએ…</string>
+    <string name="root_disabled">સામાન્ય મોડ ચાલુ છે</string>
+    <string name="root_exit_failed">રૂટ ઍક્સેસ ઉપલબ્ધ ન હતો: root તરીકે બનાવેલી ફાઇલો તેમના માલિકને જાળવી રાખે છે, અને સામાન્ય સત્રો કદાચ તેમાં ફેરફાર કરી શકશે નહીં.</string>
+    <string name="root_session_failed">રૂટ સત્ર શરૂ થઈ શક્યું નથી. જો રૂટ ઍક્સેસ જતો રહ્યો હોય, તો સેટિંગ્સમાં રૂટ મોડ બંધ કરી શકાય છે.</string>
 </resources>

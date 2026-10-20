@@ -108,4 +108,19 @@
     <string name="threshold_30s">३० सेकेन्ड</string>
     <string name="threshold_1m">१ मिनेट</string>
     <string name="threshold_5m">५ मिनेट</string>
+    <string name="pref_cat_root">रुट</string>
+    <string name="pref_root_mode_title">रुट मोड</string>
+    <string name="pref_root_mode_summary">नयाँ सत्रहरू उही Ubuntu को chroot मा वास्तविक root को रूपमा चल्छन्। रुट गरिएको फोन चाहिन्छ (Magisk, KernelSU वा APatch)।</string>
+    <string name="root_checking">रुट जाँच गरिँदै छ…</string>
+    <string name="root_enabled">रुट मोड सक्रिय छ</string>
+    <string name="root_unavailable">रुट मोड उपलब्ध छैन</string>
+    <string name="root_failed_no_su">रुट पहुँच छैन: su फेला परेन, वा अनुरोध अस्वीकार गरियो।</string>
+    <string name="root_failed_setup">रुटले काम गर्छ, तर chroot सेट अप गर्न सकिएन: %1$s</string>
+    <string name="root_exit_title">रुट मोडबाट बाहिरिने?</string>
+    <string name="root_exit_message">खुला रुट सत्रहरू बन्द गरिनेछन्, र root को रूपमा बनाइएका फाइलहरू साधारण सत्रहरूले परिवर्तन गर्न सकून् भनेर एपलाई फिर्ता दिइनेछन्।</string>
+    <string name="root_exit_confirm">बाहिरिनुहोस्</string>
+    <string name="root_exiting">रुट मोडबाट बाहिरिँदै…</string>
+    <string name="root_disabled">साधारण मोड सक्रिय छ</string>
+    <string name="root_exit_failed">रुट पहुँच उपलब्ध थिएन: root को रूपमा बनाइएका फाइलहरूले आफ्नो मालिक कायम राख्छन्, र साधारण सत्रहरूले तिनलाई परिवर्तन गर्न नसक्न सक्छन्।</string>
+    <string name="root_session_failed">रुट सत्र सुरु हुन सकेन। रुट पहुँच हराएको छ भने, सेटिङहरूमा रुट मोड बन्द गर्न सकिन्छ।</string>
 </resources>

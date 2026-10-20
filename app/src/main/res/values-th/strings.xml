@@ -108,4 +108,19 @@
     <string name="threshold_30s">30 วินาที</string>
     <string name="threshold_1m">1 นาที</string>
     <string name="threshold_5m">5 นาที</string>
+    <string name="pref_cat_root">รูท</string>
+    <string name="pref_root_mode_title">โหมดรูท</string>
+    <string name="pref_root_mode_summary">เซสชันใหม่จะทำงานเป็น root จริงใน chroot ของ Ubuntu ตัวเดียวกัน ต้องใช้โทรศัพท์ที่รูทแล้ว (Magisk, KernelSU หรือ APatch)</string>
+    <string name="root_checking">กำลังตรวจสอบรูท…</string>
+    <string name="root_enabled">เปิดโหมดรูทแล้ว</string>
+    <string name="root_unavailable">ใช้โหมดรูทไม่ได้</string>
+    <string name="root_failed_no_su">ไม่มีสิทธิ์รูท: ไม่พบ su หรือคำขอถูกปฏิเสธ</string>
+    <string name="root_failed_setup">รูทใช้งานได้ แต่ตั้งค่า chroot ไม่ได้: %1$s</string>
+    <string name="root_exit_title">ออกจากโหมดรูทไหม</string>
+    <string name="root_exit_message">เซสชันรูทที่เปิดอยู่จะถูกปิด และไฟล์ที่สร้างในฐานะ root จะถูกคืนให้แอป เพื่อให้เซสชันปกติแก้ไขได้</string>
+    <string name="root_exit_confirm">ออก</string>
+    <string name="root_exiting">กำลังออกจากโหมดรูท…</string>
+    <string name="root_disabled">เปิดโหมดปกติแล้ว</string>
+    <string name="root_exit_failed">ไม่มีสิทธิ์รูท: ไฟล์ที่สร้างในฐานะ root ยังคงมีเจ้าของเดิม และเซสชันปกติอาจแก้ไขไฟล์เหล่านั้นไม่ได้</string>
+    <string name="root_session_failed">เริ่มเซสชันรูทไม่ได้ หากไม่มีสิทธิ์รูทแล้ว สามารถปิดโหมดรูทได้ในการตั้งค่า</string>
 </resources>

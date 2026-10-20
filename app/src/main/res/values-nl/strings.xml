@@ -108,4 +108,19 @@
     <string name="threshold_30s">30 seconden</string>
     <string name="threshold_1m">1 minuut</string>
     <string name="threshold_5m">5 minuten</string>
+    <string name="pref_cat_root">Root</string>
+    <string name="pref_root_mode_title">Rootmodus</string>
+    <string name="pref_root_mode_summary">Nieuwe sessies draaien als echte root in een chroot van dezelfde Ubuntu. Vereist een geroote telefoon (Magisk, KernelSU of APatch).</string>
+    <string name="root_checking">Root controleren…</string>
+    <string name="root_enabled">Rootmodus staat aan</string>
+    <string name="root_unavailable">Rootmodus is niet beschikbaar</string>
+    <string name="root_failed_no_su">Geen roottoegang: su is niet gevonden, of het verzoek is geweigerd.</string>
+    <string name="root_failed_setup">Root werkt, maar de chroot kon niet worden ingesteld: %1$s</string>
+    <string name="root_exit_title">Rootmodus verlaten?</string>
+    <string name="root_exit_message">Open rootsessies worden gesloten en bestanden die als root zijn gemaakt, worden teruggegeven aan de app, zodat normale sessies ze kunnen wijzigen.</string>
+    <string name="root_exit_confirm">Verlaten</string>
+    <string name="root_exiting">Rootmodus verlaten…</string>
+    <string name="root_disabled">Normale modus staat aan</string>
+    <string name="root_exit_failed">Roottoegang was niet beschikbaar: bestanden die als root zijn gemaakt, behouden hun eigenaar en normale sessies kunnen ze mogelijk niet wijzigen.</string>
+    <string name="root_session_failed">De rootsessie kon niet starten. Als de roottoegang weg is, kan de rootmodus worden uitgezet in de instellingen.</string>
 </resources>

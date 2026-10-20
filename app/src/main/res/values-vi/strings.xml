@@ -108,4 +108,19 @@
     <string name="threshold_30s">30 giây</string>
     <string name="threshold_1m">1 phút</string>
     <string name="threshold_5m">5 phút</string>
+    <string name="pref_cat_root">Root</string>
+    <string name="pref_root_mode_title">Chế độ root</string>
+    <string name="pref_root_mode_summary">Các phiên mới chạy dưới quyền root thật trong chroot của cùng bản Ubuntu. Cần điện thoại đã root (Magisk, KernelSU hoặc APatch).</string>
+    <string name="root_checking">Đang kiểm tra root…</string>
+    <string name="root_enabled">Chế độ root đang bật</string>
+    <string name="root_unavailable">Không dùng được chế độ root</string>
+    <string name="root_failed_no_su">Không có quyền root: không tìm thấy su hoặc yêu cầu đã bị từ chối.</string>
+    <string name="root_failed_setup">Root hoạt động nhưng không thể thiết lập chroot: %1$s</string>
+    <string name="root_exit_title">Thoát chế độ root?</string>
+    <string name="root_exit_message">Các phiên root đang mở sẽ bị đóng, và các tệp được tạo dưới quyền root sẽ được trả lại cho ứng dụng để các phiên thường có thể thay đổi chúng.</string>
+    <string name="root_exit_confirm">Thoát</string>
+    <string name="root_exiting">Đang thoát chế độ root…</string>
+    <string name="root_disabled">Chế độ thường đang bật</string>
+    <string name="root_exit_failed">Không có quyền root: các tệp được tạo dưới quyền root vẫn giữ chủ sở hữu, và các phiên thường có thể không thay đổi được chúng.</string>
+    <string name="root_session_failed">Không thể bắt đầu phiên root. Nếu không còn quyền root, có thể tắt chế độ root trong Cài đặt.</string>
 </resources>

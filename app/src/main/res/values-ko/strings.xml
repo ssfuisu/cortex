@@ -108,4 +108,19 @@
     <string name="threshold_30s">30초</string>
     <string name="threshold_1m">1분</string>
     <string name="threshold_5m">5분</string>
+    <string name="pref_cat_root">루트</string>
+    <string name="pref_root_mode_title">루트 모드</string>
+    <string name="pref_root_mode_summary">새 세션이 같은 Ubuntu의 chroot에서 실제 root로 실행됩니다. 루팅된 휴대전화가 필요합니다(Magisk, KernelSU 또는 APatch).</string>
+    <string name="root_checking">루트 확인 중…</string>
+    <string name="root_enabled">루트 모드가 켜져 있습니다</string>
+    <string name="root_unavailable">루트 모드를 사용할 수 없습니다</string>
+    <string name="root_failed_no_su">루트 권한이 없습니다: su를 찾을 수 없거나 요청이 거부되었습니다.</string>
+    <string name="root_failed_setup">루트는 작동하지만 chroot를 설정할 수 없습니다: %1$s</string>
+    <string name="root_exit_title">루트 모드를 종료할까요?</string>
+    <string name="root_exit_message">열려 있는 루트 세션이 닫히고, root로 만든 파일은 일반 세션에서 변경할 수 있도록 앱에 다시 돌려줍니다.</string>
+    <string name="root_exit_confirm">종료</string>
+    <string name="root_exiting">루트 모드 종료 중…</string>
+    <string name="root_disabled">일반 모드가 켜져 있습니다</string>
+    <string name="root_exit_failed">루트 권한을 사용할 수 없었습니다: root로 만든 파일은 소유자가 그대로 유지되며, 일반 세션에서 변경하지 못할 수 있습니다.</string>
+    <string name="root_session_failed">루트 세션을 시작할 수 없습니다. 루트 권한이 없어졌다면 설정에서 루트 모드를 끌 수 있습니다.</string>
 </resources>

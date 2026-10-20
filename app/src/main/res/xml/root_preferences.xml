@@ -79,6 +79,14 @@
             app:title="@string/pref_documents_title" />
     </PreferenceCategory>
 
+    <PreferenceCategory app:title="@string/pref_cat_root">
+        <SwitchPreferenceCompat
+            app:defaultValue="false"
+            app:key="root_mode"
+            app:summary="@string/pref_root_mode_summary"
+            app:title="@string/pref_root_mode_title" />
+    </PreferenceCategory>
+
     <PreferenceCategory app:title="@string/pref_cat_support">
         <Preference
             app:key="telegram_contact_pref"

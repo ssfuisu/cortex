@@ -108,4 +108,19 @@
     <string name="threshold_30s">30 సెకన్లు</string>
     <string name="threshold_1m">1 నిమిషం</string>
     <string name="threshold_5m">5 నిమిషాలు</string>
+    <string name="pref_cat_root">రూట్</string>
+    <string name="pref_root_mode_title">రూట్ మోడ్</string>
+    <string name="pref_root_mode_summary">కొత్త సెషన్‌లు అదే Ubuntu యొక్క chroot‌లో నిజమైన root‌గా రన్ అవుతాయి. రూట్ చేసిన ఫోన్ అవసరం (Magisk, KernelSU లేదా APatch).</string>
+    <string name="root_checking">రూట్‌ను తనిఖీ చేస్తోంది…</string>
+    <string name="root_enabled">రూట్ మోడ్ ఆన్‌లో ఉంది</string>
+    <string name="root_unavailable">రూట్ మోడ్ అందుబాటులో లేదు</string>
+    <string name="root_failed_no_su">రూట్ యాక్సెస్ లేదు: su కనుగొనబడలేదు, లేదా అభ్యర్థన తిరస్కరించబడింది.</string>
+    <string name="root_failed_setup">రూట్ పని చేస్తోంది, కానీ chroot‌ను సెటప్ చేయడం సాధ్యం కాలేదు: %1$s</string>
+    <string name="root_exit_title">రూట్ మోడ్ నుండి నిష్క్రమించాలా?</string>
+    <string name="root_exit_message">తెరిచి ఉన్న రూట్ సెషన్‌లు మూసివేయబడతాయి, మరియు root‌గా సృష్టించిన ఫైల్‌లను సాధారణ సెషన్‌లు మార్చగలిగేలా యాప్‌కు తిరిగి ఇవ్వబడతాయి.</string>
+    <string name="root_exit_confirm">నిష్క్రమించు</string>
+    <string name="root_exiting">రూట్ మోడ్ నుండి నిష్క్రమిస్తోంది…</string>
+    <string name="root_disabled">సాధారణ మోడ్ ఆన్‌లో ఉంది</string>
+    <string name="root_exit_failed">రూట్ యాక్సెస్ అందుబాటులో లేదు: root‌గా సృష్టించిన ఫైల్‌లు వాటి యజమానిని అలాగే ఉంచుకుంటాయి, సాధారణ సెషన్‌లు వాటిని మార్చలేకపోవచ్చు.</string>
+    <string name="root_session_failed">రూట్ సెషన్ ప్రారంభం కాలేదు. రూట్ యాక్సెస్ పోయినట్లయితే, సెట్టింగ్‌లలో రూట్ మోడ్‌ను ఆఫ్ చేయవచ్చు.</string>
 </resources>

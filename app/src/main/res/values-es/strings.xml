@@ -108,4 +108,19 @@
     <string name="threshold_30s">30 segundos</string>
     <string name="threshold_1m">1 minuto</string>
     <string name="threshold_5m">5 minutos</string>
+    <string name="pref_cat_root">Root</string>
+    <string name="pref_root_mode_title">Modo root</string>
+    <string name="pref_root_mode_summary">Las sesiones nuevas se ejecutan como root real en un chroot del mismo Ubuntu. Requiere un teléfono rooteado (Magisk, KernelSU o APatch).</string>
+    <string name="root_checking">Comprobando root…</string>
+    <string name="root_enabled">El modo root está activado</string>
+    <string name="root_unavailable">El modo root no está disponible</string>
+    <string name="root_failed_no_su">No hay acceso root: no se encontró su o se denegó la solicitud.</string>
+    <string name="root_failed_setup">Root funciona, pero no se pudo configurar el chroot: %1$s</string>
+    <string name="root_exit_title">¿Salir del modo root?</string>
+    <string name="root_exit_message">Las sesiones root abiertas se cerrarán y los archivos creados como root se devolverán a la aplicación para que las sesiones normales puedan modificarlos.</string>
+    <string name="root_exit_confirm">Salir</string>
+    <string name="root_exiting">Saliendo del modo root…</string>
+    <string name="root_disabled">El modo normal está activado</string>
+    <string name="root_exit_failed">No había acceso root: los archivos creados como root conservan su propietario y es posible que las sesiones normales no puedan modificarlos.</string>
+    <string name="root_session_failed">No se pudo iniciar la sesión root. Si ya no hay acceso root, el modo root se puede desactivar en Ajustes.</string>
 </resources>

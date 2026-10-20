@@ -108,4 +108,19 @@
     <string name="threshold_30s">30 sekunder</string>
     <string name="threshold_1m">1 minutt</string>
     <string name="threshold_5m">5 minutter</string>
+    <string name="pref_cat_root">Root</string>
+    <string name="pref_root_mode_title">Root-modus</string>
+    <string name="pref_root_mode_summary">Nye økter kjører som ekte root i en chroot av samme Ubuntu. Krever en rootet telefon (Magisk, KernelSU eller APatch).</string>
+    <string name="root_checking">Sjekker root…</string>
+    <string name="root_enabled">Root-modus er på</string>
+    <string name="root_unavailable">Root-modus er ikke tilgjengelig</string>
+    <string name="root_failed_no_su">Ingen root-tilgang: su ble ikke funnet, eller forespørselen ble avslått.</string>
+    <string name="root_failed_setup">Root fungerer, men chroot kunne ikke settes opp: %1$s</string>
+    <string name="root_exit_title">Vil du forlate root-modus?</string>
+    <string name="root_exit_message">Åpne root-økter lukkes, og filer opprettet som root gis tilbake til appen slik at vanlige økter kan endre dem.</string>
+    <string name="root_exit_confirm">Forlat</string>
+    <string name="root_exiting">Forlater root-modus…</string>
+    <string name="root_disabled">Vanlig modus er på</string>
+    <string name="root_exit_failed">Root-tilgang var ikke tilgjengelig: filer opprettet som root beholder eieren sin, og vanlige økter kan kanskje ikke endre dem.</string>
+    <string name="root_session_failed">Root-økten kunne ikke starte. Hvis root-tilgangen er borte, kan root-modus slås av i innstillingene.</string>
 </resources>

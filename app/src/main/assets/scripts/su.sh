@@ -15,6 +15,56 @@ quote_args() {
     printf '%s' "$out"
 }
 
+# tsu, sudo and root run this script as su and pass their own name.
+INVOKED_AS="${CORTEX_INVOKED_AS:-$(basename "$0")}"
+unset CORTEX_INVOKED_AS
+
+# Root mode: the shell is already real root in a chroot of the rootfs (normal mode always has
+# CORTEX_ROOT and sees Android's /system). su is Ubuntu's own su then, and sudo runs the command.
+if [ -n "${CORTEX_CHROOT:-}" ] || { [ -z "${CORTEX_ROOT:-}" ] && [ ! -d /system/bin ]; }; then
+    case "$INVOKED_AS" in
+        sudo|root)
+            target_user=""
+            login=0
+            while [ "$#" -gt 0 ]; do
+                case "$1" in
+                    -u|--user) target_user="${2:-}"; shift; [ "$#" -gt 0 ] && shift ;;
+                    -u*) target_user="${1#-u}"; shift ;;
+                    --user=*) target_user="${1#--user=}"; shift ;;
+                    -i|--login) login=1; shift ;;
+                    -g|--group|-p|--prompt|-C|--close-from|-D|--chdir|-h|--host|-r|--role|-t|--type|-T|--command-timeout)
+                        shift; [ "$#" -gt 0 ] && shift ;;
+                    --) shift; break ;;
+                    -*) shift ;; # -E, -H, -n, -S, -k, -s, ...: nothing to do as root
+                    *) break ;;
+                esac
+            done
+            if [ -n "$target_user" ] && [ "$target_user" != "root" ] && [ "$target_user" != "0" ]; then
+                if [ "$login" = 1 ]; then
+                    [ "$#" -eq 0 ] && exec runuser -l "$target_user"
+                    exec runuser -l "$target_user" -c "$(quote_args "$@")"
+                fi
+                [ "$#" -eq 0 ] && exec runuser -u "$target_user" -- "${SHELL:-/bin/bash}"
+                exec runuser -u "$target_user" -- "$@"
+            fi
+            if [ "$#" -eq 0 ]; then
+                [ "$login" = 1 ] && exec /bin/bash -l
+                exec "${SHELL:-/bin/bash}"
+            fi
+            [ "$login" = 1 ] && exec /bin/bash -l -c "$(quote_args "$@")"
+            exec "$@"
+            ;;
+        *)
+            for real_su in ${CORTEX_REAL_SU:-} /usr/bin/su /bin/su; do
+                if [ -x "$real_su" ]; then
+                    exec "$real_su" "$@"
+                fi
+            done
+            exec /bin/bash "$@"
+            ;;
+    esac
+fi
+
 find_host_su() {
     if [ -n "${CORTEX_HOST_SU:-}" ]; then
         echo "$CORTEX_HOST_SU"

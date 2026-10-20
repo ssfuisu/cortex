@@ -108,4 +108,19 @@
     <string name="threshold_30s">30 δευτερόλεπτα</string>
     <string name="threshold_1m">1 λεπτό</string>
     <string name="threshold_5m">5 λεπτά</string>
+    <string name="pref_cat_root">Root</string>
+    <string name="pref_root_mode_title">Λειτουργία root</string>
+    <string name="pref_root_mode_summary">Οι νέες συνεδρίες εκτελούνται ως πραγματικός root σε chroot του ίδιου Ubuntu. Απαιτείται τηλέφωνο με root (Magisk, KernelSU ή APatch).</string>
+    <string name="root_checking">Έλεγχος root…</string>
+    <string name="root_enabled">Η λειτουργία root είναι ενεργή</string>
+    <string name="root_unavailable">Η λειτουργία root δεν είναι διαθέσιμη</string>
+    <string name="root_failed_no_su">Δεν υπάρχει πρόσβαση root: το su δεν βρέθηκε ή το αίτημα απορρίφθηκε.</string>
+    <string name="root_failed_setup">Το root λειτουργεί, αλλά δεν ήταν δυνατή η ρύθμιση του chroot: %1$s</string>
+    <string name="root_exit_title">Έξοδος από τη λειτουργία root;</string>
+    <string name="root_exit_message">Οι ανοιχτές συνεδρίες root θα κλείσουν και τα αρχεία που δημιουργήθηκαν ως root θα επιστραφούν στην εφαρμογή, ώστε οι κανονικές συνεδρίες να μπορούν να τα αλλάξουν.</string>
+    <string name="root_exit_confirm">Έξοδος</string>
+    <string name="root_exiting">Έξοδος από τη λειτουργία root…</string>
+    <string name="root_disabled">Η κανονική λειτουργία είναι ενεργή</string>
+    <string name="root_exit_failed">Η πρόσβαση root δεν ήταν διαθέσιμη: τα αρχεία που δημιουργήθηκαν ως root διατηρούν τον κάτοχό τους και οι κανονικές συνεδρίες ίσως δεν μπορούν να τα αλλάξουν.</string>
+    <string name="root_session_failed">Δεν ήταν δυνατή η έναρξη της συνεδρίας root. Αν η πρόσβαση root έχει χαθεί, η λειτουργία root μπορεί να απενεργοποιηθεί από τις Ρυθμίσεις.</string>
 </resources>

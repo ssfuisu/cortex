@@ -108,4 +108,19 @@
     <string name="threshold_30s">30 ਸਕਿੰਟ</string>
     <string name="threshold_1m">1 ਮਿੰਟ</string>
     <string name="threshold_5m">5 ਮਿੰਟ</string>
+    <string name="pref_cat_root">ਰੂਟ</string>
+    <string name="pref_root_mode_title">ਰੂਟ ਮੋਡ</string>
+    <string name="pref_root_mode_summary">ਨਵੇਂ ਸੈਸ਼ਨ ਉਸੇ Ubuntu ਦੇ chroot ਵਿੱਚ ਅਸਲ root ਵਜੋਂ ਚੱਲਦੇ ਹਨ। ਰੂਟ ਕੀਤਾ ਫ਼ੋਨ ਲੋੜੀਂਦਾ ਹੈ (Magisk, KernelSU ਜਾਂ APatch)।</string>
+    <string name="root_checking">ਰੂਟ ਦੀ ਜਾਂਚ ਕੀਤੀ ਜਾ ਰਹੀ ਹੈ…</string>
+    <string name="root_enabled">ਰੂਟ ਮੋਡ ਚਾਲੂ ਹੈ</string>
+    <string name="root_unavailable">ਰੂਟ ਮੋਡ ਉਪਲਬਧ ਨਹੀਂ ਹੈ</string>
+    <string name="root_failed_no_su">ਰੂਟ ਪਹੁੰਚ ਨਹੀਂ ਹੈ: su ਨਹੀਂ ਮਿਲਿਆ, ਜਾਂ ਬੇਨਤੀ ਅਸਵੀਕਾਰ ਕਰ ਦਿੱਤੀ ਗਈ।</string>
+    <string name="root_failed_setup">ਰੂਟ ਕੰਮ ਕਰਦਾ ਹੈ, ਪਰ chroot ਸੈੱਟ ਨਹੀਂ ਕੀਤਾ ਜਾ ਸਕਿਆ: %1$s</string>
+    <string name="root_exit_title">ਕੀ ਰੂਟ ਮੋਡ ਤੋਂ ਬਾਹਰ ਨਿਕਲਣਾ ਹੈ?</string>
+    <string name="root_exit_message">ਖੁੱਲ੍ਹੇ ਰੂਟ ਸੈਸ਼ਨ ਬੰਦ ਕਰ ਦਿੱਤੇ ਜਾਣਗੇ, ਅਤੇ root ਵਜੋਂ ਬਣਾਈਆਂ ਫ਼ਾਈਲਾਂ ਐਪ ਨੂੰ ਵਾਪਸ ਦਿੱਤੀਆਂ ਜਾਣਗੀਆਂ ਤਾਂ ਜੋ ਆਮ ਸੈਸ਼ਨ ਉਨ੍ਹਾਂ ਨੂੰ ਬਦਲ ਸਕਣ।</string>
+    <string name="root_exit_confirm">ਬਾਹਰ ਨਿਕਲੋ</string>
+    <string name="root_exiting">ਰੂਟ ਮੋਡ ਤੋਂ ਬਾਹਰ ਨਿਕਲ ਰਹੇ ਹਾਂ…</string>
+    <string name="root_disabled">ਆਮ ਮੋਡ ਚਾਲੂ ਹੈ</string>
+    <string name="root_exit_failed">ਰੂਟ ਪਹੁੰਚ ਉਪਲਬਧ ਨਹੀਂ ਸੀ: root ਵਜੋਂ ਬਣਾਈਆਂ ਫ਼ਾਈਲਾਂ ਦਾ ਮਾਲਕ ਉਹੀ ਰਹਿੰਦਾ ਹੈ, ਅਤੇ ਆਮ ਸੈਸ਼ਨ ਸ਼ਾਇਦ ਉਨ੍ਹਾਂ ਨੂੰ ਬਦਲ ਨਾ ਸਕਣ।</string>
+    <string name="root_session_failed">ਰੂਟ ਸੈਸ਼ਨ ਸ਼ੁਰੂ ਨਹੀਂ ਹੋ ਸਕਿਆ। ਜੇ ਰੂਟ ਪਹੁੰਚ ਨਹੀਂ ਰਹੀ, ਤਾਂ ਸੈਟਿੰਗਾਂ ਵਿੱਚ ਰੂਟ ਮੋਡ ਬੰਦ ਕੀਤਾ ਜਾ ਸਕਦਾ ਹੈ।</string>
 </resources>

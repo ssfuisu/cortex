@@ -263,6 +263,41 @@ else
     fail "su.sh -c mode failed: got '$SU_C_OUT'"
 fi
 
+# Root mode (CORTEX_CHROOT): sudo runs the command itself, su is Ubuntu's own su
+ROOTMODE_STUBS="$TEST_TMP/rootmode-stubs"
+mkdir -p "$ROOTMODE_STUBS"
+printf '#!%s\necho "runuser $*"\n' "$BASH_EXEC" > "$ROOTMODE_STUBS/runuser"
+printf '#!%s\necho "real-su $*"\n' "$BASH_EXEC" > "$ROOTMODE_STUBS/real-su"
+chmod +x "$ROOTMODE_STUBS/runuser" "$ROOTMODE_STUBS/real-su"
+rootmode() { env CORTEX_CHROOT=1 PATH="$ROOTMODE_STUBS:$PATH" CORTEX_REAL_SU="$ROOTMODE_STUBS/real-su" "$@"; }
+
+OUT="$(rootmode CORTEX_INVOKED_AS=sudo bash "$SU_SH" printf '%s|%s' "arg with spaces" "arg'quote" 2>&1)"
+[ "$OUT" = "arg with spaces|arg'quote" ] && pass "root mode: sudo runs the command with its arguments" || fail "root mode: sudo command: got '$OUT'"
+OUT="$(rootmode CORTEX_INVOKED_AS=sudo bash "$SU_SH" -E -H -n -- printf ok 2>&1)"
+[ "$OUT" = "ok" ] && pass "root mode: sudo ignores -E -H -n and --" || fail "root mode: sudo options: got '$OUT'"
+OUT="$(rootmode CORTEX_INVOKED_AS=sudo bash "$SU_SH" -u postgres psql -l 2>&1)"
+[ "$OUT" = "runuser -u postgres -- psql -l" ] && pass "root mode: sudo -u USER uses runuser" || fail "root mode: sudo -u: got '$OUT'"
+OUT="$(rootmode CORTEX_INVOKED_AS=sudo bash "$SU_SH" --user=www-data -i 2>&1)"
+[ "$OUT" = "runuser -l www-data" ] && pass "root mode: sudo -i --user=USER starts USER's login shell" || fail "root mode: sudo -i --user: got '$OUT'"
+OUT="$(rootmode CORTEX_INVOKED_AS=sudo bash "$SU_SH" -u root printf ok 2>&1)"
+[ "$OUT" = "ok" ] && pass "root mode: sudo -u root runs the command directly" || fail "root mode: sudo -u root: got '$OUT'"
+OUT="$(rootmode CORTEX_INVOKED_AS=su bash "$SU_SH" - postgres 2>&1)"
+[ "$OUT" = "real-su - postgres" ] && pass "root mode: su is the real su" || fail "root mode: su: got '$OUT'"
+OUT="$(rootmode CORTEX_INVOKED_AS=sudo bash "$SU_SH" bash -c 'echo "${CORTEX_INVOKED_AS:-unset}"' 2>&1)"
+[ "$OUT" = "unset" ] && pass "root mode: the invoked name is not passed on" || fail "root mode: CORTEX_INVOKED_AS leaked: got '$OUT'"
+if [ ! -d /system/bin ]; then
+    OUT="$(env -u CORTEX_ROOT -u CORTEX_CHROOT CORTEX_INVOKED_AS=sudo bash "$SU_SH" printf ok 2>&1)"
+    [ "$OUT" = "ok" ] && pass "root mode is recognised without CORTEX_CHROOT (no CORTEX_ROOT, no /system)" || fail "root mode detection: got '$OUT'"
+fi
+
+TSU_DIR="$TEST_TMP/tsu-dir"
+mkdir -p "$TSU_DIR"
+printf '#!%s\necho "as=${CORTEX_INVOKED_AS:-none} $*"\n' "$BASH_EXEC" > "$TSU_DIR/su"
+cp "$ASSETS_SCRIPTS/tsu.sh" "$TSU_DIR/sudo"
+chmod +x "$TSU_DIR/su" "$TSU_DIR/sudo"
+OUT="$("$TSU_DIR/sudo" apt update 2>&1)"
+[ "$OUT" = "as=sudo apt update" ] && pass "tsu.sh passes the name it was started as to su" || fail "tsu.sh name: got '$OUT'"
+
 echo "=== 4. Testing simple xdg-open script ==="
 XDG_OPEN_TEST="$TEST_TMP/xdg-open"
 cat << 'EOFXDG' > "$XDG_OPEN_TEST"

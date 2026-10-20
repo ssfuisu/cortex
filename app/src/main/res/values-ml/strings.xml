@@ -108,4 +108,19 @@
     <string name="threshold_30s">30 സെക്കൻഡ്</string>
     <string name="threshold_1m">1 മിനിറ്റ്</string>
     <string name="threshold_5m">5 മിനിറ്റ്</string>
+    <string name="pref_cat_root">റൂട്ട്</string>
+    <string name="pref_root_mode_title">റൂട്ട് മോഡ്</string>
+    <string name="pref_root_mode_summary">പുതിയ സെഷനുകൾ അതേ Ubuntu-വിന്റെ chroot-ൽ യഥാർത്ഥ root ആയി പ്രവർത്തിക്കുന്നു. റൂട്ട് ചെയ്ത ഫോൺ ആവശ്യമാണ് (Magisk, KernelSU അല്ലെങ്കിൽ APatch).</string>
+    <string name="root_checking">റൂട്ട് പരിശോധിക്കുന്നു…</string>
+    <string name="root_enabled">റൂട്ട് മോഡ് ഓണാണ്</string>
+    <string name="root_unavailable">റൂട്ട് മോഡ് ലഭ്യമല്ല</string>
+    <string name="root_failed_no_su">റൂട്ട് ആക്സസ് ഇല്ല: su കണ്ടെത്തിയില്ല, അല്ലെങ്കിൽ അഭ്യർത്ഥന നിരസിച്ചു.</string>
+    <string name="root_failed_setup">റൂട്ട് പ്രവർത്തിക്കുന്നു, പക്ഷേ chroot സജ്ജമാക്കാനായില്ല: %1$s</string>
+    <string name="root_exit_title">റൂട്ട് മോഡിൽ നിന്ന് പുറത്തുകടക്കണോ?</string>
+    <string name="root_exit_message">തുറന്നിരിക്കുന്ന റൂട്ട് സെഷനുകൾ അടയ്ക്കും, root ആയി സൃഷ്ടിച്ച ഫയലുകൾ സാധാരണ സെഷനുകൾക്ക് മാറ്റാൻ കഴിയുന്നതിനായി ആപ്പിന് തിരികെ നൽകും.</string>
+    <string name="root_exit_confirm">പുറത്തുകടക്കുക</string>
+    <string name="root_exiting">റൂട്ട് മോഡിൽ നിന്ന് പുറത്തുകടക്കുന്നു…</string>
+    <string name="root_disabled">സാധാരണ മോഡ് ഓണാണ്</string>
+    <string name="root_exit_failed">റൂട്ട് ആക്സസ് ലഭ്യമായില്ല: root ആയി സൃഷ്ടിച്ച ഫയലുകൾക്ക് അവയുടെ ഉടമ തുടരും, സാധാരണ സെഷനുകൾക്ക് അവ മാറ്റാൻ കഴിഞ്ഞേക്കില്ല.</string>
+    <string name="root_session_failed">റൂട്ട് സെഷൻ ആരംഭിക്കാനായില്ല. റൂട്ട് ആക്സസ് ഇല്ലാതായെങ്കിൽ, ക്രമീകരണങ്ങളിൽ റൂട്ട് മോഡ് ഓഫാക്കാം.</string>
 </resources>

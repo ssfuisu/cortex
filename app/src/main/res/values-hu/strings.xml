@@ -108,4 +108,19 @@
     <string name="threshold_30s">30 másodperc</string>
     <string name="threshold_1m">1 perc</string>
     <string name="threshold_5m">5 perc</string>
+    <string name="pref_cat_root">Root</string>
+    <string name="pref_root_mode_title">Root mód</string>
+    <string name="pref_root_mode_summary">Az új munkamenetek valódi rootként futnak ugyanannak az Ubuntunak egy chrootjában. Rootolt telefon szükséges (Magisk, KernelSU vagy APatch).</string>
+    <string name="root_checking">Root ellenőrzése…</string>
+    <string name="root_enabled">A root mód be van kapcsolva</string>
+    <string name="root_unavailable">A root mód nem érhető el</string>
+    <string name="root_failed_no_su">Nincs root hozzáférés: a su nem található, vagy a kérést elutasították.</string>
+    <string name="root_failed_setup">A root működik, de a chrootot nem sikerült beállítani: %1$s</string>
+    <string name="root_exit_title">Kilép a root módból?</string>
+    <string name="root_exit_message">A nyitott root munkamenetek bezárulnak, a rootként létrehozott fájlok pedig visszakerülnek az alkalmazáshoz, hogy a normál munkamenetek módosíthassák őket.</string>
+    <string name="root_exit_confirm">Kilépés</string>
+    <string name="root_exiting">Kilépés a root módból…</string>
+    <string name="root_disabled">A normál mód be van kapcsolva</string>
+    <string name="root_exit_failed">Nem volt root hozzáférés: a rootként létrehozott fájlok megtartják a tulajdonosukat, és előfordulhat, hogy a normál munkamenetek nem tudják módosítani őket.</string>
+    <string name="root_session_failed">A root munkamenet nem tudott elindulni. Ha a root hozzáférés megszűnt, a root mód a Beállításokban kikapcsolható.</string>
 </resources>

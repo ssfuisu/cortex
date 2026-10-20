@@ -138,4 +138,21 @@
     <string name="threshold_30s">30 seconds</string>
     <string name="threshold_1m">1 minute</string>
     <string name="threshold_5m">5 minutes</string>
+    <!-- Root mode -->
+    <string name="pref_cat_root">Root</string>
+    <string name="pref_root_mode_title">Root mode</string>
+    <string name="pref_root_mode_summary">New sessions run as real root in a chroot of the same Ubuntu. Needs a rooted phone (Magisk, KernelSU or APatch).</string>
+    <string name="root_checking">Checking root…</string>
+    <string name="root_enabled">Root mode is on</string>
+    <string name="root_unavailable">Root mode is not available</string>
+    <string name="root_failed_no_su">No root access: su was not found, or the request was denied.</string>
+    <string name="root_failed_setup">Root works, but the chroot could not be set up: %1$s</string>
+    <string name="root_exit_title">Leave root mode?</string>
+    <string name="root_exit_message">Open root sessions will be closed, and files created as root will be given back to the app so that normal sessions can change them.</string>
+    <string name="root_exit_confirm">Leave</string>
+    <string name="root_exiting">Leaving root mode…</string>
+    <string name="root_disabled">Normal mode is on</string>
+    <string name="root_exit_failed">Root access was not available: files created as root keep their owner, and normal sessions may not be able to change them.</string>
+    <string name="root_session_failed">The root session could not start. If root access is gone, root mode can be turned off in Settings.</string>
+    <string name="session_root_badge" translatable="false">ROOT</string>
 </resources>

@@ -108,4 +108,19 @@
     <string name="threshold_30s">30 秒</string>
     <string name="threshold_1m">1 分鐘</string>
     <string name="threshold_5m">5 分鐘</string>
+    <string name="pref_cat_root">Root</string>
+    <string name="pref_root_mode_title">Root 模式</string>
+    <string name="pref_root_mode_summary">新的工作階段會在同一個 Ubuntu 的 chroot 中以真正的 root 身分執行。需要已 root 的手機（Magisk、KernelSU 或 APatch）。</string>
+    <string name="root_checking">正在檢查 root…</string>
+    <string name="root_enabled">Root 模式已開啟</string>
+    <string name="root_unavailable">無法使用 Root 模式</string>
+    <string name="root_failed_no_su">沒有 root 權限：找不到 su，或要求遭到拒絕。</string>
+    <string name="root_failed_setup">Root 可以使用，但無法設定 chroot：%1$s</string>
+    <string name="root_exit_title">要離開 Root 模式嗎？</string>
+    <string name="root_exit_message">開啟中的 root 工作階段將會關閉，以 root 身分建立的檔案會歸還給應用程式，讓一般工作階段可以修改。</string>
+    <string name="root_exit_confirm">離開</string>
+    <string name="root_exiting">正在離開 Root 模式…</string>
+    <string name="root_disabled">一般模式已開啟</string>
+    <string name="root_exit_failed">無法取得 root 權限：以 root 身分建立的檔案會保留原本的擁有者，一般工作階段可能無法修改。</string>
+    <string name="root_session_failed">無法啟動 root 工作階段。如果 root 權限已失效，可以在「設定」中關閉 Root 模式。</string>
 </resources>

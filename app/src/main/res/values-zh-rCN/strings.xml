@@ -108,4 +108,19 @@
     <string name="threshold_30s">30 秒</string>
     <string name="threshold_1m">1 分钟</string>
     <string name="threshold_5m">5 分钟</string>
+    <string name="pref_cat_root">Root</string>
+    <string name="pref_root_mode_title">Root 模式</string>
+    <string name="pref_root_mode_summary">新会话将在同一 Ubuntu 的 chroot 中以真正的 root 身份运行。需要已 root 的手机（Magisk、KernelSU 或 APatch）。</string>
+    <string name="root_checking">正在检查 root…</string>
+    <string name="root_enabled">Root 模式已开启</string>
+    <string name="root_unavailable">Root 模式不可用</string>
+    <string name="root_failed_no_su">没有 root 权限：未找到 su，或请求被拒绝。</string>
+    <string name="root_failed_setup">Root 可用，但无法设置 chroot：%1$s</string>
+    <string name="root_exit_title">退出 Root 模式？</string>
+    <string name="root_exit_message">已打开的 root 会话将被关闭，以 root 身份创建的文件将归还给应用，以便普通会话可以修改它们。</string>
+    <string name="root_exit_confirm">退出</string>
+    <string name="root_exiting">正在退出 Root 模式…</string>
+    <string name="root_disabled">普通模式已开启</string>
+    <string name="root_exit_failed">无法获得 root 权限：以 root 身份创建的文件将保留其所有者，普通会话可能无法修改它们。</string>
+    <string name="root_session_failed">无法启动 root 会话。如果 root 权限已失效，可以在设置中关闭 Root 模式。</string>
 </resources>

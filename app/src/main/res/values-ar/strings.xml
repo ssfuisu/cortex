@@ -108,4 +108,19 @@
     <string name="threshold_30s">30 ثانية</string>
     <string name="threshold_1m">دقيقة واحدة</string>
     <string name="threshold_5m">5 دقائق</string>
+    <string name="pref_cat_root">Root</string>
+    <string name="pref_root_mode_title">وضع الروت</string>
+    <string name="pref_root_mode_summary">تعمل الجلسات الجديدة بصلاحيات root حقيقية داخل chroot لنظام Ubuntu نفسه. يتطلب هاتفًا مزوّدًا بصلاحيات root (Magisk أو KernelSU أو APatch).</string>
+    <string name="root_checking">جارٍ التحقق من الروت…</string>
+    <string name="root_enabled">وضع الروت مفعّل</string>
+    <string name="root_unavailable">وضع الروت غير متاح</string>
+    <string name="root_failed_no_su">لا توجد صلاحيات root: لم يُعثر على su أو رُفض الطلب.</string>
+    <string name="root_failed_setup">الروت يعمل، لكن تعذّر إعداد chroot: %1$s</string>
+    <string name="root_exit_title">الخروج من وضع الروت؟</string>
+    <string name="root_exit_message">ستُغلق جلسات الروت المفتوحة، وستُعاد الملفات التي أُنشئت بصلاحيات root إلى التطبيق حتى تتمكن الجلسات العادية من تعديلها.</string>
+    <string name="root_exit_confirm">خروج</string>
+    <string name="root_exiting">جارٍ الخروج من وضع الروت…</string>
+    <string name="root_disabled">الوضع العادي مفعّل</string>
+    <string name="root_exit_failed">لم تتوفر صلاحيات root: تحتفظ الملفات التي أُنشئت بصلاحيات root بمالكها، وقد لا تتمكن الجلسات العادية من تعديلها.</string>
+    <string name="root_session_failed">تعذّر بدء جلسة الروت. إذا لم تعد صلاحيات root متاحة، يمكن إيقاف وضع الروت من الإعدادات.</string>
 </resources>

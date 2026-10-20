@@ -108,4 +108,19 @@
     <string name="threshold_30s">30 секунд</string>
     <string name="threshold_1m">1 минут</string>
     <string name="threshold_5m">5 минут</string>
+    <string name="pref_cat_root">Root</string>
+    <string name="pref_root_mode_title">Root режимі</string>
+    <string name="pref_root_mode_summary">Жаңа сеанстар сол Ubuntu-дың chroot ортасында нақты root ретінде жұмыс істейді. Root құқығы бар телефон қажет (Magisk, KernelSU немесе APatch).</string>
+    <string name="root_checking">Root тексерілуде…</string>
+    <string name="root_enabled">Root режимі қосулы</string>
+    <string name="root_unavailable">Root режимі қолжетімсіз</string>
+    <string name="root_failed_no_su">Root рұқсаты жоқ: su табылмады немесе сұрау қабылданбады.</string>
+    <string name="root_failed_setup">Root жұмыс істейді, бірақ chroot орнату мүмкін болмады: %1$s</string>
+    <string name="root_exit_title">Root режимінен шығасыз ба?</string>
+    <string name="root_exit_message">Ашық root сеанстары жабылады, ал root ретінде жасалған файлдар қалыпты сеанстар оларды өзгерте алуы үшін қолданбаға қайтарылады.</string>
+    <string name="root_exit_confirm">Шығу</string>
+    <string name="root_exiting">Root режимінен шығуда…</string>
+    <string name="root_disabled">Қалыпты режим қосулы</string>
+    <string name="root_exit_failed">Root рұқсаты болмады: root ретінде жасалған файлдар иесін сақтайды және қалыпты сеанстар оларды өзгерте алмауы мүмкін.</string>
+    <string name="root_session_failed">Root сеансын бастау мүмкін болмады. Root рұқсаты жоғалса, root режимін параметрлерде өшіруге болады.</string>
 </resources>

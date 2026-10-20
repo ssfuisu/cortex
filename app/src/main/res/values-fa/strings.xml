@@ -108,4 +108,19 @@
     <string name="threshold_30s">۳۰ ثانیه</string>
     <string name="threshold_1m">۱ دقیقه</string>
     <string name="threshold_5m">۵ دقیقه</string>
+    <string name="pref_cat_root">روت</string>
+    <string name="pref_root_mode_title">حالت روت</string>
+    <string name="pref_root_mode_summary">نشست‌های جدید به‌صورت root واقعی در یک chroot از همان Ubuntu اجرا می‌شوند. به گوشی روت‌شده نیاز دارد (Magisk، KernelSU یا APatch).</string>
+    <string name="root_checking">در حال بررسی روت…</string>
+    <string name="root_enabled">حالت روت روشن است</string>
+    <string name="root_unavailable">حالت روت در دسترس نیست</string>
+    <string name="root_failed_no_su">دسترسی روت وجود ندارد: su پیدا نشد یا درخواست رد شد.</string>
+    <string name="root_failed_setup">روت کار می‌کند، اما chroot راه‌اندازی نشد: %1$s</string>
+    <string name="root_exit_title">از حالت روت خارج می‌شوید؟</string>
+    <string name="root_exit_message">نشست‌های روت باز بسته می‌شوند و فایل‌هایی که با root ساخته شده‌اند به برنامه برگردانده می‌شوند تا نشست‌های عادی بتوانند آن‌ها را تغییر دهند.</string>
+    <string name="root_exit_confirm">خروج</string>
+    <string name="root_exiting">در حال خروج از حالت روت…</string>
+    <string name="root_disabled">حالت عادی روشن است</string>
+    <string name="root_exit_failed">دسترسی روت در دسترس نبود: فایل‌هایی که با root ساخته شده‌اند مالک خود را نگه می‌دارند و ممکن است نشست‌های عادی نتوانند آن‌ها را تغییر دهند.</string>
+    <string name="root_session_failed">نشست روت شروع نشد. اگر دسترسی روت از بین رفته است، حالت روت را می‌توان در تنظیمات خاموش کرد.</string>
 </resources>
