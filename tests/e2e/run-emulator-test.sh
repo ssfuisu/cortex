@@ -19,7 +19,16 @@ log() { echo "== $*"; }
 die() {
     echo "::error::$*"
     shot "failure"
+    diagnose
     exit 1
+}
+diagnosed=0
+diagnose() { # once: the app's processes, and Ubuntu's bash started directly (tests/e2e/diagnose.sh)
+    [ "$diagnosed" = 0 ] && [ -n "${PKG:-}" ] || return 0
+    diagnosed=1
+    log "Diagnostics"
+    adb push tests/e2e/diagnose.sh /data/local/tmp/cortex-diagnose.sh >/dev/null &&
+        sh_ sh /data/local/tmp/cortex-diagnose.sh "$PKG" 2>&1 | tee "$OUT/diagnose.txt"
 }
 sh_() { adb shell "$@" | tr -d '\r'; }  # the output of a command on the device
 run_() { adb shell "$@" >/dev/null 2>&1; } # only whether it succeeded
@@ -125,6 +134,7 @@ sleep 2
 type_line "bash /sdcard/Download/cortex-e2e.sh"
 if ! wait_for 90 run_ test -d "$DEVICE_OUT/started"; then
     shot "03-not-started"
+    diagnose
     log "The test did not start; typing the command again"
     tap_center "$WIDTH" "$HEIGHT"
     sleep 2
