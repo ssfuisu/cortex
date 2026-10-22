@@ -123,4 +123,6 @@
     <string name="root_disabled">സാധാരണ മോഡ് ഓണാണ്</string>
     <string name="root_exit_failed">റൂട്ട് ആക്സസ് ലഭ്യമായില്ല: root ആയി സൃഷ്ടിച്ച ഫയലുകൾക്ക് അവയുടെ ഉടമ തുടരും, സാധാരണ സെഷനുകൾക്ക് അവ മാറ്റാൻ കഴിഞ്ഞേക്കില്ല.</string>
     <string name="root_session_failed">റൂട്ട് സെഷൻ ആരംഭിക്കാനായില്ല. റൂട്ട് ആക്സസ് ഇല്ലാതായെങ്കിൽ, ക്രമീകരണങ്ങളിൽ റൂട്ട് മോഡ് ഓഫാക്കാം.</string>
+    <string name="api_channel_name">കമാൻഡുകളിൽ നിന്നുള്ള സന്ദേശങ്ങൾ</string>
+    <string name="api_channel_description">ടെർമിനലിലെ പ്രോഗ്രാമുകൾ cortex-api അല്ലെങ്കിൽ notify-send ഉപയോഗിച്ച് കാണിക്കുന്ന അറിയിപ്പുകൾ</string>
 </resources>

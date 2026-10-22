@@ -123,4 +123,6 @@
     <string name="root_disabled">ಸಾಮಾನ್ಯ ಮೋಡ್ ಆನ್ ಆಗಿದೆ</string>
     <string name="root_exit_failed">ರೂಟ್ ಪ್ರವೇಶ ಲಭ್ಯವಿರಲಿಲ್ಲ: root ಆಗಿ ರಚಿಸಿದ ಫೈಲ್‌ಗಳು ತಮ್ಮ ಮಾಲೀಕರನ್ನು ಉಳಿಸಿಕೊಳ್ಳುತ್ತವೆ, ಮತ್ತು ಸಾಮಾನ್ಯ ಸೆಷನ್‌ಗಳು ಅವುಗಳನ್ನು ಬದಲಾಯಿಸಲು ಸಾಧ್ಯವಾಗದಿರಬಹುದು.</string>
     <string name="root_session_failed">ರೂಟ್ ಸೆಷನ್ ಪ್ರಾರಂಭಿಸಲು ಸಾಧ್ಯವಾಗಲಿಲ್ಲ. ರೂಟ್ ಪ್ರವೇಶ ಇಲ್ಲದಿದ್ದರೆ, ಸೆಟ್ಟಿಂಗ್‌ಗಳಲ್ಲಿ ರೂಟ್ ಮೋಡ್ ಆಫ್ ಮಾಡಬಹುದು.</string>
+    <string name="api_channel_name">ಆದೇಶಗಳಿಂದ ಸಂದೇಶಗಳು</string>
+    <string name="api_channel_description">ಟರ್ಮಿನಲ್‌ನ ಪ್ರೋಗ್ರಾಂಗಳು cortex-api ಅಥವಾ notify-send ಮೂಲಕ ತೋರಿಸುವ ಅಧಿಸೂಚನೆಗಳು</string>
 </resources>

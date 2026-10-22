@@ -123,4 +123,6 @@
     <string name="root_disabled">Bežný režim je zapnutý</string>
     <string name="root_exit_failed">Prístup root nebol k dispozícii: súbory vytvorené ako root si ponechávajú vlastníka a bežné relácie ich možno nebudú môcť meniť.</string>
     <string name="root_session_failed">Reláciu root sa nepodarilo spustiť. Ak prístup root zmizol, režim root sa dá vypnúť v Nastaveniach.</string>
+    <string name="api_channel_name">Správy z príkazov</string>
+    <string name="api_channel_description">Upozornenia, ktoré programy v termináli zobrazujú pomocou cortex-api alebo notify-send</string>
 </resources>

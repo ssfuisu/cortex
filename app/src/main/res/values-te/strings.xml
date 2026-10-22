@@ -123,4 +123,6 @@
     <string name="root_disabled">సాధారణ మోడ్ ఆన్‌లో ఉంది</string>
     <string name="root_exit_failed">రూట్ యాక్సెస్ అందుబాటులో లేదు: root‌గా సృష్టించిన ఫైల్‌లు వాటి యజమానిని అలాగే ఉంచుకుంటాయి, సాధారణ సెషన్‌లు వాటిని మార్చలేకపోవచ్చు.</string>
     <string name="root_session_failed">రూట్ సెషన్ ప్రారంభం కాలేదు. రూట్ యాక్సెస్ పోయినట్లయితే, సెట్టింగ్‌లలో రూట్ మోడ్‌ను ఆఫ్ చేయవచ్చు.</string>
+    <string name="api_channel_name">ఆదేశాల నుండి సందేశాలు</string>
+    <string name="api_channel_description">టెర్మినల్‌లోని ప్రోగ్రామ్‌లు cortex-api లేదా notify-send ద్వారా చూపే నోటిఫికేషన్‌లు</string>
 </resources>

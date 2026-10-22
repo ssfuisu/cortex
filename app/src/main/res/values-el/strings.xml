@@ -123,4 +123,6 @@
     <string name="root_disabled">Η κανονική λειτουργία είναι ενεργή</string>
     <string name="root_exit_failed">Η πρόσβαση root δεν ήταν διαθέσιμη: τα αρχεία που δημιουργήθηκαν ως root διατηρούν τον κάτοχό τους και οι κανονικές συνεδρίες ίσως δεν μπορούν να τα αλλάξουν.</string>
     <string name="root_session_failed">Δεν ήταν δυνατή η έναρξη της συνεδρίας root. Αν η πρόσβαση root έχει χαθεί, η λειτουργία root μπορεί να απενεργοποιηθεί από τις Ρυθμίσεις.</string>
+    <string name="api_channel_name">Μηνύματα από εντολές</string>
+    <string name="api_channel_description">Ειδοποιήσεις που εμφανίζουν τα προγράμματα του τερματικού με cortex-api ή notify-send</string>
 </resources>

@@ -123,4 +123,6 @@
     <string name="root_disabled">साधारण मोड सक्रिय छ</string>
     <string name="root_exit_failed">रुट पहुँच उपलब्ध थिएन: root को रूपमा बनाइएका फाइलहरूले आफ्नो मालिक कायम राख्छन्, र साधारण सत्रहरूले तिनलाई परिवर्तन गर्न नसक्न सक्छन्।</string>
     <string name="root_session_failed">रुट सत्र सुरु हुन सकेन। रुट पहुँच हराएको छ भने, सेटिङहरूमा रुट मोड बन्द गर्न सकिन्छ।</string>
+    <string name="api_channel_name">आदेशहरूका सन्देशहरू</string>
+    <string name="api_channel_description">टर्मिनलका प्रोग्रामहरूले cortex-api वा notify-send मार्फत देखाउने सूचनाहरू</string>
 </resources>

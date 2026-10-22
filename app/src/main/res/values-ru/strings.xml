@@ -123,4 +123,6 @@
     <string name="root_disabled">Обычный режим включён</string>
     <string name="root_exit_failed">Доступ root был недоступен: файлы, созданные от root, сохраняют своего владельца, и обычные сеансы, возможно, не смогут их изменить.</string>
     <string name="root_session_failed">Не удалось запустить сеанс root. Если доступа root больше нет, режим root можно выключить в настройках.</string>
+    <string name="api_channel_name">Сообщения от команд</string>
+    <string name="api_channel_description">Уведомления, которые программы в терминале показывают через cortex-api или notify-send</string>
 </resources>

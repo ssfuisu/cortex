@@ -123,4 +123,6 @@
     <string name="root_disabled">सामान्य मोड चालू आहे</string>
     <string name="root_exit_failed">रूट अ‍ॅक्सेस उपलब्ध नव्हता: root म्हणून तयार केलेल्या फाइल्सचा मालक तसाच राहतो, आणि सामान्य सत्रे कदाचित त्यात बदल करू शकणार नाहीत.</string>
     <string name="root_session_failed">रूट सत्र सुरू होऊ शकले नाही. रूट अ‍ॅक्सेस गेला असल्यास, सेटिंग्जमध्ये रूट मोड बंद करता येतो.</string>
+    <string name="api_channel_name">आदेशांचे संदेश</string>
+    <string name="api_channel_description">टर्मिनलमधील प्रोग्राम cortex-api किंवा notify-send ने दाखवतात त्या सूचना</string>
 </resources>

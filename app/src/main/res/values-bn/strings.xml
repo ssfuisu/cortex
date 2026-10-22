@@ -123,4 +123,6 @@
     <string name="root_disabled">সাধারণ মোড চালু আছে</string>
     <string name="root_exit_failed">রুট অ্যাক্সেস পাওয়া যায়নি: root হিসেবে তৈরি ফাইলগুলোর মালিক অপরিবর্তিত থাকবে, এবং সাধারণ সেশনগুলো সেগুলো পরিবর্তন করতে নাও পারে।</string>
     <string name="root_session_failed">রুট সেশন শুরু করা যায়নি। রুট অ্যাক্সেস না থাকলে সেটিংস থেকে রুট মোড বন্ধ করা যায়।</string>
+    <string name="api_channel_name">কমান্ড থেকে বার্তা</string>
+    <string name="api_channel_description">টার্মিনালের প্রোগ্রামগুলো cortex-api বা notify-send দিয়ে যে বিজ্ঞপ্তি দেখায়</string>
 </resources>

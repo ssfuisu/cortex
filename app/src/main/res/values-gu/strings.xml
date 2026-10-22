@@ -123,4 +123,6 @@
     <string name="root_disabled">સામાન્ય મોડ ચાલુ છે</string>
     <string name="root_exit_failed">રૂટ ઍક્સેસ ઉપલબ્ધ ન હતો: root તરીકે બનાવેલી ફાઇલો તેમના માલિકને જાળવી રાખે છે, અને સામાન્ય સત્રો કદાચ તેમાં ફેરફાર કરી શકશે નહીં.</string>
     <string name="root_session_failed">રૂટ સત્ર શરૂ થઈ શક્યું નથી. જો રૂટ ઍક્સેસ જતો રહ્યો હોય, તો સેટિંગ્સમાં રૂટ મોડ બંધ કરી શકાય છે.</string>
+    <string name="api_channel_name">આદેશોના સંદેશા</string>
+    <string name="api_channel_description">ટર્મિનલના પ્રોગ્રામ cortex-api અથવા notify-send વડે બતાવે છે તે સૂચનાઓ</string>
 </resources>

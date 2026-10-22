@@ -123,4 +123,6 @@
     <string name="root_disabled">Tavallinen tila on käytössä</string>
     <string name="root_exit_failed">Root-oikeuksia ei ollut saatavilla: rootina luodut tiedostot säilyttävät omistajansa, eivätkä tavalliset istunnot ehkä voi muuttaa niitä.</string>
     <string name="root_session_failed">Root-istuntoa ei voitu käynnistää. Jos root-oikeudet ovat poissa, root-tilan voi poistaa käytöstä asetuksista.</string>
+    <string name="api_channel_name">Viestit komennoilta</string>
+    <string name="api_channel_description">Ilmoitukset, joita päätteen ohjelmat näyttävät cortex-api- tai notify-send-komennolla</string>
 </resources>

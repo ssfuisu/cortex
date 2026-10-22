@@ -123,4 +123,6 @@
     <string name="root_disabled">המצב הרגיל פעיל</string>
     <string name="root_exit_failed">גישת root לא הייתה זמינה: הקבצים שנוצרו כ-root שומרים על הבעלים שלהם, וייתכן שהפעלות רגילות לא יוכלו לשנות אותם.</string>
     <string name="root_session_failed">הפעלת ה-root לא הצליחה להתחיל. אם גישת ה-root אבדה, אפשר לכבות את מצב root בהגדרות.</string>
+    <string name="api_channel_name">הודעות מפקודות</string>
+    <string name="api_channel_description">התראות שתוכניות במסוף מציגות באמצעות cortex-api או notify-send</string>
 </resources>

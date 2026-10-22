@@ -123,4 +123,6 @@
     <string name="root_disabled">Chế độ thường đang bật</string>
     <string name="root_exit_failed">Không có quyền root: các tệp được tạo dưới quyền root vẫn giữ chủ sở hữu, và các phiên thường có thể không thay đổi được chúng.</string>
     <string name="root_session_failed">Không thể bắt đầu phiên root. Nếu không còn quyền root, có thể tắt chế độ root trong Cài đặt.</string>
+    <string name="api_channel_name">Tin nhắn từ lệnh</string>
+    <string name="api_channel_description">Thông báo mà các chương trình trong terminal hiển thị bằng cortex-api hoặc notify-send</string>
 </resources>

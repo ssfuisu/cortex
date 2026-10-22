@@ -155,4 +155,7 @@
     <string name="root_exit_failed">Root access was not available: files created as root keep their owner, and normal sessions may not be able to change them.</string>
     <string name="root_session_failed">The root session could not start. If root access is gone, root mode can be turned off in Settings.</string>
     <string name="session_root_badge" translatable="false">ROOT</string>
+    <!-- cortex-api -->
+    <string name="api_channel_name">Messages from commands</string>
+    <string name="api_channel_description">Notifications that programs in the terminal show with cortex-api or notify-send</string>
 </resources>

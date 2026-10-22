@@ -123,4 +123,6 @@
     <string name="root_disabled">عام موڈ آن ہے</string>
     <string name="root_exit_failed">روٹ رسائی دستیاب نہیں تھی: root کے طور پر بنائی گئی فائلوں کا مالک وہی رہتا ہے، اور ممکن ہے عام سیشن انہیں تبدیل نہ کر سکیں۔</string>
     <string name="root_session_failed">روٹ سیشن شروع نہیں ہو سکا۔ اگر روٹ رسائی ختم ہو گئی ہے تو ترتیبات میں روٹ موڈ بند کیا جا سکتا ہے۔</string>
+    <string name="api_channel_name">کمانڈز کے پیغامات</string>
+    <string name="api_channel_description">ٹرمینل کے پروگرام cortex-api یا notify-send کے ذریعے جو اطلاعات دکھاتے ہیں</string>
 </resources>

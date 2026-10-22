@@ -123,4 +123,6 @@
     <string name="root_disabled">Normale modus staat aan</string>
     <string name="root_exit_failed">Roottoegang was niet beschikbaar: bestanden die als root zijn gemaakt, behouden hun eigenaar en normale sessies kunnen ze mogelijk niet wijzigen.</string>
     <string name="root_session_failed">De rootsessie kon niet starten. Als de roottoegang weg is, kan de rootmodus worden uitgezet in de instellingen.</string>
+    <string name="api_channel_name">Berichten van opdrachten</string>
+    <string name="api_channel_description">Meldingen die programma’s in de terminal tonen met cortex-api of notify-send</string>
 </resources>

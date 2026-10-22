@@ -27,7 +27,7 @@ cleanup() {
 trap cleanup EXIT
 
 echo "=== 0. Checking LF line endings and syntax ==="
-for script_name in reload.sh service.sh systemctl.sh su.sh cortex-shell.sh cortex-backup.sh; do
+for script_name in reload.sh service.sh systemctl.sh su.sh cortex-shell.sh cortex-backup.sh cortex-api.sh notify-send.sh; do
     script_path="$ASSETS_SCRIPTS/$script_name"
     if LC_ALL=C grep -q $'\r' "$script_path"; then
         fail "$script_name contains CRLF line endings"
@@ -297,6 +297,64 @@ cp "$ASSETS_SCRIPTS/tsu.sh" "$TSU_DIR/sudo"
 chmod +x "$TSU_DIR/su" "$TSU_DIR/sudo"
 OUT="$("$TSU_DIR/sudo" apt update 2>&1)"
 [ "$OUT" = "as=sudo apt update" ] && pass "tsu.sh passes the name it was started as to su" || fail "tsu.sh name: got '$OUT'"
+
+echo "=== 3b. Testing cortex-api and notify-send against a stand-in server ==="
+API_SH="$ASSETS_SCRIPTS/cortex-api.sh"
+API_DIR="$TEST_TMP/cortex api dir"
+mkdir -p "$API_DIR/bin" "$API_DIR/work"
+API_CONF="$API_DIR/conf"
+API_LOG="$API_DIR/requests.jsonl"
+API_TOKEN="tok$$secret"
+python3 -I "$REPO_ROOT/tests/scripts/cortex_api_mock.py" "$API_CONF" "$API_LOG" "$API_TOKEN" &
+API_PID=$!
+for _ in $(seq 1 50); do [ -s "$API_CONF" ] && break; sleep 0.1; done
+api() { CORTEX_API_CONF="$API_CONF" bash "$API_SH" "$@"; }
+# FIELD of the last request (JSON), printed as JSON
+last() { python3 -I -c 'import json,sys; print(json.dumps(json.loads(open(sys.argv[1]).read().splitlines()[-1])[sys.argv[2]], ensure_ascii=False))' "$API_LOG" "$1"; }
+
+OUT="$(api battery </dev/null)"; STATUS=$?
+[ "$STATUS" = 0 ] && [ "$OUT" = "ok battery" ] && pass "cortex-api prints the answer and exits 0" || fail "cortex-api battery: status $STATUS, output '$OUT'"
+[ "$(last token)" = "\"$API_TOKEN\"" ] && [ "$(last args)" = "[]" ] && [ "$(last stdin)" = "null" ] \
+    && pass "cortex-api sends the token, no arguments and no stdin" || fail "cortex-api request: token $(last token) args $(last args) stdin $(last stdin)"
+
+echo "ignored" | api notification -t "Başlık ✓ \"x\"" -c "iki kelime" -i build >/dev/null
+[ "$(last args)" = '["-t", "Başlık ✓ \"x\"", "-c", "iki kelime", "-i", "build"]' ] && [ "$(last stdin)" = "null" ] \
+    && pass "notification arguments keep UTF-8, quotes and spaces; stdin is not read when -c is given" || fail "notification: args $(last args) stdin $(last stdin)"
+
+printf 'satır 1\nsatır 2\n' | api notification -t T >/dev/null
+[ "$(last stdin)" = '"satır 1\nsatır 2\n"' ] && pass "notification reads the text from stdin without -c" || fail "notification stdin: $(last stdin)"
+
+api clipboard-set "metin" </dev/null >/dev/null
+[ "$(last args)" = '["metin"]' ] && [ "$(last stdin)" = "null" ] && pass "clipboard-set TEXT sends no stdin" || fail "clipboard-set TEXT: $(last args) $(last stdin)"
+printf 'from a pipe' | api clipboard-set >/dev/null
+[ "$(last stdin)" = '"from a pipe"' ] && pass "clipboard-set reads stdin without TEXT" || fail "clipboard-set stdin: $(last stdin)"
+printf 'x' | api toast -l >/dev/null
+[ "$(last args)" = '["-l"]' ] && [ "$(last stdin)" = '"x"' ] && pass "toast options do not count as text" || fail "toast -l: $(last args) $(last stdin)"
+
+(cd "$API_DIR/work" && api open "report one.pdf" </dev/null >/dev/null)
+[ "$(last args)" = "[\"$API_DIR/work/report one.pdf\"]" ] && pass "open sends a relative file as an absolute path" || fail "open file: $(last args)"
+api open "https://example.com/a?b=c d" </dev/null >/dev/null
+[ "$(last args)" = '["https://example.com/a?b=c d"]' ] && pass "open sends a link as it is" || fail "open link: $(last args)"
+(cd "$API_DIR/work" && api share -t Paylaş -f notes.txt </dev/null >/dev/null)
+[ "$(last args)" = "[\"-t\", \"Paylaş\", \"-f\", \"$API_DIR/work/notes.txt\"]" ] && pass "share -f sends an absolute path" || fail "share -f: $(last args)"
+
+ERR="$(api fail 2>&1 >/dev/null </dev/null)"; STATUS=$?
+OUT="$(api fail 2>/dev/null </dev/null)"
+[ "$STATUS" = 3 ] && [ "$ERR" = "cortex-api: olmadı" ] && [ -z "$OUT" ] && pass "errors go to stderr with the server's exit status" || fail "error: status $STATUS stderr '$ERR' stdout '$OUT'"
+
+printf '%s\n' "$(cut -d' ' -f1 "$API_CONF") wrongtoken" > "$API_DIR/badconf"
+CORTEX_API_CONF="$API_DIR/badconf" bash "$API_SH" battery </dev/null >/dev/null 2>&1
+[ "$?" = 1 ] && pass "a wrong token is refused" || fail "a wrong token was not refused"
+ERR="$(CORTEX_API_CONF="$API_DIR/missing" bash "$API_SH" battery 2>&1 </dev/null)"; STATUS=$?
+[ "$STATUS" = 1 ] && echo "$ERR" | grep -q "Cortex is not running" && pass "a missing /run/cortex-api says Cortex is not running" || fail "missing conf: $STATUS '$ERR'"
+api --help | grep -q "notification \[-t TITLE\]" && pass "cortex-api --help works without the app" || fail "cortex-api --help"
+
+cp "$API_SH" "$API_DIR/bin/cortex-api" && chmod +x "$API_DIR/bin/cortex-api"
+CORTEX_API_CONF="$API_CONF" PATH="$API_DIR/bin:$PATH" bash "$ASSETS_SCRIPTS/notify-send.sh" -u critical -t 5000 -i dialog-information "Derleme bitti" "0 hata" </dev/null
+[ "$?" = 0 ] && [ "$(last args)" = '["-t", "Derleme bitti", "-c", "0 hata"]' ] && pass "notify-send shows SUMMARY and BODY through cortex-api" || fail "notify-send: $(last args)"
+CORTEX_API_CONF="$API_CONF" PATH="$API_DIR/bin:$PATH" bash "$ASSETS_SCRIPTS/notify-send.sh" </dev/null 2>/dev/null
+[ "$?" = 1 ] && pass "notify-send without a summary fails" || fail "notify-send without a summary did not fail"
+kill "$API_PID" 2>/dev/null; wait "$API_PID" 2>/dev/null
 
 echo "=== 4. Testing simple xdg-open script ==="
 XDG_OPEN_TEST="$TEST_TMP/xdg-open"

@@ -123,4 +123,6 @@
     <string name="root_disabled">सामान्य मोड चालू है</string>
     <string name="root_exit_failed">रूट एक्सेस उपलब्ध नहीं था: root के रूप में बनाई गई फ़ाइलों का मालिक वही रहेगा, और सामान्य सेशन शायद उन्हें बदल न सकें।</string>
     <string name="root_session_failed">रूट सेशन शुरू नहीं हो सका। अगर रूट एक्सेस नहीं रहा, तो सेटिंग में रूट मोड बंद किया जा सकता है।</string>
+    <string name="api_channel_name">कमांड से संदेश</string>
+    <string name="api_channel_description">टर्मिनल के प्रोग्राम cortex-api या notify-send से जो सूचनाएँ दिखाते हैं</string>
 </resources>

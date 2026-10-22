@@ -58,6 +58,7 @@ class CortexService : Service() {
             return _sessionManager!!
         }
 
+        @Volatile // also read by cortex-api's worker threads
         var isWakeLockHeld: Boolean = false
             private set
 
@@ -161,6 +162,8 @@ class CortexService : Service() {
         } catch (e: Exception) {
             android.util.Log.e("CortexService", "getOrCreateSessionManager failed", e)
         }
+        // cortex-api: Android features for the shell, while sessions can run.
+        org.cortex.terminal.api.ApiServer.start(this)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -366,6 +369,7 @@ class CortexService : Service() {
     }
 
     override fun onDestroy() {
+        org.cortex.terminal.api.ApiServer.stop(this)
         releaseWakeLock()
         instance = null
         super.onDestroy()

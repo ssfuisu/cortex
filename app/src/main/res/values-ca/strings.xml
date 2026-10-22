@@ -123,4 +123,6 @@
     <string name="root_disabled">El mode normal està activat</string>
     <string name="root_exit_failed">No hi havia accés root: els fitxers creats com a root conserven el propietari i és possible que les sessions normals no els puguin modificar.</string>
     <string name="root_session_failed">No s’ha pogut iniciar la sessió root. Si ja no hi ha accés root, el mode root es pot desactivar a Configuració.</string>
+    <string name="api_channel_name">Missatges de les ordres</string>
+    <string name="api_channel_description">Notificacions que els programes del terminal mostren amb cortex-api o notify-send</string>
 </resources>

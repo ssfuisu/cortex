@@ -123,4 +123,6 @@
     <string name="root_disabled">เปิดโหมดปกติแล้ว</string>
     <string name="root_exit_failed">ไม่มีสิทธิ์รูท: ไฟล์ที่สร้างในฐานะ root ยังคงมีเจ้าของเดิม และเซสชันปกติอาจแก้ไขไฟล์เหล่านั้นไม่ได้</string>
     <string name="root_session_failed">เริ่มเซสชันรูทไม่ได้ หากไม่มีสิทธิ์รูทแล้ว สามารถปิดโหมดรูทได้ในการตั้งค่า</string>
+    <string name="api_channel_name">ข้อความจากคำสั่ง</string>
+    <string name="api_channel_description">การแจ้งเตือนที่โปรแกรมในเทอร์มินัลแสดงผ่าน cortex-api หรือ notify-send</string>
 </resources>

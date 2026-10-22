@@ -123,4 +123,6 @@
     <string name="root_disabled">El modo normal está activado</string>
     <string name="root_exit_failed">No había acceso root: los archivos creados como root conservan su propietario y es posible que las sesiones normales no puedan modificarlos.</string>
     <string name="root_session_failed">No se pudo iniciar la sesión root. Si ya no hay acceso root, el modo root se puede desactivar en Ajustes.</string>
+    <string name="api_channel_name">Mensajes de los comandos</string>
+    <string name="api_channel_description">Notificaciones que los programas de la terminal muestran con cortex-api o notify-send</string>
 </resources>

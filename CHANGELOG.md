@@ -4,6 +4,27 @@ What changed in each version of Cortex Terminal, newest first. The release workf
 of a GitHub release from the section of its version here. Older versions are described on the
 [GitHub releases](https://github.com/ssfuisu/cortex/releases) page.
 
+## Unreleased
+
+### New
+
+- **`cortex-api`: Android features from the terminal.** Programs can show notifications, read and
+  set the clipboard, open links and files in Android apps, share text and files, read the battery
+  state, show a toast, speak text and vibrate, and keep the CPU awake (`cortex-api --help` lists
+  the commands). It works in normal and in root mode. `notify-send` now shows its notifications on
+  Android, and `xdg-open` (with `open`, `termux-open` and the browser names) opens links and files
+  in Android apps instead of only printing them. Only Cortex itself and root can use it.
+
+### Fixed
+
+- The README no longer says that Cortex never uses a chroot (root mode does).
+
+### For developers
+
+- The cortex-api client is a bash script (`app/src/main/assets/scripts/cortex-api.sh`) that talks
+  to `org.cortex.terminal.api.ApiServer` over 127.0.0.1 with a token from `/run/cortex-api`; the
+  shell tests run it against a stand-in server (`tests/scripts/cortex_api_mock.py`).
+
 ## 1.26.34 (2026-10-20)
 
 ### New

@@ -123,4 +123,6 @@
     <string name="root_disabled">சாதாரண பயன்முறை இயக்கத்தில் உள்ளது</string>
     <string name="root_exit_failed">ரூட் அணுகல் கிடைக்கவில்லை: root ஆக உருவாக்கப்பட்ட கோப்புகள் அவற்றின் உரிமையாளரைத் தக்கவைக்கும், சாதாரண அமர்வுகளால் அவற்றை மாற்ற முடியாமல் போகலாம்.</string>
     <string name="root_session_failed">ரூட் அமர்வைத் தொடங்க முடியவில்லை. ரூட் அணுகல் இல்லையெனில், அமைப்புகளில் ரூட் பயன்முறையை முடக்கலாம்.</string>
+    <string name="api_channel_name">கட்டளைகளிலிருந்து வரும் செய்திகள்</string>
+    <string name="api_channel_description">டெர்மினலில் உள்ள நிரல்கள் cortex-api அல்லது notify-send மூலம் காட்டும் அறிவிப்புகள்</string>
 </resources>

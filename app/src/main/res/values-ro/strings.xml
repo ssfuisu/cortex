@@ -123,4 +123,6 @@
     <string name="root_disabled">Modul normal este activat</string>
     <string name="root_exit_failed">Accesul root nu a fost disponibil: fișierele create ca root își păstrează proprietarul, iar sesiunile normale s-ar putea să nu le poată modifica.</string>
     <string name="root_session_failed">Sesiunea root nu a putut porni. Dacă accesul root a dispărut, modul root poate fi dezactivat din Setări.</string>
+    <string name="api_channel_name">Mesaje de la comenzi</string>
+    <string name="api_channel_description">Notificări pe care programele din terminal le afișează cu cortex-api sau notify-send</string>
 </resources>

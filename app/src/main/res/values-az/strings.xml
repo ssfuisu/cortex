@@ -123,4 +123,6 @@
     <string name="root_disabled">Adi rejim aktivdir</string>
     <string name="root_exit_failed">Root girişi əlçatan olmadı: root kimi yaradılan fayllar sahiblərini saxlayır və adi sessiyalar onları dəyişə bilməyə bilər.</string>
     <string name="root_session_failed">Root sessiyası başladıla bilmədi. Root girişi itibsə, root rejimini Ayarlarda söndürmək olar.</string>
+    <string name="api_channel_name">Əmrlərdən mesajlar</string>
+    <string name="api_channel_description">Terminaldakı proqramların cortex-api və ya notify-send ilə göstərdiyi bildirişlər</string>
 </resources>

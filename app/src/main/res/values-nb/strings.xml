@@ -123,4 +123,6 @@
     <string name="root_disabled">Vanlig modus er på</string>
     <string name="root_exit_failed">Root-tilgang var ikke tilgjengelig: filer opprettet som root beholder eieren sin, og vanlige økter kan kanskje ikke endre dem.</string>
     <string name="root_session_failed">Root-økten kunne ikke starte. Hvis root-tilgangen er borte, kan root-modus slås av i innstillingene.</string>
+    <string name="api_channel_name">Meldinger fra kommandoer</string>
+    <string name="api_channel_description">Varsler som programmer i terminalen viser med cortex-api eller notify-send</string>
 </resources>

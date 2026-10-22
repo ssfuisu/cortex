@@ -123,4 +123,6 @@
     <string name="root_disabled">一般模式已開啟</string>
     <string name="root_exit_failed">無法取得 root 權限：以 root 身分建立的檔案會保留原本的擁有者，一般工作階段可能無法修改。</string>
     <string name="root_session_failed">無法啟動 root 工作階段。如果 root 權限已失效，可以在「設定」中關閉 Root 模式。</string>
+    <string name="api_channel_name">來自指令的訊息</string>
+    <string name="api_channel_description">終端機中的程式透過 cortex-api 或 notify-send 顯示的通知</string>
 </resources>

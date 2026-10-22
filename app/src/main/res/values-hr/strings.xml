@@ -123,4 +123,6 @@
     <string name="root_disabled">Uobičajeni način je uključen</string>
     <string name="root_exit_failed">Root pristup nije bio dostupan: datoteke stvorene kao root zadržavaju vlasnika i obične sesije ih možda neće moći mijenjati.</string>
     <string name="root_session_failed">Root sesija nije se mogla pokrenuti. Ako root pristupa više nema, root način može se isključiti u Postavkama.</string>
+    <string name="api_channel_name">Poruke naredbi</string>
+    <string name="api_channel_description">Obavijesti koje programi u terminalu prikazuju pomoću cortex-api ili notify-send</string>
 </resources>

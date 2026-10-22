@@ -123,4 +123,6 @@
     <string name="root_disabled">Normaler Modus ist aktiv</string>
     <string name="root_exit_failed">Kein Root-Zugriff verfügbar: Als Root erstellte Dateien behalten ihren Besitzer, und normale Sitzungen können sie möglicherweise nicht ändern.</string>
     <string name="root_session_failed">Die Root-Sitzung konnte nicht starten. Wenn der Root-Zugriff weg ist, lässt sich der Root-Modus in den Einstellungen ausschalten.</string>
+    <string name="api_channel_name">Nachrichten von Befehlen</string>
+    <string name="api_channel_description">Benachrichtigungen, die Programme im Terminal mit cortex-api oder notify-send anzeigen</string>
 </resources>

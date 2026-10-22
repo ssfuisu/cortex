@@ -123,4 +123,6 @@
     <string name="root_disabled">Обичан режим је укључен</string>
     <string name="root_exit_failed">Root приступ није био доступан: датотеке направљене као root задржавају власника, а обичне сесије можда неће моћи да их мењају.</string>
     <string name="root_session_failed">Root сесија није могла да се покрене. Ако root приступ више не постоји, root режим се може искључити у подешавањима.</string>
+    <string name="api_channel_name">Поруке команди</string>
+    <string name="api_channel_description">Обавештења која програми у терминалу приказују помоћу cortex-api или notify-send</string>
 </resources>

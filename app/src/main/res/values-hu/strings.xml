@@ -123,4 +123,6 @@
     <string name="root_disabled">A normál mód be van kapcsolva</string>
     <string name="root_exit_failed">Nem volt root hozzáférés: a rootként létrehozott fájlok megtartják a tulajdonosukat, és előfordulhat, hogy a normál munkamenetek nem tudják módosítani őket.</string>
     <string name="root_session_failed">A root munkamenet nem tudott elindulni. Ha a root hozzáférés megszűnt, a root mód a Beállításokban kikapcsolható.</string>
+    <string name="api_channel_name">Parancsok üzenetei</string>
+    <string name="api_channel_description">Értesítések, amelyeket a terminál programjai a cortex-api vagy a notify-send segítségével jelenítenek meg</string>
 </resources>

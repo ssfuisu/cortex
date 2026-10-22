@@ -123,4 +123,6 @@
     <string name="root_disabled">通常モードがオンです</string>
     <string name="root_exit_failed">root アクセスを利用できませんでした: root として作成されたファイルの所有者はそのままのため、通常のセッションでは変更できない場合があります。</string>
     <string name="root_session_failed">root セッションを開始できませんでした。root アクセスがなくなった場合は、設定で root モードをオフにできます。</string>
+    <string name="api_channel_name">コマンドからのメッセージ</string>
+    <string name="api_channel_description">ターミナルのプログラムが cortex-api または notify-send で表示する通知</string>
 </resources>

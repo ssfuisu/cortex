@@ -123,4 +123,6 @@
     <string name="root_disabled">Қалыпты режим қосулы</string>
     <string name="root_exit_failed">Root рұқсаты болмады: root ретінде жасалған файлдар иесін сақтайды және қалыпты сеанстар оларды өзгерте алмауы мүмкін.</string>
     <string name="root_session_failed">Root сеансын бастау мүмкін болмады. Root рұқсаты жоғалса, root режимін параметрлерде өшіруге болады.</string>
+    <string name="api_channel_name">Командалардан хабарлар</string>
+    <string name="api_channel_description">Терминалдағы бағдарламалар cortex-api немесе notify-send арқылы көрсететін хабарландырулар</string>
 </resources>

@@ -123,4 +123,6 @@
     <string name="root_disabled">Mod biasa dihidupkan</string>
     <string name="root_exit_failed">Akses root tidak tersedia: fail yang dicipta sebagai root mengekalkan pemiliknya, dan sesi biasa mungkin tidak dapat mengubahnya.</string>
     <string name="root_session_failed">Sesi root tidak dapat dimulakan. Jika akses root sudah tiada, mod root boleh dimatikan dalam Tetapan.</string>
+    <string name="api_channel_name">Mesej daripada arahan</string>
+    <string name="api_channel_description">Pemberitahuan yang dipaparkan oleh program dalam terminal dengan cortex-api atau notify-send</string>
 </resources>

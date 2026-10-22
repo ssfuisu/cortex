@@ -213,7 +213,12 @@ object ShellScriptsInstaller {
             } catch (_: Exception) {}
 
             val xdgOpenFile = File(localBin, "xdg-open")
+            // Opens links and files in Android apps through cortex-api; prints the link when that is
+            // not possible (Cortex in the background, or no app for it).
             val simpleXdgOpenScript = "#!/bin/sh\n" +
+                "if [ \$# -gt 0 ] && command -v cortex-api >/dev/null 2>&1 && cortex-api open \"\$1\" 2>/dev/null; then\n" +
+                "    exit 0\n" +
+                "fi\n" +
                 "if [ \$# -gt 0 ]; then\n" +
                 "    echo \"To open this URL, copy and paste it into your browser:\"\n" +
                 "    echo \"\$1\"\n" +
@@ -286,8 +291,34 @@ object ShellScriptsInstaller {
                     }
                 }
             }
+            ensureApiTools(localBin, context)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to ensure browser opener", e)
+        }
+    }
+
+    /** Installs cortex-api (Android features for the shell) and notify-send, which uses it. */
+    private fun ensureApiTools(localBin: File, context: Context?) {
+        val tools = listOf(
+            "cortex-api" to "cortex-api.sh",
+            "notify-send" to "notify-send.sh"
+        )
+        for ((name, asset) in tools) {
+            try {
+                val fallback = "#!/bin/sh\necho \"$name is not available in this build of Cortex.\" >&2\nexit 1\n"
+                val script = loadAssetScript(context, asset, fallback)
+                val target = File(localBin, name)
+                val existing = try { if (target.isFile) target.readText() else null } catch (_: Exception) { null }
+                if (existing != script) {
+                    target.writeText(script)
+                }
+                target.setReadable(true, false)
+                target.setWritable(true, true)
+                target.setExecutable(true, false)
+                try { Os.chmod(target.absolutePath, 493) } catch (_: Exception) {} // 0755
+            } catch (e: Exception) {
+                Log.e(TAG, "Skipping $name install: ${e.message}")
+            }
         }
     }
 

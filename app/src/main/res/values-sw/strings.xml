@@ -123,4 +123,6 @@
     <string name="root_disabled">Hali ya kawaida imewashwa</string>
     <string name="root_exit_failed">Ruhusa ya root haikupatikana: faili zilizoundwa kama root zinabaki na mmiliki wake, na huenda vipindi vya kawaida visiweze kuzibadilisha.</string>
     <string name="root_session_failed">Kipindi cha root hakikuweza kuanza. Ikiwa ruhusa ya root imeondoka, hali ya root inaweza kuzimwa katika Mipangilio.</string>
+    <string name="api_channel_name">Ujumbe kutoka kwa amri</string>
+    <string name="api_channel_description">Arifa ambazo programu kwenye terminal huonyesha kwa cortex-api au notify-send</string>
 </resources>

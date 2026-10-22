@@ -123,4 +123,6 @@
     <string name="root_disabled">حالت عادی روشن است</string>
     <string name="root_exit_failed">دسترسی روت در دسترس نبود: فایل‌هایی که با root ساخته شده‌اند مالک خود را نگه می‌دارند و ممکن است نشست‌های عادی نتوانند آن‌ها را تغییر دهند.</string>
     <string name="root_session_failed">نشست روت شروع نشد. اگر دسترسی روت از بین رفته است، حالت روت را می‌توان در تنظیمات خاموش کرد.</string>
+    <string name="api_channel_name">پیام‌های فرمان‌ها</string>
+    <string name="api_channel_description">اعلان‌هایی که برنامه‌های ترمینال با cortex-api یا notify-send نشان می‌دهند</string>
 </resources>

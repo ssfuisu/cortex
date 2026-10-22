@@ -123,4 +123,6 @@
     <string name="root_disabled">Tryb zwykły jest włączony</string>
     <string name="root_exit_failed">Dostęp root był niedostępny: pliki utworzone jako root zachowują właściciela i zwykłe sesje mogą nie móc ich zmieniać.</string>
     <string name="root_session_failed">Nie udało się uruchomić sesji root. Jeśli dostęp root zniknął, tryb root można wyłączyć w Ustawieniach.</string>
+    <string name="api_channel_name">Wiadomości z poleceń</string>
+    <string name="api_channel_description">Powiadomienia, które programy w terminalu wyświetlają za pomocą cortex-api lub notify-send</string>
 </resources>

@@ -123,4 +123,6 @@
     <string name="root_disabled">普通模式已开启</string>
     <string name="root_exit_failed">无法获得 root 权限：以 root 身份创建的文件将保留其所有者，普通会话可能无法修改它们。</string>
     <string name="root_session_failed">无法启动 root 会话。如果 root 权限已失效，可以在设置中关闭 Root 模式。</string>
+    <string name="api_channel_name">来自命令的消息</string>
+    <string name="api_channel_description">终端中的程序通过 cortex-api 或 notify-send 显示的通知</string>
 </resources>

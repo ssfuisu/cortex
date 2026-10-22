@@ -123,4 +123,6 @@
     <string name="root_disabled">Mode normal aktif</string>
     <string name="root_exit_failed">Akses root tidak tersedia: file yang dibuat sebagai root tetap dengan pemiliknya, dan sesi normal mungkin tidak dapat mengubahnya.</string>
     <string name="root_session_failed">Sesi root tidak dapat dimulai. Jika akses root sudah tidak ada, mode root dapat dimatikan di Pengaturan.</string>
+    <string name="api_channel_name">Pesan dari perintah</string>
+    <string name="api_channel_description">Notifikasi yang ditampilkan program di terminal dengan cortex-api atau notify-send</string>
 </resources>

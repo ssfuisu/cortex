@@ -123,4 +123,6 @@
     <string name="root_disabled">Naka-on ang normal mode</string>
     <string name="root_exit_failed">Walang root access: mananatili ang may-ari ng mga file na ginawa bilang root, at maaaring hindi mabago ng mga normal na session ang mga ito.</string>
     <string name="root_session_failed">Hindi masimulan ang root session. Kung wala na ang root access, puwedeng i-off ang root mode sa Mga Setting.</string>
+    <string name="api_channel_name">Mga mensahe mula sa mga command</string>
+    <string name="api_channel_description">Mga notification na ipinapakita ng mga program sa terminal gamit ang cortex-api o notify-send</string>
 </resources>

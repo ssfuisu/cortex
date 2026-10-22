@@ -43,7 +43,7 @@ Pick Cortex when you need Ubuntu's own `.deb` packages and a genuine glibc witho
 ## Features
 
 - **Genuine Ubuntu 24.04 LTS & Glibc 2.39**: Run standard GNU/Linux software, compilers, and modern libraries without Android Bionic libc limitations or missing header errors.
-- **Native Execution**: No PRoot `ptrace` system call traps, no chroot, and no QEMU/KVM emulation. Code runs on the phone's CPU at full speed; the small preloaded library adds a few percent to calls that take a file path (see [Performance](#performance)).
+- **Native Execution**: No PRoot `ptrace` system call traps, no chroot (except in the optional [root mode](#root-mode)), and no QEMU/KVM emulation. Code runs on the phone's CPU at full speed; the small preloaded library adds a few percent to calls that take a file path (see [Performance](#performance)).
 - **Full Debian/Ubuntu APT Package Manager**: Complete, zero-warning package installation (`apt update`, `apt install`) verified with official Ubuntu archive GPG keyrings and dynamic DNS.
 - **Full OpenJDK 17 JDK & JRE Runtime**: Out-of-the-box Java 17 development support (`apt install openjdk-17-jdk`) with dynamic linker library path preservation and POSIX shared memory (`/dev/shm`).
 - **High-Speed AI & Developer Launchers**: One-command instant CDN setups for OpenCode, Meta Muse Code, and Google Antigravity.
@@ -54,6 +54,7 @@ Pick Cortex when you need Ubuntu's own `.deb` packages and a genuine glibc witho
 - **Clickable Links & Clipboard Image Insertion**: Underlined URLs and OSC 8 hyperlinks are copied to the clipboard when tapped; tapping images in your keyboard clipboard automatically saves and types their file path.
 - **Multi-Session Management**: Seamlessly spawn, switch between, and manage multiple active terminal sessions from the left navigation drawer.
 - **Full Storage & Background Services**: Deep `/sdcard` device storage integration and standard background service controls via `service`, `/etc/init.d/`, and `/etc/cortex/autostart`.
+- **Android Integration**: `cortex-api` for notifications, the clipboard, opening links and files in Android apps, sharing, battery state, speech and vibration; `notify-send` and `xdg-open` use it (see [Android Integration](#android-integration-cortex-api)).
 - **Root Mode**: On a rooted phone, sessions can run as real root in a chroot of the same Ubuntu files, with nothing translated or emulated (see [Root Mode](#root-mode)).
 
 ---
@@ -167,6 +168,24 @@ Caches (`~/.cache`, `~/.npm/_cacache`) and the `~/storage` link are skipped (`--
 
 The Cortex home directory shows up as **Cortex** in Android's *Files* app and in every file picker, so you can open, share, create, rename and delete files without copying them to shared storage first. Only the home directory is exposed (never the Ubuntu system tree), links that point outside it such as `~/storage` stay hidden, and other apps can only reach files you pick yourself. Turn it off under *Settings > Files*.
 
+## Android Integration (`cortex-api`)
+
+Programs in the terminal can use Android features through `cortex-api`, in normal and in root mode:
+
+```
+cortex-api notification -t "Build" -c "finished in 3 min"   # also: make && notify-send "Build done"
+cortex-api clipboard-set "text"     # or: some-command | cortex-api clipboard-set
+cortex-api clipboard-get
+cortex-api open https://example.com # xdg-open uses it too, so links and files open in Android apps
+cortex-api open report.pdf          # a file in Cortex or in shared storage
+cortex-api share -f photo.jpg       # or share text: echo hi | cortex-api share
+cortex-api battery                  # JSON: percentage, status, plugged, health, temperature
+cortex-api toast "hello"   ·   cortex-api tts "hello"   ·   cortex-api vibrate -d 500
+cortex-api wakelock on|off|status   ·   cortex-api info   ·   cortex-api --help
+```
+
+`notify-send` shows its notifications on Android through it, and `xdg-open` (with `open`, `termux-open` and the browser names) opens links and files in Android apps. The app listens on `127.0.0.1` while it runs; the port and a secret token are in `/run/cortex-api`, which only Cortex itself and root can read, so other apps cannot use it. Android lets an app open other apps or read the clipboard only while it is on screen, so those commands report an error while Cortex is in the background.
+
 ## Root Mode
 
 On a rooted phone (Magisk, KernelSU or APatch), *Settings > Root mode* runs new sessions as real root in a chroot of the same Ubuntu files that normal sessions use. Before switching, Cortex checks that `su` gives root and that the chroot can be set up. The setting stays on across restarts until you turn it off, and sessions that run as root are marked **ROOT** in the session list.
@@ -200,7 +219,7 @@ The translations were produced with machine assistance and have not all been rev
 No. It runs on unrooted devices.
 
 **Does it use PRoot, chroot or a virtual machine?**
-No. Programs run directly on the Android kernel. A small preloaded library redirects file paths such as `/usr` and `/etc` to Cortex's private storage and emulates root-only details like the user id.
+No PRoot and no virtual machine. Programs run directly on the Android kernel. In normal mode a small preloaded library redirects file paths such as `/usr` and `/etc` to Cortex's private storage and emulates root-only details like the user id. Only the optional [root mode](#root-mode) on rooted phones uses a chroot (a real one, without the library).
 
 **Which Android versions and CPUs are supported?**
 Android 7.0 and newer. There are two APKs: `Cortex-arm64-v8a-signed.apk` for 64-bit devices (almost all current phones) and `Cortex-armeabi-v7a-signed.apk` for 32-bit ARM.

@@ -123,4 +123,6 @@
     <string name="root_disabled">Normal tilstand er slået til</string>
     <string name="root_exit_failed">Root-adgang var ikke tilgængelig: filer oprettet som root beholder deres ejer, og normale sessioner kan muligvis ikke ændre dem.</string>
     <string name="root_session_failed">Root-sessionen kunne ikke starte. Hvis root-adgangen er væk, kan root-tilstand slås fra i Indstillinger.</string>
+    <string name="api_channel_name">Beskeder fra kommandoer</string>
+    <string name="api_channel_description">Notifikationer, som programmer i terminalen viser med cortex-api eller notify-send</string>
 </resources>

@@ -123,4 +123,6 @@
     <string name="root_disabled">ਆਮ ਮੋਡ ਚਾਲੂ ਹੈ</string>
     <string name="root_exit_failed">ਰੂਟ ਪਹੁੰਚ ਉਪਲਬਧ ਨਹੀਂ ਸੀ: root ਵਜੋਂ ਬਣਾਈਆਂ ਫ਼ਾਈਲਾਂ ਦਾ ਮਾਲਕ ਉਹੀ ਰਹਿੰਦਾ ਹੈ, ਅਤੇ ਆਮ ਸੈਸ਼ਨ ਸ਼ਾਇਦ ਉਨ੍ਹਾਂ ਨੂੰ ਬਦਲ ਨਾ ਸਕਣ।</string>
     <string name="root_session_failed">ਰੂਟ ਸੈਸ਼ਨ ਸ਼ੁਰੂ ਨਹੀਂ ਹੋ ਸਕਿਆ। ਜੇ ਰੂਟ ਪਹੁੰਚ ਨਹੀਂ ਰਹੀ, ਤਾਂ ਸੈਟਿੰਗਾਂ ਵਿੱਚ ਰੂਟ ਮੋਡ ਬੰਦ ਕੀਤਾ ਜਾ ਸਕਦਾ ਹੈ।</string>
+    <string name="api_channel_name">ਕਮਾਂਡਾਂ ਤੋਂ ਸੁਨੇਹੇ</string>
+    <string name="api_channel_description">ਟਰਮੀਨਲ ਦੇ ਪ੍ਰੋਗਰਾਮ cortex-api ਜਾਂ notify-send ਨਾਲ ਜੋ ਸੂਚਨਾਵਾਂ ਦਿਖਾਉਂਦੇ ਹਨ</string>
 </resources>

@@ -123,4 +123,6 @@
     <string name="root_disabled">Normal mod açık</string>
     <string name="root_exit_failed">Root erişimi alınamadı: root olarak oluşturulan dosyalar sahiplerini koruyor ve normal oturumlar bunları değiştiremeyebilir.</string>
     <string name="root_session_failed">Root oturumu başlatılamadı. Root erişimi kalmadıysa root modu Ayarlar’dan kapatılabilir.</string>
+    <string name="api_channel_name">Komutlardan gelen mesajlar</string>
+    <string name="api_channel_description">Terminaldeki programların cortex-api veya notify-send ile gösterdiği bildirimler</string>
 </resources>
