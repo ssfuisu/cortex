@@ -5,9 +5,10 @@
 #
 #     run-emulator-test.sh APK_DIR OUT_DIR
 #
-# Needs adb and a running emulator with adb root (a "google_apis" image). The app's arm64 Ubuntu
-# runs on an x86_64 emulator through the image's ARM translation, which must also run ARM programs
-# started from a shell (binfmt_misc); the test sets that up when the image has not.
+# Needs adb, gcc and a running emulator with adb root (a "google_apis" image). The app's arm64
+# Ubuntu runs on an x86_64 emulator through the image's ARM translation, which must also run ARM
+# programs started from a shell (binfmt_misc). They are started through emu-runner.c, which keeps
+# Cortex's LD_PRELOAD and LD_LIBRARY_PATH away from the translator (see there).
 set -u
 
 APK_DIR="$1"
@@ -107,6 +108,16 @@ echo "package: $PKG"
 DATA=/data/data/$PKG
 # Android 11+ asks for "all files access" at start; the test grants it beforehand.
 sh_ appops set --uid "$PKG" MANAGE_EXTERNAL_STORAGE allow 2>/dev/null || true
+
+log "Starting arm64 programs through cortex-emu-runner"
+gcc -static -nostdlib -ffreestanding -fno-builtin -fno-tree-loop-distribute-patterns -fno-stack-protector \
+    -fno-pie -no-pie -O2 -Wall -Wextra -o "$OUT/cortex-emu-runner" tests/e2e/emu-runner.c ||
+    die "cannot build cortex-emu-runner"
+adb push "$OUT/cortex-emu-runner" /data/local/tmp/cortex-emu-runner >/dev/null &&
+    adb push tests/e2e/use-emu-runner.sh /data/local/tmp/use-emu-runner.sh >/dev/null ||
+    die "cannot copy cortex-emu-runner"
+sh_ sh /data/local/tmp/use-emu-runner.sh "$PKG" /data/local/tmp/cortex-emu-runner | tee -a "$OUT/binfmt_misc.txt"
+sh_ cat /proc/sys/fs/binfmt_misc/arm64_dyn | grep -q cortex-emu-runner || die "cortex-emu-runner is not registered"
 sh_ rm -rf "$DEVICE_OUT"
 adb push tests/e2e/in-terminal.sh /sdcard/Download/cortex-e2e.sh >/dev/null || die "cannot copy the test script"
 

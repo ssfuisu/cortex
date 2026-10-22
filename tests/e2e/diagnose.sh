@@ -43,10 +43,13 @@ try() { # try NAME COMMAND...: runs COMMAND for at most 60 s
 }
 
 cd "$ROOT/home" || exit 1
-try "bash, as root, without the hook" env -i $(env_for_shell) "$ROOT/usr/bin/bash" -c 'echo bash-ok; uname -m'
-try "bash, as root, with the hook" env -i $(env_for_shell) "LD_PRELOAD=$ROOT/usr/lib/libcortex-hook.so" \
-    "$ROOT/usr/bin/bash" -c 'echo hook-ok; id; ls /'
-try "login bash with the hook, as the app's user" su "$uid" env -i $(env_for_shell) \
-    "LD_PRELOAD=$ROOT/usr/lib/libcortex-hook.so" "$ROOT/usr/bin/bash" -l -c 'echo login-ok'
-try "apt-get with the hook, as the app's user" su "$uid" env -i $(env_for_shell) \
-    "LD_PRELOAD=$ROOT/usr/lib/libcortex-hook.so" "$ROOT/usr/bin/bash" -c 'apt-get --version | head -n 1'
+# Like Cortex does, through glibc's ld.so (Ubuntu's programs ask for /lib/ld-linux-aarch64.so.1,
+# which is not where Android looks).
+LDSO="$ROOT/usr/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1"
+HOOK="LD_PRELOAD=$ROOT/usr/lib/libcortex-hook.so"
+try "bash, as root, without the hook" env -i $(env_for_shell) "$LDSO" "$ROOT/usr/bin/bash" -c 'echo bash-ok; uname -m'
+try "bash, as root, with the hook" env -i $(env_for_shell) "$HOOK" "$LDSO" "$ROOT/usr/bin/bash" -c 'echo hook-ok; id; ls /'
+try "login bash with the hook, as the app's user" su "$uid" env -i $(env_for_shell) "$HOOK" \
+    "$LDSO" "$ROOT/usr/bin/bash" -l -c 'echo login-ok'
+try "apt-get with the hook, as the app's user" su "$uid" env -i $(env_for_shell) "$HOOK" \
+    "$LDSO" "$ROOT/usr/bin/bash" -c 'apt-get --version | head -n 1'

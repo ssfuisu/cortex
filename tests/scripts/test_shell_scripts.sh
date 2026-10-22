@@ -558,7 +558,7 @@ else
 fi
 
 echo "=== 9b. Checking the emulator test scripts ==="
-for e2e_script in run-emulator-test.sh in-terminal.sh diagnose.sh; do
+for e2e_script in run-emulator-test.sh in-terminal.sh diagnose.sh use-emu-runner.sh; do
     if bash -n "$REPO_ROOT/tests/e2e/$e2e_script" 2>/dev/null; then
         pass "$e2e_script passes bash -n syntax check"
     else
