@@ -112,8 +112,12 @@ DATA=/data/data/$PKG
 sh_ appops set --uid "$PKG" MANAGE_EXTERNAL_STORAGE allow 2>/dev/null || true
 
 log "Starting arm64 programs through cortex-emu-runner"
+# The image's own runner, which cortex-emu-runner hands the programs to
+translator=$(sh_ cat /proc/sys/fs/binfmt_misc/arm64_dyn | sed -n 's/^interpreter //p')
+[ -n "$translator" ] || die "the image registers no ARM translator with binfmt_misc"
+echo "translator: $translator"
 gcc -static -nostdlib -ffreestanding -fno-builtin -fno-tree-loop-distribute-patterns -fno-stack-protector \
-    -fno-pie -no-pie -O2 -Wall -Wextra -o "$OUT/cortex-emu-runner" tests/e2e/emu-runner.c ||
+    -fno-pie -no-pie -O2 -Wall -Wextra -DRUNNER="\"$translator\"" -o "$OUT/cortex-emu-runner" tests/e2e/emu-runner.c ||
     die "cannot build cortex-emu-runner"
 adb push "$OUT/cortex-emu-runner" /data/local/tmp/cortex-emu-runner >/dev/null &&
     adb push tests/e2e/use-emu-runner.sh /data/local/tmp/use-emu-runner.sh >/dev/null ||
