@@ -12,6 +12,9 @@ ps -A -o PID,PPID,UID,S,WCHAN,TIME,ARGS | awk -v u="$uid" 'NR == 1 || $3 == u'
 for p in $(ps -A -o PID=,UID= | awk -v u="$uid" '$2 == u { print $1 }'); do
     echo "--- pid $p: $(tr '\0' ' ' < "/proc/$p/cmdline" | cut -c1-200)"
     echo "exe: $(readlink "/proc/$p/exe")  $(grep State "/proc/$p/status")  wchan: $(cat "/proc/$p/wchan")"
+    # A zombie's exit status, as waitpid() reports it: the last field of stat (signal in the low 7 bits)
+    status=$(awk '{ print $NF }' "/proc/$p/stat")
+    echo "exit status (waitpid): $status, exit code $((status >> 8)), signal $((status & 127))"
     case "$(readlink "/proc/$p/exe")" in
         *app_process*) ;;
         *)
@@ -53,3 +56,16 @@ try "login bash with the hook, as the app's user" su "$uid" env -i $(env_for_she
     "$LDSO" "$ROOT/usr/bin/bash" -l -c 'echo login-ok'
 try "apt-get with the hook, as the app's user" su "$uid" env -i $(env_for_shell) "$HOOK" \
     "$LDSO" "$ROOT/usr/bin/bash" -c 'apt-get --version | head -n 1'
+try "id without the hook" env -i $(env_for_shell) "$LDSO" "$ROOT/usr/bin/id"
+try "apt-get without the hook" env -i $(env_for_shell) "$LDSO" "$ROOT/usr/bin/apt-get" --version
+try "id with the hook, directly" env -i $(env_for_shell) "$HOOK" "$LDSO" "$ROOT/usr/bin/id"
+if command -v strace >/dev/null; then
+    echo "--- system calls of id with the hook (last 40)"
+    # strace is an Android program: the variables go only to the traced program (-E).
+    set --
+    for kv in $(env_for_shell) "$HOOK"; do set -- "$@" -E "$kv"; done
+    timeout 60 strace -f -o /data/local/tmp/cortex-strace.txt "$@" "$LDSO" "$ROOT/usr/bin/id" >/dev/null 2>&1
+    tail -n 40 /data/local/tmp/cortex-strace.txt
+fi
+echo "--- tombstones"
+ls -lt /data/tombstones 2>/dev/null | head -n 5

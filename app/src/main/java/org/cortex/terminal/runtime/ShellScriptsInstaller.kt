@@ -197,6 +197,7 @@ object ShellScriptsInstaller {
         try {
             val localBin = File(root, "usr/local/bin")
             localBin.mkdirs()
+            ensureApiTools(localBin, context)
 
             // Remove deprecated audio files if they exist
             val oldAudioFiles = listOf("play-audio", "cortex-play", "speaker-test", "aplay", "paplay")
@@ -274,7 +275,9 @@ object ShellScriptsInstaller {
                 val extraBins = listOf("xdg-open", "termux-open", "termux-open-url", "sensible-browser", "x-www-browser")
                 for (bname in extraBins) {
                     val bFile = File(usrBin, bname)
-                    if (!bFile.exists()) {
+                    // The link made last time points to /usr/local/bin, which only exists for Ubuntu's
+                    // programs: exists() follows it and says no, and writing through it failed.
+                    if (!bFile.exists() && !ElfLinkerPatcher.isSymlink(bFile)) {
                         var linked = false
                         try {
                             Os.symlink("/usr/local/bin/xdg-open", bFile.absolutePath)
@@ -282,16 +285,19 @@ object ShellScriptsInstaller {
                         } catch (_: Exception) {}
 
                         if (!linked) {
-                            bFile.writeText(wrapperScript)
-                            bFile.setReadable(true, false)
-                            bFile.setWritable(true, true)
-                            bFile.setExecutable(true, false)
-                            try { Os.chmod(bFile.absolutePath, 493) } catch (_: Exception) {}
+                            try {
+                                bFile.writeText(wrapperScript)
+                                bFile.setReadable(true, false)
+                                bFile.setWritable(true, true)
+                                bFile.setExecutable(true, false)
+                                try { Os.chmod(bFile.absolutePath, 493) } catch (_: Exception) {}
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Skipping $bname install: ${e.message}")
+                            }
                         }
                     }
                 }
             }
-            ensureApiTools(localBin, context)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to ensure browser opener", e)
         }
