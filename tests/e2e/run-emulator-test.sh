@@ -30,6 +30,8 @@ diagnose() { # once: the app's processes, and Ubuntu's bash started directly (te
     log "Diagnostics"
     adb push tests/e2e/diagnose.sh /data/local/tmp/cortex-diagnose.sh >/dev/null &&
         sh_ sh /data/local/tmp/cortex-diagnose.sh "$PKG" 2>&1 | tee "$OUT/diagnose.txt"
+    adb pull /data/local/tmp/cortex-strace.txt "$OUT/strace-direct.txt" >/dev/null 2>&1
+    adb pull /data/local/tmp/cortex-strace2.txt "$OUT/strace-fork.txt" >/dev/null 2>&1
 }
 sh_() { adb shell "$@" | tr -d '\r'; }  # the output of a command on the device
 run_() { adb shell "$@" >/dev/null 2>&1; } # only whether it succeeded
