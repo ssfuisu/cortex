@@ -557,6 +557,15 @@ else
     echo "  [SKIP] python3 not available"
 fi
 
+echo "=== 9b. Checking the emulator test scripts ==="
+for e2e_script in run-emulator-test.sh in-terminal.sh; do
+    if bash -n "$REPO_ROOT/tests/e2e/$e2e_script" 2>/dev/null; then
+        pass "$e2e_script passes bash -n syntax check"
+    else
+        fail "$e2e_script failed bash -n syntax check"
+    fi
+done
+
 echo "=== 9. Checking the benchmark runner ==="
 if bash -n "$REPO_ROOT/tests/bench/run-micro.sh" 2>/dev/null; then
     pass "run-micro.sh passes bash -n syntax check"

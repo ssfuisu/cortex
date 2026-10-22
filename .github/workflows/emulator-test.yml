@@ -1,0 +1,70 @@
+name: Emulator Test
+
+# End-to-end test of a built APK on an Android emulator (tests/e2e/run-emulator-test.sh). Called by
+# "Build and Release Cortex APKs" after its build, and kept in its own file so that changing the
+# test does not invalidate that workflow's caches (their keys include its file).
+on:
+  workflow_call:
+    inputs:
+      run-id:
+        description: "Run that uploaded the artifact (empty: the calling run)"
+        type: string
+        default: ""
+
+jobs:
+  emulator:
+    name: Ubuntu on an Android emulator
+    # GitHub's x86_64 Linux runners have KVM; the arm64 Ubuntu runs through the image's ARM translation.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      # cortex-debug-apk (pull requests) or cortex-release-apks (other runs)
+      - name: Download the APKs of this run
+        if: inputs.run-id == ''
+        uses: actions/download-artifact@v4
+        with:
+          pattern: cortex-*-apk*
+          merge-multiple: true
+          path: apks
+
+      - name: Download the APKs of an earlier run
+        if: inputs.run-id != ''
+        uses: actions/download-artifact@v4
+        with:
+          pattern: cortex-*-apk*
+          merge-multiple: true
+          path: apks
+          run-id: ${{ inputs.run-id }}
+          github-token: ${{ github.token }}
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l apks
+
+      - name: Run the test on the emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          # Android 11's x86_64 images translate ARM code
+          api-level: 30
+          arch: x86_64
+          target: google_apis
+          profile: pixel_6
+          ram-size: 4096M
+          disk-size: 8G
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot
+          disable-animations: true
+          script: bash tests/e2e/run-emulator-test.sh apks e2e-out
+
+      - name: Upload results and screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: emulator-test-results
+          path: e2e-out
+          retention-days: 14

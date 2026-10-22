@@ -24,6 +24,10 @@ on:
         description: "Publish the release as a pre-release: the in-app updater only offers the latest full release, so nobody is offered it until it is promoted"
         type: boolean
         default: false
+      emulator_test_of_run:
+        description: "Build nothing, only run the emulator test on the APKs of this earlier run of this workflow (its run ID)"
+        type: string
+        default: ""
 
 permissions:
   contents: write
@@ -31,6 +35,7 @@ permissions:
 jobs:
   build:
     name: Build Signed APKs
+    if: ${{ !inputs.emulator_test_of_run }}
     # Pinned: GitHub moves "ubuntu-latest" to Ubuntu 26.04 from 2026-10-19, and this job installs
     # Ubuntu-specific cross-compilers. Move to a newer image deliberately, after testing it.
     runs-on: ubuntu-24.04
@@ -356,6 +361,15 @@ jobs:
           print(f"Verified {len(loads)} PT_LOAD segments in debug libcortex-pty.so all have alignment >= 0x4000.")
           EOF
 
+      - name: Upload the Debug APK for the Emulator Test
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: cortex-debug-apk
+          path: app/build/outputs/apk/debug/*arm64-v8a*.apk
+          if-no-files-found: error
+          retention-days: 3
+
       - name: Build Release APKs
         if: github.event_name != 'pull_request'
         env:
@@ -585,3 +599,16 @@ jobs:
             --title "Cortex Release $VERSION" \
             --notes-file release-notes.md \
             $PRERELEASE_FLAG
+
+  # Installs the arm64 APK on an Android emulator and runs Ubuntu in it as a user would (see
+  # emulator-test.yml): for pull requests, dry runs, and on request for the APKs of an earlier run.
+  emulator-test:
+    name: Emulator Test
+    needs: build
+    if: ${{ !cancelled() && (needs.build.result == 'success' && (github.event_name == 'pull_request' || github.event.inputs.dry_run == 'true') || needs.build.result == 'skipped' && inputs.emulator_test_of_run) }}
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/emulator-test.yml
+    with:
+      run-id: ${{ inputs.emulator_test_of_run }}
