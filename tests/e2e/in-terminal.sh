@@ -72,10 +72,17 @@ check files bash -xc '
     d=$(mktemp -d) && cd "$d" &&
     echo one > a && mv a b && ln -s b s && [ "$(readlink s)" = b ] && [ "$(cat s)" = one ] &&
     mkfifo p && [ -p p ] && rm -rf "$d"'
-check hard-links bash -xc '
-    d=$(mktemp -d) && cd "$d" &&
-    echo one > a && ln a b && [ "$(stat -c %h a)" = 2 ] && [ "$(stat -c %i a)" = "$(stat -c %i b)" ] &&
-    [ "$(cat b)" = one ] && rm -rf "$d"'
+# Hard links are copies that show the link count and inode of a real link to the process that made
+# them (so ln and a later stat, two processes, do not see it): link() and stat() in one perl.
+hard_links() {
+    local d
+    d=$(mktemp -d) && cd "$d" && echo one > a &&
+        perl -e 'link("a", "b") or die "link: $!\n"; my @a = stat("a"); my @b = stat("b");
+                 print "links=$a[3] ", ($a[1] == $b[1] ? "same" : "different"), " inode\n"' &&
+        [ "$(cat b)" = one ] && cd / && rm -rf "$d"
+}
+export -f hard_links
+expect hard-links "links=2 same inode" hard_links
 check sha256sum bash -c 'echo hi | sha256sum | grep -q ^98ea6e4f216f2fb4b69fff9b3a44842c38686ca685f3f55dc48c5d3fb1107be4'
 check shared-storage bash -c 'echo hi > "$0/written-by-ubuntu.txt" && [ "$(cat "$0/written-by-ubuntu.txt")" = hi ]' "$OUT"
 

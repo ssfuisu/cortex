@@ -47,12 +47,18 @@ type_line() {
     adb shell input keyevent 66
 }
 
-# Taps the view with this resource id (of the app), found in the window's accessibility dump.
+# Taps the view with this resource id (of the app), found in the window's accessibility dump. The
+# dump fails now and then (it waits for the screen to be idle, and the cursor blinks): three tries.
 tap_id() {
-    local bounds
-    sh_ uiautomator dump /sdcard/window.xml >/dev/null
-    bounds=$(sh_ cat /sdcard/window.xml | grep -o "resource-id=\"[^\"]*:id/$1\"[^>]*bounds=\"[^\"]*\"" |
-        sed 's/.*bounds="\[\([0-9]*\),\([0-9]*\)\]\[\([0-9]*\),\([0-9]*\)\]"/\1 \2 \3 \4/' | head -n 1)
+    local bounds try
+    for try in 1 2 3; do
+        sh_ rm -f /sdcard/window.xml
+        sh_ uiautomator dump /sdcard/window.xml >/dev/null
+        bounds=$(sh_ cat /sdcard/window.xml 2>/dev/null | grep -o "resource-id=\"[^\"]*:id/$1\"[^>]*bounds=\"[^\"]*\"" |
+            sed 's/.*bounds="\[\([0-9]*\),\([0-9]*\)\]\[\([0-9]*\),\([0-9]*\)\]"/\1 \2 \3 \4/' | head -n 1)
+        [ -n "$bounds" ] && break
+        sleep 2
+    done
     [ -n "$bounds" ] || return 1
     set -- $bounds
     sh_ input tap $((($1 + $3) / 2)) $((($2 + $4) / 2))
@@ -225,6 +231,9 @@ if tap_id btnDrawerSettings; then
     sh_ input swipe $((WIDTH / 2)) $((HEIGHT * 3 / 4)) $((WIDTH / 2)) $((HEIGHT / 4)) 500
     sleep 2
     shot "14-settings-more"
+    sh_ input swipe $((WIDTH / 2)) $((HEIGHT * 3 / 4)) $((WIDTH / 2)) $((HEIGHT / 4)) 500
+    sleep 2
+    shot "15-settings-root-mode"
 else
     log "no settings button found"
 fi
