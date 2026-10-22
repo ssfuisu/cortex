@@ -78,6 +78,17 @@ if command -v strace >/dev/null; then
     else
         tail -n 30 /data/local/tmp/cortex-strace2.txt
     fi
+    # How the translator forks: the clone() calls with and without the hook
+    set --
+    for kv in $(env_for_shell); do set -- "$@" -E "$kv"; done
+    timeout 60 strace -f -o /data/local/tmp/cortex-strace3.txt "$@" "$LDSO" "$ROOT/usr/bin/bash" -c 'uname; (exit 0); echo after' >/dev/null 2>&1
+    echo "--- clone() without the hook: bash -c 'uname; (exit 0); echo after'"
+    grep -E "clone|killed by|exited with" /data/local/tmp/cortex-strace3.txt | cut -c1-220
+    set --
+    for kv in $(env_for_shell) "$HOOK"; do set -- "$@" -E "$kv"; done
+    timeout 60 strace -f -o /data/local/tmp/cortex-strace4.txt "$@" "$LDSO" "$ROOT/usr/bin/bash" -c '(exit 0); echo after-subshell' 2>&1
+    echo "--- clone() with the hook: bash -c '(exit 0); echo after-subshell'"
+    grep -E "clone|killed by|exited with" /data/local/tmp/cortex-strace4.txt | cut -c1-220
 fi
 echo "--- tombstones"
 ls -lt /data/tombstones 2>/dev/null | head -n 5
