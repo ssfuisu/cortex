@@ -48,8 +48,8 @@
   "@context": "https://schema.org",
   "@type": "FAQPage",
   "mainEntity": [
-    { "@type": "Question", "name": "Does Cortex need root?", "acceptedAnswer": { "@type": "Answer", "text": "No. Cortex runs on unrooted Android devices." } },
-    { "@type": "Question", "name": "Does Cortex use PRoot, chroot or a virtual machine?", "acceptedAnswer": { "@type": "Answer", "text": "No. Programs run directly on the Android kernel. A small preloaded library redirects paths such as /usr and /etc to Cortex's private storage and emulates root-only details like the user id." } },
+    { "@type": "Question", "name": "Does Cortex need root?", "acceptedAnswer": { "@type": "Answer", "text": "No. Cortex runs on unrooted Android devices. On a rooted phone, an optional root mode runs sessions as real root." } },
+    { "@type": "Question", "name": "Does Cortex use PRoot, chroot or a virtual machine?", "acceptedAnswer": { "@type": "Answer", "text": "No PRoot and no virtual machine. Programs run directly on the Android kernel. In normal mode a small preloaded library redirects paths such as /usr and /etc to Cortex's private storage and emulates root-only details like the user id. Only the optional root mode on rooted phones uses a chroot (a real one, without the library)." } },
     { "@type": "Question", "name": "Which Android versions and CPUs does Cortex support?", "acceptedAnswer": { "@type": "Answer", "text": "Android 7.0 and newer, with separate APKs for 64-bit (arm64-v8a) and 32-bit (armeabi-v7a) ARM devices." } },
     { "@type": "Question", "name": "How do I install software in Cortex?", "acceptedAnswer": { "@type": "Answer", "text": "Use apt like on any Ubuntu system, for example: apt update && apt install git python3 build-essential openjdk-17-jdk." } },
     { "@type": "Question", "name": "Is there a desktop or GUI in Cortex?", "acceptedAnswer": { "@type": "Answer", "text": "Not yet. Cortex is a terminal; there is no X11 or Wayland server." } }
@@ -118,6 +118,8 @@ footer{border-top:1px solid var(--line);margin-top:56px;padding:26px 0 48px;colo
     <div class="card"><h3>Made for a phone</h3><p>Sessions drawer, virtual key toolbar, terminal search, clickable links and image paste.</p></div>
     <div class="card"><h3>Terminal integration</h3><p>Clipboard from tmux/vim (OSC 52), notifications when long commands finish, OSC 8 hyperlinks, bracketed paste, cursor shapes, focus events and synchronized output.</p></div>
     <div class="card"><h3>Your files, safe</h3><p><code>cortex-backup</code> for backup and restore, and your home folder in Android's Files app.</p></div>
+    <div class="card"><h3>Android from the shell</h3><p><code>cortex-api</code> shows notifications, uses the clipboard, opens links and files in Android apps, shares, reads the battery and speaks. <code>notify-send</code> and <code>xdg-open</code> use it.</p></div>
+    <div class="card"><h3>Root mode, if you want it</h3><p>On a rooted phone, sessions can run as real root in a chroot of the same Ubuntu: <code>mount</code>, real <code>chown</code>, static Go programs and ports below 1024.</p></div>
   </div>
 
   <h2>Cortex compared</h2>
@@ -146,8 +148,8 @@ footer{border-top:1px solid var(--line);margin-top:56px;padding:26px 0 48px;colo
 apt install git python3 build-essential openjdk-17-jdk</code></pre>
 
   <h2>FAQ</h2>
-  <details><summary>Does Cortex need root?</summary><p>No. It runs on unrooted devices.</p></details>
-  <details><summary>Does it use PRoot, chroot or a virtual machine?</summary><p>No. Programs run directly on the Android kernel. A small preloaded library redirects file paths such as <code>/usr</code> and <code>/etc</code> to Cortex's private storage and emulates root-only details like the user id.</p></details>
+  <details><summary>Does Cortex need root?</summary><p>No. It runs on unrooted devices. On a rooted phone, the optional root mode (Settings) runs sessions as real root.</p></details>
+  <details><summary>Does it use PRoot, chroot or a virtual machine?</summary><p>No PRoot and no virtual machine. Programs run directly on the Android kernel. In normal mode a small preloaded library redirects file paths such as <code>/usr</code> and <code>/etc</code> to Cortex's private storage and emulates root-only details like the user id. Only the optional root mode on rooted phones uses a chroot (a real one, without the library).</p></details>
   <details><summary>Which Android versions and CPUs are supported?</summary><p>Android 7.0 and newer, with separate APKs for 64-bit (arm64-v8a) and 32-bit (armeabi-v7a) ARM devices.</p></details>
   <details><summary>How do I install software?</summary><p>Use <code>apt</code> like on any Ubuntu system. Installers such as <code>nvm</code> also work.</p></details>
   <details><summary>Is there a desktop or GUI?</summary><p>Not yet. Cortex is a terminal; there is no X11 or Wayland server.</p></details>

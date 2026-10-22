@@ -2,7 +2,7 @@
 
 > Free, open-source Android terminal app that runs real Ubuntu 24.04 LTS (glibc 2.39, apt) natively on unrooted devices. No root, no PRoot, no containers, no virtual machine. A native alternative to Termux + proot-distro. Apache-2.0.
 
-Cortex runs Linux programs directly on the Android kernel. A small preloaded library redirects file paths such as /usr and /etc to the app's private storage and emulates root-only details such as the user id. Packages come from the Ubuntu 24.04 archive via apt. APKs exist for arm64-v8a and armeabi-v7a (Android 7.0+). The interface supports 50 languages. It is a terminal only: there is no X11 or Wayland server.
+Cortex runs Linux programs directly on the Android kernel. A small preloaded library redirects file paths such as /usr and /etc to the app's private storage and emulates root-only details such as the user id. Packages come from the Ubuntu 24.04 archive via apt. The cortex-api command gives programs Android features (notifications, clipboard, opening links and files in Android apps, sharing, battery state). On rooted phones an optional root mode runs sessions as real root in a chroot of the same Ubuntu. APKs exist for arm64-v8a and armeabi-v7a (Android 7.0+). The interface supports 50 languages. It is a terminal only: there is no X11 or Wayland server.
 
 ## Links
 - [Source code](https://github.com/ssfuisu/cortex): repository, issues and README

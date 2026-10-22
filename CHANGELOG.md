@@ -17,7 +17,7 @@ of a GitHub release from the section of its version here. Older versions are des
 
 ### Fixed
 
-- The README no longer says that Cortex never uses a chroot (root mode does).
+- The README and the website no longer say that Cortex never uses a chroot (root mode does).
 
 ### For developers
 
