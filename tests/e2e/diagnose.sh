@@ -66,6 +66,18 @@ if command -v strace >/dev/null; then
     for kv in $(env_for_shell) "$HOOK"; do set -- "$@" -E "$kv"; done
     timeout 60 strace -f -o /data/local/tmp/cortex-strace.txt "$@" "$LDSO" "$ROOT/usr/bin/id" >/dev/null 2>&1
     tail -n 40 /data/local/tmp/cortex-strace.txt
+    # id crashes as a child of bash (a forked process), not when it is started directly
+    echo "--- system calls of the process that crashes in: bash -c 'id; echo after-id' (with the hook)"
+    timeout 60 strace -f -o /data/local/tmp/cortex-strace2.txt "$@" "$LDSO" "$ROOT/usr/bin/bash" -c 'id; echo after-id' 2>&1
+    crashed=$(grep -m 1 "SIGSEGV" /data/local/tmp/cortex-strace2.txt | awk '{ print $1 }')
+    if [ -n "$crashed" ]; then
+        echo "process $crashed: first 15 and last 60 system calls"
+        grep "^$crashed " /data/local/tmp/cortex-strace2.txt | head -n 15
+        echo "..."
+        grep "^$crashed " /data/local/tmp/cortex-strace2.txt | tail -n 60
+    else
+        tail -n 30 /data/local/tmp/cortex-strace2.txt
+    fi
 fi
 echo "--- tombstones"
 ls -lt /data/tombstones 2>/dev/null | head -n 5
