@@ -14,6 +14,7 @@ Cortex is a free and open-source terminal app and a native alternative to Termux
 <p align="center">
   <img src="docs/screenshots/cortex-neofetch.jpg" width="31%" alt="neofetch in Cortex Terminal showing Ubuntu 24.04 LTS running natively on an Android phone" />
   <img src="docs/screenshots/cortex-keyboard.jpg" width="31%" alt="Cortex Terminal virtual keyboard toolbar with ESC, TAB, CTRL, ALT and arrow keys" />
+  <img src="docs/screenshots/cortex-api.jpg" width="31%" alt="cortex-api in the terminal: the battery state as JSON, the Android clipboard and notify-send" />
 </p>
 
 ## What is Cortex?
@@ -184,9 +185,17 @@ cortex-api toast "hello"   ·   cortex-api tts "hello"   ·   cortex-api vibrate
 cortex-api wakelock on|off|status   ·   cortex-api info   ·   cortex-api --help
 ```
 
+<p align="center">
+  <img src="docs/screenshots/cortex-notification.jpg" width="60%" alt="A notification sent with notify-send from the terminal, shown by Android" />
+</p>
+
 `notify-send` shows its notifications on Android through it, and `xdg-open` (with `open`, `termux-open` and the browser names) opens links and files in Android apps. The app listens on `127.0.0.1` while it runs; the port and a secret token are in `/run/cortex-api`, which only Cortex itself and root can read, so other apps cannot use it. Android lets an app open other apps or read the clipboard only while it is on screen, so those commands report an error while Cortex is in the background.
 
 ## Root Mode
+
+<p align="center">
+  <img src="docs/screenshots/cortex-root-mode.jpg" width="60%" alt="The Root mode switch in Cortex's settings" />
+</p>
 
 On a rooted phone (Magisk, KernelSU or APatch), *Settings > Root mode* runs new sessions as real root in a chroot of the same Ubuntu files that normal sessions use. Before switching, Cortex checks that `su` gives root and that the chroot can be set up. The setting stays on across restarts until you turn it off, and sessions that run as root are marked **ROOT** in the session list.
 
