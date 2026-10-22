@@ -20,8 +20,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Android 11's translator crashes every forked glibc process (CLONE_SETTLS with tls=NULL)
-        api-level: [33, 34]
+        # Android 14: Android 11's translator crashes every forked glibc process (it clones with
+        # CLONE_SETTLS and tls=NULL), and the API 33 image translates nothing. GitHub's arm64
+        # runners have no KVM for an arm64 emulator.
+        api-level: [34]
     steps:
       - name: Checkout Source Code
         uses: actions/checkout@v4
@@ -55,7 +57,7 @@ jobs:
       - name: Run the test on the emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          # Android 11 and newer x86_64 images translate ARM code
+          # Its x86_64 image translates ARM code
           api-level: ${{ matrix.api-level }}
           arch: x86_64
           target: google_apis
@@ -73,19 +75,3 @@ jobs:
           name: emulator-test-results-api${{ matrix.api-level }}
           path: e2e-out
           retention-days: 14
-
-  # Whether GitHub's arm64 runners could run an arm64 emulator (KVM), which needs no translation.
-  arm-probe:
-    name: Probe an arm64 runner
-    runs-on: ubuntu-24.04-arm
-    timeout-minutes: 10
-    steps:
-      - name: Look for KVM and an arm64 Android emulator
-        run: |
-          uname -a
-          nproc
-          ls -l /dev/kvm || echo "no /dev/kvm"
-          grep -m1 -i -E "^(Features|flags)" /proc/cpuinfo || true
-          echo "ANDROID_HOME=${ANDROID_HOME:-}"
-          curl -fsS https://dl.google.com/android/repository/repository2-3.xml |
-            grep -o -E 'emulator-linux_aarch64-[0-9]+\.zip' | sort -u | tail -n 3 || echo "no linux-aarch64 emulator listed"

@@ -74,6 +74,10 @@ adb root >/dev/null 2>&1
 sleep 3
 adb wait-for-device
 [ "$(sh_ id -u)" = 0 ] || die "adb root is not available on this image"
+# Buttons instead of gestures, so that a swipe from the left edge opens Cortex's drawer instead of
+# going back; and no on-screen keyboard (the test types as a hardware keyboard), for screenshots.
+sh_ cmd overlay enable com.android.internal.systemui.navbar.threebutton || true
+sh_ settings put secure show_ime_with_hard_keyboard 0 || true
 
 sh_ getprop ro.product.cpu.abilist | grep -q arm64-v8a ||
     die "this image cannot run arm64 apps (no ARM translation): $(sh_ getprop ro.product.cpu.abilist)"
@@ -148,14 +152,15 @@ WIDTH=${size% *}
 HEIGHT=${size#* }
 tap_center "$WIDTH" "$HEIGHT"
 sleep 2
-type_line "bash /sdcard/Download/cortex-e2e.sh"
+TEST_COMMAND="CORTEX_E2E_EMULATOR=1 bash /sdcard/Download/cortex-e2e.sh"
+type_line "$TEST_COMMAND"
 if ! wait_for 90 run_ test -d "$DEVICE_OUT/started"; then
     shot "03-not-started"
     diagnose
     log "The test did not start; typing the command again"
     tap_center "$WIDTH" "$HEIGHT"
     sleep 2
-    type_line "bash /sdcard/Download/cortex-e2e.sh"
+    type_line "$TEST_COMMAND"
     wait_for 90 run_ test -d "$DEVICE_OUT/started" || die "the command typed into the terminal did not run"
 fi
 i=0
@@ -177,21 +182,29 @@ cat "$OUT/cortex-e2e/done"
 
 status=0
 grep -q '^FAIL' "$OUT/cortex-e2e/results.txt" && status=1
-if sh_ dumpsys notification --noredact | grep -q "Cortex e2e"; then
-    echo "PASS the cortex-api notification is shown"
-else
-    echo "FAIL the cortex-api notification is not shown"
-    status=1
-fi
+notifications=$(sh_ dumpsys notification --noredact)
+for title in "Cortex e2e notification" "Cortex e2e notify-send"; do
+    if printf '%s\n' "$notifications" | grep -F -q "$title"; then
+        echo "PASS the notification \"$title\" is shown"
+    else
+        echo "FAIL the notification \"$title\" is not shown"
+        status=1
+    fi
+done
 
 log "Screenshots"
-# The terminal with cortex-api in use, as in the README.
-type_line "clear"
-type_line "cortex-api battery"
-type_line "echo 'Hello from Ubuntu' | cortex-api clipboard-set"
-type_line "cortex-api clipboard-get"
-type_line "notify-send 'Build finished' 'make: all targets are up to date'"
-sleep 5
+# The terminal with cortex-api in use, as in the README. Each command gets time to finish, so that
+# the next one is not typed into its output. The test's notifications go first (notify-send's is
+# the app's first one without an ID).
+run_line() {
+    type_line "$1"
+    sleep "${2:-4}"
+}
+run_line "cortex-api notification-remove e2e; cortex-api notification-remove 1; clear" 5
+run_line "cortex-api battery" 5
+run_line "echo 'Hello from Ubuntu' | cortex-api clipboard-set"
+run_line "cortex-api clipboard-get"
+run_line "notify-send 'Build finished' 'make: all targets are up to date'" 5
 shot "10-cortex-api"
 sh_ cmd statusbar expand-notifications
 sleep 3
