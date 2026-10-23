@@ -815,6 +815,11 @@ static void test_emulated_hardlinks_shared(void) {
     snprintf(a, sizeof(a), "%s/a", root);
     snprintf(b, sizeof(b), "%s/b", root);
     snprintf(c, sizeof(c), "%s/c", root);
+    // A stat() before the rootfs is known does not put off looking for the table
+    cortex_set_root("", 0);
+    hl_reset_for_test();
+    ASSERT_EQ(hardlinks_maybe_any(), 0, "no table without a rootfs");
+    ASSERT_EQ(g_hl_next_try, 0, "and no wait for one");
     cortex_set_root(root, strlen(root));
     hl_reset_for_test();
 

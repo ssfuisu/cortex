@@ -57,7 +57,15 @@ static int g_hl_shared = 0;                  // mapped from the rootfs' file
 static long g_hl_next_try = 0;               // when to look for the file again (monotonic seconds)
 static pthread_mutex_t g_hardlinks_lock = PTHREAD_MUTEX_INITIALIZER;
 
+#ifndef CORTEX_HOST_TEST
+static void init_cortex_hook(void);
+#endif
+
 static size_t hl_table_path(char *buf, size_t size) {
+#ifndef CORTEX_HOST_TEST
+    // The rootfs is known once a path was rewritten; "ln a b" or "stat a" name only relative ones
+    init_cortex_hook();
+#endif
     if (g_cortex_root_len == 0) return 0;
     size_t n = cortex_append(buf, size, 0, g_cortex_root, g_cortex_root_len);
     static const char rel[] = "/var/lib/cortex/hardlinks";
@@ -129,7 +137,8 @@ static cortex_hl_table_t *hl_table(int create) {
     if (!t) {
         char path[PATH_MAX];
         path[0] = '\0';
-        int fd = hl_table_path(path, sizeof(path)) ? hl_open_file(path, 0) : -1;
+        int have_path = hl_table_path(path, sizeof(path)) != 0;
+        int fd = have_path ? hl_open_file(path, 0) : -1;
         if (fd < 0 && create && path[0]) {
             // var/lib/cortex may not exist yet
             char dir[PATH_MAX];
@@ -190,7 +199,8 @@ static cortex_hl_table_t *hl_table(int create) {
         }
         if (t) {
             __atomic_store_n(&g_hl_table, t, __ATOMIC_RELEASE);
-        } else {
+        } else if (have_path) {
+            // No table yet: looked for again a second later (without a rootfs there is none to wait for)
             __atomic_store_n(&g_hl_next_try, hl_now_seconds() + 1, __ATOMIC_RELAXED);
         }
     }

@@ -57,8 +57,9 @@ try "login bash with the hook, as the app's user" su "$uid" env -i $(env_for_she
     "$LDSO" "$ROOT/usr/bin/bash" -l -c 'echo login-ok'
 try "apt-get with the hook, as the app's user" su "$uid" env -i $(env_for_shell) "$HOOK" \
     "$LDSO" "$ROOT/usr/bin/bash" -c 'apt-get --version | head -n 1'
-# Emulated hard links (link() is denied to apps): ln in one process, stat in the next, and what they
-# do with the table of links that the processes share
+# Hard links: ln in one process, stat in the next, and what they do with the table of emulated links
+# that the processes share. (Run through su, outside the app's SELinux domain, link() itself may
+# succeed here; the app's processes are denied it and get the emulation.)
 HL_TEST='cd "$(mktemp -d)" && echo one > a && ln a b && stat -c "%n: links %h, inode %i, device %d, modified %y" a b'
 try "hard links between processes, as the app's user" su "$uid" env -i $(env_for_shell) "$HOOK" \
     "$LDSO" "$ROOT/usr/bin/bash" -c "$HL_TEST; ls -l /var/lib/cortex/hardlinks"
