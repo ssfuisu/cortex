@@ -67,6 +67,20 @@ class ApiProtocolTest {
     }
 
     @Test
+    fun aWrongTokenStopsTheReading() {
+        // Without the check after the token line, the rest would be read (and found malformed).
+        val bytes = "CORTEX-API 1\nwrong\nopen\nnot-a-number\n".toByteArray()
+        try {
+            ApiProtocol.read(ByteArrayInputStream(bytes)) { it == "secret" }
+            fail("request was accepted")
+        } catch (e: ApiProtocol.Unauthorized) {
+            // expected
+        }
+        val req = ApiProtocol.read(ByteArrayInputStream(request("secret", "info", emptyList(), null))) { it == "secret" }
+        assertEquals("info", req.command)
+    }
+
+    @Test
     fun responseIsTheStatusLineThenTheOutput() {
         val out = ByteArrayOutputStream()
         ApiProtocol.writeResponse(out, 3, "olmadı\n")

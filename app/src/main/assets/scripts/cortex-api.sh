@@ -114,10 +114,11 @@ esac
 read -r port token < "$CONF" || die "cannot read $CONF"
 case "$port" in ''|*[!0-9]*) die "$CONF is damaged: restart the Cortex app" ;; esac
 
-# Byte length of the UTF-8 text (the app reads exactly that many bytes).
-bytes() {
+# Writes the byte length of the UTF-8 text (the app reads exactly that many bytes), a newline and
+# the text. No subshell: the app gives the whole request 10 seconds once connected.
+send_block() {
     local LC_ALL=C
-    printf '%s' "${#1}"
+    printf '%s\n%s' "${#1}" "$1"
 }
 
 # (The braces keep 2>/dev/null to the connection attempt: on a bare exec it would stay.)
@@ -125,10 +126,10 @@ bytes() {
 {
     printf 'CORTEX-API 1\n%s\n%s\n%s\n' "$token" "$cmd" "${#args[@]}"
     for a in ${args[@]+"${args[@]}"}; do
-        printf '%s\n%s' "$(bytes "$a")" "$a"
+        send_block "$a"
     done
     if [ "$send_stdin" = 1 ]; then
-        printf '%s\n%s' "$(bytes "$stdin_text")" "$stdin_text"
+        send_block "$stdin_text"
     else
         printf -- '-1\n'
     fi

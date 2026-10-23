@@ -181,15 +181,19 @@ cortex-api open https://example.com # xdg-open uses it too, so links and files o
 cortex-api open report.pdf          # a file in Cortex or in shared storage
 cortex-api share -f photo.jpg       # or share text: echo hi | cortex-api share
 cortex-api battery                  # JSON: percentage, status, plugged, health, temperature
-cortex-api toast "hello"   ·   cortex-api tts "hello"   ·   cortex-api vibrate -d 500
-cortex-api wakelock on|off|status   ·   cortex-api info   ·   cortex-api --help
+cortex-api toast "hello"
+cortex-api tts "hello"
+cortex-api vibrate -d 500
+cortex-api wakelock on              # also: wakelock off, wakelock status
+cortex-api info
+cortex-api --help
 ```
 
 <p align="center">
   <img src="docs/screenshots/cortex-notification.jpg" width="60%" alt="A notification sent with notify-send from the terminal, shown by Android" />
 </p>
 
-`notify-send` shows its notifications on Android through it, and `xdg-open` (with `open`, `termux-open` and the browser names) opens links and files in Android apps. The app listens on `127.0.0.1` while it runs; the port and a secret token are in `/run/cortex-api`, which only Cortex itself and root can read, so other apps cannot use it. Android lets an app open other apps or read the clipboard only while it is on screen, so those commands report an error while Cortex is in the background.
+`notify-send` shows its notifications on Android through it, and `xdg-open` (with `open`, `termux-open` and the browser names) opens links and files in Android apps. The app listens on `127.0.0.1` while it runs; the port and a secret token are in `/run/cortex-api`, which only Cortex itself and root can read, so other apps cannot use it. Android lets an app open other apps only while it is on screen, and from Android 10 on also read the clipboard only then, so those commands report an error while Cortex is in the background.
 
 ## Root Mode
 

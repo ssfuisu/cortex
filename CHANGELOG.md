@@ -17,9 +17,9 @@ of a GitHub release from the section of its version here. Older versions are des
 
 ### Good to know
 
-- Android lets an app open other apps and read the clipboard only while it is on screen:
-  `cortex-api open`, `share` and `clipboard-get` report an error while Cortex is in the background
-  (`xdg-open` then prints the link as before).
+- Android lets an app open other apps only while it is on screen, and from Android 10 on also read
+  the clipboard only then: `cortex-api open` and `share` (and `clipboard-get` from Android 10 on)
+  report an error while Cortex is in the background (`xdg-open` then prints the link as before).
 
 ### Fixed
 

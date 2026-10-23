@@ -99,7 +99,7 @@ check api-notification cortex-api notification -i e2e -t "Cortex e2e notificatio
 check notify-send notify-send "Cortex e2e notify-send" "A notification from notify-send"
 expect api-clipboard e2e-clip bash -c 'echo e2e-clip | cortex-api clipboard-set && cortex-api clipboard-get'
 check api-toast cortex-api toast "Hello from Ubuntu"
-expect api-wakelock on bash -c 'cortex-api wakelock on && cortex-api wakelock status; cortex-api wakelock off >/dev/null'
+expect api-wakelock on bash -c 'cortex-api wakelock on >/dev/null && cortex-api wakelock status; s=$?; cortex-api wakelock off >/dev/null; exit $s'
 expect api-bad-command "unknown command" bash -c 'cortex-api no-such-command; [ $? = 1 ]'
 
 echo "passed=$passed failed=$failed" > "$OUT/done"

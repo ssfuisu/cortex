@@ -32,9 +32,16 @@ object ApiProtocol {
 
     class ProtocolException(message: String) : IOException(message)
 
-    fun read(input: InputStream): ApiRequest {
+    class Unauthorized : IOException("the request was not authorized")
+
+    /**
+     * Reads a request. [authorize] is asked about the token as soon as its line is read, so that a
+     * client without it gets nothing more read.
+     */
+    fun read(input: InputStream, authorize: (String) -> Boolean = { true }): ApiRequest {
         if (readLine(input) != MAGIC) throw ProtocolException("not a cortex-api request")
         val token = readLine(input)
+        if (!authorize(token)) throw Unauthorized()
         val command = readLine(input)
         if (command.isEmpty() || command.length > 64) throw ProtocolException("bad command")
         val count = readLine(input).toIntOrNull() ?: throw ProtocolException("bad argument count")
