@@ -137,6 +137,9 @@ android {
     testOptions {
         unitTests {
             isReturnDefaultValues = true
+            // Robolectric tests (BootstrapManagerFlowTest) read the app's assets
+            isIncludeAndroidResources = true
+            all { it.maxHeapSize = "2g" }
         }
     }
 
@@ -157,4 +160,6 @@ dependencies {
     implementation(libs.androidx.viewpager2)
 
     testImplementation(libs.junit)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.test.core)
 }

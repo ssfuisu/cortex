@@ -201,8 +201,17 @@ object BootstrapManager {
      * far (0-100) while it is extracted, from the extracting thread.
      */
     fun installBootstrapFromAssets(context: Context, onProgress: ((Int) -> Unit)? = null): Boolean {
-        val root = Environment.getCortexRoot(context)
         val assetName = findBootstrapAsset(context) ?: return false
+        return installBootstrap(context, { context.assets.open(assetName) }, onProgress)
+    }
+
+    /** [installBootstrapFromAssets] with the archive (tar or tar.gz) from [open], which tests use. */
+    internal fun installBootstrap(
+        context: Context,
+        open: () -> InputStream,
+        onProgress: ((Int) -> Unit)? = null
+    ): Boolean {
+        val root = Environment.getCortexRoot(context)
         val started = android.os.SystemClock.uptimeMillis()
 
         val tmpTar = File(context.cacheDir, "bootstrap.tar")
@@ -237,10 +246,10 @@ object BootstrapManager {
 
             // Extract archive using high performance native C extractor. It applies the archive's
             // modes and gives the owner access to every file and directory.
-            if (!extractBootstrapStreaming(context, assetName, root, onProgress)) {
+            if (!extractBootstrapStreaming(open, root, onProgress)) {
                 Log.w(TAG, "Native extraction failed, using the system tar")
                 // Fallback to system tar, which needs the archive as a file
-                openBootstrap(context, assetName).use { stream ->
+                openBootstrap(open).use { stream ->
                     tmpTar.outputStream().use { out -> stream.copyTo(out) }
                 }
                 val tarCmd = when {
@@ -306,8 +315,8 @@ object BootstrapManager {
      * The bootstrap archive as a plain tar stream (unzipped when it is gzip-compressed). [onProgress]
      * gets the share of the asset read so far (0-100), when its size is known.
      */
-    private fun openBootstrap(context: Context, assetName: String, onProgress: ((Int) -> Unit)? = null): InputStream {
-        val raw = context.assets.open(assetName)
+    private fun openBootstrap(open: () -> InputStream, onProgress: ((Int) -> Unit)? = null): InputStream {
+        val raw = open()
         val total = try { raw.available().toLong() } catch (e: java.io.IOException) { 0L }
         val counted = if (onProgress != null && total > 0) ProgressInputStream(raw, total, onProgress) else raw
         val pushback = PushbackInputStream(counted, 2)
@@ -326,8 +335,7 @@ object BootstrapManager {
      * took time and needed that much free space on top). True when the whole archive was extracted.
      */
     private fun extractBootstrapStreaming(
-        context: Context,
-        assetName: String,
+        open: () -> InputStream,
         root: File,
         onProgress: ((Int) -> Unit)?
     ): Boolean {
@@ -342,7 +350,7 @@ object BootstrapManager {
             try {
                 android.os.ParcelFileDescriptor.AutoCloseOutputStream(pipe[1]).use { out ->
                     try {
-                        openBootstrap(context, assetName, onProgress).use { input ->
+                        openBootstrap(open, onProgress).use { input ->
                             val buffer = ByteArray(256 * 1024)
                             while (true) {
                                 val n = input.read(buffer)
@@ -1530,7 +1538,7 @@ object BootstrapManager {
 }
 
 /** Reports how much of [total] bytes has been read, in whole percent, whenever that changes. */
-private class ProgressInputStream(
+internal class ProgressInputStream(
     input: InputStream,
     private val total: Long,
     private val onProgress: (Int) -> Unit

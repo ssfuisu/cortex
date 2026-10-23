@@ -55,6 +55,9 @@ object ShellScriptsInstaller {
             val loaded = loadAssetScript(context, "reload.sh", fallbackScript)
             val reloadScript = if (loaded.contains("return 0")) loaded else fallbackScript
 
+            // ~/.local/bin is made later in the same start (ensureEssentialBinaries); made here, the
+            // first start installs the same files as every later one.
+            File(home, ".local/bin").mkdirs()
             val reloadDirs = listOf(File(root, "usr/bin"), File(root, "bin"), File(home, ".local/bin"))
             reloadDirs.forEach { dir ->
                 if (dir.exists()) {
