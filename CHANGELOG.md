@@ -4,6 +4,44 @@ What changed in each version of Cortex Terminal, newest first. The release workf
 of a GitHub release from the section of its version here. Older versions are described on the
 [GitHub releases](https://github.com/ssfuisu/cortex/releases) page.
 
+## 1.26.36 (2026-10-23)
+
+### Improved
+
+- **Much faster first start.** Unpacking Ubuntu takes 2.5 to 5 seconds instead of about 10 on the
+  test emulator. The fast built-in extractor gave up on every first start and the much slower
+  system `tar` took over; the archive now also goes straight from the app into the extractor
+  instead of being copied first, so the first start needs a few hundred MB less free space.
+- **Faster start of the app.** The checks of the Ubuntu system (DNS, time zone, certificates, apt,
+  Cortex's tools) no longer run on the main thread at every start, nor several times over; they run
+  once in the background, and files are only written when something changed. After an update of
+  the app, the installed system is brought up to date in the background too, before the first
+  session opens.
+- New sessions start a little faster, and fast output (a long build log, `cat` of a big file)
+  keeps the screen busy with fewer redraw requests.
+
+### Fixed
+
+- The first start changed the permissions of the files in the phone's shared storage (through
+  `~/storage`) while it set up Ubuntu, and took the execute permission from programs outside
+  `bin` and `sbin`.
+- Turning the phone, or changing the theme or language, deleted the sockets, locks and pid files
+  of programs running in `/tmp`.
+- Files Cortex manages (`/etc/passwd`, `/etc/resolv.conf`, `/etc/localtime`, the profile scripts,
+  `su`, `sudo`...) were rewritten at every start; a program reading one at that moment could find
+  it empty. They are now only replaced when they change, and in one step.
+- Cortex no longer touches apt's and dpkg's files (the package database, downloads, package
+  lists) while `apt` or `dpkg` runs.
+- After the terminal was shown again, links and search hits were no longer kept up to date
+  during new output.
+
+### For developers
+
+- `FileInstaller` (`app/src/main/java/org/cortex/terminal/runtime/FileInstaller.kt`) writes the
+  files the app manages; `FileLocks` takes apt's and dpkg's lock files the way they do.
+- The emulator test also restarts the app, starts it after a simulated update, fails on start-up
+  errors in the app's log and records start-up times (`timings.txt`).
+
 ## 1.26.35 (2026-10-23)
 
 ### New
