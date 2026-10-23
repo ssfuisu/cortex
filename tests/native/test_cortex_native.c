@@ -345,6 +345,9 @@ static void test_extract_tar_end_to_end(void) {
     init_tar_header(blk, "./etc/sudoers", NULL, 0440, 2, '0', NULL);
     write(fd, blk, 512);
     write_padded_data(fd, "ok", 2);
+    /* a hard link entry: a link where the system allows one, else a relative symlink */
+    init_tar_header(blk, "./usr/bin/after-too", NULL, 0755, 0, '1', "./usr/bin/after");
+    write(fd, blk, 512);
     write_eof_blocks(fd);
     close(fd);
 
@@ -362,6 +365,9 @@ static void test_extract_tar_end_to_end(void) {
     snprintf(check_path, sizeof(check_path), "%s/etc/sudoers", dest_dirlink);
     ASSERT_EQ(lstat(check_path, &st), 0, "etc/sudoers is extracted");
     ASSERT_EQ(st.st_mode & 0777, 0640, "the owner (root here) can always read and write");
+    snprintf(check_path, sizeof(check_path), "%s/usr/bin/after-too", dest_dirlink);
+    ASSERT_EQ(stat(check_path, &st), 0, "the hard link entry leads to the file");
+    ASSERT_EQ(st.st_size, 2, "with its content");
 
     rm_rf(tmp_base);
 }

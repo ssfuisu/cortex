@@ -878,6 +878,9 @@ static int extract_tar_fd(int fd, const char *dest_dir) {
     char long_name[PATH_MAX] = {0};
     char long_link[PATH_MAX] = {0};
     unsigned long long pax_size = 0;
+    // Android's SELinux policy refuses link() to apps: after the first refusal every hard link of
+    // the archive becomes a relative symlink right away (each refusal also writes an audit message).
+    int hard_links_allowed = 1;
     int has_pax_size = 0;
 
     for (;;) {
@@ -1087,7 +1090,12 @@ static int extract_tar_fd(int fd, const char *dest_dir) {
             }
             unlink(dest_path);
             rmdir(dest_path);
-            if (link(target_path, dest_path) != 0) {
+            int linked = 0;
+            if (hard_links_allowed) {
+                linked = link(target_path, dest_path) == 0;
+                if (!linked && (errno == EACCES || errno == EPERM)) hard_links_allowed = 0;
+            }
+            if (!linked) {
                 char rel_link[PATH_MAX] = {0};
                 size_t rpos = 0;
                 const char *rp = rel;
