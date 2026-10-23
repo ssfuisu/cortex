@@ -141,7 +141,11 @@ android {
             isReturnDefaultValues = true
             // Robolectric tests (BootstrapManagerFlowTest) read the app's assets
             isIncludeAndroidResources = true
-            all { it.maxHeapSize = "2g" }
+            all {
+                it.maxHeapSize = "2g"
+                // The assertion's message in CI's log, not only in the HTML report
+                it.testLogging.exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+            }
         }
     }
 

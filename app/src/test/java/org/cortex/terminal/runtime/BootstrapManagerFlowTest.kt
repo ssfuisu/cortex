@@ -65,6 +65,11 @@ class BootstrapManagerFlowTest {
         put("etc/skel/.bashrc", "# the image's .bashrc\n", base)
         put("etc/skel/.profile", "# the image's .profile\n", base)
         put("etc/profile", "if [ \"`id -u`\" -eq 0 ]; then PS1='# '; fi\n", base)
+        // Ubuntu's merged /usr: /bin, /sbin and /lib are links
+        for ((link, target) in listOf("bin" to "usr/bin", "sbin" to "usr/sbin", "lib" to "usr/lib")) {
+            File(base, target).mkdirs()
+            Files.createSymbolicLink(File(base, link).toPath(), File(target).toPath())
+        }
     }
 
     /** Every regular file and symlink under [dir] with what shows a change: inode, time, content. */
@@ -163,7 +168,10 @@ class BootstrapManagerFlowTest {
 
         BootstrapManager.initializeFileSystem(context)
 
-        assertEquals(before, snapshot(root))
+        val after = snapshot(root)
+        val changed = (before.keys + after.keys).filter { before[it] != after[it] }
+            .map { "$it: ${before[it]} -> ${after[it]}" }
+        assertEquals(emptyList<String>(), changed)
     }
 
     @Test
@@ -230,7 +238,6 @@ class BootstrapManagerFlowTest {
         val stage = File(context.cacheDir, "stage")
         extractedSystem(stage)
         put("home/ubuntu/.bashrc", "# the image's user\n", stage)
-        Files.createSymbolicLink(File(stage, "bin").toPath(), File("usr/bin").toPath())
         Files.createSymbolicLink(File(stage, "usr/bin/vi").toPath(), File("/usr/bin/mawk").toPath())
         val tgz = archive(stage)
         val progress = mutableListOf<Int>()
