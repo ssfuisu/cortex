@@ -24,6 +24,7 @@
 #include <sys/wait.h>
 #include <sys/syscall.h>
 #include <limits.h>
+#include <time.h>
 #include <elf.h>
 #include <dirent.h>
 
@@ -255,15 +256,118 @@ static void close_all_inherited_fds(int max_fd) {
                 if (*c < '0' || *c > '9') continue;
                 for (; *c >= '0' && *c <= '9' && fd < max_fd; c++) fd = fd * 10 + (*c - '0');
                 // Closing a listed descriptor does not disturb the listing (it goes by number).
-                if (fd > 2 && fd < max_fd && fd != dir) close(fd);
+                if (fd > 2 && fd < max_fd && fd != dir) syscall(SYS_close, fd);
             }
         }
-        close(dir);
+        syscall(SYS_close, dir);
         if (complete) return;
     }
     for (int fd = 3; fd < max_fd; fd++) {
-        close(fd);
+        syscall(SYS_close, fd);
     }
+}
+
+// What the child of a new session does between vfork() and exec, all decided by the parent. The
+// child shares the app's memory while the app's other threads go on, so it only makes plain system
+// calls: no malloc, no locks, no fdsan bookkeeping (close() would mark the app's own descriptors as
+// closed) and no sigaction() through ART's signal chain. fork() copied the whole app (a few ms with
+// the main thread waiting, and copies of every page the app wrote until the shell started).
+struct pty_exec {
+    const char *path; // NULL ends the list
+    char *const *argv;
+    char *const *envp;
+    const char *failure; // written when this one cannot be executed
+};
+
+struct pty_spawn {
+    const char *slave_name;
+    const char *cwd;
+    const char *notice; // written to the terminal first, or NULL
+    struct pty_exec exec[3]; // tried in order
+    int max_fd;
+};
+
+static void pty_write(const char *text) {
+    if (text) write(STDERR_FILENO, text, strlen(text));
+}
+
+static void pty_write_errno(int err) {
+    char buf[24];
+    int n = sizeof(buf);
+    buf[--n] = '\n';
+    buf[--n] = ')';
+    do {
+        buf[--n] = (char)('0' + err % 10);
+        err /= 10;
+    } while (err > 0 && n > 8);
+    memcpy(buf + n - 8, " (error ", 8);
+    write(STDERR_FILENO, buf + n - 8, sizeof(buf) - (size_t)(n - 8));
+}
+
+static void pty_child(const struct pty_spawn *s) {
+    setsid();
+    int fd = open(s->slave_name, O_RDWR);
+    if (fd < 0) _exit(1);
+#ifdef TIOCSCTTY
+    ioctl(fd, TIOCSCTTY, 0);
+#endif
+    for (int target = 0; target <= 2; target++) {
+        if (fd != target) syscall(SYS_dup3, fd, target, 0);
+    }
+    if (fd > STDERR_FILENO) syscall(SYS_close, fd);
+
+    // The descriptors of the app (including the master side of this terminal) stay with the app
+    close_all_inherited_fds(s->max_fd);
+
+    // After TIOCSCTTY the session's own group is in the foreground already; said again for systems
+    // that do not do it.
+    pid_t pgrp = (pid_t)syscall(SYS_getpid);
+    ioctl(STDIN_FILENO, TIOCSPGRP, &pgrp);
+
+    struct termios tios;
+    memset(&tios, 0, sizeof(struct termios));
+    if (tcgetattr(STDIN_FILENO, &tios) == 0) {
+        tios.c_iflag |= (ICRNL | IXON);
+        tios.c_oflag |= (OPOST | ONLCR);
+        tios.c_cflag |= (CS8 | CREAD);
+        tios.c_lflag |= (ISIG | ICANON | ECHO | ECHOE | ECHOK | ECHOCTL | ECHOKE | IEXTEN);
+        tcsetattr(STDIN_FILENO, TCSANOW, &tios);
+    }
+
+    // Default dispositions for the signals the app may ignore (an ignored signal stays ignored
+    // across exec), and nothing blocked. A zeroed kernel sigaction is SIG_DFL with an empty mask on
+    // every architecture; the kernel's signal set is 8 bytes.
+    static const int defaults[] = { SIGCHLD, SIGHUP, SIGINT, SIGQUIT, SIGTERM, SIGPIPE, SIGTSTP, SIGTTIN, SIGTTOU };
+    unsigned long kernel_action[8];
+    memset(kernel_action, 0, sizeof(kernel_action));
+    for (size_t i = 0; i < sizeof(defaults) / sizeof(defaults[0]); i++) {
+        syscall(SYS_rt_sigaction, defaults[i], kernel_action, NULL, 8);
+    }
+    uint64_t no_signals = 0;
+    syscall(SYS_rt_sigprocmask, SIG_SETMASK, &no_signals, NULL, 8);
+
+    if (s->cwd && chdir(s->cwd) != 0) {
+        chdir("/");
+    }
+
+    pty_write(s->notice);
+    for (int i = 0; i < 3 && s->exec[i].path; i++) {
+        execve(s->exec[i].path, s->exec[i].argv, s->exec[i].envp);
+        int err = errno;
+        if (s->exec[i].failure) {
+            pty_write(s->exec[i].failure);
+            pty_write_errno(err);
+        }
+    }
+    _exit(127);
+}
+
+// Starts the child of a session with vfork() (fork() when that fails). Returns its pid or -1.
+static pid_t spawn_in_pty(const struct pty_spawn *s) {
+    pid_t pid = vfork();
+    if (pid < 0) pid = fork();
+    if (pid == 0) pty_child(s);
+    return pid;
 }
 
 #ifndef CORTEX_HOST_TEST
@@ -355,9 +459,81 @@ Java_org_cortex_terminal_pty_PtyNative_createPty(
     char **new_argv = calloc(argCount + 5, sizeof(char *));
     char **sys_env = clean_env_for_system(envp, envCount);
 
-    pid_t pid = fork();
+    // Everything the child does is worked out here, before it exists (see struct pty_spawn)
+    const char *cortex_root = NULL;
+    for (int i = 0; i < envCount; i++) {
+        if (strncmp(envp[i], "CORTEX_ROOT=", 12) == 0) {
+            cortex_root = envp[i] + 12;
+            break;
+        }
+    }
+    int in_root = cortex_root && cortex_root[0] != '\0' && strncmp(cmd, cortex_root, strlen(cortex_root)) == 0;
+
+    static char *const fallback_sh_argv[] = { "/system/bin/sh", NULL };
+    char ld_so[PATH_MAX] = {0};
+    char notice[PATH_MAX + 256];
+    char ld_so_failure[PATH_MAX + 64];
+    char cmd_failure[PATH_MAX + 64];
+    snprintf(cmd_failure, sizeof(cmd_failure), "Cortex: failed to execute %s", cmd);
+    struct pty_spawn spawn;
+    memset(&spawn, 0, sizeof(spawn));
+    spawn.slave_name = slaveName;
+    spawn.cwd = cwd;
+    spawn.max_fd = (int)max_fd;
+    // A host program (outside the rootfs, e.g. /system/bin/sh) gets an environment without Cortex's
+    // variables.
+    struct pty_exec direct = { cmd, argv, in_root ? envp : sys_env, cmd_failure };
+    spawn.exec[0] = direct;
+
+    if (in_root) {
+        // Ubuntu's dynamic programs are started through glibc's ld.so
+        int is_glibc_elf = 0;
+        int fd = open(cmd, O_RDONLY | O_CLOEXEC);
+        if (fd >= 0) {
+            char hdr[4];
+            ssize_t n = read(fd, hdr, sizeof(hdr));
+            close(fd);
+            is_glibc_elf = n >= 4 && (unsigned char)hdr[0] == 0x7f && hdr[1] == 'E' && hdr[2] == 'L' && hdr[3] == 'F';
+        }
+        if (is_glibc_elf && has_pt_interp(cmd)) {
+            if (find_dynamic_linker(cortex_root, cmd, ld_so, sizeof(ld_so)) && new_argv) {
+                chmod(ld_so, 0755);
+                chmod(cmd, 0755);
+                const char *prog_name = strrchr(cmd, '/');
+                prog_name = (prog_name != NULL) ? prog_name + 1 : cmd;
+                new_argv[0] = ld_so;
+                new_argv[1] = "--argv0";
+                new_argv[2] = (char *)prog_name;
+                new_argv[3] = (char *)cmd;
+                for (int i = 1; i <= argCount; i++) {
+                    new_argv[i + 3] = argv[i];
+                }
+                new_argv[argCount + 4] = NULL;
+                snprintf(ld_so_failure, sizeof(ld_so_failure), "Cortex: failed to exec ld.so (%s)", ld_so);
+                struct pty_exec through_ld_so = { ld_so, new_argv, envp, ld_so_failure };
+                spawn.exec[0] = through_ld_so;
+                spawn.exec[1] = direct;
+            } else {
+                snprintf(notice, sizeof(notice),
+                    "Cortex: Dynamic linker (ld.so) not found in %s!\n"
+                    "Ubuntu 24.04 environment may be corrupted or still initializing.\n"
+                    "Falling back to Android system shell...\n\n", cortex_root);
+                spawn.notice = notice;
+                struct pty_exec android_sh = { "/system/bin/sh", fallback_sh_argv, sys_env, NULL };
+                spawn.exec[0] = android_sh;
+                spawn.exec[1] = direct;
+            }
+        }
+    }
+
+    struct timespec spawn_started, spawn_done;
+    clock_gettime(CLOCK_MONOTONIC, &spawn_started);
+    pid_t pid = spawn_in_pty(&spawn);
+    clock_gettime(CLOCK_MONOTONIC, &spawn_done);
+    LOGI("Session process %d started in %ld us", (int)pid,
+         (long)((spawn_done.tv_sec - spawn_started.tv_sec) * 1000000L + (spawn_done.tv_nsec - spawn_started.tv_nsec) / 1000));
     if (pid < 0) {
-        LOGE("Failed to fork: %s", strerror(errno));
+        LOGE("Failed to start the session: %s", strerror(errno));
         close(masterFd);
         free(new_argv);
         if (sys_env && sys_env != envp) free(sys_env);
@@ -376,151 +552,6 @@ Java_org_cortex_terminal_pty_PtyNative_createPty(
         (*env)->ReleaseStringUTFChars(env, cmdStr, cmd);
         if (cwd) (*env)->ReleaseStringUTFChars(env, cwdStr, cwd);
         return NULL;
-    }
-
-    if (pid == 0) {
-        // Child process
-        setsid();
-
-        int slaveFd = open(slaveName, O_RDWR);
-        if (slaveFd < 0) {
-            _exit(1);
-        }
-
-        #ifdef TIOCSCTTY
-        ioctl(slaveFd, TIOCSCTTY, 0);
-        #endif
-
-        dup2(slaveFd, STDIN_FILENO);
-        dup2(slaveFd, STDOUT_FILENO);
-        dup2(slaveFd, STDERR_FILENO);
-
-        if (slaveFd > STDERR_FILENO) {
-            close(slaveFd);
-        }
-
-        // Close all open file descriptors fd > 2 (including masterFd) to prevent descriptor inheritance leaks
-        close_all_inherited_fds((int)max_fd);
-
-        // Set foreground process group to child process
-        pid_t pgrp = getpid();
-        signal(SIGTTOU, SIG_IGN);
-        signal(SIGTTIN, SIG_IGN);
-        tcsetpgrp(STDIN_FILENO, pgrp);
-        signal(SIGTTOU, SIG_DFL);
-        signal(SIGTTIN, SIG_DFL);
-
-        // Configure standard terminal attributes
-        struct termios tios;
-        memset(&tios, 0, sizeof(struct termios));
-        if (tcgetattr(STDIN_FILENO, &tios) == 0) {
-            tios.c_iflag |= (ICRNL | IXON);
-            tios.c_oflag |= (OPOST | ONLCR);
-            tios.c_cflag |= (CS8 | CREAD);
-            tios.c_lflag |= (ISIG | ICANON | ECHO | ECHOE | ECHOK | ECHOCTL | ECHOKE | IEXTEN);
-            tcsetattr(STDIN_FILENO, TCSANOW, &tios);
-        }
-
-        // Reset signal mask so no inherited signals are blocked
-        sigset_t empty_mask;
-        sigemptyset(&empty_mask);
-        sigprocmask(SIG_SETMASK, &empty_mask, NULL);
-
-        // Reset signal handlers to default
-        struct sigaction sa;
-        memset(&sa, 0, sizeof(sa));
-        sa.sa_handler = SIG_DFL;
-        sigaction(SIGCHLD, &sa, NULL);
-        sigaction(SIGHUP, &sa, NULL);
-        sigaction(SIGINT, &sa, NULL);
-        sigaction(SIGQUIT, &sa, NULL);
-        sigaction(SIGTERM, &sa, NULL);
-        sigaction(SIGPIPE, &sa, NULL);
-        sigaction(SIGTSTP, &sa, NULL);
-        sigaction(SIGTTIN, &sa, NULL);
-        sigaction(SIGTTOU, &sa, NULL);
-
-        if (cwd && chdir(cwd) != 0) {
-            // If cwd fails, fallback to root
-            chdir("/");
-        }
-
-        // Route Debian glibc ELF binaries through ld.so if inside CORTEX_ROOT
-        const char *cortex_root = NULL;
-        for (int i = 0; i < envCount; i++) {
-            if (strncmp(envp[i], "CORTEX_ROOT=", 12) == 0) {
-                cortex_root = envp[i] + 12;
-                break;
-            }
-        }
-
-        int is_glibc_elf = 0;
-        int is_dynamic = 0;
-        if (cortex_root && strlen(cortex_root) > 0 && strncmp(cmd, cortex_root, strlen(cortex_root)) == 0) {
-            int fd = open(cmd, O_RDONLY);
-            if (fd >= 0) {
-                char hdr[4];
-                ssize_t n = read(fd, hdr, sizeof(hdr));
-                close(fd);
-                if (n >= 4 && (unsigned char)hdr[0] == 0x7f && hdr[1] == 'E' && hdr[2] == 'L' && hdr[3] == 'F') {
-                    is_glibc_elf = 1;
-                    is_dynamic = has_pt_interp(cmd);
-                }
-            }
-        }
-
-        if (is_glibc_elf && is_dynamic) {
-            char ld_so[PATH_MAX] = {0};
-            if (find_dynamic_linker(cortex_root, cmd, ld_so, sizeof(ld_so))) {
-                chmod(ld_so, 0755);
-                chmod(cmd, 0755);
-
-                const char *prog_name = strrchr(cmd, '/');
-                prog_name = (prog_name != NULL) ? prog_name + 1 : cmd;
-
-                if (new_argv) {
-                    new_argv[0] = ld_so;
-                    new_argv[1] = "--argv0";
-                    new_argv[2] = (char *)prog_name;
-                    new_argv[3] = (char *)cmd;
-                    for (int i = 1; i <= argCount; i++) {
-                        new_argv[i + 3] = argv[i];
-                    }
-                    new_argv[argCount + 4] = NULL;
-                    execve(ld_so, new_argv, envp);
-                }
-
-                char err_buf[256];
-                snprintf(err_buf, sizeof(err_buf), "Cortex: failed to exec ld.so (%s): %s\n", ld_so, strerror(errno));
-                write(STDERR_FILENO, err_buf, strlen(err_buf));
-            } else {
-                char err_buf[512];
-                snprintf(err_buf, sizeof(err_buf),
-                    "Cortex: Dynamic linker (ld.so) not found in %s!\n"
-                    "Ubuntu 24.04 environment may be corrupted or still initializing.\n"
-                    "Falling back to Android system shell...\n\n", cortex_root);
-                write(STDERR_FILENO, err_buf, strlen(err_buf));
-
-                const char *fallback_sh = "/system/bin/sh";
-                if (access(fallback_sh, X_OK) == 0) {
-                    char *fb_argv[] = { (char *)fallback_sh, NULL };
-                    execve(fallback_sh, fb_argv, sys_env);
-                }
-            }
-        }
-
-        // If command is outside cortex_root (e.g. host /system/bin/sh), clean env
-        if (!cortex_root || strncmp(cmd, cortex_root, strlen(cortex_root)) != 0) {
-            execve(cmd, argv, sys_env);
-        } else {
-            execve(cmd, argv, envp);
-        }
-
-        // If execve fails, print diagnostic and exit
-        char errMsg[256];
-        snprintf(errMsg, sizeof(errMsg), "Cortex: failed to execute %s: %s\n", cmd, strerror(errno));
-        write(STDERR_FILENO, errMsg, strlen(errMsg));
-        _exit(127);
     }
 
     // Parent cleanup

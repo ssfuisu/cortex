@@ -1187,6 +1187,64 @@ static void test_rewrite_path_matches_reference(void) {
 }
 
 /* 11. Helpers of the path translation and the bin <-> usr/bin retry */
+/* A session's child, started with vfork(): controlling terminal, only 0-2 open, cwd, environment,
+ * default signals, and the next program when the first cannot be executed. */
+static void test_spawn_in_pty(void) {
+    int master = posix_openpt(O_RDWR | O_NOCTTY);
+    ASSERT_TRUE(master >= 0, "posix_openpt");
+    ASSERT_EQ(grantpt(master), 0, "grantpt");
+    ASSERT_EQ(unlockpt(master), 0, "unlockpt");
+    char slave[64];
+    ASSERT_EQ(ptsname_r(master, slave, sizeof(slave)), 0, "ptsname_r");
+    int extra = dup2(2, 701); /* an app descriptor that must not reach the shell */
+    ASSERT_EQ(extra, 701, "dup2 to 701");
+    signal(SIGPIPE, SIG_IGN);  /* the app ignores SIGPIPE; the shell must not inherit that */
+
+    char *const argv[] = { "sh", "-c",
+        "echo TTY=$(tty); echo FDS=$(ls /proc/$$/fd | tr '\\n' ' '); echo PWD=$(pwd); echo FOO=$FOO; "
+        "echo SIGPIPE=$(grep SigIgn /proc/$$/status | cut -f2)", NULL };
+    char *const envp[] = { "FOO=bar", "PATH=/usr/bin:/bin", NULL };
+    struct pty_spawn spawn;
+    memset(&spawn, 0, sizeof(spawn));
+    spawn.slave_name = slave;
+    spawn.cwd = "/tmp";
+    spawn.notice = "notice first\n";
+    struct pty_exec missing = { "/nonexistent/cortex-shell", argv, envp, "Cortex: failed to execute missing" };
+    struct pty_exec sh = { "/bin/sh", argv, envp, NULL };
+    spawn.exec[0] = missing;
+    spawn.exec[1] = sh;
+    spawn.max_fd = 4096;
+
+    pid_t pid = spawn_in_pty(&spawn);
+    ASSERT_TRUE(pid > 0, "spawn_in_pty starts the child");
+    close(extra);
+    signal(SIGPIPE, SIG_DFL);
+
+    char out[4096];
+    size_t len = 0;
+    for (;;) {
+        ssize_t n = read(master, out + len, sizeof(out) - 1 - len);
+        if (n <= 0) break; /* EIO once the child is gone */
+        len += (size_t)n;
+        if (len >= sizeof(out) - 1) break;
+    }
+    out[len] = '\0';
+    int status = 0;
+    ASSERT_EQ(waitpid(pid, &status, 0), pid, "waitpid");
+    close(master);
+
+    ASSERT_TRUE(WIFEXITED(status) && WEXITSTATUS(status) == 0, "the shell exits with 0");
+    ASSERT_TRUE(strstr(out, "notice first") != NULL, "the notice is written first");
+    ASSERT_TRUE(strstr(out, "failed to execute missing (error 2)") != NULL, "a failing program is reported with its error");
+    ASSERT_TRUE(strstr(out, "TTY=/dev/pts/") != NULL, "the terminal is the controlling tty of stdin");
+    ASSERT_TRUE(strstr(out, "FDS=0 1 2 ") != NULL || strstr(out, "FDS=0 1 2 255 ") != NULL,
+                "only 0, 1 and 2 are open (bash may add 255)");
+    ASSERT_TRUE(strstr(out, "701") == NULL, "the app's descriptor 701 is closed");
+    ASSERT_TRUE(strstr(out, "PWD=/tmp") != NULL, "the working directory is set");
+    ASSERT_TRUE(strstr(out, "FOO=bar") != NULL, "the environment is passed");
+    ASSERT_TRUE(strstr(out, "SIGPIPE=0000000000000000") != NULL, "no signal is ignored in the shell");
+}
+
 /* lstat() of a link reads it again only when the hook rewrites what readlink() returns */
 static void test_readlink_result_may_change(void) {
     char saved[PATH_MAX];
@@ -1528,6 +1586,7 @@ int main(void) {
     test_rewrite_path_matches_reference();
     test_path_helpers();
     test_readlink_result_may_change();
+    test_spawn_in_pty();
     test_exec_probe();
     test_exec_argv();
     test_find_dynamic_linker_for_machine();

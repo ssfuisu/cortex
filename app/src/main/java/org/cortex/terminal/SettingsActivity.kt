@@ -15,6 +15,14 @@ class SettingsActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_settings)
+        // On some systems the window reaches under the navigation bar (seen on Android 14), which then
+        // covered the last settings. The list keeps clear of it; elsewhere the inset is 0.
+        val container = findViewById<android.view.View>(R.id.settings_container)
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(container) { view, insets ->
+            val bars = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.navigationBars())
+            view.setPadding(bars.left, 0, bars.right, bars.bottom)
+            insets
+        }
 
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
         supportActionBar?.title = getString(R.string.settings_title)

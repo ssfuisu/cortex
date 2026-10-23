@@ -276,6 +276,12 @@ class MainActivity : AppCompatActivity() {
             isBootstrapping = true
             val progress = if (bootstrapInstalledAtStart) null else android.app.ProgressDialog(this).apply {
                 setMessage(getString(R.string.bootstrap_progress))
+                // A bar with the share of the archive extracted so far; until the first figure
+                // arrives (and for an archive of unknown size) it just moves.
+                setProgressStyle(android.app.ProgressDialog.STYLE_HORIZONTAL)
+                setProgressNumberFormat(null)
+                max = 100
+                isIndeterminate = true
                 setCancelable(false)
                 setCanceledOnTouchOutside(false)
             }
@@ -289,7 +295,14 @@ class MainActivity : AppCompatActivity() {
                 // Whatever happens in here, the modal progress dialog below must be dismissed;
                 // an uncaught error used to leave "Extracting base system..." on screen forever.
                 val success = try {
-                    runBootstrapOnce(root)
+                    runBootstrapOnce(root) { percent ->
+                        runOnUiThread {
+                            if (progress != null) {
+                                progress.isIndeterminate = false
+                                progress.progress = percent
+                            }
+                        }
+                    }
                 } catch (t: Throwable) {
                     android.util.Log.e("MainActivity", "Bootstrap failed", t)
                     false
@@ -428,7 +441,7 @@ class MainActivity : AppCompatActivity() {
      * Extracts the Ubuntu base system, at most once at a time per process. A caller that arrives
      * while another extraction is running waits for it and reports whether it succeeded.
      */
-    private fun runBootstrapOnce(root: java.io.File): Boolean {
+    private fun runBootstrapOnce(root: java.io.File, onProgress: ((Int) -> Unit)? = null): Boolean {
         val isOwner = synchronized(bootstrapLock) {
             if (bootstrapInProgress) {
                 false
@@ -454,7 +467,7 @@ class MainActivity : AppCompatActivity() {
                 startMaintenance(root)
                 return true
             }
-            val installed = BootstrapManager.installBootstrapFromAssets(this)
+            val installed = BootstrapManager.installBootstrapFromAssets(this, onProgress)
             if (installed) {
                 // The base system is in place and configured; a hiccup in the C development
                 // packages must not turn a working install into "Failed to initialize environment".

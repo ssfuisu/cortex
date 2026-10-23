@@ -196,7 +196,11 @@ object BootstrapManager {
         return null
     }
 
-    fun installBootstrapFromAssets(context: Context): Boolean {
+    /**
+     * Extracts and sets up the Ubuntu base system. [onProgress] gets the share of the archive read so
+     * far (0-100) while it is extracted, from the extracting thread.
+     */
+    fun installBootstrapFromAssets(context: Context, onProgress: ((Int) -> Unit)? = null): Boolean {
         val root = Environment.getCortexRoot(context)
         val assetName = findBootstrapAsset(context) ?: return false
         val started = android.os.SystemClock.uptimeMillis()
@@ -233,7 +237,7 @@ object BootstrapManager {
 
             // Extract archive using high performance native C extractor. It applies the archive's
             // modes and gives the owner access to every file and directory.
-            if (!extractBootstrapStreaming(context, assetName, root)) {
+            if (!extractBootstrapStreaming(context, assetName, root, onProgress)) {
                 Log.w(TAG, "Native extraction failed, using the system tar")
                 // Fallback to system tar, which needs the archive as a file
                 openBootstrap(context, assetName).use { stream ->
@@ -298,9 +302,15 @@ object BootstrapManager {
         }
     }
 
-    /** The bootstrap archive as a plain tar stream (unzipped when it is gzip-compressed). */
-    private fun openBootstrap(context: Context, assetName: String): InputStream {
-        val pushback = PushbackInputStream(context.assets.open(assetName), 2)
+    /**
+     * The bootstrap archive as a plain tar stream (unzipped when it is gzip-compressed). [onProgress]
+     * gets the share of the asset read so far (0-100), when its size is known.
+     */
+    private fun openBootstrap(context: Context, assetName: String, onProgress: ((Int) -> Unit)? = null): InputStream {
+        val raw = context.assets.open(assetName)
+        val total = try { raw.available().toLong() } catch (e: java.io.IOException) { 0L }
+        val counted = if (onProgress != null && total > 0) ProgressInputStream(raw, total, onProgress) else raw
+        val pushback = PushbackInputStream(counted, 2)
         val header = ByteArray(2)
         val bytesRead = pushback.read(header)
         if (bytesRead > 0) {
@@ -315,7 +325,12 @@ object BootstrapManager {
      * native extractor reads, so the few hundred megabytes are never copied into the cache first (that
      * took time and needed that much free space on top). True when the whole archive was extracted.
      */
-    private fun extractBootstrapStreaming(context: Context, assetName: String, root: File): Boolean {
+    private fun extractBootstrapStreaming(
+        context: Context,
+        assetName: String,
+        root: File,
+        onProgress: ((Int) -> Unit)?
+    ): Boolean {
         val pipe = try {
             android.os.ParcelFileDescriptor.createPipe()
         } catch (e: Exception) {
@@ -327,7 +342,7 @@ object BootstrapManager {
             try {
                 android.os.ParcelFileDescriptor.AutoCloseOutputStream(pipe[1]).use { out ->
                     try {
-                        openBootstrap(context, assetName).use { input ->
+                        openBootstrap(context, assetName, onProgress).use { input ->
                             val buffer = ByteArray(256 * 1024)
                             while (true) {
                                 val n = input.read(buffer)
@@ -1510,4 +1525,30 @@ object BootstrapManager {
         }
         return pty.waitFor()
     }
+}
+
+/** Reports how much of [total] bytes has been read, in whole percent, whenever that changes. */
+private class ProgressInputStream(
+    input: InputStream,
+    private val total: Long,
+    private val onProgress: (Int) -> Unit
+) : java.io.FilterInputStream(input) {
+    private var done = 0L
+    private var reported = -1
+
+    private fun advance(n: Long) {
+        if (n <= 0) return
+        done += n
+        val percent = (done * 100 / total).toInt().coerceIn(0, 100)
+        if (percent != reported) {
+            reported = percent
+            onProgress(percent)
+        }
+    }
+
+    override fun read(): Int = super.read().also { if (it >= 0) advance(1) }
+
+    override fun read(b: ByteArray, off: Int, len: Int): Int = super.read(b, off, len).also { advance(it.toLong()) }
+
+    override fun skip(n: Long): Long = super.skip(n).also { advance(it) }
 }

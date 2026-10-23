@@ -309,8 +309,8 @@ fi
     grep -E "TotalTime|WaitTime" "$OUT/restart.txt"
     echo "start after an update:"
     grep -E "TotalTime|WaitTime" "$OUT/update-start.txt"
-    grep -E "Displayed $PKG|Base system (installed|updated)|Start-up maintenance took|ensureCaCertificates|Skipped [0-9]+ frames" "$OUT/logcat.txt" |
-        grep -E "$PKG|BootstrapManager|MainActivity|Choreographer" | sed 's/^/  /'
+    grep -E "Displayed $PKG|Base system (installed|updated)|Start-up maintenance took|Session process [0-9]+ started|ensureCaCertificates|Skipped [0-9]+ frames" "$OUT/logcat.txt" |
+        grep -E "$PKG|BootstrapManager|MainActivity|CortexPty|Choreographer" | sed 's/^/  /'
 } | tee "$OUT/timings.txt"
 
 log "Took $((SECONDS - STARTED)) s"
