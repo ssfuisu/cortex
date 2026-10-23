@@ -223,8 +223,44 @@ static int has_pt_interp(const char *path) {
     return 0;
 }
 
+struct cortex_dirent64 {
+    uint64_t d_ino;
+    int64_t d_off;
+    unsigned short d_reclen;
+    unsigned char d_type;
+    char d_name[];
+};
+
+// Closes the descriptors 3 .. max_fd-1. The open ones are read from /proc/self/fd with plain system
+// calls (this runs between fork and exec in a multithreaded process: no malloc); trying every
+// number took 32765 system calls per session with Android's limit of 32768 open files.
 static void close_all_inherited_fds(int max_fd) {
     if (max_fd < 3) max_fd = 1024;
+    int dir = open("/proc/self/fd", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    if (dir >= 0) {
+        char buf[4096] __attribute__((aligned(8)));
+        int complete = 1;
+        for (;;) {
+            long n = syscall(SYS_getdents64, dir, buf, sizeof(buf));
+            if (n == 0) break;
+            if (n < 0) {
+                complete = 0;
+                break;
+            }
+            for (long off = 0; off < n;) {
+                struct cortex_dirent64 *d = (struct cortex_dirent64 *)(buf + off);
+                off += d->d_reclen;
+                int fd = 0;
+                const char *c = d->d_name;
+                if (*c < '0' || *c > '9') continue;
+                for (; *c >= '0' && *c <= '9' && fd < max_fd; c++) fd = fd * 10 + (*c - '0');
+                // Closing a listed descriptor does not disturb the listing (it goes by number).
+                if (fd > 2 && fd < max_fd && fd != dir) close(fd);
+            }
+        }
+        close(dir);
+        if (complete) return;
+    }
     for (int fd = 3; fd < max_fd; fd++) {
         close(fd);
     }

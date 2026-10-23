@@ -593,6 +593,18 @@ static void test_sigsys_and_close_fds(void) {
     close_all_inherited_fds(dup_fd + 1);
     ASSERT_EQ(fcntl(dup_fd, F_GETFD), -1, "dup_fd must be closed by close_all_inherited_fds");
     ASSERT_TRUE(fcntl(2, F_GETFD) != -1, "stderr (fd 2) must remain open");
+
+    /* Descriptors far apart (the open ones are listed, not every number tried); none at or above
+     * max_fd is touched. */
+    ASSERT_EQ(dup2(2, 900), 900, "dup2 to 900");
+    ASSERT_EQ(dup2(2, 4000), 4000, "dup2 to 4000");
+    ASSERT_EQ(dup2(2, 5000), 5000, "dup2 to 5000");
+    close_all_inherited_fds(5000);
+    ASSERT_EQ(fcntl(900, F_GETFD), -1, "fd 900 is closed");
+    ASSERT_EQ(fcntl(4000, F_GETFD), -1, "fd 4000 is closed");
+    ASSERT_TRUE(fcntl(5000, F_GETFD) != -1, "fd 5000 (max_fd) stays open");
+    ASSERT_TRUE(fcntl(2, F_GETFD) != -1, "stderr stays open");
+    close(5000);
 }
 
 /* 9. Test emulated hardlink and st_nlink reporting (fixing groupadd/shadow /etc/group.lock failure) */
