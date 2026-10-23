@@ -372,6 +372,29 @@ class ElfLinkerPatcherTest {
     }
 
     @Test
+    fun patchAllDynamicLinkers_patchesTheLibcOfTheMultiarchDirectory() {
+        val rootDir = tempFolder.newFolder("cortex_root_multiarch")
+        val movX8_435 = byteArrayOf(0x68, 0x36, 0x80.toByte(), 0xd2.toByte())
+        val svc0 = byteArrayOf(0x01, 0x00, 0x00, 0xd4.toByte())
+        val unpatchedElf = buildElf64(segments = listOf(Triple(0x5, 0x80, movX8_435 + svc0)))
+
+        val libc = File(rootDir, "usr/lib/aarch64-linux-gnu/libc.so.6").apply {
+            parentFile?.mkdirs()
+            writeBytes(unpatchedElf)
+        }
+        // Not where glibc is: not looked at
+        val elsewhere = File(rootDir, "usr/share/doc/libc6/libc.so.6").apply {
+            parentFile?.mkdirs()
+            writeBytes(unpatchedElf)
+        }
+
+        ElfLinkerPatcher.patchAllDynamicLinkers(rootDir)
+
+        assertFalse("the libc in usr/lib/<triplet> is patched", libc.readBytes().contentEquals(unpatchedElf))
+        assertArrayEquals(unpatchedElf, elsewhere.readBytes())
+    }
+
+    @Test
     fun patchAllDynamicLinkers_enforcesCanonicalRootContainment() {
         val rootDir = tempFolder.newFolder("cortex_root")
         val outsideDir = tempFolder.newFolder("outside_dir")

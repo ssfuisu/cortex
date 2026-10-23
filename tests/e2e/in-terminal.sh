@@ -86,9 +86,10 @@ expect hard-links "links=2 same inode" hard_links
 check sha256sum bash -c 'echo hi | sha256sum | grep -q ^98ea6e4f216f2fb4b69fff9b3a44842c38686ca685f3f55dc48c5d3fb1107be4'
 check shared-storage bash -c 'echo hi > "$0/written-by-ubuntu.txt" && [ "$(cat "$0/written-by-ubuntu.txt")" = hi ]' "$OUT"
 
-# Packages from Ubuntu's archive
+# Packages from Ubuntu's archive. The app comes without package lists: the first install runs
+# "apt-get update" by itself (/usr/local/bin/apt-get).
+expect apt-install "package lists are empty" apt-get install -y --no-install-recommends hello python3-minimal
 check apt-update apt-get update
-check apt-install apt-get install -y --no-install-recommends hello python3-minimal
 expect hello "Hello, world!" hello
 expect python3 "4" python3 -c 'print(2 + 2)'
 

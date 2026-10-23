@@ -293,11 +293,19 @@ object ElfLinkerPatcher {
         if (!root.exists() || !root.isDirectory) return
         try {
             val rootCanonicalPath = root.canonicalFile.path
-            root.walkTopDown()
-                .onEnter { dir ->
-                    dir == root || isContainedInRoot(dir, rootCanonicalPath)
-                }
-                .forEach { file ->
+            // glibc's loader and libc are in usr/lib and its multiarch directories (lib and lib64 link
+            // there): walking the whole system for them took a canonical path for every directory.
+            val dirs = mutableListOf<File>()
+            for (base in listOf("usr/lib", "usr/lib64", "usr/lib32", "lib", "lib64")) {
+                val dir = File(root, base)
+                if (!dir.isDirectory) continue
+                dirs.add(dir)
+                dir.listFiles()?.filterTo(dirs) { it.isDirectory && it.name.contains("-linux-gnu") }
+            }
+            val patched = HashSet<String>()
+            for (dir in dirs) {
+                if (!isContainedInRoot(dir, rootCanonicalPath)) continue
+                dir.listFiles()?.forEach { file ->
                     val name = file.name
                     if (name.startsWith("ld-linux") || name.startsWith("ld-2.") ||
                         name.startsWith("libc.so") || name.startsWith("libc-")
@@ -308,6 +316,7 @@ object ElfLinkerPatcher {
                             null
                         }
                         if (target != null &&
+                            patched.add(target.path) &&
                             isContainedInRoot(target, rootCanonicalPath) &&
                             target.exists() &&
                             target.isFile &&
@@ -317,8 +326,9 @@ object ElfLinkerPatcher {
                         }
                     }
                 }
+            }
         } catch (e: Exception) {
-            Log.e(TAG, "Error walking root to patch dynamic linkers and libc", e)
+            Log.e(TAG, "Error patching dynamic linkers and libc", e)
         }
     }
 

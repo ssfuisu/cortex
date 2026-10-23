@@ -31,6 +31,7 @@ object BootstrapManager {
 
         ensureRootTools(root, context)
         ensureBrowserOpener(root, context)
+        ShellScriptsInstaller.ensureAptAutoUpdate(root, context)
 
         // ~/.profile and ~/.bashrc are the user's own files (created once from /etc/skel, see
         // ShellProfile). Cortex's environment lives in /etc/profile.d, never in the user's files.

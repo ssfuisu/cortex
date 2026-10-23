@@ -1187,6 +1187,45 @@ static void test_rewrite_path_matches_reference(void) {
 }
 
 /* 11. Helpers of the path translation and the bin <-> usr/bin retry */
+/* lstat() of a link reads it again only when the hook rewrites what readlink() returns */
+static void test_readlink_result_may_change(void) {
+    char saved[PATH_MAX];
+    size_t saved_len = g_cortex_root_len;
+    memcpy(saved, g_cortex_root, sizeof(saved));
+    snprintf(g_cortex_root, sizeof(g_cortex_root), "%s", "/data/user/0/org.cortex.terminal/files/cortex");
+    g_cortex_root_len = strlen(g_cortex_root);
+
+    ASSERT_EQ(readlink_result_may_change("/bin", 7), 0, "bin -> usr/bin is reported as it is");
+    ASSERT_EQ(readlink_result_may_change("/usr/bin/awk", 21), 1, "an absolute link may point into the rootfs path");
+    ASSERT_EQ(readlink_result_may_change("/usr/bin/awk", (long long)g_cortex_root_len), 1, "a link as long as the rootfs path");
+    ASSERT_EQ(readlink_result_may_change("/usr/bin/x", 18), 0, "shorter than ../etc/alternatives and the rootfs path");
+    ASSERT_EQ(readlink_result_may_change("/usr/bin/x", 19), 1, "../etc/alternatives may be normalized");
+    ASSERT_EQ(readlink_result_may_change("/etc/alternatives/awk", 2), 1, "any ../ link in /etc/alternatives");
+    ASSERT_EQ(readlink_result_may_change("/etc/alternatives/awk", 1), 0, "a one-character target cannot start with ..");
+    ASSERT_EQ(readlink_result_may_change("relative/link", 30), 0, "relative link paths are only stripped of the rootfs");
+    ASSERT_EQ(readlink_result_may_change("relative/link", 60), 1, "a long target of a relative path may hold the rootfs");
+
+    /* the rule agrees with postprocess_readlink on every short target */
+    const char *targets[] = { "usr/bin", "../lib", "mawk", "/bin/sh", "../../etc/x", "../etc/alternatives/awk" };
+    const char *links[] = { "/bin", "/usr/bin/awk", "/etc/alternatives/awk", "rel" };
+    for (size_t t = 0; t < sizeof(targets) / sizeof(targets[0]); t++) {
+        for (size_t l = 0; l < sizeof(links) / sizeof(links[0]); l++) {
+            char buf[PATH_MAX];
+            size_t len = strlen(targets[t]);
+            memcpy(buf, targets[t], len + 1);
+            ssize_t out = postprocess_readlink(links[l], buf, (ssize_t)len, sizeof(buf));
+            int changed = out != (ssize_t)len || memcmp(buf, targets[t], len) != 0;
+            if (changed) {
+                ASSERT_EQ(readlink_result_may_change(links[l], (long long)len), 1,
+                          "a target postprocess_readlink changes is always read");
+            }
+        }
+    }
+
+    memcpy(g_cortex_root, saved, sizeof(saved));
+    g_cortex_root_len = saved_len;
+}
+
 static void test_path_helpers(void) {
     /* cortex_append truncates exactly like snprintf */
     const char *pieces[] = { "", "a", "abc", "0123456789" };
@@ -1488,6 +1527,7 @@ int main(void) {
     test_absolutize_exec_path();
     test_rewrite_path_matches_reference();
     test_path_helpers();
+    test_readlink_result_may_change();
     test_exec_probe();
     test_exec_argv();
     test_find_dynamic_linker_for_machine();

@@ -141,7 +141,16 @@ static int usrmerge_alt_path(const char *sub, char *alt, size_t altsz) {
     return pair;
 }
 
-#ifndef CORTEX_HOST_TEST
+// Whether postprocess_readlink() below can change a link's target of length target_len, read
+// through linkpath: only a target that starts with the rootfs path (at least that long) or a relative
+// one into /etc/alternatives ("../etc/alternatives", 19 characters; any "../" under
+// /etc/alternatives itself). lstat() of a link reads it only then, to report its rewritten length.
+static int readlink_result_may_change(const char *linkpath, long long target_len) {
+    if (g_cortex_root_len > 0 && target_len >= (long long)g_cortex_root_len) return 1;
+    if (!linkpath || linkpath[0] != '/') return 0;
+    if (strncmp(linkpath, "/etc/alternatives", 17) == 0) return target_len >= 2;
+    return target_len >= 19;
+}
 
 // Helper for path normalization
 static void normalize_path(char *path) {
@@ -232,8 +241,6 @@ static ssize_t postprocess_readlink(const char *linkpath, char *buf, ssize_t ret
 
     return ret;
 }
-
-#endif /* !CORTEX_HOST_TEST */
 
 // Android's SELinux label, which the xattr hooks keep away from Ubuntu programs.
 static const char k_selinux_xattr[] = "security.selinux";

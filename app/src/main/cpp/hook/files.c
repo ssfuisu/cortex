@@ -437,7 +437,8 @@ int lstat(const char *pathname, struct stat *statbuf) {
             if (ret == 0) target = retry;
         }
     }
-    if (ret == 0 && statbuf && S_ISLNK(statbuf->st_mode) && g_cortex_root[0] != '\0' && target) {
+    if (ret == 0 && statbuf && S_ISLNK(statbuf->st_mode) && g_cortex_root[0] != '\0' && target &&
+        readlink_result_may_change(pathname, (long long)statbuf->st_size)) {
         char link_buf[PATH_MAX];
         static ssize_t (*orig_readlink)(const char *, char *, size_t) = NULL;
         if (!orig_readlink) orig_readlink = (ssize_t (*)(const char *, char *, size_t))dlsym(RTLD_NEXT, "readlink");
@@ -468,7 +469,8 @@ int fstatat(int dirfd, const char *pathname, struct stat *statbuf, int flags) {
             if (ret == 0) target = retry;
         }
     }
-    if (ret == 0 && statbuf && (flags & AT_SYMLINK_NOFOLLOW) && S_ISLNK(statbuf->st_mode) && g_cortex_root[0] != '\0' && target) {
+    if (ret == 0 && statbuf && (flags & AT_SYMLINK_NOFOLLOW) && S_ISLNK(statbuf->st_mode) && g_cortex_root[0] != '\0' && target &&
+        readlink_result_may_change(pathname, (long long)statbuf->st_size)) {
         char link_buf[PATH_MAX];
         static ssize_t (*orig_readlinkat)(int, const char *, char *, size_t) = NULL;
         if (!orig_readlinkat) orig_readlinkat = (ssize_t (*)(int, const char *, char *, size_t))dlsym(RTLD_NEXT, "readlinkat");

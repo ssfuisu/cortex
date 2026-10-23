@@ -266,12 +266,16 @@ jobs:
           docker cp extra-rootfs/. "$CID_64":/
           docker start "$CID_64"
 
-          echo "Pre-updating packages and caching APT lists for ARM64..."
+          echo "Updating the packages of the ARM64 image..."
           docker exec -e DEBIAN_FRONTEND=noninteractive "$CID_64" apt-get update -o Acquire::Retries=3
           docker exec -e DEBIAN_FRONTEND=noninteractive "$CID_64" apt-get -y --no-install-recommends upgrade
           docker exec "$CID_64" apt-get clean
           docker exec "$CID_64" rm -f /var/lib/apt/lists/lock /var/lib/dpkg/lock* /var/cache/apt/archives/lock 2>/dev/null || true
           docker exec "$CID_64" rm -rf /var/cache/apt/archives/*.deb /tmp/* 2>/dev/null || true
+          # No package lists in the app: they are out of date by the time anyone installs it and took
+          # 58 MB of the archive (lz4, which the APK's deflate cannot shrink). /usr/local/bin/apt runs
+          # "apt-get update" before the first command that needs them (apt-autoupdate.sh).
+          docker exec "$CID_64" sh -c 'find /var/lib/apt/lists -mindepth 1 -maxdepth 1 ! -name partial -exec rm -rf {} +'
 
           docker stop "$CID_64"
           docker export "$CID_64" > app/src/main/assets/bootstrap-arm64.tar
@@ -284,12 +288,16 @@ jobs:
           docker cp extra-rootfs/. "$CID_32":/
           docker start "$CID_32"
 
-          echo "Pre-updating packages and caching APT lists for ARMv7..."
+          echo "Updating the packages of the ARMv7 image..."
           docker exec -e DEBIAN_FRONTEND=noninteractive "$CID_32" apt-get update -o Acquire::Retries=3
           docker exec -e DEBIAN_FRONTEND=noninteractive "$CID_32" apt-get -y --no-install-recommends upgrade
           docker exec "$CID_32" apt-get clean
           docker exec "$CID_32" rm -f /var/lib/apt/lists/lock /var/lib/dpkg/lock* /var/cache/apt/archives/lock 2>/dev/null || true
           docker exec "$CID_32" rm -rf /var/cache/apt/archives/*.deb /tmp/* 2>/dev/null || true
+          # No package lists in the app: they are out of date by the time anyone installs it and took
+          # 58 MB of the archive (lz4, which the APK's deflate cannot shrink). /usr/local/bin/apt runs
+          # "apt-get update" before the first command that needs them (apt-autoupdate.sh).
+          docker exec "$CID_32" sh -c 'find /var/lib/apt/lists -mindepth 1 -maxdepth 1 ! -name partial -exec rm -rf {} +'
 
           docker stop "$CID_32"
           docker export "$CID_32" > app/src/main/assets/bootstrap-arm.tar

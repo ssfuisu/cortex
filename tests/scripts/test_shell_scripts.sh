@@ -27,7 +27,7 @@ cleanup() {
 trap cleanup EXIT
 
 echo "=== 0. Checking LF line endings and syntax ==="
-for script_name in reload.sh service.sh systemctl.sh su.sh cortex-shell.sh cortex-backup.sh cortex-api.sh notify-send.sh; do
+for script_name in reload.sh service.sh systemctl.sh su.sh cortex-shell.sh cortex-backup.sh cortex-api.sh notify-send.sh apt-autoupdate.sh; do
     script_path="$ASSETS_SCRIPTS/$script_name"
     if LC_ALL=C grep -q $'\r' "$script_path"; then
         fail "$script_name contains CRLF line endings"
@@ -355,6 +355,59 @@ CORTEX_API_CONF="$API_CONF" PATH="$API_DIR/bin:$PATH" bash "$ASSETS_SCRIPTS/noti
 CORTEX_API_CONF="$API_CONF" PATH="$API_DIR/bin:$PATH" bash "$ASSETS_SCRIPTS/notify-send.sh" </dev/null 2>/dev/null
 [ "$?" = 1 ] && pass "notify-send without a summary fails" || fail "notify-send without a summary did not fail"
 kill "$API_PID" 2>/dev/null; wait "$API_PID" 2>/dev/null
+
+echo "=== 3c. Testing apt-autoupdate.sh (apt and apt-get without package lists) ==="
+APT_T="$TEST_TMP/apt-auto"
+mkdir -p "$APT_T/bin" "$APT_T/lists/partial" "$APT_T/local"
+for tool in apt apt-get; do
+    # stand-ins that record how they were called
+    printf '#!/bin/bash\necho "%s $*" >> "%s/calls"\nif [ "$1" = update ]; then : > "%s/lists/ports_noble_main_binary-arm64_Packages.lz4"; fi\nexit "${FAKE_STATUS:-0}"\n' \
+        "$tool" "$APT_T" "$APT_T" > "$APT_T/bin/$tool"
+    chmod +x "$APT_T/bin/$tool"
+    cp "$ASSETS_SCRIPTS/apt-autoupdate.sh" "$APT_T/local/$tool"
+    chmod +x "$APT_T/local/$tool"
+done
+apt_auto() { CORTEX_APT_BIN="$APT_T/bin" CORTEX_APT_LISTS="$APT_T/lists" "$APT_T/local/$1" "${@:2}"; }
+: > "$APT_T/calls"
+msg=$(apt_auto apt-get -y install hello 2>&1 >/dev/null)
+if [ "$(cat "$APT_T/calls")" = "$(printf 'apt-get update\napt-get -y install hello')" ]; then
+    pass "apt-get install without package lists runs apt-get update first"
+else
+    fail "apt-get install without lists: calls were '$(cat "$APT_T/calls" | tr '\n' '|')'"
+fi
+case "$msg" in *"package lists are empty"*) pass "it says why it updates" ;; *) fail "no message: '$msg'" ;; esac
+: > "$APT_T/calls"
+apt_auto apt install curl >/dev/null 2>&1
+if [ "$(cat "$APT_T/calls")" = "apt install curl" ]; then
+    pass "with package lists apt install runs directly"
+else
+    fail "with lists: calls were '$(cat "$APT_T/calls" | tr '\n' '|')'"
+fi
+rm -f "$APT_T/lists/"*_Packages*
+: > "$APT_T/calls"
+apt_auto apt list --installed >/dev/null 2>&1
+apt_auto apt-get -o Debug::X=1 clean >/dev/null 2>&1
+if [ "$(cat "$APT_T/calls")" = "$(printf 'apt list --installed\napt-get -o Debug::X=1 clean')" ]; then
+    pass "commands that need no package lists never update"
+else
+    fail "commands without lists: calls were '$(cat "$APT_T/calls" | tr '\n' '|')'"
+fi
+: > "$APT_T/calls"
+FAKE_STATUS=7 apt_auto apt-get install x >/dev/null 2>&1
+status=$?
+if [ "$status" = 7 ] && [ "$(cat "$APT_T/calls")" = "apt-get update" ]; then
+    pass "a failing update stops the command with its status"
+else
+    fail "failing update: status $status, calls '$(cat "$APT_T/calls" | tr '\n' '|')'"
+fi
+rm -f "$APT_T/lists/"*_Packages*
+FAKE_STATUS=3 apt_auto apt-get remove x >/dev/null 2>&1
+status=$?
+if [ "$status" = 3 ]; then
+    pass "the real program's status is passed on"
+else
+    fail "status of the real program: $status"
+fi
 
 echo "=== 4. Testing simple xdg-open script ==="
 XDG_OPEN_TEST="$TEST_TMP/xdg-open"
