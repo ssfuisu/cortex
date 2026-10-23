@@ -313,5 +313,19 @@ fi
         grep -E "$PKG|BootstrapManager|MainActivity|CortexPty|Choreographer" | sed 's/^/  /'
 } | tee "$OUT/timings.txt"
 
+# The same figures for timing-trend.sh, one KEY=VALUE per line (empty when missing)
+first_number() { grep -oE "$1" "$2" 2>/dev/null | head -n 1 | grep -oE '[0-9]+' | head -n 1; }
+{
+    echo "first_start_ms=$(first_number 'TotalTime: [0-9]+' "$OUT/first-start.txt")"
+    echo "extract_ms=$(first_number 'Extracted the base system in [0-9]+' "$OUT/logcat.txt")"
+    echo "install_ms=$(first_number 'Base system installed in [0-9]+' "$OUT/logcat.txt")"
+    echo "restart_ms=$(first_number 'TotalTime: [0-9]+' "$OUT/restart.txt")"
+    echo "maintenance_ms=$(first_number 'Start-up maintenance took [0-9]+' "$OUT/logcat.txt")"
+    echo "update_start_ms=$(first_number 'TotalTime: [0-9]+' "$OUT/update-start.txt")"
+    echo "update_ms=$(first_number 'Base system updated in [0-9]+' "$OUT/logcat.txt")"
+    echo "session_start_us=$(grep -oE 'Session process [0-9]+ started in [0-9]+' "$OUT/logcat.txt" | head -n 1 | grep -oE '[0-9]+$')"
+} > "$OUT/timings.env"
+cat "$OUT/timings.env"
+
 log "Took $((SECONDS - STARTED)) s"
 exit $status

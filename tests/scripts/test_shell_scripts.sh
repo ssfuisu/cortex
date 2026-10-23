@@ -611,13 +611,39 @@ else
 fi
 
 echo "=== 9b. Checking the emulator test scripts ==="
-for e2e_script in run-emulator-test.sh in-terminal.sh diagnose.sh use-emu-runner.sh; do
+for e2e_script in run-emulator-test.sh in-terminal.sh diagnose.sh use-emu-runner.sh timing-trend.sh; do
     if bash -n "$REPO_ROOT/tests/e2e/$e2e_script" 2>/dev/null; then
         pass "$e2e_script passes bash -n syntax check"
     else
         fail "$e2e_script failed bash -n syntax check"
     fi
 done
+TREND_T="$TEST_TMP/trend"
+mkdir -p "$TREND_T"
+for v in 1000 1200 1100; do
+    printf 'first_start_ms=%s\nrestart_ms=900\n' "$v" > "$TREND_T/t.env"
+    bash "$REPO_ROOT/tests/e2e/timing-trend.sh" "$TREND_T/t.env" "$TREND_T/h/timings.csv" "run$v" >/dev/null 2>&1
+done
+printf 'first_start_ms=2000\nrestart_ms=800\ninstall_ms=4000\n' > "$TREND_T/t.env"
+trend_out=$(bash "$REPO_ROOT/tests/e2e/timing-trend.sh" "$TREND_T/t.env" "$TREND_T/h/timings.csv" now 2>"$TREND_T/err")
+trend_status=$?
+if [ "$trend_status" = 0 ] && printf '%s\n' "$trend_out" | grep -qF '| first_start_ms | 2000 | 1100 | +82% |' &&
+    printf '%s\n' "$trend_out" | grep -qF '| restart_ms | 800 | 900 | -11% |' &&
+    printf '%s\n' "$trend_out" | grep -qF '| install_ms | 4000 | - | - |'; then
+    pass "timing-trend.sh compares a run with the median of the earlier ones"
+else
+    fail "timing-trend.sh table: $trend_out"
+fi
+if grep -q '::warning::first_start_ms' "$TREND_T/err" && ! grep -q 'restart_ms' "$TREND_T/err"; then
+    pass "timing-trend.sh warns only about figures 50% above the median"
+else
+    fail "timing-trend.sh warnings: $(cat "$TREND_T/err")"
+fi
+if [ "$(tail -n 1 "$TREND_T/h/timings.csv")" = "now,2000,,4000,800,,,," ] && [ "$(wc -l < "$TREND_T/h/timings.csv")" = 5 ]; then
+    pass "timing-trend.sh adds the run to the history"
+else
+    fail "timing-trend.sh history: $(tail -n 2 "$TREND_T/h/timings.csv" | tr '\n' '|')"
+fi
 
 echo "=== 9. Checking the benchmark runner ==="
 if bash -n "$REPO_ROOT/tests/bench/run-micro.sh" 2>/dev/null; then

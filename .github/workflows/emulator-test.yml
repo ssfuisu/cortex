@@ -54,6 +54,14 @@ jobs:
           sudo udevadm trigger --name-match=kvm
           ls -l apks
 
+      # The start-up figures of earlier runs (timing-trend.sh), kept in the Actions cache
+      - name: Restore the start-up timing history
+        uses: actions/cache/restore@v4
+        with:
+          path: e2e-history
+          key: e2e-timings-api${{ matrix.api-level }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: e2e-timings-api${{ matrix.api-level }}-
+
       - name: Run the test on the emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -67,6 +75,22 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot
           disable-animations: true
           script: bash tests/e2e/run-emulator-test.sh apks e2e-out
+
+      - name: Compare the start-up times with earlier runs
+        if: always() && hashFiles('e2e-out/timings.env') != ''
+        run: |
+          {
+            echo "### Start-up times (API ${{ matrix.api-level }} emulator)"
+            echo
+            bash tests/e2e/timing-trend.sh e2e-out/timings.env e2e-history/timings.csv "${{ github.run_id }}/${GITHUB_SHA::7}"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Save the start-up timing history
+        if: always() && hashFiles('e2e-history/timings.csv') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: e2e-history
+          key: e2e-timings-api${{ matrix.api-level }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Upload results and screenshots
         if: always()

@@ -364,6 +364,7 @@ object BootstrapManager {
             }
         }, "Cortex-BootstrapStream")
         writer.start()
+        val started = android.os.SystemClock.uptimeMillis()
         val result = try {
             PtyNative.extractTarFd(pipe[0].fd, root.absolutePath)
         } catch (t: Throwable) {
@@ -374,6 +375,7 @@ object BootstrapManager {
             writer.join()
         }
         readError?.let { Log.e(TAG, "Reading the bootstrap archive failed", it) }
+        Log.i(TAG, "Extracted the base system in ${android.os.SystemClock.uptimeMillis() - started} ms (status $result)")
         return result == 0 && readError == null
     }
 
