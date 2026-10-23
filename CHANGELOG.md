@@ -4,6 +4,53 @@ What changed in each version of Cortex Terminal, newest first. The release workf
 of a GitHub release from the section of its version here. Older versions are described on the
 [GitHub releases](https://github.com/ssfuisu/cortex/releases) page.
 
+## 1.26.37 (2026-10-23)
+
+### New
+
+- **The fastest Ubuntu mirror.** After the first start Cortex measures Ubuntu's mirrors once and
+  lets apt use the one that answers fastest from where the phone is, if it has the current
+  packages and is clearly faster than Ubuntu's own server (which is slow from some countries).
+  Security updates still come from Ubuntu's server, and apt checks every package against Ubuntu's
+  signature as before. `cortex-api mirror show` tells which mirror apt uses, `cortex-api mirror
+  auto` measures them again and `cortex-api mirror official` goes back to Ubuntu's server. Sources
+  changed by hand are left alone.
+- **Send a bug report** (Settings > Community & Support): a text file with the versions of the app,
+  Android and Ubuntu, the state of root mode and the app's own log, shared with an app you choose.
+  Nothing is sent otherwise.
+- The first start shows how far unpacking Ubuntu has got.
+
+### Improved
+
+- **The app is half the size.** It no longer contains Ubuntu's package lists, which were weeks old
+  by the time the app was installed: the first `apt install` (or `apt upgrade`, `apt search`...)
+  runs `apt update` by itself.
+- **Hard links** made by one program are now seen by all others, also after Cortex restarts:
+  `ln a b` and then `ls -li` or `stat` show the same inode and a link count of 2, as tools such as
+  `tar`, `rsync -H`, `du` and `find -samefile` expect. (Android does not let apps make real hard
+  links, so Cortex copies the file and shows the copies as one; a copy that is written to becomes a
+  file of its own.)
+- New terminal sessions start faster, without copying the app's memory.
+- The terminal takes in plain text (build logs, `cat` of a big file) about twice as fast, and
+  finding links in the output costs less.
+- Looking at symlinks (`ls -l`, `find`, `stat`) is faster in normal mode.
+- The first start and updates of the app look for Ubuntu's dynamic linker only in the library
+  directories instead of the whole system.
+
+### Fixed
+
+- On Android 14 the settings reached under the navigation bar, which covered the last ones.
+- `~/.local/bin/reload` was only installed from the second start on.
+
+### For developers
+
+- `BootstrapManagerFlowTest` runs the first start, later starts, the update after a new release and
+  the extraction on the JVM with Robolectric, on the test machine's file system.
+- `UbuntuOnDeviceTest` (`app/src/androidTest`) installs Ubuntu on a real phone and runs commands in
+  it; CI runs it on Firebase Test Lab once the repository is set up for it (`tests/device/README.md`).
+- The emulator test also tries the 32-bit APK, on the Android 11 emulator (the only one that runs
+  32-bit ARM code), and compares the start-up times with earlier runs in the job summary.
+
 ## 1.26.36 (2026-10-23)
 
 ### Improved

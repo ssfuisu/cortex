@@ -185,6 +185,7 @@ cortex-api toast "hello"
 cortex-api tts "hello"
 cortex-api vibrate -d 500
 cortex-api wakelock on              # also: wakelock off, wakelock status
+cortex-api mirror show              # the Ubuntu mirror apt uses; also: mirror auto, mirror official
 cortex-api info
 cortex-api --help
 ```
@@ -238,7 +239,7 @@ No PRoot and no virtual machine. Programs run directly on the Android kernel. In
 Android 7.0 and newer. There are two APKs: `Cortex-arm64-v8a-signed.apk` for 64-bit devices (almost all current phones) and `Cortex-armeabi-v7a-signed.apk` for 32-bit ARM.
 
 **How do I install software?**
-Use `apt` like on any Ubuntu system, for example `apt update && apt install git python3 build-essential openjdk-17-jdk`. Installers such as `nvm` also work, and a changed `~/.bashrc` is picked up at the next prompt.
+Use `apt` like on any Ubuntu system, for example `apt install git python3 build-essential openjdk-17-jdk`. The app comes without package lists (they would be weeks old and made the app twice as big), so the first `apt install` runs `apt update` by itself. After the first start Cortex measures Ubuntu's mirrors once and lets apt use the fastest one with the current packages, if it is clearly faster than Ubuntu's own server (`cortex-api mirror show` tells which; `cortex-api mirror official` goes back; security updates always come from Ubuntu's server, and apt checks every package against Ubuntu's signature whichever mirror it comes from). Installers such as `nvm` also work, and a changed `~/.bashrc` is picked up at the next prompt.
 
 **Is there a desktop or GUI?**
 Not yet. Cortex is a terminal; there is no X11 or Wayland server.
@@ -262,7 +263,7 @@ Run `cortex-backup`. See [Backup and Restore](#backup-and-restore).
 The app checks the [releases page](https://github.com/ssfuisu/cortex/releases) and offers to install new versions.
 
 **Where do I report problems or ask questions?**
-On [GitHub Issues](https://github.com/ssfuisu/cortex/issues) or on [Telegram](https://t.me/ratzgn).
+On [GitHub Issues](https://github.com/ssfuisu/cortex/issues) or on [Telegram](https://t.me/ratzgn). Settings > Send a bug report makes a text file with the versions of the app, Android and Ubuntu and the app's log, and shares it with an app you choose; attach it to the report.
 
 ---
 
