@@ -4,7 +4,7 @@ What changed in each version of Cortex Terminal, newest first. The release workf
 of a GitHub release from the section of its version here. Older versions are described on the
 [GitHub releases](https://github.com/ssfuisu/cortex/releases) page.
 
-## Unreleased
+## 1.26.35 (2026-10-23)
 
 ### New
 
@@ -14,6 +14,12 @@ of a GitHub release from the section of its version here. Older versions are des
   the commands). It works in normal and in root mode. `notify-send` now shows its notifications on
   Android, and `xdg-open` (with `open`, `termux-open` and the browser names) opens links and files
   in Android apps instead of only printing them. Only Cortex itself and root can use it.
+
+### Good to know
+
+- Android lets an app open other apps and read the clipboard only while it is on screen:
+  `cortex-api open`, `share` and `clipboard-get` report an error while Cortex is in the background
+  (`xdg-open` then prints the link as before).
 
 ### Fixed
 
