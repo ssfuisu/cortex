@@ -15,9 +15,14 @@ set -u
 APK_DIR="$1"
 OUT="$2"
 ABI="${3:-arm64-v8a}"
+# RUN_UBUNTU: whether the emulator's translator runs Ubuntu's programs. Android 11's translator of
+# 32-bit ARM code (the only one there is) stops every program of Ubuntu's armhf glibc that sets a
+# signal handler, bash first of all ("Unknown Thumb sa_restorer in guest sigaction!": glibc's signal
+# return code is Thumb code it does not know). Phones run the code themselves. On the emulator the
+# 32-bit APK is tested as far as an installed and set-up Ubuntu (check_unpacked_system).
 case "$ABI" in
-    arm64-v8a) BINFMT_NAME=arm64 DPKG_ARCH=arm64 ;;
-    armeabi-v7a) BINFMT_NAME=arm DPKG_ARCH=armhf ;;
+    arm64-v8a) BINFMT_NAME=arm64 DPKG_ARCH=arm64 RUN_UBUNTU=1 ;;
+    armeabi-v7a) BINFMT_NAME=arm DPKG_ARCH=armhf RUN_UBUNTU=0 ;;
     *) echo "unknown ABI $ABI" >&2; exit 2 ;;
 esac
 DEVICE_OUT=/sdcard/Download/cortex-e2e
@@ -78,6 +83,40 @@ wait_for() { # wait_for SECONDS COMMAND...: retries COMMAND every 5 s until it s
         [ "$SECONDS" -lt "$deadline" ] || return 1
         sleep 5
     done
+}
+
+pass_or_fail() { # pass_or_fail DESCRIPTION COMMAND...: a PASS or FAIL line; a failure sets status
+    local what="$1"
+    shift
+    if "$@"; then
+        echo "PASS $what"
+    else
+        echo "FAIL $what"
+        status=1
+    fi
+}
+version_is() { [ "$(sh_ cat "$DATA/files/cortex/.cortex_version")" = "$1" ]; }
+app_runs() { [ -n "$(sh_ pidof "$PKG")" ]; }
+app_is_32bit() { sh_ "readlink /proc/\$(pidof -s $PKG)/exe" | grep -q app_process32; }
+
+# ELF_FILE ELF_CLASS MACHINE: the file is an ELF file of that class (01: 32-bit) and machine (28: ARM)
+elf_is() {
+    set -- "$1" "$2" "$3" $(sh_ "od -An -tx1 -N20 $1" | tr -s ' \n' ' ')
+    [ "$4$5$6$7" = 7f454c46 ] && [ "$8" = "$2" ] && [ "${22}" = "$3" ]
+}
+
+# The 32-bit APK, where the emulator does not run Ubuntu's programs (see RUN_UBUNTU): the app's
+# process is a 32-bit one, and the unpacked and set-up system is the armhf one.
+check_unpacked_system() {
+    local root="$DATA/files/cortex" f
+    pass_or_fail "the app runs as a 32-bit process" app_is_32bit
+    pass_or_fail "bash is a 32-bit ARM program" elf_is "$root/usr/bin/bash" 01 28
+    pass_or_fail "the hook library is the 32-bit ARM one" elf_is "$root/usr/lib/libcortex-hook.so" 01 28
+    for f in usr/lib/arm-linux-gnueabihf/ld-linux-armhf.so.3 usr/lib/arm-linux-gnueabihf/libc.so.6 \
+        usr/local/bin/apt etc/resolv.conf etc/passwd var/lib/dpkg/status home/.bashrc; do
+        pass_or_fail "/$f is set up" run_ test -e "$root/$f"
+    done
+    pass_or_fail "the packages are armhf ones" run_ "grep -q '^Architecture: armhf' $root/var/lib/dpkg/status"
 }
 
 log "Emulator"
@@ -159,10 +198,16 @@ log "Ubuntu unpacked after $((SECONDS - STARTED)) s"
 sleep 15
 shot "02-terminal"
 
-log "Running the tests in the terminal"
 size=$(sh_ wm size | sed -n 's/.*: \([0-9]*\)x\([0-9]*\)$/\1 \2/p' | tail -n 1)
 WIDTH=${size% *}
 HEIGHT=${size#* }
+status=0
+
+if [ "$RUN_UBUNTU" = 0 ]; then
+    log "The installed system (the emulator does not run $ABI programs of Ubuntu)"
+    check_unpacked_system
+else
+log "Running the tests in the terminal"
 tap_center "$WIDTH" "$HEIGHT"
 sleep 2
 TEST_COMMAND="CORTEX_E2E_EMULATOR=1 CORTEX_E2E_ARCH=$DPKG_ARCH bash /sdcard/Download/cortex-e2e.sh"
@@ -193,7 +238,6 @@ log "Results"
 cat "$OUT/cortex-e2e/results.txt"
 cat "$OUT/cortex-e2e/done"
 
-status=0
 grep -q '^FAIL' "$OUT/cortex-e2e/results.txt" && status=1
 notifications=$(sh_ dumpsys notification --noredact)
 for title in "Cortex e2e notification" "Cortex e2e notify-send"; do
@@ -244,6 +288,7 @@ if tap_id btnDrawerSettings; then
 else
     log "no settings button found"
 fi
+fi # RUN_UBUNTU
 
 log "Restart"
 # Cortex again in a new process, as after Android stopped it: the normal start of an installed system,
@@ -254,14 +299,13 @@ run_ am force-stop "$PKG"
 sleep 3
 sh_ am start -W -n "$PKG/org.cortex.terminal.MainActivity" | tee "$OUT/restart.txt"
 sleep 10
-tap_center "$WIDTH" "$HEIGHT"
-sleep 2
-type_line "id -u > $DEVICE_OUT/after-restart.txt"
-if wait_for 90 run_ test -s "$DEVICE_OUT/after-restart.txt"; then
-    echo "PASS a session works after a restart"
+if [ "$RUN_UBUNTU" = 1 ]; then
+    tap_center "$WIDTH" "$HEIGHT"
+    sleep 2
+    type_line "id -u > $DEVICE_OUT/after-restart.txt"
+    pass_or_fail "a session works after a restart" wait_for 90 run_ test -s "$DEVICE_OUT/after-restart.txt"
 else
-    echo "FAIL no working session after a restart"
-    status=1
+    pass_or_fail "the app runs after a restart" app_runs
 fi
 shot "16-after-restart"
 sleep 20 # the background checks of the start
@@ -275,16 +319,13 @@ run_ am force-stop "$PKG"
 sleep 3
 sh_ am start -W -n "$PKG/org.cortex.terminal.MainActivity" | tee "$OUT/update-start.txt"
 sleep 15
-tap_center "$WIDTH" "$HEIGHT"
-sleep 2
-type_line "id -u > $DEVICE_OUT/after-update.txt"
-if wait_for 120 run_ test -s "$DEVICE_OUT/after-update.txt"; then
-    echo "PASS a session works after an update"
-else
-    echo "FAIL no working session after an update"
-    status=1
+if [ "$RUN_UBUNTU" = 1 ]; then
+    tap_center "$WIDTH" "$HEIGHT"
+    sleep 2
+    type_line "id -u > $DEVICE_OUT/after-update.txt"
+    pass_or_fail "a session works after an update" wait_for 120 run_ test -s "$DEVICE_OUT/after-update.txt"
 fi
-if [ "$(sh_ cat "$DATA/files/cortex/.cortex_version")" = "$current_version" ]; then
+if wait_for 120 version_is "$current_version"; then
     echo "PASS the update marked the system as current ($current_version)"
 else
     echo "FAIL the system is still marked as $(sh_ cat "$DATA/files/cortex/.cortex_version")"

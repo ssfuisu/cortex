@@ -48,8 +48,10 @@ of a GitHub release from the section of its version here. Older versions are des
   the extraction on the JVM with Robolectric, on the test machine's file system.
 - `UbuntuOnDeviceTest` (`app/src/androidTest`) installs Ubuntu on a real phone and runs commands in
   it; CI runs it on Firebase Test Lab once the repository is set up for it (`tests/device/README.md`).
-- The emulator test also tries the 32-bit APK, on the Android 11 emulator (the only one that runs
-  32-bit ARM code), and compares the start-up times with earlier runs in the job summary.
+- The emulator test also installs the 32-bit APK, on the Android 11 emulator (the only one that
+  runs 32-bit ARM code; its translator stops Ubuntu's armhf programs, so that test ends with the
+  installed and set-up system), and compares the start-up times with earlier runs in the job
+  summary.
 
 ## 1.26.36 (2026-10-23)
 

@@ -30,12 +30,13 @@ jobs:
             abi: arm64-v8a
             experimental: false
           # The 32-bit APK: of Google's x86_64 images only Android 11's translates 32-bit ARM code
-          # (the later ones run 64-bit apps only). Reported without failing the run until it is
-          # known how far Ubuntu gets there.
+          # (the later ones run 64-bit apps only), and it stops Ubuntu's armhf programs, so this
+          # tests the app as far as an installed and set-up Ubuntu (RUN_UBUNTU in
+          # run-emulator-test.sh).
           - id: api30-armeabi-v7a
             api-level: 30
             abi: armeabi-v7a
-            experimental: true
+            experimental: false
     steps:
       - name: Checkout Source Code
         uses: actions/checkout@v4
