@@ -251,4 +251,36 @@ class TerminalBufferTest {
         assertEquals(listOf("b", "c", "d"), buffer.allRowsWithIndex().map { it.second.getText() })
         assertEquals(0, buffer.history.size)
     }
+
+    @Test
+    fun lastRowsWithIndex_isTheTailOfAllRows() {
+        val buffer = TerminalBuffer(rows = 3, cols = 4)
+        repeat(10) { n ->
+            buffer.writeChar(('a' + n))
+            buffer.carriageReturn()
+            buffer.newLine()
+        }
+        val all = buffer.allRowsWithIndex()
+        for (count in listOf(0, 1, 2, 3, 5, 9, 100)) {
+            val tail = buffer.lastRowsWithIndex(count)
+            val expected = all.takeLast(minOf(count, all.size))
+            assertEquals("count $count", expected.map { it.first }, tail.map { it.first })
+            assertTrue("count $count: the same rows", expected.zip(tail).all { (a, b) -> a.second === b.second })
+        }
+    }
+
+    @Test
+    fun urlFlagsAreClearedOnlyWhereSet() {
+        val buffer = TerminalBuffer(rows = 2, cols = 4)
+        val row = buffer.screen[0]
+        row.isUrlLink[1] = true
+        row.hasUrlFlags = true
+        buffer.clearUrlHighlights()
+        assertTrue(row.isUrlLink.none { it })
+        assertFalse(row.hasUrlFlags)
+        row.isUrlLink[2] = true
+        row.hasUrlFlags = true
+        row.clear()
+        assertFalse("clearing a row clears its link flags", row.hasUrlFlags || row.isUrlLink.any { it })
+    }
 }

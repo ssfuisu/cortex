@@ -211,9 +211,23 @@ class TerminalEmulator(
                 utf8Decoder.decode(utf8ByteBuffer, charBuffer, false)
                 charBuffer.flip()
 
-                while (charBuffer.hasRemaining()) {
-                    processChar(charBuffer.get())
+                // Runs of printable characters in the normal state go to the buffer a line at a time
+                val chars = charBuffer.array()
+                val limit = charBuffer.arrayOffset() + charBuffer.limit()
+                var i = charBuffer.arrayOffset() + charBuffer.position()
+                while (i < limit) {
+                    val c = chars[i]
+                    if (state == State.NORMAL && c >= ' ') {
+                        var j = i + 1
+                        while (j < limit && chars[j] >= ' ') j++
+                        buffer.writeRun(chars, i, j)
+                        i = j
+                    } else {
+                        processChar(c)
+                        i++
+                    }
                 }
+                charBuffer.position(charBuffer.limit())
 
                 utf8ByteBuffer.compact()
             }

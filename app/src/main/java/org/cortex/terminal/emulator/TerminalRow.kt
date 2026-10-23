@@ -44,6 +44,7 @@ class TerminalRow(val cols: Int) {
         isSearchMatch.fill(false)
         isSearchCurrent.fill(false)
         isUrlLink.fill(false)
+        hasUrlFlags = false
         links = null
         isWrapped = false
     }
@@ -61,6 +62,23 @@ class TerminalRow(val cols: Int) {
         }
     }
 
+    /** [n] characters of [src] from [srcPos] into the cells from [col] on, as [setChar] does for each. */
+    fun setChars(col: Int, src: CharArray, srcPos: Int, n: Int, fg: Int, bg: Int, style: Byte, link: String?) {
+        val from = col.coerceAtLeast(0)
+        val to = minOf(col + n, cols)
+        if (from >= to) return
+        System.arraycopy(src, srcPos + (from - col), chars, from, to - from)
+        fgColors.fill(fg, from, to)
+        bgColors.fill(bg, from, to)
+        styles.fill(style, from, to)
+        isSearchMatch.fill(false, from, to)
+        isSearchCurrent.fill(false, from, to)
+        isUrlLink.fill(false, from, to)
+        if (link != null || links != null) {
+            for (c in from until to) setLink(c, link)
+        }
+    }
+
     fun clearSearchFlags() {
         for (i in 0 until cols) {
             isSearchMatch[i] = false
@@ -68,10 +86,13 @@ class TerminalRow(val cols: Int) {
         }
     }
 
+    /** Set by whoever marks link cells, so that clearing the rows without any costs nothing. */
+    var hasUrlFlags: Boolean = false
+
     fun clearUrlFlags() {
-        for (i in 0 until cols) {
-            isUrlLink[i] = false
-        }
+        if (!hasUrlFlags) return
+        isUrlLink.fill(false)
+        hasUrlFlags = false
     }
 
     fun copyFrom(other: TerminalRow) {
@@ -86,6 +107,7 @@ class TerminalRow(val cols: Int) {
         System.arraycopy(other.isSearchCurrent, 0, isSearchCurrent, 0, cCount)
         val uCount = minOf(cols, other.isUrlLink.size)
         System.arraycopy(other.isUrlLink, 0, isUrlLink, 0, uCount)
+        hasUrlFlags = other.hasUrlFlags
         val otherLinks = other.links
         if (otherLinks == null) {
             links = null

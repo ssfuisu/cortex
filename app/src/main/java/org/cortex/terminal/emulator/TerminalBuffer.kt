@@ -309,6 +309,39 @@ class TerminalBuffer(var rows: Int, var cols: Int, private val maxHistory: Int =
         }
     }
 
+    /**
+     * Writes the printable characters [src] from [start] until [end] as [writeChar] would one by one,
+     * a line's worth at a time: ordinary output is mostly such runs.
+     */
+    fun writeRun(src: CharArray, start: Int, end: Int) {
+        var i = start
+        while (i < end) {
+            if (isWrapPending) {
+                if (cursorRow in 0 until rows) {
+                    screen[cursorRow].isWrapped = true
+                }
+                newLine()
+                cursorCol = 0
+                isWrapPending = false
+            }
+            val space = cols - cursorCol
+            if (space <= 1) {
+                writeChar(src[i++])
+                continue
+            }
+            val n = minOf(end - i, space)
+            val r = cursorRow.coerceIn(0, rows - 1)
+            screen[r].setChars(cursorCol, src, i, n, currentFg, currentBg, currentStyle, currentLink)
+            i += n
+            if (cursorCol + n - 1 >= cols - 1) {
+                cursorCol = cols - 1
+                isWrapPending = true
+            } else {
+                cursorCol += n
+            }
+        }
+    }
+
     fun carriageReturn() {
         isWrapPending = false
         cursorCol = 0
@@ -452,6 +485,19 @@ class TerminalBuffer(var rows: Int, var cols: Int, private val maxHistory: Int =
     fun clearUrlHighlights() {
         for (r in history) r.clearUrlFlags()
         for (r in screen) r.clearUrlFlags()
+    }
+
+    /** The newest [count] rows of scrollback and screen with their buffer row numbers, oldest first. */
+    fun lastRowsWithIndex(count: Int): List<Pair<Int, TerminalRow>> {
+        val screenCount = minOf(rows, screen.size)
+        val fromScreen = minOf(count, screenCount).coerceAtLeast(0)
+        val fromHistory = (count - fromScreen).coerceIn(0, history.size)
+        val out = ArrayList<Pair<Int, TerminalRow>>(fromHistory + fromScreen)
+        val newest = history.descendingIterator()
+        for (k in 1..fromHistory) out.add(Pair(-k, newest.next()))
+        out.reverse()
+        for (i in screenCount - fromScreen until screenCount) out.add(Pair(i, screen[i]))
+        return out
     }
 
     /**

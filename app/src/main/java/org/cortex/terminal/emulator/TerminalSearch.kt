@@ -6,7 +6,8 @@ object TerminalSearch {
         RegexOption.IGNORE_CASE
     )
 
-    data class UrlHit(val row: Int, val startCol: Int, val endCol: Int, val url: String)
+    /** A link in [row] (buffer row number), found in [rowRef]. */
+    data class UrlHit(val row: Int, val startCol: Int, val endCol: Int, val url: String, val rowRef: TerminalRow? = null)
 
     fun findAll(buffer: TerminalBuffer, query: String, ignoreCase: Boolean = true): List<TerminalBuffer.SearchHit> {
         val out = ArrayList<TerminalBuffer.SearchHit>()
@@ -34,18 +35,16 @@ object TerminalSearch {
      */
     fun findUrls(buffer: TerminalBuffer, maxRows: Int = 300): List<UrlHit> {
         val out = ArrayList<UrlHit>()
-        val all = buffer.allRowsWithIndex()
-        val from = maxOf(0, all.size - maxRows)
-        for (i in from until all.size) {
-            val rowIdx = all[i].first
-            val row = all[i].second
+        // Only the newest rows: listing the whole scrollback (thousands of rows) for them on every
+        // refresh during output was most of the cost.
+        for ((rowIdx, row) in buffer.lastRowsWithIndex(maxRows)) {
             val text = row.getText()
             if (text.isEmpty()) continue
             for (m in URL_REGEX.findAll(text)) {
                 val url = m.value.trimEnd('.', ',', ';', ':', '!', '?', ')', ']', '\'', '"')
                 if (url.isEmpty()) continue
                 val endCol = m.range.first + url.length - 1
-                out.add(UrlHit(rowIdx, m.range.first, endCol, url))
+                out.add(UrlHit(rowIdx, m.range.first, endCol, url, row))
                 if (out.size >= 400) return out
             }
         }

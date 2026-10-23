@@ -1385,10 +1385,11 @@ class TerminalView @JvmOverloads constructor(
             urlHits = urls
             emulator.buffer.clearUrlHighlights()
             for (u in urls) {
-                val row = emulator.buffer.rowForIndex(u.row) ?: continue
+                val row = u.rowRef ?: emulator.buffer.rowForIndex(u.row) ?: continue
                 for (c in u.startCol..u.endCol) {
                     if (c in 0 until row.cols) row.isUrlLink[c] = true
                 }
+                row.hasUrlFlags = true
             }
         }
         postInvalidate()
