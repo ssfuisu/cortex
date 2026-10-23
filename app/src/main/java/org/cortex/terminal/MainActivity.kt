@@ -430,6 +430,13 @@ class MainActivity : AppCompatActivity() {
             } catch (e: Exception) {
                 android.util.Log.e("MainActivity", "Startup C development packages failed", e)
             }
+            // The fastest Ubuntu mirror, chosen once (it needs the network: again on a later start
+            // when none answered)
+            try {
+                org.cortex.terminal.runtime.MirrorSelector.selectOnce(root)
+            } catch (e: Exception) {
+                android.util.Log.e("MainActivity", "Choosing a mirror failed", e)
+            }
             android.util.Log.i(
                 "MainActivity",
                 "Start-up maintenance took ${android.os.SystemClock.uptimeMillis() - started} ms"
@@ -477,6 +484,14 @@ class MainActivity : AppCompatActivity() {
                     BootstrapManager.ensureDevPackages(this, root)
                 } catch (t: Throwable) {
                     android.util.Log.e("MainActivity", "Post-bootstrap setup failed", t)
+                }
+                // Measuring the mirrors takes up to 15 s: not before the first session
+                kotlin.concurrent.thread(name = "Cortex-Mirror") {
+                    try {
+                        org.cortex.terminal.runtime.MirrorSelector.selectOnce(root)
+                    } catch (e: Exception) {
+                        android.util.Log.e("MainActivity", "Choosing a mirror failed", e)
+                    }
                 }
             }
             return installed

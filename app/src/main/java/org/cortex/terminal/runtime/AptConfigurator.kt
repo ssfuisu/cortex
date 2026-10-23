@@ -38,7 +38,7 @@ object AptConfigurator {
         "ubuntu-keyring-2012-cdimage.gpg"
     )
 
-    private const val DEFAULT_UBUNTU_SOURCES =
+    internal const val DEFAULT_UBUNTU_SOURCES =
         "Types: deb\n" +
         "URIs: https://ports.ubuntu.com/ubuntu-ports/\n" +
         "Suites: noble noble-updates noble-backports\n" +

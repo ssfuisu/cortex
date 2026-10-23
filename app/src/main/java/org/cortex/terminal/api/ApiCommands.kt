@@ -69,6 +69,7 @@ object ApiCommands {
             "share" -> share(context, req)
             "tts" -> tts(context, req)
             "wakelock" -> wakelock(context, req)
+            "mirror" -> mirror(context, req)
             else -> fail("unknown command '${req.command}' (cortex-api --help lists them)")
         }
     } catch (e: IllegalArgumentException) {
@@ -365,5 +366,19 @@ object ApiCommands {
             while (CortexService.isWakeLockHeld != want && SystemClock.uptimeMillis() < deadline) SystemClock.sleep(50)
         }
         return ok(if (CortexService.isWakeLockHeld) "on" else "off")
+    }
+
+    /** The Ubuntu mirror apt uses: shown, chosen anew by measuring them, or back to the official one. */
+    private fun mirror(context: Context, req: ApiRequest): ApiResult {
+        val root = org.cortex.terminal.runtime.Environment.getCortexRoot(context)
+        return when (req.args.singleOrNull() ?: "show") {
+            "show" -> ok(org.cortex.terminal.runtime.MirrorSelector.status(root))
+            "auto" -> ok(org.cortex.terminal.runtime.MirrorSelector.select(root, keepCustom = false))
+            "official" -> {
+                org.cortex.terminal.runtime.MirrorSelector.setMirror(root, org.cortex.terminal.runtime.MirrorSelector.OFFICIAL)
+                ok(org.cortex.terminal.runtime.MirrorSelector.OFFICIAL)
+            }
+            else -> throw IllegalArgumentException("usage: mirror [show|auto|official]")
+        }
     }
 }

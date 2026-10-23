@@ -15,6 +15,8 @@ Usage: cortex-api COMMAND [OPTIONS]
   clipboard-get                  print the clipboard
   clipboard-set [TEXT]           set the clipboard to TEXT (or stdin)
   info                           device and app information (JSON)
+  mirror [show|auto|official]    the Ubuntu mirror apt uses; auto measures them and takes
+                                 the fastest current one (security updates stay official)
   notification [-t TITLE] [-c TEXT] [-i ID]
                                  show a notification (TEXT from stdin without -c);
                                  prints its ID; showing the same ID again replaces it
