@@ -238,7 +238,10 @@ log "Results"
 cat "$OUT/cortex-e2e/results.txt"
 cat "$OUT/cortex-e2e/done"
 
-grep -q '^FAIL' "$OUT/cortex-e2e/results.txt" && status=1
+if grep -q '^FAIL' "$OUT/cortex-e2e/results.txt"; then
+    status=1
+    diagnose
+fi
 notifications=$(sh_ dumpsys notification --noredact)
 for title in "Cortex e2e notification" "Cortex e2e notify-send"; do
     if printf '%s\n' "$notifications" | grep -F -q "$title"; then

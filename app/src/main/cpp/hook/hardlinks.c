@@ -33,7 +33,8 @@
 
 typedef struct {
     uint64_t dev, ino;             // this copy
-    int64_t mtime_sec, mtime_nsec; // its modification time when it was linked
+    int64_t mtime_sec, mtime_nsec; // its modification time when it was linked (compared in whole
+                                   // seconds: stat() and statx() need not agree on the fraction)
     uint64_t group_dev, group_ino; // the original, whose inode number every copy reports
     uint32_t state;
     uint32_t nlink;                // copies in the group
@@ -47,6 +48,9 @@ typedef struct {
     uint32_t pad[11];
     cortex_hl_slot_t slots[CORTEX_HL_SLOTS];
 } cortex_hl_table_t;
+
+// The file and the mapping, in whole 64 KB: a size that is a multiple of every page size
+#define CORTEX_HL_MAP_SIZE ((sizeof(cortex_hl_table_t) + 0xffff) & ~(size_t)0xffff)
 
 static cortex_hl_table_t *g_hl_table = NULL; // set once, then never changed (until a test resets it)
 static int g_hl_shared = 0;                  // mapped from the rootfs' file
@@ -136,7 +140,7 @@ static cortex_hl_table_t *hl_table(int create) {
         if (fd >= 0) {
             off_t size = hl_file_size(fd);
             int ok = size >= 0;
-            if (ok && (size_t)size < sizeof(cortex_hl_table_t)) {
+            if (ok && (size_t)size < CORTEX_HL_MAP_SIZE) {
                 // New (or an older, shorter format): made by a writer, under the lock
                 ok = 0;
                 if (create) {
@@ -148,11 +152,11 @@ static cortex_hl_table_t *hl_table(int create) {
                     }
                     size = hl_file_size(fd);
                     ok = size >= 0 &&
-                         ((size_t)size >= sizeof(cortex_hl_table_t) || ftruncate(fd, sizeof(cortex_hl_table_t)) == 0);
+                         ((size_t)size >= CORTEX_HL_MAP_SIZE || ftruncate(fd, CORTEX_HL_MAP_SIZE) == 0);
                 }
             }
             if (ok) {
-                void *m = mmap(NULL, sizeof(cortex_hl_table_t), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+                void *m = mmap(NULL, CORTEX_HL_MAP_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
                 if (m != MAP_FAILED) {
                     t = (cortex_hl_table_t *)m;
                     if (t->magic != CORTEX_HL_MAGIC || t->version != CORTEX_HL_VERSION) {
@@ -166,7 +170,7 @@ static cortex_hl_table_t *hl_table(int create) {
                             }
                             if (t->magic != CORTEX_HL_MAGIC || t->version != CORTEX_HL_VERSION) hl_init_header(t);
                         } else {
-                            munmap(m, sizeof(cortex_hl_table_t));
+                            munmap(m, CORTEX_HL_MAP_SIZE);
                             t = NULL;
                         }
                     }
@@ -177,7 +181,7 @@ static cortex_hl_table_t *hl_table(int create) {
         }
         if (!t && create) {
             // No rootfs file: this process and its children share a table
-            void *m = mmap(NULL, sizeof(cortex_hl_table_t), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+            void *m = mmap(NULL, CORTEX_HL_MAP_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
             if (m != MAP_FAILED) {
                 t = (cortex_hl_table_t *)m;
                 hl_init_header(t);
@@ -312,7 +316,7 @@ static void register_emulated_hardlink(const struct stat *old, const struct stat
     int fd = hl_write_begin(t);
     uint64_t group_dev = old->st_dev, group_ino = old->st_ino;
     long i = hl_find_locked(t, old->st_dev, old->st_ino);
-    if (i >= 0 && t->slots[i].mtime_sec == old->st_mtim.tv_sec && t->slots[i].mtime_nsec == old->st_mtim.tv_nsec) {
+    if (i >= 0 && t->slots[i].mtime_sec == old->st_mtim.tv_sec) {
         // Linking a copy again: the new copy joins the same group
         group_dev = t->slots[i].group_dev;
         group_ino = t->slots[i].group_ino;
@@ -380,7 +384,7 @@ static void apply_emulated_hardlink(struct stat *st) {
     if (!st || !hardlinks_maybe_any()) return;
     cortex_hl_slot_t s;
     if (!hl_read(g_hl_table, st->st_dev, st->st_ino, &s)) return;
-    if (s.mtime_sec != (int64_t)st->st_mtim.tv_sec || s.mtime_nsec != (int64_t)st->st_mtim.tv_nsec) return;
+    if (s.mtime_sec != (int64_t)st->st_mtim.tv_sec) return;
     if (s.nlink > (uint32_t)st->st_nlink) st->st_nlink = (nlink_t)s.nlink;
     st->st_ino = (ino_t)s.group_ino;
 }

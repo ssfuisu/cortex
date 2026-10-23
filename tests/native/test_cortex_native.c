@@ -615,7 +615,7 @@ static void test_sigsys_and_close_fds(void) {
 
 /* Forgets this process' mapping of the hard link table, as a new process starts without one. */
 static void hl_reset_for_test(void) {
-    if (g_hl_table) munmap(g_hl_table, sizeof(cortex_hl_table_t));
+    if (g_hl_table) munmap(g_hl_table, CORTEX_HL_MAP_SIZE);
     g_hl_table = NULL;
     g_hl_shared = 0;
     g_hl_next_try = 0;
@@ -832,7 +832,7 @@ static void test_emulated_hardlinks_shared(void) {
     int status = 0;
     waitpid(pid, &status, 0);
     ASSERT_TRUE(WIFEXITED(status) && WEXITSTATUS(status) == 0, "a child process links a to b");
-    ASSERT_TRUE(stat(table, &sb) == 0 && (size_t)sb.st_size == sizeof(cortex_hl_table_t), "the table file is made in the rootfs");
+    ASSERT_TRUE(stat(table, &sb) == 0 && (size_t)sb.st_size == CORTEX_HL_MAP_SIZE && CORTEX_HL_MAP_SIZE % 65536 == 0, "the table file is made in the rootfs, in whole 64 KB");
 
     // A stat() while the table's lock is held (this library's fstat() inside the table's own set-up,
     // or a child forked while another thread held it) finds no table instead of waiting forever

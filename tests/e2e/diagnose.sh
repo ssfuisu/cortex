@@ -57,6 +57,17 @@ try "login bash with the hook, as the app's user" su "$uid" env -i $(env_for_she
     "$LDSO" "$ROOT/usr/bin/bash" -l -c 'echo login-ok'
 try "apt-get with the hook, as the app's user" su "$uid" env -i $(env_for_shell) "$HOOK" \
     "$LDSO" "$ROOT/usr/bin/bash" -c 'apt-get --version | head -n 1'
+# Emulated hard links (link() is denied to apps): ln in one process, stat in the next, and what they
+# do with the table of links that the processes share
+HL_TEST='cd "$(mktemp -d)" && echo one > a && ln a b && stat -c "%n: links %h, inode %i, device %d, modified %y" a b'
+try "hard links between processes, as the app's user" su "$uid" env -i $(env_for_shell) "$HOOK" \
+    "$LDSO" "$ROOT/usr/bin/bash" -c "$HL_TEST; ls -l /var/lib/cortex/hardlinks"
+if command -v strace >/dev/null; then
+    timeout 60 strace -f -o /data/local/tmp/cortex-strace-hl.txt su "$uid" env -i $(env_for_shell) "$HOOK" \
+        "$LDSO" "$ROOT/usr/bin/bash" -c "$HL_TEST" >/dev/null 2>&1
+    echo "--- system calls of ln and stat on the table and the files"
+    grep -E 'hardlinks|mmap\(NULL, 589824|F_SETLKW|linkat|statx\(|newfstatat\(' /data/local/tmp/cortex-strace-hl.txt | tail -n 60
+fi
 try "id without the hook" env -i $(env_for_shell) "$LDSO" "$ROOT/usr/bin/id"
 try "apt-get without the hook" env -i $(env_for_shell) "$LDSO" "$ROOT/usr/bin/apt-get" --version
 try "id with the hook, directly" env -i $(env_for_shell) "$HOOK" "$LDSO" "$ROOT/usr/bin/id"

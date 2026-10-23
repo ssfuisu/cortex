@@ -83,14 +83,21 @@ hard_links() {
 }
 export -f hard_links
 expect hard-links "links=2 same inode" hard_links
+# (what stat and perl see is printed, so that a failure shows which part differs)
 hard_links_between_processes() {
-    local d
-    d=$(mktemp -d) && cd "$d" && echo one > a && ln a b &&
-        [ "$(stat -c %h a)" = 2 ] && [ "$(stat -c %i a)" = "$(stat -c %i b)" ] &&
-        rm b && [ "$(stat -c %h a)" = 1 ] && echo "linked in one process, seen in others" && cd / && rm -rf "$d"
+    local d linked removed same=different
+    d=$(mktemp -d) && cd "$d" && echo one > a && ln a b || return 1
+    stat -c '%n: links %h, inode %i, device %d, modified %y' a b
+    perl -e 'for (@ARGV) { my @s = stat($_); print "$_ (perl): links $s[3], inode $s[1], device $s[0], modified $s[9]\n" }' a b
+    ls -l /var/lib/cortex/hardlinks
+    linked=$(stat -c %h a)
+    [ "$(stat -c %i a)" = "$(stat -c %i b)" ] && same=same
+    rm b && removed=$(stat -c %h a)
+    cd / && rm -rf "$d"
+    echo "links $linked then $removed, $same inode"
 }
 export -f hard_links_between_processes
-expect hard-links-shared "seen in others" hard_links_between_processes
+expect hard-links-shared "links 2 then 1, same inode" hard_links_between_processes
 check sha256sum bash -c 'echo hi | sha256sum | grep -q ^98ea6e4f216f2fb4b69fff9b3a44842c38686ca685f3f55dc48c5d3fb1107be4'
 check shared-storage bash -c 'echo hi > "$0/written-by-ubuntu.txt" && [ "$(cat "$0/written-by-ubuntu.txt")" = hi ]' "$OUT"
 
