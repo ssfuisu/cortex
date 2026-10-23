@@ -834,6 +834,15 @@ static void test_emulated_hardlinks_shared(void) {
     ASSERT_TRUE(WIFEXITED(status) && WEXITSTATUS(status) == 0, "a child process links a to b");
     ASSERT_TRUE(stat(table, &sb) == 0 && (size_t)sb.st_size == sizeof(cortex_hl_table_t), "the table file is made in the rootfs");
 
+    // A stat() while the table's lock is held (this library's fstat() inside the table's own set-up,
+    // or a child forked while another thread held it) finds no table instead of waiting forever
+    hl_reset_for_test();
+    pthread_mutex_lock(&g_hardlinks_lock);
+    int any = hardlinks_maybe_any();
+    pthread_mutex_unlock(&g_hardlinks_lock);
+    ASSERT_EQ(any, 0, "a reader does not wait for the lock");
+    ASSERT_EQ(hardlinks_maybe_any(), 1, "and finds the table once the lock is free");
+
     // ...and stat a in another (this one looks for the table again after a second; a new process at once)
     hl_reset_for_test();
     ASSERT_EQ(hook_stat(a, &sa), 0, "stat a");

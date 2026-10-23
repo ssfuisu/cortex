@@ -100,14 +100,27 @@ static void hl_init_header(cortex_hl_table_t *t) {
     __atomic_store_n(&t->magic, CORTEX_HL_MAGIC, __ATOMIC_RELEASE);
 }
 
+// The size of an open file. Not fstat(): this library's own fstat() looks into the table, which
+// would wait for the lock that the caller holds.
+static off_t hl_file_size(int fd) {
+    return lseek(fd, 0, SEEK_END);
+}
+
 // Maps the table. Readers (create = 0) get NULL while no process has made the file yet, and look
-// for it again a second later; writers make it, or fall back to a table of this process.
+// for it again a second later; writers make it, or fall back to a table of this process. Readers
+// never wait for the lock (a stat() while it is held, or in a child forked while another thread
+// held it, would wait forever): they find no table then.
 static cortex_hl_table_t *hl_table(int create) {
     cortex_hl_table_t *t = __atomic_load_n(&g_hl_table, __ATOMIC_ACQUIRE);
     if (t) return t;
     if (!create && __atomic_load_n(&g_hl_next_try, __ATOMIC_RELAXED) > hl_now_seconds()) return NULL;
     int saved_errno = errno;
-    pthread_mutex_lock(&g_hardlinks_lock);
+    if (create) {
+        pthread_mutex_lock(&g_hardlinks_lock);
+    } else if (pthread_mutex_trylock(&g_hardlinks_lock) != 0) {
+        errno = saved_errno;
+        return NULL;
+    }
     t = g_hl_table;
     if (!t) {
         char path[PATH_MAX];
@@ -121,9 +134,9 @@ static cortex_hl_table_t *hl_table(int create) {
             fd = hl_open_file(path, 1);
         }
         if (fd >= 0) {
-            struct stat st;
-            int ok = fstat(fd, &st) == 0;
-            if (ok && (size_t)st.st_size < sizeof(cortex_hl_table_t)) {
+            off_t size = hl_file_size(fd);
+            int ok = size >= 0;
+            if (ok && (size_t)size < sizeof(cortex_hl_table_t)) {
                 // New (or an older, shorter format): made by a writer, under the lock
                 ok = 0;
                 if (create) {
@@ -133,8 +146,9 @@ static cortex_hl_table_t *hl_table(int create) {
                     fl.l_whence = SEEK_SET;
                     while (fcntl(fd, F_SETLKW, &fl) != 0 && errno == EINTR) {
                     }
-                    ok = fstat(fd, &st) == 0 &&
-                         ((size_t)st.st_size >= sizeof(cortex_hl_table_t) || ftruncate(fd, sizeof(cortex_hl_table_t)) == 0);
+                    size = hl_file_size(fd);
+                    ok = size >= 0 &&
+                         ((size_t)size >= sizeof(cortex_hl_table_t) || ftruncate(fd, sizeof(cortex_hl_table_t)) == 0);
                 }
             }
             if (ok) {
