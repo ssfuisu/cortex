@@ -248,7 +248,10 @@ class MainActivity : AppCompatActivity() {
         val homeDir = Environment.getHomeDir(this)
 
         val bootstrapInstalledAtStart = BootstrapManager.isBootstrapInstalled(this)
-        if (bootstrapInstalledAtStart) {
+        // A system set up by an older version of the app is updated first, in the background like
+        // the extraction (only without its dialog: it takes a second or two).
+        val systemReady = bootstrapInstalledAtStart && !BootstrapManager.needsUpdate(this)
+        if (systemReady) {
             // Before the first session: the hook library every program loads (rewritten only when
             // this app brings a different one), and the sockets and locks a previous run left in
             // /tmp. Those only when no session of this process runs yet: an activity created again
@@ -269,16 +272,16 @@ class MainActivity : AppCompatActivity() {
             startMaintenance(root)
         }
 
-        if (!bootstrapInstalledAtStart) {
+        if (!systemReady) {
             isBootstrapping = true
-            val progress = android.app.ProgressDialog(this).apply {
+            val progress = if (bootstrapInstalledAtStart) null else android.app.ProgressDialog(this).apply {
                 setMessage(getString(R.string.bootstrap_progress))
                 setCancelable(false)
                 setCanceledOnTouchOutside(false)
             }
             bootstrapDialog = progress
             try {
-                progress.show()
+                progress?.show()
             } catch (e: Exception) {
                 android.util.Log.e("MainActivity", "Failed to show progress dialog", e)
             }
@@ -294,7 +297,7 @@ class MainActivity : AppCompatActivity() {
 
                 runOnUiThread {
                     try {
-                        if (progress.isShowing) {
+                        if (progress != null && progress.isShowing) {
                             progress.dismiss()
                         }
                     } catch (e: Exception) {}
@@ -441,6 +444,16 @@ class MainActivity : AppCompatActivity() {
             return BootstrapManager.isBootstrapInstalled(this)
         }
         try {
+            if (BootstrapManager.isBootstrapInstalled(this)) {
+                // Installed by an older version of the app: no session runs yet in this process.
+                if (!startupCleanupDone && sessionManager.sessions.isEmpty()) {
+                    startupCleanupDone = true
+                    BootstrapManager.cleanupStaleSocketsAndLocks(root, Environment.getHomeDir(this))
+                }
+                BootstrapManager.updateInstalledSystem(this)
+                startMaintenance(root)
+                return true
+            }
             val installed = BootstrapManager.installBootstrapFromAssets(this)
             if (installed) {
                 // The base system is in place and configured; a hiccup in the C development

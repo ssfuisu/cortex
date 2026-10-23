@@ -60,18 +60,7 @@ class TerminalView @JvmOverloads constructor(
             field?.emulator?.onScreenUpdate = null
             field = value
             value?.onRedraw = { postInvalidate() }
-            value?.emulator?.onScreenUpdate = {
-                urlRefreshCounter++
-                // Throttled background re-scan: keeps link underlines and search
-                // hit counters fresh without paying regex cost on every frame.
-                if (urlRefreshCounter % 90 == 0) {
-                    try { refreshUrlLinks() } catch (_: Exception) {}
-                    if (searchQuery.isNotEmpty()) {
-                        try { startSearch(searchQuery) } catch (_: Exception) {}
-                    }
-                }
-                postScreenUpdate()
-            }
+            value?.emulator?.onScreenUpdate = onEmulatorScreenUpdate
             if (previous !== value) {
                 previous?.setFocused(false)
                 value?.setFocused(hasWindowFocus())
@@ -89,10 +78,23 @@ class TerminalView @JvmOverloads constructor(
             postInvalidate()
         }
 
+    // New output (on the PTY reader thread): redraw, and now and then re-scan for links and search
+    // hits, which keeps them fresh without paying the regex cost on every chunk.
+    private val onEmulatorScreenUpdate: () -> Unit = {
+        urlRefreshCounter++
+        if (urlRefreshCounter % 90 == 0) {
+            try { refreshUrlLinks() } catch (_: Exception) {}
+            if (searchQuery.isNotEmpty()) {
+                try { startSearch(searchQuery) } catch (_: Exception) {}
+            }
+        }
+        postScreenUpdate()
+    }
+
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         session?.onRedraw = { postInvalidate() }
-        session?.emulator?.onScreenUpdate = { postScreenUpdate() }
+        session?.emulator?.onScreenUpdate = onEmulatorScreenUpdate
         updateTerminalDimensions()
         postInvalidate()
     }
@@ -126,11 +128,26 @@ class TerminalView @JvmOverloads constructor(
         if (wait > 0L) {
             postDelayed(syncUpdateTimeoutRunnable, wait)
         } else {
-            postInvalidate()
+            requestRedraw()
         }
     }
 
     private val syncUpdateTimeoutRunnable = Runnable { postScreenUpdate() }
+
+    // At most one redraw request on its way to the UI thread. Output arrives in chunks of up to 4 KiB,
+    // and a request per chunk woke the UI thread thousands of times a second during fast output,
+    // although it draws once per frame anyway (and then draws what has arrived by then).
+    private val redrawPending = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val redrawRunnable = Runnable {
+        redrawPending.set(false)
+        invalidate()
+    }
+
+    private fun requestRedraw() {
+        if (redrawPending.compareAndSet(false, true) && !post(redrawRunnable)) {
+            redrawPending.set(false)
+        }
+    }
 
     private companion object {
         const val CURSOR_BLINK_MS = 500L

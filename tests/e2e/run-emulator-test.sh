@@ -259,6 +259,33 @@ fi
 shot "16-after-restart"
 sleep 20 # the background checks of the start
 
+log "Update"
+# As after installing a newer version of the app over this one: the installed system is marked as
+# set up by an older version, which the next start updates in the background before the first session.
+current_version=$(sh_ cat "$DATA/files/cortex/.cortex_version")
+sh_ "echo 12600 > $DATA/files/cortex/.cortex_version"
+run_ am force-stop "$PKG"
+sleep 3
+sh_ am start -W -n "$PKG/org.cortex.terminal.MainActivity" | tee "$OUT/update-start.txt"
+sleep 15
+tap_center "$WIDTH" "$HEIGHT"
+sleep 2
+type_line "id -u > $DEVICE_OUT/after-update.txt"
+if wait_for 120 run_ test -s "$DEVICE_OUT/after-update.txt"; then
+    echo "PASS a session works after an update"
+else
+    echo "FAIL no working session after an update"
+    status=1
+fi
+if [ "$(sh_ cat "$DATA/files/cortex/.cortex_version")" = "$current_version" ]; then
+    echo "PASS the update marked the system as current ($current_version)"
+else
+    echo "FAIL the system is still marked as $(sh_ cat "$DATA/files/cortex/.cortex_version")"
+    status=1
+fi
+shot "17-after-update"
+sleep 20
+
 log "The app's log"
 # Messages of mistakes that slowed down or broke the first start once
 if grep -E "Tar-Slip|Native extraction failed|home/storage/|Failed to setup which" "$OUT/logcat.txt" > "$OUT/app-errors.txt"; then
@@ -280,7 +307,9 @@ fi
     grep -E "TotalTime|WaitTime" "$OUT/first-start.txt"
     echo "start of the installed app:"
     grep -E "TotalTime|WaitTime" "$OUT/restart.txt"
-    grep -E "Displayed $PKG|Base system installed|Start-up maintenance took|ensureCaCertificates|Skipped [0-9]+ frames" "$OUT/logcat.txt" |
+    echo "start after an update:"
+    grep -E "TotalTime|WaitTime" "$OUT/update-start.txt"
+    grep -E "Displayed $PKG|Base system (installed|updated)|Start-up maintenance took|ensureCaCertificates|Skipped [0-9]+ frames" "$OUT/logcat.txt" |
         grep -E "$PKG|BootstrapManager|MainActivity|Choreographer" | sed 's/^/  /'
 } | tee "$OUT/timings.txt"
 

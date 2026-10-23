@@ -125,46 +125,56 @@ object BootstrapManager {
         ElfLinkerPatcher.ensureDynamicLinkerSymlinks(root)
     }
 
+    /** Whether the base system is installed; it may still need [updateInstalledSystem] for this app. */
     fun isBootstrapInstalled(context: Context): Boolean {
         val root = Environment.getCortexRoot(context)
-        val apt = File(root, "usr/bin/apt")
-        val bash = File(root, "usr/bin/bash")
-        val versionFile = File(root, ".cortex_version")
+        return File(root, "usr/bin/apt").exists() && File(root, "usr/bin/bash").exists() &&
+            hasDynamicLinker(root) && File(root, ".cortex_version").exists()
+    }
 
-        if (apt.exists() && bash.exists() && hasDynamicLinker(root) && versionFile.exists()) {
-            val ver = versionFile.readText().trim().toIntOrNull() ?: 0
-            if (ver < CURRENT_BOOTSTRAP_VERSION) {
-                // Non-destructive update: refresh hook library and version marker
-                try {
-                    ensureHookLibrary(context, root)
-                    restoreGpgv(root)
-                    ensureKeyrings(root, context)
-                    ensureAptSandbox(root)
-                    ensureUbuntuSources(root)
-                    cleanupAptArtifacts(root)
-                    // Clear any corrupted or partial package lists from prior interrupted runs
-                    try {
-                        File(root, "var/lib/apt/lists").listFiles()?.forEach { f ->
-                            if (f.isFile && f.name.endsWith("_Packages")) {
-                                f.delete()
-                            }
-                        }
-                        File(root, "var/lib/apt/lists/partial").listFiles()?.forEach { it.delete() }
-                    } catch (e: Exception) { Log.w(TAG, "Could not clear stale apt package lists", e) }
-                    ensureMachineId(root)
-                    ensureEssentialBinaries(root, Environment.getHomeDir(context), context)
-                    ensureDynamicLinkerSymlinks(root)
-                    versionFile.writeText(CURRENT_BOOTSTRAP_VERSION.toString())
-                    versionFile.setReadable(true, true)
-                    versionFile.setWritable(true, true)
-                    setMode(versionFile, 384)
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to perform non-destructive bootstrap update", e)
+    /** Whether the installed base system was set up by an older version of the app. */
+    fun needsUpdate(context: Context): Boolean {
+        val versionFile = File(Environment.getCortexRoot(context), ".cortex_version")
+        val ver = try { versionFile.readText().trim().toIntOrNull() ?: 0 } catch (e: Exception) { 0 }
+        return ver < CURRENT_BOOTSTRAP_VERSION
+    }
+
+    /**
+     * Brings a base system set up by an older version of the app up to date (non-destructively:
+     * the hook library, apt's configuration and keyrings, Cortex's tools). A few seconds at most;
+     * call it from a background thread, before the first session.
+     */
+    @Synchronized
+    fun updateInstalledSystem(context: Context) {
+        if (!needsUpdate(context)) return
+        val root = Environment.getCortexRoot(context)
+        val started = android.os.SystemClock.uptimeMillis()
+        try {
+            ensureHookLibrary(context, root)
+            restoreGpgv(root)
+            ensureKeyrings(root, context)
+            ensureAptSandbox(root)
+            ensureUbuntuSources(root)
+            cleanupAptArtifacts(root)
+            // Package lists of an older release may be partial or corrupted: apt fetches them
+            // again. Not while apt runs.
+            FileLocks.tryLock(AptConfigurator.aptLockFiles(root))?.use {
+                File(root, "var/lib/apt/lists").listFiles()?.forEach { f ->
+                    if (f.isFile && f.name.endsWith("_Packages")) {
+                        f.delete()
+                    }
                 }
+                File(root, "var/lib/apt/lists/partial").listFiles()?.forEach { it.delete() }
             }
-            return true
+            ensureMachineId(root)
+            ensureEssentialBinaries(root, Environment.getHomeDir(context), context)
+            ensureDynamicLinkerSymlinks(root)
+            val versionFile = File(root, ".cortex_version")
+            FileInstaller.install(versionFile, CURRENT_BOOTSTRAP_VERSION.toString(), 384) // 0600
+            Log.i(TAG, "Base system updated in ${android.os.SystemClock.uptimeMillis() - started} ms")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to perform non-destructive bootstrap update", e)
         }
-        return false
     }
 
     fun findBootstrapAsset(context: Context): String? {
