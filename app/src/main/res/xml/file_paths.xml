@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
     <cache-path name="cortex_updates" path="updates/" />
+    <!-- Settings > Send a bug report -->
+    <cache-path name="cortex_reports" path="reports/" />
     <!-- cortex-api open/share: files in the rootfs and in shared storage -->
     <files-path name="cortex_rootfs" path="cortex/" />
     <external-path name="shared_storage" path="." />

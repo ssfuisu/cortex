@@ -94,6 +94,10 @@
     <string name="pref_cat_support">Jumuiya na Usaidizi</string>
     <string name="pref_telegram_title">Usaidizi wa Telegram</string>
     <string name="pref_telegram_summary">Mtumie msanidi ujumbe kwenye Telegram: @ratzgn</string>
+    <string name="pref_bug_report_title">Tuma ripoti ya hitilafu</string>
+    <string name="pref_bug_report_summary">Inashiriki matoleo, hali ya mfumo wa Ubuntu na kumbukumbu za programu na programu unayochagua</string>
+    <string name="bug_report_chooser">Tuma ripoti ya hitilafu kwa</string>
+    <string name="bug_report_failed">Ripoti ya hitilafu haikuweza kuundwa: %1$s</string>
     <string name="font_size_small">Ndogo (10sp)</string>
     <string name="font_size_compact">Fupi (11sp)</string>
     <string name="font_size_normal">Kawaida (12sp)</string>

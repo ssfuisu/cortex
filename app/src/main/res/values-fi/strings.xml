@@ -94,6 +94,10 @@
     <string name="pref_cat_support">Yhteisö ja tuki</string>
     <string name="pref_telegram_title">Telegram-tuki</string>
     <string name="pref_telegram_summary">Kirjoita kehittäjälle Telegramissa: @ratzgn</string>
+    <string name="pref_bug_report_title">Lähetä virheraportti</string>
+    <string name="pref_bug_report_summary">Jakaa versiot, Ubuntu-järjestelmän tilan ja sovelluksen lokin valitsemallesi sovellukselle</string>
+    <string name="bug_report_chooser">Lähetä virheraportti sovelluksella</string>
+    <string name="bug_report_failed">Virheraporttia ei voitu luoda: %1$s</string>
     <string name="font_size_small">Pieni (10sp)</string>
     <string name="font_size_compact">Tiivis (11sp)</string>
     <string name="font_size_normal">Normaali (12sp)</string>

@@ -92,6 +92,10 @@
             app:key="telegram_contact_pref"
             app:summary="@string/pref_telegram_summary"
             app:title="@string/pref_telegram_title" />
+        <Preference
+            app:key="bug_report"
+            app:summary="@string/pref_bug_report_summary"
+            app:title="@string/pref_bug_report_title" />
     </PreferenceCategory>
 
 </PreferenceScreen>

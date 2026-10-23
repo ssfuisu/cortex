@@ -94,6 +94,10 @@
     <string name="pref_cat_support">Zajednica i podrška</string>
     <string name="pref_telegram_title">Podrška na Telegramu</string>
     <string name="pref_telegram_summary">Pišite razvojnom programeru na Telegramu: @ratzgn</string>
+    <string name="pref_bug_report_title">Pošalji izvješće o pogrešci</string>
+    <string name="pref_bug_report_summary">Dijeli verzije, stanje sustava Ubuntu i zapisnik aplikacije s aplikacijom koju odaberete</string>
+    <string name="bug_report_chooser">Pošalji izvješće o pogrešci putem</string>
+    <string name="bug_report_failed">Izvješće o pogrešci nije moguće izraditi: %1$s</string>
     <string name="font_size_small">Malo (10sp)</string>
     <string name="font_size_compact">Zbijeno (11sp)</string>
     <string name="font_size_normal">Normalno (12sp)</string>

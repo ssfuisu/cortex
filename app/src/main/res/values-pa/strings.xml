@@ -94,6 +94,10 @@
     <string name="pref_cat_support">ਭਾਈਚਾਰਾ ਅਤੇ ਸਹਾਇਤਾ</string>
     <string name="pref_telegram_title">Telegram ਸਹਾਇਤਾ</string>
     <string name="pref_telegram_summary">Telegram \'ਤੇ ਡਿਵੈਲਪਰ ਨੂੰ ਸੁਨੇਹਾ ਭੇਜੋ: @ratzgn</string>
+    <string name="pref_bug_report_title">ਬੱਗ ਰਿਪੋਰਟ ਭੇਜੋ</string>
+    <string name="pref_bug_report_summary">ਵਰਜਨ, Ubuntu ਸਿਸਟਮ ਦੀ ਸਥਿਤੀ ਅਤੇ ਐਪ ਦਾ ਲੌਗ ਤੁਹਾਡੀ ਚੁਣੀ ਐਪ ਨਾਲ ਸਾਂਝਾ ਕਰਦਾ ਹੈ</string>
+    <string name="bug_report_chooser">ਬੱਗ ਰਿਪੋਰਟ ਇਸ ਨਾਲ ਭੇਜੋ</string>
+    <string name="bug_report_failed">ਬੱਗ ਰਿਪੋਰਟ ਨਹੀਂ ਬਣ ਸਕੀ: %1$s</string>
     <string name="font_size_small">ਛੋਟਾ (10sp)</string>
     <string name="font_size_compact">ਸੰਖੇਪ (11sp)</string>
     <string name="font_size_normal">ਆਮ (12sp)</string>

@@ -94,6 +94,10 @@
     <string name="pref_cat_support">Community och support</string>
     <string name="pref_telegram_title">Support på Telegram</string>
     <string name="pref_telegram_summary">Skriv till utvecklaren på Telegram: @ratzgn</string>
+    <string name="pref_bug_report_title">Skicka en felrapport</string>
+    <string name="pref_bug_report_summary">Delar versionerna, Ubuntu-systemets tillstånd och appens logg med en app du väljer</string>
+    <string name="bug_report_chooser">Skicka felrapporten med</string>
+    <string name="bug_report_failed">Felrapporten kunde inte skapas: %1$s</string>
     <string name="font_size_small">Liten (10sp)</string>
     <string name="font_size_compact">Kompakt (11sp)</string>
     <string name="font_size_normal">Normal (12sp)</string>

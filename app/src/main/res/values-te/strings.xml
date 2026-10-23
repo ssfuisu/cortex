@@ -94,6 +94,10 @@
     <string name="pref_cat_support">సంఘం మరియు మద్దతు</string>
     <string name="pref_telegram_title">Telegram మద్దతు</string>
     <string name="pref_telegram_summary">Telegramలో డెవలపర్‌కు సందేశం పంపండి: @ratzgn</string>
+    <string name="pref_bug_report_title">బగ్ నివేదికను పంపండి</string>
+    <string name="pref_bug_report_summary">వెర్షన్‌లు, Ubuntu సిస్టమ్ స్థితి మరియు యాప్ లాగ్‌ను మీరు ఎంచుకున్న యాప్‌తో షేర్ చేస్తుంది</string>
+    <string name="bug_report_chooser">బగ్ నివేదికను దీని ద్వారా పంపండి</string>
+    <string name="bug_report_failed">బగ్ నివేదికను సృష్టించడం సాధ్యం కాలేదు: %1$s</string>
     <string name="font_size_small">చిన్నది (10sp)</string>
     <string name="font_size_compact">కాంపాక్ట్ (11sp)</string>
     <string name="font_size_normal">సాధారణం (12sp)</string>

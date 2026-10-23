@@ -94,6 +94,10 @@
     <string name="pref_cat_support">קהילה ותמיכה</string>
     <string name="pref_telegram_title">תמיכה ב-Telegram</string>
     <string name="pref_telegram_summary">שלח הודעה למפתח ב-Telegram: @ratzgn</string>
+    <string name="pref_bug_report_title">שליחת דוח באגים</string>
+    <string name="pref_bug_report_summary">משתף את הגרסאות, מצב מערכת Ubuntu ויומן האפליקציה עם אפליקציה שתבחרו</string>
+    <string name="bug_report_chooser">שליחת דוח הבאגים באמצעות</string>
+    <string name="bug_report_failed">לא ניתן היה ליצור את דוח הבאגים: %1$s</string>
     <string name="font_size_small">קטן (10sp)</string>
     <string name="font_size_compact">קומפקטי (11sp)</string>
     <string name="font_size_normal">רגיל (12sp)</string>

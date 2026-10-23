@@ -94,6 +94,10 @@
     <string name="pref_cat_support">Comunitate și asistență</string>
     <string name="pref_telegram_title">Asistență pe Telegram</string>
     <string name="pref_telegram_summary">Scrie dezvoltatorului pe Telegram: @ratzgn</string>
+    <string name="pref_bug_report_title">Trimite un raport de eroare</string>
+    <string name="pref_bug_report_summary">Partajează versiunile, starea sistemului Ubuntu și jurnalul aplicației cu o aplicație aleasă de tine</string>
+    <string name="bug_report_chooser">Trimite raportul de eroare cu</string>
+    <string name="bug_report_failed">Raportul de eroare nu a putut fi creat: %1$s</string>
     <string name="font_size_small">Mic (10sp)</string>
     <string name="font_size_compact">Compact (11sp)</string>
     <string name="font_size_normal">Normal (12sp)</string>

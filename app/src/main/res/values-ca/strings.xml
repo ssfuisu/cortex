@@ -94,6 +94,10 @@
     <string name="pref_cat_support">Comunitat i assistència</string>
     <string name="pref_telegram_title">Assistència per Telegram</string>
     <string name="pref_telegram_summary">Escriviu al desenvolupador a Telegram: @ratzgn</string>
+    <string name="pref_bug_report_title">Envia un informe d’error</string>
+    <string name="pref_bug_report_summary">Comparteix les versions, l’estat del sistema Ubuntu i el registre de l’aplicació amb l’aplicació que trieu</string>
+    <string name="bug_report_chooser">Envia l’informe d’error amb</string>
+    <string name="bug_report_failed">No s’ha pogut crear l’informe d’error: %1$s</string>
     <string name="font_size_small">Petita (10sp)</string>
     <string name="font_size_compact">Compacta (11sp)</string>
     <string name="font_size_normal">Normal (12sp)</string>

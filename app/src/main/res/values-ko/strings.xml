@@ -94,6 +94,10 @@
     <string name="pref_cat_support">커뮤니티 및 지원</string>
     <string name="pref_telegram_title">Telegram 지원</string>
     <string name="pref_telegram_summary">Telegram에서 개발자에게 메시지 보내기: @ratzgn</string>
+    <string name="pref_bug_report_title">버그 보고서 보내기</string>
+    <string name="pref_bug_report_summary">버전, Ubuntu 시스템 상태, 앱 로그를 선택한 앱과 공유합니다</string>
+    <string name="bug_report_chooser">버그 보고서 보내기</string>
+    <string name="bug_report_failed">버그 보고서를 만들 수 없습니다: %1$s</string>
     <string name="font_size_small">작게 (10sp)</string>
     <string name="font_size_compact">컴팩트 (11sp)</string>
     <string name="font_size_normal">보통 (12sp)</string>

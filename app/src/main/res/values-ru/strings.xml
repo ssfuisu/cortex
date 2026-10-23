@@ -94,6 +94,10 @@
     <string name="pref_cat_support">Сообщество и поддержка</string>
     <string name="pref_telegram_title">Поддержка в Telegram</string>
     <string name="pref_telegram_summary">Написать разработчику в Telegram: @ratzgn</string>
+    <string name="pref_bug_report_title">Отправить отчёт об ошибке</string>
+    <string name="pref_bug_report_summary">Передаёт версии, состояние системы Ubuntu и журнал приложения в выбранное вами приложение</string>
+    <string name="bug_report_chooser">Отправить отчёт об ошибке через</string>
+    <string name="bug_report_failed">Не удалось создать отчёт об ошибке: %1$s</string>
     <string name="font_size_small">Мелкий (10sp)</string>
     <string name="font_size_compact">Компактный (11sp)</string>
     <string name="font_size_normal">Обычный (12sp)</string>

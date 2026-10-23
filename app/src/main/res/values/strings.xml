@@ -122,6 +122,10 @@
     <string name="pref_cat_support">Community &amp; Support</string>
     <string name="pref_telegram_title">Telegram Support</string>
     <string name="pref_telegram_summary">Message developer on Telegram: @ratzgn</string>
+    <string name="pref_bug_report_title">Send a bug report</string>
+    <string name="pref_bug_report_summary">Shares the versions, the state of the Ubuntu system and the app’s log with an app you choose</string>
+    <string name="bug_report_chooser">Send the bug report with</string>
+    <string name="bug_report_failed">The bug report could not be made: %1$s</string>
 
     <!-- Settings choices -->
     <string name="font_size_small">Small (10sp)</string>

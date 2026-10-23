@@ -94,6 +94,10 @@
     <string name="pref_cat_support">சமூகமும் ஆதரவும்</string>
     <string name="pref_telegram_title">Telegram ஆதரவு</string>
     <string name="pref_telegram_summary">Telegram-இல் உருவாக்குநருக்குச் செய்தி அனுப்பவும்: @ratzgn</string>
+    <string name="pref_bug_report_title">பிழை அறிக்கையை அனுப்பு</string>
+    <string name="pref_bug_report_summary">பதிப்புகள், Ubuntu அமைப்பின் நிலை மற்றும் ஆப்ஸின் பதிவை நீங்கள் தேர்ந்தெடுக்கும் ஆப்ஸுடன் பகிர்கிறது</string>
+    <string name="bug_report_chooser">பிழை அறிக்கையை இதன் மூலம் அனுப்பு</string>
+    <string name="bug_report_failed">பிழை அறிக்கையை உருவாக்க முடியவில்லை: %1$s</string>
     <string name="font_size_small">சிறியது (10sp)</string>
     <string name="font_size_compact">நெருக்கமானது (11sp)</string>
     <string name="font_size_normal">இயல்பானது (12sp)</string>

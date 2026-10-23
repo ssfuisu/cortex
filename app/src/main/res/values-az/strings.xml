@@ -94,6 +94,10 @@
     <string name="pref_cat_support">İcma və dəstək</string>
     <string name="pref_telegram_title">Telegram dəstəyi</string>
     <string name="pref_telegram_summary">Tərtibatçıya Telegram-da yazın: @ratzgn</string>
+    <string name="pref_bug_report_title">Xəta hesabatı göndər</string>
+    <string name="pref_bug_report_summary">Versiyaları, Ubuntu sisteminin vəziyyətini və tətbiqin jurnalını seçdiyiniz tətbiqlə paylaşır</string>
+    <string name="bug_report_chooser">Xəta hesabatını göndər:</string>
+    <string name="bug_report_failed">Xəta hesabatı yaradıla bilmədi: %1$s</string>
     <string name="font_size_small">Kiçik (10sp)</string>
     <string name="font_size_compact">Yığcam (11sp)</string>
     <string name="font_size_normal">Normal (12sp)</string>

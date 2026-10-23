@@ -94,6 +94,10 @@
     <string name="pref_cat_support">ชุมชนและการสนับสนุน</string>
     <string name="pref_telegram_title">การสนับสนุนทาง Telegram</string>
     <string name="pref_telegram_summary">ส่งข้อความถึงนักพัฒนาบน Telegram: @ratzgn</string>
+    <string name="pref_bug_report_title">ส่งรายงานข้อบกพร่อง</string>
+    <string name="pref_bug_report_summary">แชร์เวอร์ชัน สถานะของระบบ Ubuntu และบันทึกของแอปกับแอปที่คุณเลือก</string>
+    <string name="bug_report_chooser">ส่งรายงานข้อบกพร่องด้วย</string>
+    <string name="bug_report_failed">สร้างรายงานข้อบกพร่องไม่ได้: %1$s</string>
     <string name="font_size_small">เล็ก (10sp)</string>
     <string name="font_size_compact">กะทัดรัด (11sp)</string>
     <string name="font_size_normal">ปกติ (12sp)</string>

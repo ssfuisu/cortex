@@ -94,6 +94,10 @@
     <string name="pref_cat_support">Cộng đồng &amp; Hỗ trợ</string>
     <string name="pref_telegram_title">Hỗ trợ qua Telegram</string>
     <string name="pref_telegram_summary">Nhắn tin cho nhà phát triển trên Telegram: @ratzgn</string>
+    <string name="pref_bug_report_title">Gửi báo cáo lỗi</string>
+    <string name="pref_bug_report_summary">Chia sẻ các phiên bản, trạng thái hệ thống Ubuntu và nhật ký của ứng dụng với ứng dụng bạn chọn</string>
+    <string name="bug_report_chooser">Gửi báo cáo lỗi bằng</string>
+    <string name="bug_report_failed">Không thể tạo báo cáo lỗi: %1$s</string>
     <string name="font_size_small">Nhỏ (10sp)</string>
     <string name="font_size_compact">Gọn (11sp)</string>
     <string name="font_size_normal">Bình thường (12sp)</string>

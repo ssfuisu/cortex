@@ -94,6 +94,10 @@
     <string name="pref_cat_support">Community en ondersteuning</string>
     <string name="pref_telegram_title">Telegram-ondersteuning</string>
     <string name="pref_telegram_summary">Stuur de ontwikkelaar een bericht op Telegram: @ratzgn</string>
+    <string name="pref_bug_report_title">Foutrapport versturen</string>
+    <string name="pref_bug_report_summary">Deelt de versies, de staat van het Ubuntu-systeem en het logboek van de app met een app naar keuze</string>
+    <string name="bug_report_chooser">Foutrapport versturen met</string>
+    <string name="bug_report_failed">Het foutrapport kon niet worden gemaakt: %1$s</string>
     <string name="font_size_small">Klein (10sp)</string>
     <string name="font_size_compact">Compact (11sp)</string>
     <string name="font_size_normal">Normaal (12sp)</string>

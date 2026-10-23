@@ -94,6 +94,10 @@
     <string name="pref_cat_support">കമ്മ്യൂണിറ്റിയും പിന്തുണയും</string>
     <string name="pref_telegram_title">Telegram പിന്തുണ</string>
     <string name="pref_telegram_summary">Telegram-ൽ ഡെവലപ്പർക്ക് സന്ദേശം അയയ്ക്കുക: @ratzgn</string>
+    <string name="pref_bug_report_title">ബഗ് റിപ്പോർട്ട് അയയ്ക്കുക</string>
+    <string name="pref_bug_report_summary">പതിപ്പുകൾ, Ubuntu സിസ്റ്റത്തിന്റെ നില, ആപ്പിന്റെ ലോഗ് എന്നിവ നിങ്ങൾ തിരഞ്ഞെടുക്കുന്ന ആപ്പുമായി പങ്കിടുന്നു</string>
+    <string name="bug_report_chooser">ബഗ് റിപ്പോർട്ട് ഇതുവഴി അയയ്ക്കുക</string>
+    <string name="bug_report_failed">ബഗ് റിപ്പോർട്ട് സൃഷ്ടിക്കാനായില്ല: %1$s</string>
     <string name="font_size_small">ചെറുത് (10sp)</string>
     <string name="font_size_compact">ഒതുക്കമുള്ളത് (11sp)</string>
     <string name="font_size_normal">സാധാരണ (12sp)</string>

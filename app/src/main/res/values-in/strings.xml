@@ -94,6 +94,10 @@
     <string name="pref_cat_support">Komunitas &amp; Dukungan</string>
     <string name="pref_telegram_title">Dukungan Telegram</string>
     <string name="pref_telegram_summary">Kirim pesan ke pengembang di Telegram: @ratzgn</string>
+    <string name="pref_bug_report_title">Kirim laporan bug</string>
+    <string name="pref_bug_report_summary">Membagikan versi, status sistem Ubuntu, dan log aplikasi ke aplikasi yang Anda pilih</string>
+    <string name="bug_report_chooser">Kirim laporan bug dengan</string>
+    <string name="bug_report_failed">Laporan bug tidak dapat dibuat: %1$s</string>
     <string name="font_size_small">Kecil (10sp)</string>
     <string name="font_size_compact">Ringkas (11sp)</string>
     <string name="font_size_normal">Normal (12sp)</string>

@@ -94,6 +94,10 @@
     <string name="pref_cat_support">Общност и поддръжка</string>
     <string name="pref_telegram_title">Поддръжка в Telegram</string>
     <string name="pref_telegram_summary">Пишете на разработчика в Telegram: @ratzgn</string>
+    <string name="pref_bug_report_title">Изпращане на доклад за грешка</string>
+    <string name="pref_bug_report_summary">Споделя версиите, състоянието на системата Ubuntu и дневника на приложението с избрано от вас приложение</string>
+    <string name="bug_report_chooser">Изпращане на доклада чрез</string>
+    <string name="bug_report_failed">Докладът за грешка не можа да бъде създаден: %1$s</string>
     <string name="font_size_small">Малък (10sp)</string>
     <string name="font_size_compact">Компактен (11sp)</string>
     <string name="font_size_normal">Нормален (12sp)</string>

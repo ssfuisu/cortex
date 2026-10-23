@@ -94,6 +94,10 @@
     <string name="pref_cat_support">Κοινότητα και υποστήριξη</string>
     <string name="pref_telegram_title">Υποστήριξη στο Telegram</string>
     <string name="pref_telegram_summary">Στείλτε μήνυμα στον προγραμματιστή στο Telegram: @ratzgn</string>
+    <string name="pref_bug_report_title">Αποστολή αναφοράς σφάλματος</string>
+    <string name="pref_bug_report_summary">Μοιράζεται τις εκδόσεις, την κατάσταση του συστήματος Ubuntu και το αρχείο καταγραφής της εφαρμογής με μια εφαρμογή της επιλογής σας</string>
+    <string name="bug_report_chooser">Αποστολή της αναφοράς με</string>
+    <string name="bug_report_failed">Δεν ήταν δυνατή η δημιουργία της αναφοράς σφάλματος: %1$s</string>
     <string name="font_size_small">Μικρό (10sp)</string>
     <string name="font_size_compact">Συμπαγές (11sp)</string>
     <string name="font_size_normal">Κανονικό (12sp)</string>

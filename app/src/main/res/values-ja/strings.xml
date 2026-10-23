@@ -94,6 +94,10 @@
     <string name="pref_cat_support">コミュニティとサポート</string>
     <string name="pref_telegram_title">Telegram サポート</string>
     <string name="pref_telegram_summary">Telegram で開発者にメッセージを送る: @ratzgn</string>
+    <string name="pref_bug_report_title">バグレポートを送信</string>
+    <string name="pref_bug_report_summary">バージョン、Ubuntu システムの状態、アプリのログを選んだアプリで共有します</string>
+    <string name="bug_report_chooser">バグレポートの送信先</string>
+    <string name="bug_report_failed">バグレポートを作成できませんでした: %1$s</string>
     <string name="font_size_small">小（10sp）</string>
     <string name="font_size_compact">コンパクト（11sp）</string>
     <string name="font_size_normal">標準（12sp）</string>

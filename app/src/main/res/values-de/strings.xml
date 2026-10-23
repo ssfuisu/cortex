@@ -94,6 +94,10 @@
     <string name="pref_cat_support">Community &amp; Support</string>
     <string name="pref_telegram_title">Telegram-Support</string>
     <string name="pref_telegram_summary">Schreibe dem Entwickler auf Telegram: @ratzgn</string>
+    <string name="pref_bug_report_title">Fehlerbericht senden</string>
+    <string name="pref_bug_report_summary">Teilt die Versionen, den Zustand des Ubuntu-Systems und das Protokoll der App mit einer App Ihrer Wahl</string>
+    <string name="bug_report_chooser">Fehlerbericht senden mit</string>
+    <string name="bug_report_failed">Der Fehlerbericht konnte nicht erstellt werden: %1$s</string>
     <string name="font_size_small">Klein (10sp)</string>
     <string name="font_size_compact">Kompakt (11sp)</string>
     <string name="font_size_normal">Normal (12sp)</string>

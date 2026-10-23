@@ -94,6 +94,10 @@
     <string name="pref_cat_support">Communauté et assistance</string>
     <string name="pref_telegram_title">Assistance Telegram</string>
     <string name="pref_telegram_summary">Écrire au développeur sur Telegram : @ratzgn</string>
+    <string name="pref_bug_report_title">Envoyer un rapport de bug</string>
+    <string name="pref_bug_report_summary">Partage les versions, l’état du système Ubuntu et le journal de l’application avec l’application de votre choix</string>
+    <string name="bug_report_chooser">Envoyer le rapport de bug avec</string>
+    <string name="bug_report_failed">Le rapport de bug n’a pas pu être créé : %1$s</string>
     <string name="font_size_small">Petite (10sp)</string>
     <string name="font_size_compact">Compacte (11sp)</string>
     <string name="font_size_normal">Normale (12sp)</string>

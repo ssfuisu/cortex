@@ -94,6 +94,10 @@
     <string name="pref_cat_support">Komunidad at Suporta</string>
     <string name="pref_telegram_title">Suporta sa Telegram</string>
     <string name="pref_telegram_summary">Mag-message sa developer sa Telegram: @ratzgn</string>
+    <string name="pref_bug_report_title">Magpadala ng bug report</string>
+    <string name="pref_bug_report_summary">Ibinabahagi ang mga bersyon, ang estado ng Ubuntu system at ang log ng app sa app na pipiliin mo</string>
+    <string name="bug_report_chooser">Ipadala ang bug report gamit ang</string>
+    <string name="bug_report_failed">Hindi magawa ang bug report: %1$s</string>
     <string name="font_size_small">Maliit (10sp)</string>
     <string name="font_size_compact">Siksik (11sp)</string>
     <string name="font_size_normal">Normal (12sp)</string>

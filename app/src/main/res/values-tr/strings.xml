@@ -94,6 +94,10 @@
     <string name="pref_cat_support">Topluluk ve destek</string>
     <string name="pref_telegram_title">Telegram desteği</string>
     <string name="pref_telegram_summary">Geliştiriciye Telegram’dan yazın: @ratzgn</string>
+    <string name="pref_bug_report_title">Hata raporu gönder</string>
+    <string name="pref_bug_report_summary">Sürümleri, Ubuntu sisteminin durumunu ve uygulamanın günlüğünü seçtiğiniz bir uygulamayla paylaşır</string>
+    <string name="bug_report_chooser">Hata raporunu şununla gönder</string>
+    <string name="bug_report_failed">Hata raporu oluşturulamadı: %1$s</string>
     <string name="font_size_small">Küçük (10sp)</string>
     <string name="font_size_compact">Kompakt (11sp)</string>
     <string name="font_size_normal">Normal (12sp)</string>

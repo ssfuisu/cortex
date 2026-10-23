@@ -94,6 +94,10 @@
     <string name="pref_cat_support">Komunita a podpora</string>
     <string name="pref_telegram_title">Podpora na Telegramu</string>
     <string name="pref_telegram_summary">Napište vývojáři na Telegramu: @ratzgn</string>
+    <string name="pref_bug_report_title">Odeslat hlášení o chybě</string>
+    <string name="pref_bug_report_summary">Sdílí verze, stav systému Ubuntu a protokol aplikace s aplikací, kterou vyberete</string>
+    <string name="bug_report_chooser">Odeslat hlášení o chybě pomocí</string>
+    <string name="bug_report_failed">Hlášení o chybě se nepodařilo vytvořit: %1$s</string>
     <string name="font_size_small">Malé (10sp)</string>
     <string name="font_size_compact">Kompaktní (11sp)</string>
     <string name="font_size_normal">Normální (12sp)</string>

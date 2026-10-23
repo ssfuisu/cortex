@@ -94,6 +94,10 @@
     <string name="pref_cat_support">社群與支援</string>
     <string name="pref_telegram_title">Telegram 支援</string>
     <string name="pref_telegram_summary">在 Telegram 上聯絡開發者：@ratzgn</string>
+    <string name="pref_bug_report_title">傳送錯誤回報</string>
+    <string name="pref_bug_report_summary">將版本、Ubuntu 系統狀態和應用程式記錄分享給您選擇的應用程式</string>
+    <string name="bug_report_chooser">傳送錯誤回報方式</string>
+    <string name="bug_report_failed">無法產生錯誤回報：%1$s</string>
     <string name="font_size_small">小（10sp）</string>
     <string name="font_size_compact">精簡（11sp）</string>
     <string name="font_size_normal">一般（12sp）</string>

@@ -94,6 +94,10 @@
     <string name="pref_cat_support">Komuniti &amp; Sokongan</string>
     <string name="pref_telegram_title">Sokongan Telegram</string>
     <string name="pref_telegram_summary">Mesej pembangun di Telegram: @ratzgn</string>
+    <string name="pref_bug_report_title">Hantar laporan pepijat</string>
+    <string name="pref_bug_report_summary">Berkongsi versi, keadaan sistem Ubuntu dan log apl dengan apl pilihan anda</string>
+    <string name="bug_report_chooser">Hantar laporan pepijat dengan</string>
+    <string name="bug_report_failed">Laporan pepijat tidak dapat dibuat: %1$s</string>
     <string name="font_size_small">Kecil (10sp)</string>
     <string name="font_size_compact">Padat (11sp)</string>
     <string name="font_size_normal">Biasa (12sp)</string>

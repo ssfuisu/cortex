@@ -94,6 +94,10 @@
     <string name="pref_cat_support">Қауымдастық және қолдау</string>
     <string name="pref_telegram_title">Telegram қолдауы</string>
     <string name="pref_telegram_summary">Әзірлеушіге Telegram арқылы жазыңыз: @ratzgn</string>
+    <string name="pref_bug_report_title">Қате туралы есеп жіберу</string>
+    <string name="pref_bug_report_summary">Нұсқаларды, Ubuntu жүйесінің күйін және қолданба журналын өзіңіз таңдаған қолданбамен бөліседі</string>
+    <string name="bug_report_chooser">Қате туралы есепті жіберу:</string>
+    <string name="bug_report_failed">Қате туралы есеп жасалмады: %1$s</string>
     <string name="font_size_small">Кіші (10sp)</string>
     <string name="font_size_compact">Ықшам (11sp)</string>
     <string name="font_size_normal">Қалыпты (12sp)</string>

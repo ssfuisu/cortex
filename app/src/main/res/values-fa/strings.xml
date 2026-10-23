@@ -94,6 +94,10 @@
     <string name="pref_cat_support">جامعه و پشتیبانی</string>
     <string name="pref_telegram_title">پشتیبانی تلگرام</string>
     <string name="pref_telegram_summary">در تلگرام به توسعه‌دهنده پیام دهید: @ratzgn</string>
+    <string name="pref_bug_report_title">ارسال گزارش خطا</string>
+    <string name="pref_bug_report_summary">نسخه‌ها، وضعیت سیستم Ubuntu و گزارش برنامه را با برنامه‌ای که انتخاب می‌کنید به اشتراک می‌گذارد</string>
+    <string name="bug_report_chooser">ارسال گزارش خطا با</string>
+    <string name="bug_report_failed">گزارش خطا ساخته نشد: %1$s</string>
     <string name="font_size_small">کوچک (10sp)</string>
     <string name="font_size_compact">فشرده (11sp)</string>
     <string name="font_size_normal">عادی (12sp)</string>

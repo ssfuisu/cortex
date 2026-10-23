@@ -94,6 +94,10 @@
     <string name="pref_cat_support">Comunidad y soporte</string>
     <string name="pref_telegram_title">Soporte por Telegram</string>
     <string name="pref_telegram_summary">Escribe al desarrollador en Telegram: @ratzgn</string>
+    <string name="pref_bug_report_title">Enviar un informe de error</string>
+    <string name="pref_bug_report_summary">Comparte las versiones, el estado del sistema Ubuntu y el registro de la aplicación con la aplicación que elijas</string>
+    <string name="bug_report_chooser">Enviar el informe de error con</string>
+    <string name="bug_report_failed">No se pudo crear el informe de error: %1$s</string>
     <string name="font_size_small">Pequeña (10sp)</string>
     <string name="font_size_compact">Compacta (11sp)</string>
     <string name="font_size_normal">Normal (12sp)</string>

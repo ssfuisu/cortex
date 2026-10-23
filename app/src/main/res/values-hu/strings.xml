@@ -94,6 +94,10 @@
     <string name="pref_cat_support">Közösség és támogatás</string>
     <string name="pref_telegram_title">Telegram-támogatás</string>
     <string name="pref_telegram_summary">Írj a fejlesztőnek Telegramon: @ratzgn</string>
+    <string name="pref_bug_report_title">Hibajelentés küldése</string>
+    <string name="pref_bug_report_summary">Megosztja a verziókat, az Ubuntu rendszer állapotát és az alkalmazás naplóját a választott alkalmazással</string>
+    <string name="bug_report_chooser">Hibajelentés küldése ezzel:</string>
+    <string name="bug_report_failed">A hibajelentést nem sikerült elkészíteni: %1$s</string>
     <string name="font_size_small">Kicsi (10sp)</string>
     <string name="font_size_compact">Kompakt (11sp)</string>
     <string name="font_size_normal">Normál (12sp)</string>

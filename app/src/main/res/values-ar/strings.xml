@@ -94,6 +94,10 @@
     <string name="pref_cat_support">المجتمع والدعم</string>
     <string name="pref_telegram_title">الدعم عبر Telegram</string>
     <string name="pref_telegram_summary">راسل المطوّر على Telegram: @ratzgn</string>
+    <string name="pref_bug_report_title">إرسال تقرير خطأ</string>
+    <string name="pref_bug_report_summary">يشارك الإصدارات وحالة نظام Ubuntu وسجل التطبيق مع تطبيق تختاره</string>
+    <string name="bug_report_chooser">إرسال تقرير الخطأ عبر</string>
+    <string name="bug_report_failed">تعذّر إنشاء تقرير الخطأ: %1$s</string>
     <string name="font_size_small">صغير (10sp)</string>
     <string name="font_size_compact">مضغوط (11sp)</string>
     <string name="font_size_normal">عادي (12sp)</string>

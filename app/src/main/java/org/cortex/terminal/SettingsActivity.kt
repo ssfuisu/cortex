@@ -95,6 +95,27 @@ class SettingsActivity : AppCompatActivity() {
                 } catch (e: Exception) {}
                 true
             }
+
+            findPreference<Preference>("bug_report")?.setOnPreferenceClickListener { pref ->
+                // Reading the log takes a moment; the item stays disabled until the report is shared.
+                pref.isEnabled = false
+                val app = requireContext().applicationContext
+                Thread({
+                    val result = runCatching { BugReport.write(app) }
+                    activity?.runOnUiThread {
+                        pref.isEnabled = true
+                        val activity = activity ?: return@runOnUiThread
+                        result.mapCatching { BugReport.share(activity, it) }.onFailure { e ->
+                            android.widget.Toast.makeText(
+                                activity,
+                                activity.getString(R.string.bug_report_failed, e.message ?: e.javaClass.simpleName),
+                                android.widget.Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    }
+                }, "Cortex-BugReport").start()
+                true
+            }
         }
     }
 }
