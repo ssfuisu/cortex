@@ -344,7 +344,7 @@ jobs:
           bash tests/scripts/test_shell_scripts.sh
           python3 -m unittest discover -s tests/scripts -p 'test_dev_overlay.py'
           sudo CORTEX_REQUIRE_ROOT_TESTS=1 bash tests/root/test_cortex_chroot.sh
-          ./gradlew testDebugUnitTest lintDebug assembleDebug --build-cache --parallel --stacktrace
+          ./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --build-cache --parallel --stacktrace
 
           DEBUG_ARM64_APK=$(find app/build/outputs/apk/debug -name "*arm64-v8a*.apk" | head -n 1)
           if [ -z "$DEBUG_ARM64_APK" ]; then
@@ -369,12 +369,12 @@ jobs:
           print(f"Verified {len(loads)} PT_LOAD segments in debug libcortex-pty.so all have alignment >= 0x4000.")
           EOF
 
-      - name: Upload the Debug APK for the Emulator Test
+      - name: Upload the Debug APKs for the Emulator Test
         if: github.event_name == 'pull_request'
         uses: actions/upload-artifact@v4
         with:
           name: cortex-debug-apk
-          path: app/build/outputs/apk/debug/*arm64-v8a*.apk
+          path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 3
 
@@ -392,7 +392,7 @@ jobs:
           bash tests/scripts/test_shell_scripts.sh
           python3 -m unittest discover -s tests/scripts -p 'test_dev_overlay.py'
           sudo CORTEX_REQUIRE_ROOT_TESTS=1 bash tests/root/test_cortex_chroot.sh
-          ./gradlew testDebugUnitTest lintDebug assembleRelease --build-cache --parallel --stacktrace
+          ./gradlew testDebugUnitTest lintDebug assembleRelease assembleDebugAndroidTest --build-cache --parallel --stacktrace
 
       - name: Prepare and Verify Signed APKs
         if: github.event_name != 'pull_request'
@@ -536,6 +536,23 @@ jobs:
           path: release-apks/*.apk
           retention-days: ${{ github.event.inputs.dry_run == 'true' && 1 || 90 }}
 
+      # The debug app and UbuntuOnDeviceTest for Firebase Test Lab (device-test.yml), when the
+      # repository is set up for it (tests/device/README.md)
+      - name: Build the APKs for the Device Test
+        if: vars.FIREBASE_PROJECT_ID != '' && (github.event_name == 'pull_request' || github.event.inputs.dry_run == 'true')
+        run: ./gradlew assembleDebug assembleDebugAndroidTest --build-cache --parallel --stacktrace
+
+      - name: Upload the APKs for the Device Test
+        if: vars.FIREBASE_PROJECT_ID != '' && (github.event_name == 'pull_request' || github.event.inputs.dry_run == 'true')
+        uses: actions/upload-artifact@v4
+        with:
+          name: cortex-device-test-apks
+          path: |
+            app/build/outputs/apk/debug/*arm64-v8a*.apk
+            app/build/outputs/apk/androidTest/debug/*.apk
+          if-no-files-found: error
+          retention-days: 3
+
       - name: Create GitHub Release
         if: github.event_name != 'pull_request' && github.event.inputs.dry_run != 'true' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch')
         env:
@@ -608,7 +625,7 @@ jobs:
             --notes-file release-notes.md \
             $PRERELEASE_FLAG
 
-  # Installs the arm64 APK on an Android emulator and runs Ubuntu in it as a user would (see
+  # Installs the APKs on Android emulators and runs Ubuntu in them as a user would (see
   # emulator-test.yml): for pull requests, dry runs, and on request for the APKs of an earlier run.
   emulator-test:
     name: Emulator Test
@@ -620,3 +637,15 @@ jobs:
     uses: ./.github/workflows/emulator-test.yml
     with:
       run-id: ${{ inputs.emulator_test_of_run }}
+
+  # UbuntuOnDeviceTest on real phones in Firebase Test Lab (device-test.yml), when the repository
+  # is set up for it: pull requests and dry runs.
+  device-test:
+    name: Device Test
+    needs: build
+    if: ${{ !cancelled() && needs.build.result == 'success' && vars.FIREBASE_PROJECT_ID != '' && (github.event_name == 'pull_request' || github.event.inputs.dry_run == 'true') }}
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/device-test.yml
+    secrets: inherit

@@ -13,17 +13,29 @@ on:
 
 jobs:
   emulator:
-    name: Ubuntu on an Android emulator (API ${{ matrix.api-level }})
-    # GitHub's x86_64 Linux runners have KVM; the arm64 Ubuntu runs through the image's ARM translation.
+    name: Ubuntu on an Android emulator (API ${{ matrix.api-level }}, ${{ matrix.abi }})
+    # GitHub's x86_64 Linux runners have KVM; the ARM Ubuntu runs through the image's ARM translation.
     runs-on: ubuntu-24.04
     timeout-minutes: 90
+    continue-on-error: ${{ matrix.experimental }}
     strategy:
       fail-fast: false
       matrix:
-        # Android 14: Android 11's translator crashes every forked glibc process (it clones with
-        # CLONE_SETTLS and tls=NULL), and the API 33 image translates nothing. GitHub's arm64
-        # runners have no KVM for an arm64 emulator.
-        api-level: [34]
+        include:
+          # Android 14: Android 11's translator crashes every forked arm64 glibc process (it clones
+          # with CLONE_SETTLS and tls=NULL), and the API 33 image translates nothing. GitHub's arm64
+          # runners have no KVM for an arm64 emulator.
+          - id: api34
+            api-level: 34
+            abi: arm64-v8a
+            experimental: false
+          # The 32-bit APK: of Google's x86_64 images only Android 11's translates 32-bit ARM code
+          # (the later ones run 64-bit apps only). Reported without failing the run until it is
+          # known how far Ubuntu gets there.
+          - id: api30-armeabi-v7a
+            api-level: 30
+            abi: armeabi-v7a
+            experimental: true
     steps:
       - name: Checkout Source Code
         uses: actions/checkout@v4
@@ -59,8 +71,8 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: e2e-history
-          key: e2e-timings-api${{ matrix.api-level }}-${{ github.run_id }}-${{ github.run_attempt }}
-          restore-keys: e2e-timings-api${{ matrix.api-level }}-
+          key: e2e-timings-${{ matrix.id }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: e2e-timings-${{ matrix.id }}-
 
       - name: Run the test on the emulator
         uses: reactivecircus/android-emulator-runner@v2
@@ -74,13 +86,13 @@ jobs:
           disk-size: 8G
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot
           disable-animations: true
-          script: bash tests/e2e/run-emulator-test.sh apks e2e-out
+          script: bash tests/e2e/run-emulator-test.sh apks e2e-out ${{ matrix.abi }}
 
       - name: Compare the start-up times with earlier runs
         if: always() && hashFiles('e2e-out/timings.env') != ''
         run: |
           {
-            echo "### Start-up times (API ${{ matrix.api-level }} emulator)"
+            echo "### Start-up times (API ${{ matrix.api-level }} emulator, ${{ matrix.abi }})"
             echo
             bash tests/e2e/timing-trend.sh e2e-out/timings.env e2e-history/timings.csv "${{ github.run_id }}/${GITHUB_SHA::7}"
           } | tee -a "$GITHUB_STEP_SUMMARY"
@@ -90,12 +102,12 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: e2e-history
-          key: e2e-timings-api${{ matrix.api-level }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: e2e-timings-${{ matrix.id }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Upload results and screenshots
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: emulator-test-results-api${{ matrix.api-level }}
+          name: emulator-test-results-${{ matrix.id }}
           path: e2e-out
           retention-days: 14

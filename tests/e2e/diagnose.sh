@@ -31,7 +31,7 @@ done
 env_for_shell() {
     echo "HOME=$ROOT/home" "CORTEX_ROOT=$ROOT" "TMPDIR=$ROOT/tmp" "TERM=xterm-256color" \
         "PATH=$ROOT/usr/local/bin:$ROOT/usr/bin:$ROOT/usr/sbin:/system/bin" \
-        "LD_LIBRARY_PATH=$ROOT/usr/lib/aarch64-linux-gnu:$ROOT/lib/aarch64-linux-gnu:$ROOT/usr/lib:$ROOT/lib" \
+        "LD_LIBRARY_PATH=$ROOT/usr/lib/$TRIPLET:$ROOT/lib/$TRIPLET:$ROOT/usr/lib:$ROOT/lib" \
         "GLIBC_TUNABLES=glibc.pthread.rseq=0" "LANG=C.UTF-8"
 }
 
@@ -46,9 +46,10 @@ try() { # try NAME COMMAND...: runs COMMAND for at most 60 s
 }
 
 cd "$ROOT/home" || exit 1
-# Like Cortex does, through glibc's ld.so (Ubuntu's programs ask for /lib/ld-linux-aarch64.so.1,
-# which is not where Android looks).
-LDSO="$ROOT/usr/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1"
+# Like Cortex does, through glibc's ld.so (Ubuntu's programs ask for /lib/ld-linux-aarch64.so.1 or
+# /lib/ld-linux-armhf.so.3, which is not where Android looks).
+LDSO=$(ls "$ROOT"/usr/lib/*-linux-gnu*/ld-linux-*.so.* 2>/dev/null | head -n 1)
+TRIPLET=$(basename "$(dirname "$LDSO")")
 HOOK="LD_PRELOAD=$ROOT/usr/lib/libcortex-hook.so"
 try "bash, as root, without the hook" env -i $(env_for_shell) "$LDSO" "$ROOT/usr/bin/bash" -c 'echo bash-ok; uname -m'
 try "bash, as root, with the hook" env -i $(env_for_shell) "$HOOK" "$LDSO" "$ROOT/usr/bin/bash" -c 'echo hook-ok; id; ls /'

@@ -18,6 +18,8 @@ android {
         targetSdk = 28
         versionCode = 12636
         versionName = "1.26.36"
+        // UbuntuOnDeviceTest (app/src/androidTest), on Firebase Test Lab
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         externalNativeBuild {
             cmake {
@@ -162,4 +164,7 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.test.core)
+    androidTestImplementation(libs.junit)
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.test.junit)
 }

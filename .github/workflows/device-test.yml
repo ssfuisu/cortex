@@ -1,0 +1,70 @@
+name: Device Test
+
+# UbuntuOnDeviceTest (app/src/androidTest) on real phones in Firebase Test Lab. Called by "Build and
+# Release Cortex APKs" after its build when the repository is set up for it (tests/device/README.md):
+#   variable FIREBASE_PROJECT_ID   the Firebase project the tests run in
+#   secret   GCP_SA_KEY            the JSON key of a service account that may run them
+#   variable FIREBASE_DEVICES      optional: the phones, one "model=...,version=..." per line
+#   variable FIREBASE_RESULTS_BUCKET  optional: a Cloud Storage bucket of your own for the results
+on:
+  workflow_call:
+
+jobs:
+  firebase:
+    name: Ubuntu on real phones (Firebase Test Lab)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      # The debug app (arm64-v8a) and the test APK, signed with the same debug key
+      - name: Download the APKs of this run
+        uses: actions/download-artifact@v4
+        with:
+          name: cortex-device-test-apks
+          path: apks
+
+      - name: Authenticate with Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Run the test on Firebase Test Lab
+        env:
+          PROJECT: ${{ vars.FIREBASE_PROJECT_ID }}
+          # Pixel 6 with Android 13 and a Pixel 8 with Android 14 (see "gcloud firebase test android
+          # models list" for what Test Lab has now)
+          DEVICES: ${{ vars.FIREBASE_DEVICES || 'model=oriole,version=33\nmodel=shiba,version=34' }}
+          BUCKET: ${{ vars.FIREBASE_RESULTS_BUCKET }}
+        run: |
+          set -o pipefail
+          APP=$(find apks -name '*arm64-v8a*.apk' ! -path '*androidTest*' | head -n 1)
+          TEST=$(find apks -path '*androidTest*' -name '*.apk' | head -n 1)
+          ls -l "$APP" "$TEST"
+          device_args=()
+          while IFS= read -r device; do
+            [ -n "$device" ] && device_args+=(--device "$device,locale=en,orientation=portrait")
+          done < <(printf '%b\n' "$DEVICES")
+          bucket_args=()
+          [ -n "$BUCKET" ] && bucket_args=(--results-bucket "$BUCKET")
+          status=0
+          gcloud firebase test android run \
+            --project "$PROJECT" \
+            --type instrumentation \
+            --app "$APP" \
+            --test "$TEST" \
+            "${device_args[@]}" \
+            "${bucket_args[@]}" \
+            --results-dir "cortex-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
+            --timeout 25m \
+            --num-flaky-test-attempts 0 2>&1 | tee test-lab.txt || status=$?
+          {
+            echo "### Firebase Test Lab"
+            echo
+            echo '```'
+            grep -E '^\s*\|' test-lab.txt || tail -n 20 test-lab.txt
+            echo '```'
+            grep -oE 'https://console.firebase.google.com/[^ ]*' test-lab.txt | head -n 1 | sed 's/^/Results: /'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $status

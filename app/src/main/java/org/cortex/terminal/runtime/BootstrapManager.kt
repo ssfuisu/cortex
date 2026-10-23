@@ -1522,16 +1522,18 @@ object BootstrapManager {
         ) ?: return -1
 
         try {
-            val stream = pty.inputStream
-            val buffer = ByteArray(2048)
+            // All of the output (only the first 256 bytes of each read came through), decoded as one
+            // text so that a character split between two reads stays whole. Not closed here: the
+            // terminal belongs to the PtyProcess, which closes it in waitFor().
+            val reader = java.io.InputStreamReader(pty.inputStream, Charsets.UTF_8)
+            val buffer = CharArray(2048)
             while (true) {
-                val read = stream.read(buffer)
+                val read = reader.read(buffer)
                 if (read <= 0) break
-                val str = String(buffer, 0, minOf(read, 256), Charsets.UTF_8)
-                onProgress?.invoke(str)
+                onProgress?.invoke(String(buffer, 0, read))
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Background command stream error", e)
+        } catch (e: java.io.IOException) {
+            // EIO: the command has ended and closed the terminal
         }
         return pty.waitFor()
     }

@@ -60,7 +60,7 @@ echo "Cortex end-to-end test"
 
 # The system
 check os-release grep -q 'VERSION_ID="24.04"' /etc/os-release
-expect dpkg-arch arm64 dpkg --print-architecture
+expect dpkg-arch "${CORTEX_E2E_ARCH:-arm64}" dpkg --print-architecture
 expect id-root "uid=0(root)" id
 expect bash-arrays ok bash -c 'declare -A m=([a]=ok); echo "${m[a]}"'
 expect pipes 100000 bash -c 'seq 1 100000 | sort -rn | head -n 1'
