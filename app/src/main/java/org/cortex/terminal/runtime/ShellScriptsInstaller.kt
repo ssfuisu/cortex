@@ -58,12 +58,7 @@ object ShellScriptsInstaller {
             val reloadDirs = listOf(File(root, "usr/bin"), File(root, "bin"), File(home, ".local/bin"))
             reloadDirs.forEach { dir ->
                 if (dir.exists()) {
-                    val rFile = File(dir, "reload")
-                    rFile.writeText(reloadScript)
-                    rFile.setExecutable(true, true)
-                    rFile.setReadable(true, true)
-                    rFile.setWritable(true, true)
-                    try { Os.chmod(rFile.absolutePath, 448) } catch (_: Exception) {}
+                    FileInstaller.install(File(dir, "reload"), reloadScript, 448) // 0700
                 }
             }
         } catch (e: Exception) {
@@ -87,16 +82,7 @@ object ShellScriptsInstaller {
                 "}\n"
             val script = loadAssetScript(context, "cortex-shell.sh", fallback)
 
-            val profileD = File(root, "etc/profile.d")
-            profileD.mkdirs()
-            val target = File(profileD, "02-cortex-shell.sh")
-            val existing = try { if (target.isFile) target.readText() else null } catch (_: Exception) { null }
-            if (existing != script) {
-                target.writeText(script)
-            }
-            target.setReadable(true, false)
-            target.setWritable(true, true)
-            try { Os.chmod(target.absolutePath, 420) } catch (_: Exception) {} // 0644
+            FileInstaller.install(File(root, "etc/profile.d/02-cortex-shell.sh"), script, 420) // 0644
         } catch (e: Exception) {
             Log.e(TAG, "Failed to install shell helpers", e)
         }
@@ -107,17 +93,7 @@ object ShellScriptsInstaller {
         try {
             val fallback = "#!/bin/bash\necho \"cortex-backup is not available in this build.\" >&2\nexit 1\n"
             val script = loadAssetScript(context, "cortex-backup.sh", fallback)
-            val localBin = File(root, "usr/local/bin")
-            localBin.mkdirs()
-            val target = File(localBin, "cortex-backup")
-            val existing = try { if (target.isFile) target.readText() else null } catch (_: Exception) { null }
-            if (existing != script) {
-                target.writeText(script)
-            }
-            target.setReadable(true, false)
-            target.setWritable(true, true)
-            target.setExecutable(true, false)
-            try { Os.chmod(target.absolutePath, 493) } catch (_: Exception) {} // 0755
+            FileInstaller.install(File(root, "usr/local/bin/cortex-backup"), script, 493) // 0755
         } catch (e: Exception) {
             Log.e(TAG, "Failed to install cortex-backup", e)
         }
@@ -156,38 +132,23 @@ object ShellScriptsInstaller {
 
             try {
                 val serviceScript = loadAssetScript(context, "service.sh", "#!/bin/bash\n")
-                val serviceFile = File(localBin, "service")
-                serviceFile.writeText(serviceScript)
-                serviceFile.setReadable(true, true)
-                serviceFile.setWritable(true, true)
-                serviceFile.setExecutable(true, true)
-                try { Os.chmod(serviceFile.absolutePath, 448) } catch (_: Exception) {}
+                FileInstaller.install(File(localBin, "service"), serviceScript, 448) // 0700
             } catch (e: Exception) {
                 Log.e(TAG, "Skipping service script install: ${e.message}")
             }
 
             try {
                 val systemctlScript = loadAssetScript(context, "systemctl.sh", "#!/bin/bash\n")
-                val systemctlFile = File(localBin, "systemctl")
-                systemctlFile.writeText(systemctlScript)
-                systemctlFile.setReadable(true, true)
-                systemctlFile.setWritable(true, true)
-                systemctlFile.setExecutable(true, true)
-                try { Os.chmod(systemctlFile.absolutePath, 448) } catch (_: Exception) {}
+                FileInstaller.install(File(localBin, "systemctl"), systemctlScript, 448)
             } catch (e: Exception) {
                 Log.e(TAG, "Skipping systemctl script install: ${e.message}")
             }
 
-            val cortexServiceFile = File(localBin, "cortex-service")
             val cortexServiceScript = requireFunctionalScript(
                 "cortex-service",
                 "#!/bin/sh\nexec service \"\$@\"\n"
             )
-            cortexServiceFile.writeText(cortexServiceScript)
-            cortexServiceFile.setReadable(true, true)
-            cortexServiceFile.setWritable(true, true)
-            cortexServiceFile.setExecutable(true, true)
-            try { Os.chmod(cortexServiceFile.absolutePath, 448) } catch (_: Exception) {}
+            FileInstaller.install(File(localBin, "cortex-service"), cortexServiceScript, 448)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to ensure service manager", e)
         }
@@ -227,11 +188,7 @@ object ShellScriptsInstaller {
                 "exit 0\n"
 
             try {
-                xdgOpenFile.writeText(simpleXdgOpenScript)
-                xdgOpenFile.setReadable(true, false)
-                xdgOpenFile.setWritable(true, true)
-                xdgOpenFile.setExecutable(true, false)
-                try { Os.chmod(xdgOpenFile.absolutePath, 493) } catch (_: Exception) {} // 0755
+                FileInstaller.install(xdgOpenFile, simpleXdgOpenScript, 493) // 0755
             } catch (e: Exception) {
                 Log.e(TAG, "Skipping xdg-open install: ${e.message}")
             }
@@ -253,19 +210,14 @@ object ShellScriptsInstaller {
 
             for (alias in browserAliases) {
                 val aliasFile = File(localBin, alias)
-                var linked = false
                 try {
-                    aliasFile.delete()
-                    Os.symlink("xdg-open", aliasFile.absolutePath)
-                    linked = true
-                } catch (_: Exception) {}
-
-                if (!linked) {
-                    aliasFile.writeText(wrapperScript)
-                    aliasFile.setReadable(true, false)
-                    aliasFile.setWritable(true, true)
-                    aliasFile.setExecutable(true, false)
-                    try { Os.chmod(aliasFile.absolutePath, 493) } catch (_: Exception) {} // 0755
+                    FileInstaller.symlink("xdg-open", aliasFile)
+                } catch (_: Exception) {
+                    try {
+                        FileInstaller.install(aliasFile, wrapperScript, 493)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Skipping $alias install: ${e.message}")
+                    }
                 }
             }
 
@@ -286,11 +238,7 @@ object ShellScriptsInstaller {
 
                         if (!linked) {
                             try {
-                                bFile.writeText(wrapperScript)
-                                bFile.setReadable(true, false)
-                                bFile.setWritable(true, true)
-                                bFile.setExecutable(true, false)
-                                try { Os.chmod(bFile.absolutePath, 493) } catch (_: Exception) {}
+                                FileInstaller.install(bFile, wrapperScript, 493)
                             } catch (e: Exception) {
                                 Log.e(TAG, "Skipping $bname install: ${e.message}")
                             }
@@ -313,15 +261,7 @@ object ShellScriptsInstaller {
             try {
                 val fallback = "#!/bin/sh\necho \"$name is not available in this build of Cortex.\" >&2\nexit 1\n"
                 val script = loadAssetScript(context, asset, fallback)
-                val target = File(localBin, name)
-                val existing = try { if (target.isFile) target.readText() else null } catch (_: Exception) { null }
-                if (existing != script) {
-                    target.writeText(script)
-                }
-                target.setReadable(true, false)
-                target.setWritable(true, true)
-                target.setExecutable(true, false)
-                try { Os.chmod(target.absolutePath, 493) } catch (_: Exception) {} // 0755
+                FileInstaller.install(File(localBin, name), script, 493) // 0755
             } catch (e: Exception) {
                 Log.e(TAG, "Skipping $name install: ${e.message}")
             }
@@ -354,11 +294,7 @@ object ShellScriptsInstaller {
             val suFile = File(localBin, "su")
             try {
                 val suScript = loadAssetScript(context, "su.sh", "#!/bin/bash\n")
-                suFile.writeText(suScript)
-                suFile.setReadable(true, true)
-                suFile.setWritable(true, true)
-                suFile.setExecutable(true, true)
-                try { Os.chmod(suFile.absolutePath, 448) } catch (_: Exception) {}
+                FileInstaller.install(suFile, suScript, 448) // 0700
             } catch (e: Exception) {
                 Log.e(TAG, "Skipping su script install: ${e.message}")
             }
@@ -369,23 +305,9 @@ object ShellScriptsInstaller {
             if (suFile.exists()) {
                 val tsuFallback = "#!/bin/sh\nexec /usr/local/bin/su \"\$@\"\n"
                 val tsuScript = loadAssetScript(context, "tsu.sh", tsuFallback)
-                tsuFile.writeText(tsuScript)
-                tsuFile.setReadable(true, true)
-                tsuFile.setWritable(true, true)
-                tsuFile.setExecutable(true, true)
-                try { Os.chmod(tsuFile.absolutePath, 448) } catch (_: Exception) {}
-
-                sudoFile.writeText(tsuScript)
-                sudoFile.setReadable(true, true)
-                sudoFile.setWritable(true, true)
-                sudoFile.setExecutable(true, true)
-                try { Os.chmod(sudoFile.absolutePath, 448) } catch (_: Exception) {}
-
-                rootFile.writeText(tsuScript)
-                rootFile.setReadable(true, true)
-                rootFile.setWritable(true, true)
-                rootFile.setExecutable(true, true)
-                try { Os.chmod(rootFile.absolutePath, 448) } catch (_: Exception) {}
+                for (wrapper in listOf(tsuFile, sudoFile, rootFile)) {
+                    FileInstaller.install(wrapper, tsuScript, 448)
+                }
             } else {
                 for (wrapper in listOf(tsuFile, sudoFile, rootFile)) {
                     if (wrapper.exists()) {

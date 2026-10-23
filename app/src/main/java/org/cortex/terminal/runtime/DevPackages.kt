@@ -3,14 +3,16 @@ package org.cortex.terminal.runtime
 import java.io.File
 import java.io.InputStream
 import java.io.PushbackInputStream
-import java.io.RandomAccessFile
-import java.nio.channels.FileLock
-import java.nio.channels.OverlappingFileLockException
 import java.util.zip.GZIPInputStream
 
 /** The in-process lock for rewriting var/lib/dpkg/status; held for the moment of the write only. */
 internal object DpkgStatus {
     val lock = Any()
+
+    /** dpkg's two locks, the way dpkg takes them; null while apt or dpkg is running. */
+    fun tryLock(root: File): FileLocks? = FileLocks.tryLock(
+        listOf(File(root, "var/lib/dpkg/lock-frontend"), File(root, "var/lib/dpkg/lock"))
+    )
 }
 
 /**
@@ -119,7 +121,7 @@ object DevPackages {
         }
 
         val overlay = openOverlay() ?: return Outcome(Result.NOT_POSSIBLE, "this build has no overlay")
-        val locks = tryLockDpkg(root) ?: run {
+        val locks = DpkgStatus.tryLock(root) ?: run {
             overlay.close()
             return Outcome(Result.BUSY, "dpkg is in use")
         }
@@ -223,35 +225,5 @@ object DevPackages {
     private fun writeMarker(marker: File, text: String) {
         marker.parentFile?.mkdirs()
         marker.writeText(text + "\n")
-    }
-
-    /** dpkg's two locks, the way dpkg takes them, so that a running apt or dpkg and this never overlap. */
-    private class DpkgLocks(private val files: List<RandomAccessFile>, private val locks: List<FileLock>) : AutoCloseable {
-        override fun close() {
-            locks.forEach { try { it.release() } catch (_: Exception) {} }
-            files.forEach { try { it.close() } catch (_: Exception) {} }
-        }
-    }
-
-    private fun tryLockDpkg(root: File): DpkgLocks? {
-        val dir = File(root, "var/lib/dpkg")
-        val files = mutableListOf<RandomAccessFile>()
-        val locks = mutableListOf<FileLock>()
-        try {
-            for (name in listOf("lock-frontend", "lock")) {
-                val raf = RandomAccessFile(File(dir, name), "rw")
-                files.add(raf)
-                val lock = try { raf.channel.tryLock() } catch (_: OverlappingFileLockException) { null }
-                if (lock == null) {
-                    DpkgLocks(files, locks).close()
-                    return null
-                }
-                locks.add(lock)
-            }
-        } catch (e: java.io.IOException) {
-            DpkgLocks(files, locks).close()
-            return null
-        }
-        return DpkgLocks(files, locks)
     }
 }

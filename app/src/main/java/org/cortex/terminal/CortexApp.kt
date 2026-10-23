@@ -3,7 +3,6 @@ package org.cortex.terminal
 import android.app.Activity
 import android.app.Application
 import android.os.Bundle
-import org.cortex.terminal.runtime.BootstrapManager
 
 class CortexApp : Application() {
     override fun onCreate() {
@@ -24,7 +23,9 @@ class CortexApp : Application() {
             override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) {}
             override fun onActivityDestroyed(activity: Activity) {}
         })
-        BootstrapManager.initializeFileSystem(this)
+        // The Ubuntu system is checked and configured by MainActivity, off the main thread: this
+        // runs for every start of the process (the service, the documents provider...) and must
+        // stay fast.
     }
 
     companion object {

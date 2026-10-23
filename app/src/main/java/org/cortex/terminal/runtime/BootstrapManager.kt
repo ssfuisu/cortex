@@ -23,21 +23,18 @@ object BootstrapManager {
             if (!dir.exists()) {
                 dir.mkdirs()
             }
-            dir.setReadable(true, true)
-            dir.setWritable(true, true)
-            dir.setExecutable(true, true)
             setMode(dir, 448) // 0700
         }
+        // Everything else configures the Ubuntu system; before it is extracted there is nothing to
+        // configure (the extraction runs this again when it is done).
+        if (!File(root, "usr/bin/bash").exists()) return
+
         ensureRootTools(root, context)
         ensureBrowserOpener(root, context)
 
         // ~/.profile and ~/.bashrc are the user's own files (created once from /etc/skel, see
         // ShellProfile). Cortex's environment lives in /etc/profile.d, never in the user's files.
-        ShellProfile.ensureUserStartupFiles(
-            home = home,
-            skel = File(root, "etc/skel"),
-            rootfsReady = File(root, "usr/bin/bash").exists()
-        )
+        ShellProfile.ensureUserStartupFiles(home = home, skel = File(root, "etc/skel"))
 
         val etcProfile = File(root, "etc/profile")
         if (etcProfile.exists()) {
@@ -79,9 +76,6 @@ object BootstrapManager {
         listOf("boot", "media", "mnt", "srv", "opt").forEach {
             val d = File(root, it)
             if (!d.exists()) d.mkdirs()
-            d.setReadable(true, true)
-            d.setWritable(true, true)
-            d.setExecutable(true, true)
             setMode(d, 448)
         }
 
@@ -94,6 +88,32 @@ object BootstrapManager {
             android.system.Os.chmod(file.absolutePath, mode)
         } catch (e: Exception) {
             Log.w(TAG, "chmod ${Integer.toOctalString(mode)} ${file.path} failed: ${e.message}")
+        }
+    }
+
+    /**
+     * Gives the owner access to everything under [dir]: directories rwx, files rw (the system tar
+     * keeps the archive's modes, which are meant for root). Symlinks are not followed: home/storage
+     * leads to the shared storage.
+     */
+    private fun ensureOwnerAccess(dir: File) {
+        val names = dir.list() ?: return
+        for (name in names) {
+            val file = File(dir, name)
+            val mode = try {
+                android.system.Os.lstat(file.path).st_mode
+            } catch (e: Exception) {
+                continue
+            }
+            when {
+                android.system.OsConstants.S_ISDIR(mode) -> {
+                    if ((mode and 448) != 448) setMode(file, (mode and 4095) or 448) // u+rwx
+                    ensureOwnerAccess(file)
+                }
+                android.system.OsConstants.S_ISREG(mode) -> {
+                    if ((mode and 384) != 384) setMode(file, (mode and 4095) or 384) // u+rw
+                }
+            }
         }
     }
 
@@ -168,24 +188,10 @@ object BootstrapManager {
     fun installBootstrapFromAssets(context: Context): Boolean {
         val root = Environment.getCortexRoot(context)
         val assetName = findBootstrapAsset(context) ?: return false
+        val started = android.os.SystemClock.uptimeMillis()
 
         val tmpTar = File(context.cacheDir, "bootstrap.tar")
         return try {
-            context.assets.open(assetName).use { rawIn ->
-                val pushback = PushbackInputStream(rawIn, 2)
-                val header = ByteArray(2)
-                val bytesRead = pushback.read(header)
-                if (bytesRead > 0) {
-                    pushback.unread(header, 0, bytesRead)
-                }
-                val isGzip = (bytesRead >= 2 && (header[0].toInt() and 0xFF) == 0x1F && (header[1].toInt() and 0xFF) == 0x8B)
-                val stream: InputStream = if (isGzip) GZIPInputStream(pushback) else pushback
-
-                tmpTar.outputStream().use { out ->
-                    stream.copyTo(out)
-                }
-            }
-
             // Clean up any non-symlink directories in root from previous runs that conflict with Debian UsrMerge
             listOf("bin", "sbin", "lib", "lib64").forEach { sub ->
                 val f = File(root, sub)
@@ -214,97 +220,45 @@ object BootstrapManager {
                 }
             }
 
-            // Extract archive using high performance native C extractor
-            val extractResult = PtyNative.extractTar(tmpTar.absolutePath, root.absolutePath)
-            if (extractResult != 0) {
-                // Fallback to system tar
+            // Extract archive using high performance native C extractor. It applies the archive's
+            // modes and gives the owner access to every file and directory.
+            if (!extractBootstrapStreaming(context, assetName, root)) {
+                Log.w(TAG, "Native extraction failed, using the system tar")
+                // Fallback to system tar, which needs the archive as a file
+                openBootstrap(context, assetName).use { stream ->
+                    tmpTar.outputStream().use { out -> stream.copyTo(out) }
+                }
                 val tarCmd = when {
                     File("/system/bin/tar").exists() -> listOf("/system/bin/tar", "-xf", tmpTar.absolutePath, "-C", root.absolutePath)
                     File("/system/bin/toybox").exists() -> listOf("/system/bin/toybox", "tar", "-xf", tmpTar.absolutePath, "-C", root.absolutePath)
                     else -> listOf("tar", "-xf", tmpTar.absolutePath, "-C", root.absolutePath)
                 }
                 val process = ProcessBuilder(tarCmd).redirectErrorStream(true).start()
+                process.inputStream.readBytes()
                 process.waitFor()
-            }
-
-            // Fix executable permissions on extracted binary directories and dynamic linkers
-            root.walkTopDown().forEach { file ->
-                if (file.isDirectory) {
-                    file.setReadable(true, true)
-                    file.setWritable(true, true)
-                    file.setExecutable(true, true)
-                    setMode(file, 448)
-                } else if (file.isFile) {
-                    val pName = file.parentFile?.name
-                    if (pName in listOf("bin", "sbin") || file.name.startsWith("ld-linux") || file.name.startsWith("ld-2.")) {
-                        file.setExecutable(true, true)
-                        file.setReadable(true, true)
-                        file.setWritable(true, true)
-                        setMode(file, 448)
-                    } else {
-                        file.setReadable(true, true)
-                        file.setWritable(true, true)
-                        setMode(file, 384)
-                    }
-                }
+                ensureOwnerAccess(root)
             }
 
             ensureDynamicLinkerSymlinks(root)
             patchAllDynamicLinkers(root)
             fixAbsoluteSymlinks(root)
 
-            // Ensure Glibc cortex-hook library is present and executable
-            ensureHookLibrary(context, root)
-
-            // Configure DNS
-            updateDnsConfiguration(context, root)
-
-            val etcDir = File(root, "etc")
-            val etcProfile = File(etcDir, "profile")
-            if (etcProfile.exists()) {
-                val pText = etcProfile.readText()
-                if (pText.contains("`id -u`") || pText.contains("$(id -u)")) {
-                    etcProfile.writeText(pText.replace("`id -u`", "\${EUID:-0}").replace("$(id -u)", "\${EUID:-0}"))
-                }
-                etcProfile.setReadable(true, true)
-                etcProfile.setWritable(true, true)
-                setMode(etcProfile, 384)
-            }
-
-            // Ensure /etc/passwd and /etc/group exist with root and cortex user definitions
-            ensurePasswd(root, Environment.getHomeDir(context))
-            ensureReloadScripts(root, Environment.getHomeDir(context), context)
-
-            // Ensure user homes exist
+            // /root, and /home, which is the user's home here (the image's home/ubuntu is not used)
             File(root, "root").mkdirs()
-            val homeDir = File(root, "home")
-            homeDir.mkdirs()
-            File(homeDir, "ubuntu").deleteRecursively()
-            listOf("boot", "media", "mnt", "srv", "opt").forEach { File(root, it).mkdirs() }
+            File(root, "home").mkdirs()
+            File(root, "home/ubuntu").deleteRecursively()
 
-            // Configure APT sandbox so APT operates with owner permissions
-            ensureAptSandbox(root)
             ensureUbuntuSources(root)
 
             // Ensure dpkg status file exists
-            val dpkgDir = File(root, "var/lib/dpkg")
-            dpkgDir.mkdirs()
-            val statusFile = File(dpkgDir, "status")
+            val statusFile = File(root, "var/lib/dpkg/status")
+            statusFile.parentFile?.mkdirs()
             if (!statusFile.exists()) {
                 statusFile.createNewFile()
             }
-            statusFile.setReadable(true, true)
-            statusFile.setWritable(true, true)
-            setMode(statusFile, 384)
 
-            ensureAptSandbox(root)
-            ensureDpkgTables(root)
-            ensureLocale(root)
-            ensureHosts(root)
-            ensureNsswitch(root)
-            ensureCaCertificates(root, context)
-            ensureKeyrings(root, context)
-            cleanupAptArtifacts(root)
+            // Hook library, DNS, users, apt, certificates, keyrings, the user's dotfiles, Cortex's
+            // tools...: the same steps every start checks.
             initializeFileSystem(context)
 
             File(root, "var/lib/apt/lists/partial").mkdirs()
@@ -317,6 +271,7 @@ object BootstrapManager {
                 versionFile.setReadable(true, true)
                 versionFile.setWritable(true, true)
                 setMode(versionFile, 384)
+                Log.i(TAG, "Base system installed in ${android.os.SystemClock.uptimeMillis() - started} ms")
                 true
             } else {
                 Log.e(TAG, "Bootstrap extraction finished but dynamic linker not found!")
@@ -330,6 +285,70 @@ object BootstrapManager {
                 tmpTar.delete()
             }
         }
+    }
+
+    /** The bootstrap archive as a plain tar stream (unzipped when it is gzip-compressed). */
+    private fun openBootstrap(context: Context, assetName: String): InputStream {
+        val pushback = PushbackInputStream(context.assets.open(assetName), 2)
+        val header = ByteArray(2)
+        val bytesRead = pushback.read(header)
+        if (bytesRead > 0) {
+            pushback.unread(header, 0, bytesRead)
+        }
+        val isGzip = (bytesRead >= 2 && (header[0].toInt() and 0xFF) == 0x1F && (header[1].toInt() and 0xFF) == 0x8B)
+        return if (isGzip) GZIPInputStream(pushback, 64 * 1024) else pushback
+    }
+
+    /**
+     * Extracts the bootstrap archive straight from the APK: a thread unpacks it into a pipe that the
+     * native extractor reads, so the few hundred megabytes are never copied into the cache first (that
+     * took time and needed that much free space on top). True when the whole archive was extracted.
+     */
+    private fun extractBootstrapStreaming(context: Context, assetName: String, root: File): Boolean {
+        val pipe = try {
+            android.os.ParcelFileDescriptor.createPipe()
+        } catch (e: Exception) {
+            Log.w(TAG, "No pipe for the bootstrap archive", e)
+            return false
+        }
+        var readError: Throwable? = null
+        val writer = Thread({
+            try {
+                android.os.ParcelFileDescriptor.AutoCloseOutputStream(pipe[1]).use { out ->
+                    try {
+                        openBootstrap(context, assetName).use { input ->
+                            val buffer = ByteArray(256 * 1024)
+                            while (true) {
+                                val n = input.read(buffer)
+                                if (n < 0) break
+                                try {
+                                    out.write(buffer, 0, n)
+                                } catch (e: java.io.IOException) {
+                                    // The extractor stopped reading: done (it stops at the archive's
+                                    // end marker) or failed, which its result tells.
+                                    break
+                                }
+                            }
+                        }
+                    } catch (t: Throwable) {
+                        readError = t
+                    }
+                }
+            } catch (_: Throwable) {
+            }
+        }, "Cortex-BootstrapStream")
+        writer.start()
+        val result = try {
+            PtyNative.extractTarFd(pipe[0].fd, root.absolutePath)
+        } catch (t: Throwable) {
+            Log.e(TAG, "Native extraction failed", t)
+            -1
+        } finally {
+            try { pipe[0].close() } catch (_: Exception) {}
+            writer.join()
+        }
+        readError?.let { Log.e(TAG, "Reading the bootstrap archive failed", it) }
+        return result == 0 && readError == null
     }
 
     /**
@@ -606,45 +625,19 @@ object BootstrapManager {
             val is64 = Process.is64Bit()
             val hookAssetName = if (is64) "libcortex-hook-arm64.so" else "libcortex-hook-arm.so"
             val targetHook = File(root, "usr/lib/libcortex-hook.so")
-            targetHook.parentFile?.mkdirs()
-
-            // Clean up any broken/circular symlinks created by older buggy releases
-            if (ElfLinkerPatcher.isSymlink(targetHook)) {
-                ElfLinkerPatcher.deleteIfExists(targetHook)
-            }
-
-            val tmpHook = File(root, "usr/lib/libcortex-hook.so.tmp")
-            if (ElfLinkerPatcher.isSymlink(tmpHook)) {
-                ElfLinkerPatcher.deleteIfExists(tmpHook)
-            }
-
-            context.assets.open(hookAssetName).use { inStream ->
-                tmpHook.outputStream().use { outStream ->
-                    inStream.copyTo(outStream)
-                }
-            }
-            if (tmpHook.exists() && tmpHook.length() > 0) {
-                tmpHook.setExecutable(true, false)
-                tmpHook.setReadable(true, false)
-                tmpHook.setWritable(true, true)
-                setMode(tmpHook, 493)
-
-                ElfLinkerPatcher.atomicReplace(tmpHook, targetHook)
-                targetHook.setExecutable(true, false)
-                targetHook.setReadable(true, false)
-                targetHook.setWritable(true, true)
-                setMode(targetHook, 493)
+            val bytes = context.assets.open(hookAssetName).use { it.readBytes() }
+            // Replaced (in one step: running programs keep the copy they loaded) only when the app
+            // brings a different one, or the file is missing or damaged. A symlink in its place, left
+            // by older releases, is replaced too.
+            if (bytes.isNotEmpty()) {
+                FileInstaller.install(targetHook, bytes, 493) // 0755
             }
 
             val libDir = File(root, "lib")
             if (libDir.exists() && !ElfLinkerPatcher.isSymlink(libDir)) {
-                val libHook = File(libDir, "libcortex-hook.so")
                 try {
-                    if (ElfLinkerPatcher.isSymlink(libHook) || libHook.exists()) {
-                        ElfLinkerPatcher.deleteIfExists(libHook)
-                    }
-                    ElfLinkerPatcher.createSymlink(targetHook.absolutePath, libHook)
-                } catch (e: Exception) { Log.w(TAG, "Could not link ${libHook.path}", e) }
+                    FileInstaller.symlink(targetHook.absolutePath, File(libDir, "libcortex-hook.so"))
+                } catch (e: Exception) { Log.w(TAG, "Could not link ${libDir.path}/libcortex-hook.so", e) }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to update hook library from assets", e)
@@ -792,17 +785,10 @@ object BootstrapManager {
 
             val selectedDns = dnsServers.distinct().take(3)
 
-            val etcDir = File(root, "etc")
-            etcDir.mkdirs()
-            val resolvFile = File(etcDir, "resolv.conf")
-            if (!ElfLinkerPatcher.deleteIfExists(resolvFile)) {
-                resolvFile.delete()
-            }
+            // Replaced in one step (a lookup running meanwhile reads the old or the new file), and
+            // only when the servers changed: this runs whenever Cortex comes to the foreground.
             val resolvConf = selectedDns.joinToString("\n") { "nameserver $it" } + "\noptions timeout:1 attempts:2 rotate\n"
-            resolvFile.writeText(resolvConf)
-            resolvFile.setReadable(true, true)
-            resolvFile.setWritable(true, true)
-            setMode(resolvFile, 384)
+            FileInstaller.install(File(root, "etc/resolv.conf"), resolvConf, 384) // 0600
 
             ensureHosts(root)
             ensureNsswitch(root)
@@ -823,78 +809,37 @@ object BootstrapManager {
 
             if ((!caBundle.exists() || caBundle.length() < 100000L) && context != null) {
                 try {
-                    context.assets.open("cacert.pem").use { input ->
-                        java.io.FileOutputStream(caBundle).use { output ->
-                            input.copyTo(output)
-                        }
-                    }
-                    caBundle.setReadable(true, true)
-                    caBundle.setWritable(true, true)
-                    setMode(caBundle, 384)
+                    val bundled = context.assets.open("cacert.pem").use { it.readBytes() }
+                    FileInstaller.install(caBundle, bundled, 384) // 0600
                     Log.i(TAG, "Copied bundled cacert.pem from assets (${caBundle.length()} bytes)")
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to extract bundled cacert.pem", e)
                 }
             }
 
-            val existingText = if (caBundle.exists() && caBundle.length() > 0) {
-                try { caBundle.readText() } catch (e: Exception) { "" }
-            } else ""
-
-            val sb = StringBuilder(existingText)
-            var appended = false
-
             val certDirs = listOf(
                 File("/system/etc/security/cacerts"),
                 File("/apex/com.android.conscrypt/cacerts")
             )
-            for (androidCertsDir in certDirs) {
-                if (androidCertsDir.exists() && androidCertsDir.isDirectory) {
-                    androidCertsDir.listFiles()?.forEach { f ->
-                        if (f.isFile && f.name.endsWith(".0")) {
-                            try {
-                                val targetFile = File(certsDir, f.name)
-                                if (!targetFile.exists() || targetFile.length() == 0L) {
-                                    f.copyTo(targetFile, overwrite = true)
-                                    targetFile.setReadable(true, true)
-                                    targetFile.setWritable(true, true)
-                                    setMode(targetFile, 384)
-                                }
-                            } catch (e: Exception) { Log.w(TAG, "Could not copy CA certificate ${f.name}", e) }
-                            try {
-                                val content = f.readText()
-                                val start = content.indexOf("-----BEGIN CERTIFICATE-----")
-                                val end = content.indexOf("-----END CERTIFICATE-----")
-                                if (start != -1 && end != -1) {
-                                    val certPem = content.substring(start, end + "-----END CERTIFICATE-----".length)
-                                    val bodyOnly = certPem
-                                        .replace("-----BEGIN CERTIFICATE-----", "")
-                                        .replace("-----END CERTIFICATE-----", "")
-                                        .replace("\n", "")
-                                        .replace("\r", "")
-                                        .trim()
-                                    if (bodyOnly.length > 32 && !existingText.contains(bodyOnly.substring(0, 32))) {
-                                        if (sb.isNotEmpty() && !sb.endsWith("\n")) {
-                                            sb.append("\n")
-                                        }
-                                        sb.append(certPem).append("\n")
-                                        appended = true
-                                    }
-                                }
-                            } catch (e: Exception) { Log.w(TAG, "Could not read CA certificate ${f.name}", e) }
-                        }
-                    }
+            // Merging reads every one of Android's certificates and the whole bundle, so it is done
+            // again only when one of them changed: a system update, or update-ca-certificates
+            // rewriting the bundle.
+            val stampFile = File(certsDir, ".cortex-android-cas")
+            fun stamp() = buildString {
+                append(caBundle.length()).append(':').append(caBundle.lastModified())
+                for (dir in certDirs) {
+                    append('\n').append(dir.path).append(':').append(dir.lastModified())
+                        .append(':').append(dir.list()?.size ?: -1)
                 }
+                append('\n')
             }
-
-            if (!caBundle.exists() || caBundle.length() < 1000L || appended) {
-                if (sb.isNotEmpty()) {
-                    caBundle.writeText(sb.toString())
-                }
+            val lastStamp = try { if (stampFile.isFile) stampFile.readText() else null } catch (e: Exception) { null }
+            if (caBundle.length() < 1000L || lastStamp != stamp()) {
+                mergeAndroidCertificates(certsDir, caBundle, certDirs)
+                try {
+                    FileInstaller.install(stampFile, stamp(), 384)
+                } catch (e: Exception) { Log.w(TAG, "Could not write ${stampFile.path}", e) }
             }
-
-            caBundle.setReadable(true, true)
-            caBundle.setWritable(true, true)
             setMode(caBundle, 384)
 
             val certAliases = listOf(
@@ -915,10 +860,7 @@ object BootstrapManager {
                         try {
                             android.system.Os.symlink(caBundle.absolutePath, aliasFile.absolutePath)
                         } catch (symEx: Exception) {
-                            aliasFile.writeBytes(caBundle.readBytes())
-                            aliasFile.setReadable(true, true)
-                            aliasFile.setWritable(true, true)
-                            setMode(aliasFile, 384)
+                            FileInstaller.install(aliasFile, caBundle.readBytes(), 384)
                         }
                     }
                 } catch (e: Exception) { Log.w(TAG, "Could not create ${aliasFile.path}", e) }
@@ -926,6 +868,59 @@ object BootstrapManager {
             Log.i(TAG, "ensureCaCertificates finished (${caBundle.length()} bytes)")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to ensure CA certificates", e)
+        }
+    }
+
+    /**
+     * Adds Android's trusted certificates that [caBundle] lacks (a phone's own or its carrier's) to it,
+     * and copies them by their hash names into [certsDir] for OpenSSL's directory lookup.
+     */
+    private fun mergeAndroidCertificates(certsDir: File, caBundle: File, certDirs: List<File>) {
+        val existingText = if (caBundle.exists() && caBundle.length() > 0) {
+            try { caBundle.readText() } catch (e: Exception) { "" }
+        } else ""
+
+        val sb = StringBuilder(existingText)
+        var appended = false
+
+        for (androidCertsDir in certDirs) {
+            if (androidCertsDir.exists() && androidCertsDir.isDirectory) {
+                androidCertsDir.listFiles()?.forEach { f ->
+                    if (f.isFile && f.name.endsWith(".0")) {
+                        try {
+                            val targetFile = File(certsDir, f.name)
+                            if (!targetFile.exists() || targetFile.length() == 0L) {
+                                FileInstaller.install(targetFile, f.readBytes(), 384)
+                            }
+                        } catch (e: Exception) { Log.w(TAG, "Could not copy CA certificate ${f.name}", e) }
+                        try {
+                            val content = f.readText()
+                            val start = content.indexOf("-----BEGIN CERTIFICATE-----")
+                            val end = content.indexOf("-----END CERTIFICATE-----")
+                            if (start != -1 && end != -1) {
+                                val certPem = content.substring(start, end + "-----END CERTIFICATE-----".length)
+                                val bodyOnly = certPem
+                                    .replace("-----BEGIN CERTIFICATE-----", "")
+                                    .replace("-----END CERTIFICATE-----", "")
+                                    .replace("\n", "")
+                                    .replace("\r", "")
+                                    .trim()
+                                if (bodyOnly.length > 32 && !existingText.contains(bodyOnly.substring(0, 32))) {
+                                    if (sb.isNotEmpty() && !sb.endsWith("\n")) {
+                                        sb.append("\n")
+                                    }
+                                    sb.append(certPem).append("\n")
+                                    appended = true
+                                }
+                            }
+                        } catch (e: Exception) { Log.w(TAG, "Could not read CA certificate ${f.name}", e) }
+                    }
+                }
+            }
+        }
+
+        if ((!caBundle.exists() || caBundle.length() < 1000L || appended) && sb.isNotEmpty()) {
+            FileInstaller.install(caBundle, sb.toString(), 384)
         }
     }
 
@@ -956,10 +951,7 @@ object BootstrapManager {
             if (!passwdText.contains("sshd:")) {
                 passwdText += "sshd:x:101:101:Privilege-separated SSH:/run/sshd:/usr/sbin/nologin\n"
             }
-            passwdFile.writeText(passwdText)
-            passwdFile.setReadable(true, false)
-            passwdFile.setWritable(true, true)
-            setMode(passwdFile, 420)
+            FileInstaller.install(passwdFile, passwdText, 420) // 0644
 
             val groupFile = File(etcDir, "group")
             var groupText = if (groupFile.exists()) groupFile.readText() else ""
@@ -975,10 +967,7 @@ object BootstrapManager {
             if (!groupText.contains("ssh:")) {
                 groupText += "ssh:x:101:\n"
             }
-            groupFile.writeText(groupText)
-            groupFile.setReadable(true, false)
-            groupFile.setWritable(true, true)
-            setMode(groupFile, 420)
+            FileInstaller.install(groupFile, groupText, 420)
 
             val shadowFile = File(etcDir, "shadow")
             var shadowText = if (shadowFile.exists()) shadowFile.readText() else ""
@@ -986,10 +975,7 @@ object BootstrapManager {
             if (!shadowText.contains("cortex:")) shadowText += "cortex:*:19700:0:99999:7:::\n"
             if (!shadowText.contains("_ssh:")) shadowText += "_ssh:*:19700:0:99999:7:::\n"
             if (!shadowText.contains("sshd:")) shadowText += "sshd:*:19700:0:99999:7:::\n"
-            shadowFile.writeText(shadowText)
-            shadowFile.setReadable(true, false)
-            shadowFile.setWritable(true, true)
-            setMode(shadowFile, 420)
+            FileInstaller.install(shadowFile, shadowText, 420)
 
             val gshadowFile = File(etcDir, "gshadow")
             var gshadowText = if (gshadowFile.exists()) gshadowFile.readText() else ""
@@ -997,10 +983,7 @@ object BootstrapManager {
             if (!gshadowText.contains("cortex:")) gshadowText += "cortex:*::\n"
             if (!gshadowText.contains("_ssh:")) gshadowText += "_ssh:*::\n"
             if (!gshadowText.contains("ssh:")) gshadowText += "ssh:*::\n"
-            gshadowFile.writeText(gshadowText)
-            gshadowFile.setReadable(true, false)
-            gshadowFile.setWritable(true, true)
-            setMode(gshadowFile, 420)
+            FileInstaller.install(gshadowFile, gshadowText, 420)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to ensure passwd/group", e)
         }
@@ -1164,13 +1147,7 @@ object BootstrapManager {
             for (tool in dummyTools) {
                 for (bDir in binDirs) {
                     try {
-                        val tb = File(bDir, tool)
-                        tb.parentFile?.mkdirs()
-                        tb.writeText(scriptContent)
-                        tb.setReadable(true, true)
-                        tb.setWritable(true, true)
-                        tb.setExecutable(true, true)
-                        setMode(tb, 448)
+                        FileInstaller.install(File(bDir, tool), scriptContent, 448) // 0700
                     } catch (e: Exception) { Log.w(TAG, "Could not write $bDir/$tool", e) }
                 }
             }
@@ -1401,13 +1378,7 @@ object BootstrapManager {
                 "    *) PATH=\"\$HOME/.local/bin:\$PATH\" ;;\n" +
                 "esac\n" +
                 "export PATH\n"
-            val existing = try { if (envSh.isFile) envSh.readText() else null } catch (e: Exception) { null }
-            if (existing != envContent) {
-                envSh.writeText(envContent)
-            }
-            envSh.setReadable(true, true)
-            envSh.setWritable(true, true)
-            setMode(envSh, 384)
+            FileInstaller.install(envSh, envContent, 384) // 0600
         } catch (e: Exception) {
             Log.e(TAG, "Failed to ensure profile environment", e)
         }
@@ -1475,38 +1446,25 @@ object BootstrapManager {
             val localTimeFile = File(etcDir, "localtime")
             val tzFile = File(etcDir, "timezone")
 
+            // Both files are replaced in one step and only when the zone changed, so a program
+            // reading them meanwhile never falls back to UTC.
             if (zoneinfoFile.exists() && zoneinfoFile.isFile) {
                 try {
-                    if (localTimeFile.exists()) {
-                        localTimeFile.delete()
-                    }
-                    zoneinfoFile.copyTo(localTimeFile, overwrite = true)
-                    localTimeFile.setReadable(true, true)
-                    localTimeFile.setWritable(true, true)
-                    setMode(localTimeFile, 384)
+                    FileInstaller.install(localTimeFile, zoneinfoFile.readBytes(), 384) // 0600
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to copy zoneinfo to localtime", e)
                 }
             } else {
                 val tzifBytes = TzifGenerator.createTzifBytes(offsetSeconds, abbr, posixTz)
                 try {
-                    if (localTimeFile.exists()) {
-                        localTimeFile.delete()
-                    }
-                    localTimeFile.writeBytes(tzifBytes)
-                    localTimeFile.setReadable(true, true)
-                    localTimeFile.setWritable(true, true)
-                    setMode(localTimeFile, 384)
+                    FileInstaller.install(localTimeFile, tzifBytes, 384)
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to write generated localtime", e)
                 }
             }
 
             val effectiveTz = if (zoneinfoFile.exists() && zoneinfoFile.isFile) tzId else posixTz
-            tzFile.writeText(effectiveTz + "\n")
-            tzFile.setReadable(true, true)
-            tzFile.setWritable(true, true)
-            setMode(tzFile, 384)
+            FileInstaller.install(tzFile, effectiveTz + "\n", 384)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to update timezone", e)
         }

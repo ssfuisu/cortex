@@ -3,7 +3,6 @@ package org.cortex.terminal.runtime
 import android.annotation.SuppressLint
 import android.content.Context
 import android.os.Build
-import android.system.Os
 import android.util.Base64
 import android.util.Log
 import java.io.File
@@ -136,8 +135,6 @@ object AptConfigurator {
     fun ensureAptSandbox(root: File) {
         try {
             val aptConfDir = File(root, "etc/apt/apt.conf.d")
-            aptConfDir.mkdirs()
-            val sbFile = File(aptConfDir, "01sandbox")
             // Android's Zygote already enforces a strict kernel seccomp-bpf filter on all app
             // processes, and Cortex intercepts UID/GID/chown syscalls in userspace via LD_PRELOAD
             // (libcortex-hook.so). Enabling APT's internal seccomp filter inside the unprivileged
@@ -148,7 +145,8 @@ object AptConfigurator {
             // GPG signatures (Acquire::AllowInsecureRepositories "false",
             // Acquire::AllowDowngradeToInsecureRepositories "false",
             // APT::Get::AllowUnauthenticated "false").
-            sbFile.writeText(
+            FileInstaller.install(
+                File(aptConfDir, "01sandbox"),
                 "APT::Sandbox::User \"root\";\n" +
                 "APT::Sandbox::Seccomp \"false\";\n" +
                 "Acquire::ForceIPv4 \"true\";\n" +
@@ -169,34 +167,22 @@ object AptConfigurator {
                 "   \"--force-confdef\";\n" +
                 "   \"--force-confold\";\n" +
                 "   \"--force-unsafe-io\";\n" +
-                "};\n"
+                "};\n",
+                420 // 0644
             )
-            sbFile.setReadable(true, false)
-            sbFile.setWritable(true, true)
-            try { Os.chmod(sbFile.absolutePath, 420) } catch (_: Exception) {} // 0644
 
-            val sb99File = File(aptConfDir, "99sandbox")
-            sb99File.writeText(
+            FileInstaller.install(
+                File(aptConfDir, "99sandbox"),
                 "APT::Sandbox::User \"root\";\n" +
                 "APT::Sandbox::Seccomp \"false\";\n" +
                 "Acquire::AllowInsecureRepositories \"false\";\n" +
                 "Acquire::AllowDowngradeToInsecureRepositories \"false\";\n" +
-                "APT::Get::AllowUnauthenticated \"false\";\n"
+                "APT::Get::AllowUnauthenticated \"false\";\n",
+                420
             )
-            sb99File.setReadable(true, false)
-            sb99File.setWritable(true, true)
-            try { Os.chmod(sb99File.absolutePath, 420) } catch (_: Exception) {} // 0644
 
-            val dockerClean = File(aptConfDir, "docker-clean")
-            dockerClean.writeText("# Disabled for Cortex\n")
-            dockerClean.setReadable(true, false)
-            dockerClean.setWritable(true, true)
-            try { Os.chmod(dockerClean.absolutePath, 420) } catch (_: Exception) {} // 0644
-
-            val aptPrefDir = File(root, "etc/apt/preferences.d")
-            aptPrefDir.mkdirs()
-            val cortexPins = File(aptPrefDir, "01cortex-pins")
-            cortexPins.writeText(
+            FileInstaller.install(
+                File(root, "etc/apt/preferences.d/01cortex-pins"),
                 "Explanation: Pin core glibc and linker packages to prevent upgrading to stock upstream packages that fail Android SECCOMP\n" +
                 "Package: libc6 libc6-dev libc6-dbg\n" +
                 "Pin: release *\n" +
@@ -209,74 +195,23 @@ object AptConfigurator {
                 "Pin-Priority: -1\n\n" +
                 "Package: locales\n" +
                 "Pin: release *\n" +
-                "Pin-Priority: -1\n"
+                "Pin-Priority: -1\n",
+                420
             )
-            cortexPins.setReadable(true, false)
-            cortexPins.setWritable(true, true)
-            try { Os.chmod(cortexPins.absolutePath, 420) } catch (_: Exception) {}
 
-            val dpkgStatusFile = File(root, "var/lib/dpkg/status")
-            if (dpkgStatusFile.exists() && dpkgStatusFile.isFile) {
-                try {
-                    synchronized(DpkgStatus.lock) {
-                        val content = dpkgStatusFile.readText()
-                        val packagesToHold = setOf(
-                            "libc6", "libc6:arm64", "libc6:armhf",
-                            "libc-bin", "libc-bin:arm64", "libc-bin:armhf",
-                            "libc-dev-bin", "libc-dev-bin:arm64", "libc-dev-bin:armhf",
-                            "locales", "locales:all"
-                        )
-                        var updated = false
-                        val blocks = content.split(Regex("\\n\\n+"))
-                        val newBlocks = blocks.map { block ->
-                            val pkgLine = block.lines().firstOrNull { it.startsWith("Package:") }
-                            val pkgName = pkgLine?.substringAfter(":")?.trim()
-                            if (pkgName != null && packagesToHold.contains(pkgName)) {
-                                val lines = block.lines().toMutableList()
-                                val statusIdx = lines.indexOfFirst { it.startsWith("Status:") }
-                                if (statusIdx != -1) {
-                                    if (lines[statusIdx] != "Status: hold ok installed") {
-                                        lines[statusIdx] = "Status: hold ok installed"
-                                        updated = true
-                                    }
-                                } else {
-                                    val pkgIdx = lines.indexOfFirst { it.startsWith("Package:") }
-                                    lines.add(pkgIdx + 1, "Status: hold ok installed")
-                                    updated = true
-                                }
-                                lines.joinToString("\n")
-                            } else {
-                                block
-                            }
-                        }
-                        if (updated) {
-                            dpkgStatusFile.writeText(newBlocks.joinToString("\n\n") + "\n")
-                            dpkgStatusFile.setReadable(true, false)
-                            dpkgStatusFile.setWritable(true, true)
-                        }
-                    }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to update dpkg status holds", e)
-                }
-            }
+            holdGlibcPackages(root)
 
-            val dpkgCfgDir = File(root, "etc/dpkg/dpkg.cfg.d")
-            dpkgCfgDir.mkdirs()
-            val dpkgCortex = File(dpkgCfgDir, "01cortex")
-            dpkgCortex.writeText(
+            FileInstaller.install(
+                File(root, "etc/dpkg/dpkg.cfg.d/01cortex"),
                 "force-confdef\n" +
                 "force-confold\n" +
                 "force-unsafe-io\n" +
-                "no-debsig\n"
+                "no-debsig\n",
+                420
             )
-            dpkgCortex.setReadable(true, false)
-            dpkgCortex.setWritable(true, true)
-            try { Os.chmod(dpkgCortex.absolutePath, 420) } catch (_: Exception) {}
 
-            val profileD = File(root, "etc/profile.d")
-            profileD.mkdirs()
-            val profileCortex = File(profileD, "01cortex.sh")
-            profileCortex.writeText(
+            FileInstaller.install(
+                File(root, "etc/profile.d/01cortex.sh"),
                 "export DPKG_DEB_THREADS_MAX=1\n" +
                 "export XZ_OPT=-T1\n" +
                 "export XZ_DEFAULTS=-T1\n" +
@@ -305,43 +240,26 @@ object AptConfigurator {
                 "            service \"\$sname\" start >/dev/null 2>&1 || true\n" +
                 "        fi\n" +
                 "    done\n" +
-                "fi\n"
+                "fi\n",
+                420
             )
-            profileCortex.setReadable(true, false)
-            profileCortex.setWritable(true, true)
-            try { Os.chmod(profileCortex.absolutePath, 420) } catch (_: Exception) {}
-
-            val usrSbinDir = File(root, "usr/sbin")
-            usrSbinDir.mkdirs()
 
             val policyScript = "#!/bin/sh\nexit 101\n"
             val dummyExitZero = "#!/bin/sh\nexit 0\n"
-
-            val policyFile = File(usrSbinDir, "policy-rc.d")
-            policyFile.writeText(policyScript)
-            policyFile.setReadable(true, true)
-            policyFile.setExecutable(true, true)
-            try { Os.chmod(policyFile.absolutePath, 448) } catch (_: Exception) {} // 0700
-
-            listOf("ldconfig", "start-stop-daemon").forEach { name ->
-                val f = File(usrSbinDir, name)
-                f.writeText(dummyExitZero)
-                f.setReadable(true, true)
-                f.setExecutable(true, true)
-                try { Os.chmod(f.absolutePath, 448) } catch (_: Exception) {}
-            }
-
+            val sbinScripts = mapOf(
+                "policy-rc.d" to policyScript,
+                "ldconfig" to dummyExitZero,
+                "start-stop-daemon" to dummyExitZero
+            )
+            val usrSbinDir = File(root, "usr/sbin")
             val sbinDir = File(root, "sbin")
-            if (sbinDir.exists() && !ElfLinkerPatcher.isSymlink(sbinDir)) {
-                listOf("policy-rc.d", "ldconfig", "start-stop-daemon").forEach { name ->
+            val sbinIsOwnDir = sbinDir.exists() && !ElfLinkerPatcher.isSymlink(sbinDir)
+            for ((name, script) in sbinScripts) {
+                FileInstaller.install(File(usrSbinDir, name), script, 448) // 0700
+                if (sbinIsOwnDir) {
                     try {
-                        val src = File(usrSbinDir, name)
-                        val dst = File(sbinDir, name)
-                        src.copyTo(dst, overwrite = true)
-                        dst.setReadable(true, true)
-                        dst.setExecutable(true, true)
-                        Os.chmod(dst.absolutePath, 448)
-                    } catch (_: Exception) {}
+                        FileInstaller.install(File(sbinDir, name), script, 448)
+                    } catch (e: Exception) { Log.w(TAG, "Could not install /sbin/$name", e) }
                 }
             }
 
@@ -350,6 +268,63 @@ object AptConfigurator {
             File(root, "tmp").mkdirs()
         } catch (e: Exception) {
             Log.e(TAG, "Failed to ensure apt sandbox config", e)
+        }
+    }
+
+    /**
+     * Marks the patched glibc packages "hold" in dpkg's status file. Skipped while apt or dpkg runs
+     * (the file is theirs then), and when the file has not changed since the last check: reading and
+     * splitting a status file of a few megabytes on every start is not free.
+     */
+    private fun holdGlibcPackages(root: File) {
+        val statusFile = File(root, "var/lib/dpkg/status")
+        if (!statusFile.isFile) return
+        val checked = File(root, "var/lib/cortex/glibc-holds-checked")
+        fun stamp() = "${statusFile.length()}:${statusFile.lastModified()}\n"
+        val lastStamp = try { if (checked.isFile) checked.readText() else null } catch (e: Exception) { null }
+        if (lastStamp == stamp()) return
+        val locks = DpkgStatus.tryLock(root) ?: return
+        try {
+            synchronized(DpkgStatus.lock) {
+                val content = statusFile.readText()
+                val packagesToHold = setOf(
+                    "libc6", "libc6:arm64", "libc6:armhf",
+                    "libc-bin", "libc-bin:arm64", "libc-bin:armhf",
+                    "libc-dev-bin", "libc-dev-bin:arm64", "libc-dev-bin:armhf",
+                    "locales", "locales:all"
+                )
+                var updated = false
+                val blocks = content.split(Regex("\\n\\n+"))
+                val newBlocks = blocks.map { block ->
+                    val pkgLine = block.lines().firstOrNull { it.startsWith("Package:") }
+                    val pkgName = pkgLine?.substringAfter(":")?.trim()
+                    if (pkgName != null && packagesToHold.contains(pkgName)) {
+                        val lines = block.lines().toMutableList()
+                        val statusIdx = lines.indexOfFirst { it.startsWith("Status:") }
+                        if (statusIdx != -1) {
+                            if (lines[statusIdx] != "Status: hold ok installed") {
+                                lines[statusIdx] = "Status: hold ok installed"
+                                updated = true
+                            }
+                        } else {
+                            val pkgIdx = lines.indexOfFirst { it.startsWith("Package:") }
+                            lines.add(pkgIdx + 1, "Status: hold ok installed")
+                            updated = true
+                        }
+                        lines.joinToString("\n")
+                    } else {
+                        block
+                    }
+                }
+                if (updated) {
+                    FileInstaller.install(statusFile, newBlocks.joinToString("\n\n") + "\n", 420)
+                }
+            }
+            FileInstaller.install(checked, stamp(), 384)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to update dpkg status holds", e)
+        } finally {
+            locks.close()
         }
     }
 
@@ -385,12 +360,7 @@ object AptConfigurator {
                 }
             }
 
-            if (existing != updatedContent) {
-                ubuntuSources.writeText(updatedContent)
-            }
-            ubuntuSources.setReadable(true, false)
-            ubuntuSources.setWritable(true, true)
-            try { Os.chmod(ubuntuSources.absolutePath, 420) } catch (_: Exception) {} // 0644
+            FileInstaller.install(ubuntuSources, updatedContent, 420) // 0644
 
             val sourcesList = File(root, "etc/apt/sources.list")
             if (sourcesList.exists()) {
@@ -423,11 +393,7 @@ object AptConfigurator {
                     hasExpectedKeyringDigest(target, EXPECTED_UBUNTU_KEYRING_SHA256)
                 if (!isValid) {
                     try {
-                        target.parentFile?.mkdirs()
-                        target.outputStream().use { it.write(keyBytes) }
-                        target.setReadable(true, false)
-                        target.setWritable(true, true)
-                        try { Os.chmod(target.absolutePath, 420) } catch (_: Exception) {} // 0644
+                        FileInstaller.install(target, keyBytes, 420) // 0644
                         Log.i(TAG, "Wrote verified Ubuntu archive keyring to ${target.absolutePath}")
                     } catch (e: Exception) {
                         Log.e(TAG, "Failed writing keyring to ${target.absolutePath}", e)
@@ -443,12 +409,10 @@ object AptConfigurator {
                         val isValid = hasExpectedKeyringDigest(file, expectedDigest) ||
                             hasExpectedKeyringDigest(file, EXPECTED_UBUNTU_KEYRING_SHA256)
                         if (!isValid) {
-                            file.delete()
                             if (file.name == "ubuntu-archive-keyring.gpg") {
-                                file.outputStream().use { it.write(keyBytes) }
-                                file.setReadable(true, false)
-                                file.setWritable(true, true)
-                                try { Os.chmod(file.absolutePath, 420) } catch (_: Exception) {} // 0644
+                                FileInstaller.install(file, keyBytes, 420)
+                            } else {
+                                file.delete()
                             }
                         }
                     }
@@ -472,11 +436,7 @@ object AptConfigurator {
                                 val assetDigest = sha256(bytes)
                                 for (target in targets) {
                                     if (!hasExpectedKeyringDigest(target, assetDigest)) {
-                                        target.parentFile?.mkdirs()
-                                        target.outputStream().use { it.write(bytes) }
-                                        target.setReadable(true, false)
-                                        target.setWritable(true, true)
-                                        try { Os.chmod(target.absolutePath, 420) } catch (_: Exception) {}
+                                        FileInstaller.install(target, bytes, 420)
                                     }
                                 }
                             }
@@ -484,18 +444,18 @@ object AptConfigurator {
                     } catch (_: Exception) {}
                 }
             }
-
-            // Clear any stale partial lists
-            val partialLists = File(root, "var/lib/apt/lists/partial")
-            if (partialLists.exists()) {
-                try {
-                    partialLists.listFiles()?.forEach { it.delete() }
-                } catch (_: Exception) {}
-            }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to ensure keyrings", e)
         }
     }
+
+    /** The lock files of apt and dpkg; holding them all means neither is running. */
+    internal fun aptLockFiles(root: File) = listOf(
+        File(root, "var/lib/dpkg/lock-frontend"),
+        File(root, "var/lib/dpkg/lock"),
+        File(root, "var/lib/apt/lists/lock"),
+        File(root, "var/cache/apt/archives/lock")
+    )
 
     fun cleanupAptArtifacts(root: File) {
         try {
@@ -511,76 +471,72 @@ object AptConfigurator {
                 dockerClean.delete()
             }
 
-            // Remove any downloaded or corrupted glibc deb archives
-            listOf(
-                File(root, "var/cache/apt/archives"),
-                File(root, "var/cache/apt/archives/partial")
-            ).forEach { dir ->
-                if (dir.exists() && dir.isDirectory) {
-                    dir.listFiles()?.forEach { file ->
-                        val n = file.name
-                        if (file.isFile && n.endsWith(".deb")) {
-                            if (n.startsWith("libc6") || n.startsWith("libc-bin") || n.startsWith("locales") || n.startsWith("libc-dev-bin")) {
-                                file.delete()
+            // The rest touches apt's and dpkg's working files: only while neither runs (in a session
+            // or in root mode), never under a running apt-get.
+            val locks = FileLocks.tryLock(aptLockFiles(root)) ?: return
+            locks.use {
+                // Remove any downloaded or corrupted glibc deb archives
+                listOf(
+                    File(root, "var/cache/apt/archives"),
+                    File(root, "var/cache/apt/archives/partial")
+                ).forEach { dir ->
+                    if (dir.exists() && dir.isDirectory) {
+                        dir.listFiles()?.forEach { file ->
+                            val n = file.name
+                            if (file.isFile && n.endsWith(".deb")) {
+                                if (n.startsWith("libc6") || n.startsWith("libc-bin") || n.startsWith("locales") || n.startsWith("libc-dev-bin")) {
+                                    file.delete()
+                                }
                             }
                         }
                     }
                 }
-            }
 
-            // Clean stale lock files if 0 bytes
-            listOf(
-                File(root, "var/lib/dpkg/lock"),
-                File(root, "var/lib/dpkg/lock-frontend"),
-                File(root, "var/cache/apt/archives/lock"),
-                File(root, "var/lib/apt/lists/lock")
-            ).forEach { lockFile ->
-                if (lockFile.exists() && lockFile.length() == 0L) {
-                    try { lockFile.delete() } catch (e: Exception) {}
-                }
-            }
+                // Downloads an interrupted apt-get left behind
+                File(root, "var/lib/apt/lists/partial").listFiles()?.forEach { it.delete() }
 
-            // Clean any corrupted MergeList package lists
-            val listsDir = File(root, "var/lib/apt/lists")
-            if (listsDir.exists() && listsDir.isDirectory) {
-                listsDir.listFiles()?.forEach { file ->
-                    if (file.isFile && file.name.endsWith("_Packages")) {
-                        var isCorrupted = false
-                        try {
-                            file.bufferedReader().use { reader ->
-                                var inSection = false
-                                var hasPackageHeader = false
-                                var line: String?
-                                while (reader.readLine().also { line = it } != null) {
-                                    val l = line!!
-                                    if (l.isEmpty()) {
-                                        if (inSection && !hasPackageHeader) {
-                                            isCorrupted = true
-                                            break
-                                        }
-                                        inSection = false
-                                        hasPackageHeader = false
-                                    } else {
-                                        if (!inSection) {
-                                            inSection = true
-                                            if (l.startsWith("Package:")) {
-                                                hasPackageHeader = true
-                                            } else {
+                // Clean any corrupted MergeList package lists
+                val listsDir = File(root, "var/lib/apt/lists")
+                if (listsDir.exists() && listsDir.isDirectory) {
+                    listsDir.listFiles()?.forEach { file ->
+                        if (file.isFile && file.name.endsWith("_Packages")) {
+                            var isCorrupted = false
+                            try {
+                                file.bufferedReader().use { reader ->
+                                    var inSection = false
+                                    var hasPackageHeader = false
+                                    var line: String?
+                                    while (reader.readLine().also { line = it } != null) {
+                                        val l = line!!
+                                        if (l.isEmpty()) {
+                                            if (inSection && !hasPackageHeader) {
                                                 isCorrupted = true
                                                 break
                                             }
+                                            inSection = false
+                                            hasPackageHeader = false
+                                        } else {
+                                            if (!inSection) {
+                                                inSection = true
+                                                if (l.startsWith("Package:")) {
+                                                    hasPackageHeader = true
+                                                } else {
+                                                    isCorrupted = true
+                                                    break
+                                                }
+                                            }
                                         }
                                     }
+                                    if (inSection && !hasPackageHeader) {
+                                        isCorrupted = true
+                                    }
                                 }
-                                if (inSection && !hasPackageHeader) {
-                                    isCorrupted = true
-                                }
+                            } catch (e: Exception) {
+                                isCorrupted = true
                             }
-                        } catch (e: Exception) {
-                            isCorrupted = true
-                        }
-                        if (isCorrupted) {
-                            file.delete()
+                            if (isCorrupted) {
+                                file.delete()
+                            }
                         }
                     }
                 }

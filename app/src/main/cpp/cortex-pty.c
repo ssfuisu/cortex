@@ -829,14 +829,12 @@ static int parse_pax_headers(const char *buf, size_t len,
 
 #define TAR_COPY_BUF_SIZE 65536
 
-static int extract_tar_archive(const char *tar_path, const char *dest_dir) {
-    if (!tar_path || !dest_dir) return -1;
-    int fd = open(tar_path, O_RDONLY | O_CLOEXEC);
-    if (fd < 0) return -1;
+// Extracts the tar stream read from fd (a file or a pipe, which is not closed) into dest_dir.
+static int extract_tar_fd(int fd, const char *dest_dir) {
+    if (fd < 0 || !dest_dir) return -1;
 
     char *copy_buf = malloc(TAR_COPY_BUF_SIZE);
     if (!copy_buf) {
-        close(fd);
         return -1;
     }
 
@@ -851,7 +849,6 @@ static int extract_tar_archive(const char *tar_path, const char *dest_dir) {
         if (hdr_n == 0) break;
         if (hdr_n != 512) {
             free(copy_buf);
-            close(fd);
             return -1;
         }
 
@@ -864,7 +861,6 @@ static int extract_tar_archive(const char *tar_path, const char *dest_dir) {
         if (!verify_tar_checksum(block)) {
             LOGE("Tar header checksum verification failed");
             free(copy_buf);
-            close(fd);
             return -1;
         }
 
@@ -875,7 +871,6 @@ static int extract_tar_archive(const char *tar_path, const char *dest_dir) {
 
         if (size > ULLONG_MAX - 511ULL) {
             free(copy_buf);
-            close(fd);
             return -1;
         }
 
@@ -885,7 +880,6 @@ static int extract_tar_archive(const char *tar_path, const char *dest_dir) {
             if (size == 0 || size >= dst_max) {
                 LOGE("Tar GNU LongName/LongLink size (%llu) exceeds PATH_MAX", size);
                 free(copy_buf);
-                close(fd);
                 return -1;
             }
             unsigned long long padded = ((size + 511ULL) / 512ULL) * 512ULL;
@@ -894,7 +888,6 @@ static int extract_tar_archive(const char *tar_path, const char *dest_dir) {
                 char dblock[512];
                 if (read_full(fd, dblock, 512) != 512) {
                     free(copy_buf);
-                    close(fd);
                     return -1;
                 }
                 size_t rem_payload = (size > pos) ? (size_t)(size - pos) : 0;
@@ -912,20 +905,17 @@ static int extract_tar_archive(const char *tar_path, const char *dest_dir) {
         if (typeflag == 'x' || typeflag == 'g') {
             if (size > 1024ULL * 1024ULL) {
                 free(copy_buf);
-                close(fd);
                 return -1;
             }
             unsigned long long padded = ((size + 511ULL) / 512ULL) * 512ULL;
             char *pax_buf = malloc((size_t)padded + 1);
             if (!pax_buf) {
                 free(copy_buf);
-                close(fd);
                 return -1;
             }
             if (read_full(fd, pax_buf, (size_t)padded) != (ssize_t)padded) {
                 free(pax_buf);
                 free(copy_buf);
-                close(fd);
                 return -1;
             }
             pax_buf[size] = '\0';
@@ -944,7 +934,6 @@ static int extract_tar_archive(const char *tar_path, const char *dest_dir) {
             free(pax_buf);
             if (rc != 0) {
                 free(copy_buf);
-                close(fd);
                 return -1;
             }
             continue;
@@ -955,7 +944,6 @@ static int extract_tar_archive(const char *tar_path, const char *dest_dir) {
             has_pax_size = 0;
             if (size > ULLONG_MAX - 511ULL) {
                 free(copy_buf);
-                close(fd);
                 return -1;
             }
         }
@@ -986,7 +974,6 @@ static int extract_tar_archive(const char *tar_path, const char *dest_dir) {
         if (is_tar_path_unsafe(name)) {
             LOGE("Tar-Slip security guard: rejecting unsafe entry name='%s'", name);
             free(copy_buf);
-            close(fd);
             return -1;
         }
 
@@ -997,7 +984,6 @@ static int extract_tar_archive(const char *tar_path, const char *dest_dir) {
                 size_t to_read = (padded < TAR_COPY_BUF_SIZE) ? (size_t)padded : TAR_COPY_BUF_SIZE;
                 if (read_full(fd, copy_buf, to_read) != (ssize_t)to_read) {
                     free(copy_buf);
-                    close(fd);
                     return -1;
                 }
                 padded -= to_read;
@@ -1008,29 +994,30 @@ static int extract_tar_archive(const char *tar_path, const char *dest_dir) {
         if (typeflag == '2' && !is_symlink_target_safe(rel, linkname)) {
             LOGE("Tar-Slip security guard: rejecting escaping symlink name='%s' -> '%s'", name, linkname);
             free(copy_buf);
-            close(fd);
             return -1;
         }
 
         if (typeflag == '1' && is_tar_path_unsafe(linkname)) {
             LOGE("Tar-Slip security guard: rejecting unsafe hardlink name='%s' -> '%s'", name, linkname);
             free(copy_buf);
-            close(fd);
             return -1;
         }
 
+        // A directory entry ends in '/': only its parents are checked below. The directory itself
+        // replaces whatever is in its place (a symlink is removed, never followed), so a link the
+        // app made before extracting (dev/shm) no longer fails the whole archive.
+        size_t rel_len = strlen(rel);
+        while (rel_len > 0 && rel[rel_len - 1] == '/') rel_len--;
         char dest_path[PATH_MAX];
-        int dplen = snprintf(dest_path, sizeof(dest_path), "%s/%s", dest_dir, rel);
+        int dplen = snprintf(dest_path, sizeof(dest_path), "%s/%.*s", dest_dir, (int)rel_len, rel);
         if (dplen < 0 || (size_t)dplen >= sizeof(dest_path)) {
             free(copy_buf);
-            close(fd);
             return -1;
         }
 
         if (mkdirs_for_path(dest_dir, dest_path) != 0) {
             LOGE("Tar-Slip security guard: unsafe parent directory for '%s'", dest_path);
             free(copy_buf);
-            close(fd);
             return -1;
         }
 
@@ -1047,14 +1034,12 @@ static int extract_tar_archive(const char *tar_path, const char *dest_dir) {
             rmdir(dest_path);
             if (symlink(linkname, dest_path) != 0) {
                 free(copy_buf);
-                close(fd);
                 return -1;
             }
         } else if (typeflag == '1') {
             const char *lrel = strip_tar_prefix(linkname);
             if (*lrel == '\0' || has_dotdot_component(lrel)) {
                 free(copy_buf);
-                close(fd);
                 return -1;
             }
             char target_path[PATH_MAX];
@@ -1062,7 +1047,6 @@ static int extract_tar_archive(const char *tar_path, const char *dest_dir) {
             if (tplen < 0 || (size_t)tplen >= sizeof(target_path) ||
                 mkdirs_for_path(dest_dir, target_path) != 0) {
                 free(copy_buf);
-                close(fd);
                 return -1;
             }
             unlink(dest_path);
@@ -1081,7 +1065,6 @@ static int extract_tar_archive(const char *tar_path, const char *dest_dir) {
                         if ((rend - rp) > 0 && !((rend - rp) == 1 && rp[0] == '.')) {
                             if (rpos + 3 >= sizeof(rel_link)) {
                                 free(copy_buf);
-                                close(fd);
                                 return -1;
                             }
                             memcpy(rel_link + rpos, "../", 3);
@@ -1093,13 +1076,11 @@ static int extract_tar_archive(const char *tar_path, const char *dest_dir) {
                 size_t lrel_len = strlen(lrel);
                 if (rpos + lrel_len >= sizeof(rel_link)) {
                     free(copy_buf);
-                    close(fd);
                     return -1;
                 }
                 memcpy(rel_link + rpos, lrel, lrel_len + 1);
                 if (symlink(rel_link, dest_path) != 0) {
                     free(copy_buf);
-                    close(fd);
                     return -1;
                 }
             }
@@ -1109,7 +1090,6 @@ static int extract_tar_archive(const char *tar_path, const char *dest_dir) {
             int out_fd = open(dest_path, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW | O_CLOEXEC, (mode & 0777) | 0600);
             if (out_fd < 0) {
                 free(copy_buf);
-                close(fd);
                 return -1;
             }
             unsigned long long rem_data = size;
@@ -1120,7 +1100,6 @@ static int extract_tar_archive(const char *tar_path, const char *dest_dir) {
                 if (read_full(fd, copy_buf, to_read) != (ssize_t)to_read) {
                     close(out_fd);
                     free(copy_buf);
-                    close(fd);
                     return -1;
                 }
                 total_to_read -= to_read;
@@ -1134,13 +1113,11 @@ static int extract_tar_archive(const char *tar_path, const char *dest_dir) {
                             if (errno == EINTR) continue;
                             close(out_fd);
                             free(copy_buf);
-                            close(fd);
                             return -1;
                         }
                         if (w == 0) {
                             close(out_fd);
                             free(copy_buf);
-                            close(fd);
                             return -1;
                         }
                         written += (size_t)w;
@@ -1149,14 +1126,24 @@ static int extract_tar_archive(const char *tar_path, const char *dest_dir) {
                 }
             }
 
-            fchmod(out_fd, mode & 0777);
+            // The archive's mode, plus read and write for the owner: the files are meant for root,
+            // and here the app's user stands in for root.
+            fchmod(out_fd, (mode & 0777) | 0600);
             close(out_fd);
         }
     }
 
     free(copy_buf);
-    close(fd);
     return 0;
+}
+
+static int extract_tar_archive(const char *tar_path, const char *dest_dir) {
+    if (!tar_path || !dest_dir) return -1;
+    int fd = open(tar_path, O_RDONLY | O_CLOEXEC);
+    if (fd < 0) return -1;
+    int res = extract_tar_fd(fd, dest_dir);
+    close(fd);
+    return res;
 }
 
 #ifndef CORTEX_HOST_TEST
@@ -1174,6 +1161,22 @@ Java_org_cortex_terminal_pty_PtyNative_extractTar(
     int res = extract_tar_archive(tarPath, destDir);
 
     (*env)->ReleaseStringUTFChars(env, tarPathStr, tarPath);
+    (*env)->ReleaseStringUTFChars(env, destDirStr, destDir);
+    return res;
+}
+
+// Extracts the tar stream the app writes into a pipe (fd stays the caller's), so the archive need
+// not be copied to a file first.
+JNIEXPORT jint JNICALL
+Java_org_cortex_terminal_pty_PtyNative_extractTarFd(
+    JNIEnv *env,
+    jclass clazz,
+    jint fd,
+    jstring destDirStr
+) {
+    (void)clazz;
+    const char *destDir = (*env)->GetStringUTFChars(env, destDirStr, NULL);
+    int res = extract_tar_fd(fd, destDir);
     (*env)->ReleaseStringUTFChars(env, destDirStr, destDir);
     return res;
 }

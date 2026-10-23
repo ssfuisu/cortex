@@ -44,6 +44,12 @@ class MainActivity : AppCompatActivity() {
         // must wait for it instead of starting a second extraction over the first one.
         private val bootstrapLock = Any()
         private var bootstrapInProgress = false
+
+        // Once per process: what a previous run left in /tmp is removed before the first session,
+        // and the system's configuration is checked in the background.
+        @Volatile
+        private var startupCleanupDone = false
+        private val maintenanceStarted = java.util.concurrent.atomic.AtomicBoolean(false)
     }
 
     private lateinit var binding: ActivityMainBinding
@@ -243,84 +249,26 @@ class MainActivity : AppCompatActivity() {
 
         val bootstrapInstalledAtStart = BootstrapManager.isBootstrapInstalled(this)
         if (bootstrapInstalledAtStart) {
-            // Fast synchronous prep before creating session:
-            // 1. Ensure hook library is up-to-date and not corrupted (<2ms)
-            // 2. Ensure repository GPG keyrings are present and verified (<1ms)
-            // 3. Clear stale socket/lock files from tmp (<1ms)
+            // Before the first session: the hook library every program loads (rewritten only when
+            // this app brings a different one), and the sockets and locks a previous run left in
+            // /tmp. Those only when no session of this process runs yet: an activity created again
+            // (rotation, a theme or language change) must not delete the running programs' files.
             try {
                 BootstrapManager.ensureHookLibrary(this, root)
             } catch (e: Exception) {
                 android.util.Log.e("MainActivity", "Startup ensureHookLibrary failed", e)
             }
-            try {
-                BootstrapManager.ensureKeyrings(root, this)
-            } catch (e: Exception) {
-                android.util.Log.e("MainActivity", "Startup ensureKeyrings failed", e)
+            if (!startupCleanupDone && sessionManager.sessions.isEmpty()) {
+                startupCleanupDone = true
+                try {
+                    BootstrapManager.cleanupStaleSocketsAndLocks(root, homeDir)
+                } catch (e: Exception) {
+                    android.util.Log.e("MainActivity", "Startup cleanup failed", e)
+                }
             }
-            try {
-                BootstrapManager.ensureAptSandbox(root)
-            } catch (e: Exception) {
-                android.util.Log.e("MainActivity", "Startup ensureAptSandbox failed", e)
-            }
-            try {
-                BootstrapManager.ensureUbuntuSources(root)
-            } catch (e: Exception) {
-                android.util.Log.e("MainActivity", "Startup ensureUbuntuSources failed", e)
-            }
-            try {
-                BootstrapManager.cleanupStaleSocketsAndLocks(root, homeDir)
-                BootstrapManager.cleanupAptArtifacts(root)
-            } catch (e: Exception) {
-                android.util.Log.e("MainActivity", "Startup cleanup failed", e)
-            }
+            startMaintenance(root)
         }
 
-        // Heavy file I/O (DNS, timezone, certs, essential binaries, xdg-open,
-        // root tools) runs on a background thread. Doing it on the main thread
-        // stalls onCreate, delays the first frame, and on slow devices can
-        // push the CortexService foreground promotion past the 5s ANR window —
-        // exactly the blank-screen + ANR kill reported in issue #1.
-        kotlin.concurrent.thread(name = "Cortex-StartupMaintenance") {
-            // While the base system is still being extracted these steps would write into the tree
-            // being unpacked; the bootstrap path below runs the same steps once it is done.
-            if (!bootstrapInstalledAtStart) return@thread
-            try {
-                BootstrapManager.updateDnsConfiguration(this@MainActivity, root)
-            } catch (e: Exception) {
-                android.util.Log.e("MainActivity", "Startup DNS update failed", e)
-            }
-            try {
-                BootstrapManager.updateTimezone(this@MainActivity, root)
-            } catch (e: Exception) {
-                android.util.Log.e("MainActivity", "Startup timezone update failed", e)
-            }
-            try {
-                BootstrapManager.ensureCaCertificates(root, this@MainActivity)
-            } catch (e: Exception) {
-                android.util.Log.e("MainActivity", "Startup CA certs failed", e)
-            }
-            try {
-                BootstrapManager.ensureKeyrings(root, this@MainActivity)
-            } catch (e: Exception) {
-                android.util.Log.e("MainActivity", "Startup keyrings failed", e)
-            }
-            try {
-                BootstrapManager.ensureEssentialBinaries(root, homeDir, this@MainActivity)
-            } catch (e: Exception) {
-                android.util.Log.e("MainActivity", "Startup essential binaries failed", e)
-            }
-            try {
-                BootstrapManager.initializeFileSystem(this@MainActivity)
-            } catch (e: Exception) {
-                android.util.Log.e("MainActivity", "Startup filesystem init failed", e)
-            }
-            // libc6-dev and its dependencies, for older installations that never had them
-            try {
-                BootstrapManager.ensureDevPackages(this@MainActivity, root)
-            } catch (e: Exception) {
-                android.util.Log.e("MainActivity", "Startup C development packages failed", e)
-            }
-        }
         if (!bootstrapInstalledAtStart) {
             isBootstrapping = true
             val progress = android.app.ProgressDialog(this).apply {
@@ -441,6 +389,39 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
+     * Checks the Ubuntu system's configuration (DNS, time zone, certificates, apt, users, Cortex's
+     * tools...) off the main thread, once per process. A file is only rewritten when it differs, and
+     * then in one step, so the sessions starting meanwhile are not disturbed.
+     */
+    private fun startMaintenance(root: java.io.File) {
+        if (!maintenanceStarted.compareAndSet(false, true)) return
+        val app = applicationContext
+        kotlin.concurrent.thread(name = "Cortex-StartupMaintenance") {
+            val started = android.os.SystemClock.uptimeMillis()
+            try {
+                BootstrapManager.initializeFileSystem(app)
+            } catch (e: Exception) {
+                android.util.Log.e("MainActivity", "Startup filesystem init failed", e)
+            }
+            try {
+                BootstrapManager.ensureUbuntuSources(root)
+            } catch (e: Exception) {
+                android.util.Log.e("MainActivity", "Startup ensureUbuntuSources failed", e)
+            }
+            // libc6-dev and its dependencies, for older installations that never had them
+            try {
+                BootstrapManager.ensureDevPackages(app, root)
+            } catch (e: Exception) {
+                android.util.Log.e("MainActivity", "Startup C development packages failed", e)
+            }
+            android.util.Log.i(
+                "MainActivity",
+                "Start-up maintenance took ${android.os.SystemClock.uptimeMillis() - started} ms"
+            )
+        }
+    }
+
+    /**
      * Extracts the Ubuntu base system, at most once at a time per process. A caller that arrives
      * while another extraction is running waits for it and reports whether it succeeded.
      */
@@ -462,12 +443,11 @@ class MainActivity : AppCompatActivity() {
         try {
             val installed = BootstrapManager.installBootstrapFromAssets(this)
             if (installed) {
-                // The base system is in place; a hiccup in the follow-up polish must not turn
-                // a working install into "Failed to initialize environment".
+                // The base system is in place and configured; a hiccup in the C development
+                // packages must not turn a working install into "Failed to initialize environment".
+                startupCleanupDone = true
+                maintenanceStarted.set(true)
                 try {
-                    BootstrapManager.updateTimezone(this, root)
-                    BootstrapManager.ensureEssentialBinaries(root, Environment.getHomeDir(this), this)
-                    BootstrapManager.initializeFileSystem(this)
                     BootstrapManager.ensureDevPackages(this, root)
                 } catch (t: Throwable) {
                     android.util.Log.e("MainActivity", "Post-bootstrap setup failed", t)

@@ -144,7 +144,7 @@ trap 'kill $LOGCAT 2>/dev/null' EXIT
 
 log "Starting Cortex"
 STARTED=$SECONDS
-sh_ am start -W -n "$PKG/org.cortex.terminal.MainActivity"
+sh_ am start -W -n "$PKG/org.cortex.terminal.MainActivity" | tee "$OUT/first-start.txt"
 sleep 20
 shot "01-first-start"
 wait_for 1200 run_ test -f "$DATA/files/cortex/.cortex_version" || die "Ubuntu was not unpacked within 20 minutes"
@@ -237,6 +237,52 @@ if tap_id btnDrawerSettings; then
 else
     log "no settings button found"
 fi
+
+log "Restart"
+# Cortex again in a new process, as after Android stopped it: the normal start of an installed system,
+# whose checks run in the background while the first session starts.
+sh_ input keyevent 4
+sleep 1
+run_ am force-stop "$PKG"
+sleep 3
+sh_ am start -W -n "$PKG/org.cortex.terminal.MainActivity" | tee "$OUT/restart.txt"
+sleep 10
+tap_center "$WIDTH" "$HEIGHT"
+sleep 2
+type_line "id -u > $DEVICE_OUT/after-restart.txt"
+if wait_for 90 run_ test -s "$DEVICE_OUT/after-restart.txt"; then
+    echo "PASS a session works after a restart"
+else
+    echo "FAIL no working session after a restart"
+    status=1
+fi
+shot "16-after-restart"
+sleep 20 # the background checks of the start
+
+log "The app's log"
+# Messages of mistakes that slowed down or broke the first start once
+if grep -E "Tar-Slip|Native extraction failed|home/storage/|Failed to setup which" "$OUT/logcat.txt" > "$OUT/app-errors.txt"; then
+    echo "FAIL the app logged errors at start (app-errors.txt):"
+    head -n 20 "$OUT/app-errors.txt"
+    status=1
+else
+    echo "PASS no start-up errors in the app's log"
+fi
+if grep -A 3 "FATAL EXCEPTION" "$OUT/logcat.txt" | grep -q "Process: $PKG"; then
+    echo "FAIL the app crashed:"
+    grep -A 15 "FATAL EXCEPTION" "$OUT/logcat.txt" | head -n 40
+    status=1
+else
+    echo "PASS the app did not crash"
+fi
+{
+    echo "first start:"
+    grep -E "TotalTime|WaitTime" "$OUT/first-start.txt"
+    echo "start of the installed app:"
+    grep -E "TotalTime|WaitTime" "$OUT/restart.txt"
+    grep -E "Displayed $PKG|Base system installed|Start-up maintenance took|ensureCaCertificates|Skipped [0-9]+ frames" "$OUT/logcat.txt" |
+        grep -E "$PKG|BootstrapManager|MainActivity|Choreographer" | sed 's/^/  /'
+} | tee "$OUT/timings.txt"
 
 log "Took $((SECONDS - STARTED)) s"
 exit $status

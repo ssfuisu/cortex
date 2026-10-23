@@ -37,4 +37,8 @@ object PtyNative {
 
     @JvmStatic
     external fun extractTar(tarPath: String, destDir: String): Int
+
+    /** Extracts the tar stream read from [fd] (a pipe the caller writes into; not closed here). */
+    @JvmStatic
+    external fun extractTarFd(fd: Int, destDir: String): Int
 }
