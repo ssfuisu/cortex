@@ -66,7 +66,13 @@ class UbuntuOnDeviceTest {
                 "[ \"\$(readlink s)\" = b ] && [ \"\$(cat s)\" = one ] && mkfifo p && [ -p p ] && " +
                 "cd / && rm -rf \"\$d\" && echo files ok"
         )
-        // Hard links are emulated: the process that made one sees a real link
+        // Hard links are emulated: ln and stat, separate processes, agree on the link
+        assertOutput(
+            "links 2 1",
+            "d=\$(mktemp -d) && cd \"\$d\" && echo one > a && ln a b && n=\$(stat -c %h a) && " +
+                "[ \"\$(stat -c %i a)\" = \"\$(stat -c %i b)\" ] && rm b && echo \"links \$n \$(stat -c %h a)\""
+        )
+        // and link() and stat() in one process too
         assertOutput(
             "links=2 same inode",
             "d=\$(mktemp -d) && cd \"\$d\" && echo one > a && perl -e 'link(\"a\", \"b\") or die \"link: \$!\\n\"; " +

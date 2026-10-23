@@ -613,6 +613,14 @@ static void test_sigsys_and_close_fds(void) {
     close(5000);
 }
 
+/* Forgets this process' mapping of the hard link table, as a new process starts without one. */
+static void hl_reset_for_test(void) {
+    if (g_hl_table) munmap(g_hl_table, sizeof(cortex_hl_table_t));
+    g_hl_table = NULL;
+    g_hl_shared = 0;
+    g_hl_next_try = 0;
+}
+
 /* 9. Test emulated hardlink and st_nlink reporting (fixing groupadd/shadow /etc/group.lock failure) */
 static void test_hardlink_emulation_and_st_nlink(void) {
     const char *tmp = get_test_tmp_dir();
@@ -774,7 +782,7 @@ static void test_emulated_hardlink_groups(void) {
     ASSERT_EQ(hook_stat(c, &sc), 0, "stat c");
     ASSERT_EQ(sc.st_nlink, 1, "the last copy is a plain file again");
     ASSERT_TRUE(sc.st_ino != plain.st_ino, "and reports its own inode");
-    ASSERT_EQ(g_hardlinks_any, 0, "nothing is tracked any more");
+    ASSERT_EQ(hardlinks_maybe_any(), 0, "nothing is tracked any more");
 
     // Many links in one process (dpkg unpacking a package full of hard links) are all kept
     for (int i = 0; i < 300; i++) {
@@ -786,10 +794,94 @@ static void test_emulated_hardlink_groups(void) {
 
     close(dirfd);
     rm_rf(dir);
-    pthread_mutex_lock(&g_hardlinks_lock);
-    g_hardlinks_len = 0;
-    g_hardlinks_any = 0;
-    pthread_mutex_unlock(&g_hardlinks_lock);
+    hl_reset_for_test();
+}
+
+/* 9c. The table of emulated links is shared by the processes of a rootfs and outlives them */
+static void test_emulated_hardlinks_shared(void) {
+    char saved_root[PATH_MAX];
+    size_t saved_len = g_cortex_root_len;
+    memcpy(saved_root, g_cortex_root, sizeof(saved_root));
+    const char *tmp = get_test_tmp_dir();
+    char root[PATH_MAX], lib[PATH_MAX], table[PATH_MAX], a[PATH_MAX], b[PATH_MAX], c[PATH_MAX];
+    snprintf(root, sizeof(root), "%s/cortex_hls_%d", tmp, getpid());
+    rm_rf(root);
+    ASSERT_EQ(mkdir(root, 0700), 0, "mkdir rootfs");
+    snprintf(lib, sizeof(lib), "%s/var", root);
+    mkdir(lib, 0700);
+    snprintf(lib, sizeof(lib), "%s/var/lib", root);
+    mkdir(lib, 0700);
+    snprintf(table, sizeof(table), "%s/var/lib/cortex/hardlinks", root);
+    snprintf(a, sizeof(a), "%s/a", root);
+    snprintf(b, sizeof(b), "%s/b", root);
+    snprintf(c, sizeof(c), "%s/c", root);
+    cortex_set_root(root, strlen(root));
+    hl_reset_for_test();
+
+    int fd = open(a, O_CREAT | O_WRONLY | O_TRUNC, 0600);
+    ASSERT_TRUE(fd >= 0, "create a");
+    ASSERT_EQ(write(fd, "pid\n", 4), 4, "write a");
+    close(fd);
+    struct stat plain, sa, sb;
+    ASSERT_EQ(stat(a, &plain), 0, "stat a");
+    ASSERT_EQ(hardlinks_maybe_any(), 0, "no table before the first link");
+
+    // ln a b in one process...
+    pid_t pid = fork();
+    if (pid == 0) _exit(cortex_emulate_hardlink(a, b) == 0 ? 0 : 1);
+    int status = 0;
+    waitpid(pid, &status, 0);
+    ASSERT_TRUE(WIFEXITED(status) && WEXITSTATUS(status) == 0, "a child process links a to b");
+    ASSERT_TRUE(stat(table, &sb) == 0 && (size_t)sb.st_size == sizeof(cortex_hl_table_t), "the table file is made in the rootfs");
+
+    // ...and stat a in another (this one looks for the table again after a second; a new process at once)
+    hl_reset_for_test();
+    ASSERT_EQ(hook_stat(a, &sa), 0, "stat a");
+    ASSERT_EQ(sa.st_nlink, 2, "another process sees the link count of a");
+    ASSERT_EQ(hook_stat(b, &sb), 0, "stat b");
+    ASSERT_EQ(sb.st_nlink, 2, "and of b");
+    ASSERT_EQ(sb.st_ino, plain.st_ino, "b reports the inode of a in another process");
+
+    // A third process removes b: this one, which has the table mapped, sees a plain file again
+    pid = fork();
+    if (pid == 0) _exit(hook_unlink(b) == 0 ? 0 : 1);
+    waitpid(pid, &status, 0);
+    ASSERT_TRUE(WIFEXITED(status) && WEXITSTATUS(status) == 0, "a child process removes b");
+    ASSERT_EQ(hook_stat(a, &sa), 0, "stat a");
+    ASSERT_EQ(sa.st_nlink, 1, "a is a plain file again");
+    ASSERT_EQ(hardlinks_maybe_any(), 0, "nothing is tracked any more");
+
+    // A copy written to no longer shares the original's content: it is a file of its own
+    ASSERT_EQ(cortex_emulate_hardlink(a, c), 0, "link a -> c");
+    ASSERT_EQ(hook_stat(c, &sb), 0, "stat c");
+    ASSERT_EQ(sb.st_nlink, 2, "c is linked");
+    struct timespec later[2] = { { 1700000000, 0 }, { 1700000000, 0 } };
+    ASSERT_EQ(utimensat(AT_FDCWD, c, later, 0), 0, "c is changed");
+    ASSERT_EQ(hook_stat(c, &sb), 0, "stat c");
+    ASSERT_EQ(sb.st_nlink, 1, "a changed copy shows a link count of 1");
+    ASSERT_TRUE(sb.st_ino != plain.st_ino, "and its own inode");
+
+    // After the app restarts (every process maps the table anew), a still is
+    hl_reset_for_test();
+    ASSERT_EQ(hook_stat(a, &sa), 0, "stat a");
+    ASSERT_EQ(sa.st_nlink, 2, "the link of a is still known");
+
+    // A table of another format is started again
+    hl_reset_for_test();
+    fd = open(table, O_WRONLY);
+    ASSERT_TRUE(fd >= 0, "open the table");
+    uint32_t other = 99;
+    ASSERT_EQ(pwrite(fd, &other, sizeof(other), 4), (ssize_t)sizeof(other), "write another version");
+    close(fd);
+    ASSERT_EQ(hardlinks_maybe_any(), 0, "readers ignore a table of another version");
+    hl_reset_for_test();
+    ASSERT_EQ(cortex_emulate_hardlink(a, b), 0, "link a -> b");
+    ASSERT_EQ(hook_stat(b, &sb), 0, "stat b");
+    ASSERT_EQ(sb.st_nlink, 2, "a writer starts the table again");
+
+    hl_reset_for_test();
+    rm_rf(root);
+    cortex_set_root(saved_root, saved_len);
 }
 
 /* 9c. DNS servers of both families, queries and replies (the hook's own resolver) */
@@ -1580,6 +1672,7 @@ int main(void) {
     test_sigsys_and_close_fds();
     test_hardlink_emulation_and_st_nlink();
     test_emulated_hardlink_groups();
+    test_emulated_hardlinks_shared();
     test_dns_helpers();
     test_static_syscall_patching();
     test_absolutize_exec_path();

@@ -32,6 +32,9 @@
 #include <grp.h>
 #include <pthread.h>
 #include <sys/sendfile.h>
+#include <sys/mman.h>
+#include <sched.h>
+#include <time.h>
 #include <sys/xattr.h>
 #include <sys/sysmacros.h>
 #include <net/if.h>
@@ -43,8 +46,8 @@
 // The hook is one translation unit split into parts by topic, in this order (later parts use
 // the static functions of earlier ones).
 #include "hook/syscalls.c"
-#include "hook/hardlinks.c"
 #include "hook/paths.c"
+#include "hook/hardlinks.c"
 #include "hook/signals.c"
 #include "hook/setup.c"
 #include "hook/files.c"

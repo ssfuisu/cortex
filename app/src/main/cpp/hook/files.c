@@ -551,12 +551,15 @@ int statx(int dirfd, const char *pathname, int flags, unsigned int mask, struct 
     char buf[PATH_MAX];
     const char *target = (pathname && pathname[0] == '/') ? rewrite_path(pathname, buf, sizeof(buf)) : pathname;
     int ret = orig_statx ? orig_statx(dirfd, target, flags, mask, statxbuf) : -1;
-    if (ret == 0 && statxbuf && g_hardlinks_any && (statxbuf->stx_mask & STATX_INO)) {
+    if (ret == 0 && statxbuf && (statxbuf->stx_mask & (STATX_INO | STATX_MTIME)) == (STATX_INO | STATX_MTIME) &&
+        hardlinks_maybe_any()) {
         struct stat st;
         memset(&st, 0, sizeof(st));
         st.st_dev = makedev(statxbuf->stx_dev_major, statxbuf->stx_dev_minor);
         st.st_ino = statxbuf->stx_ino;
         st.st_nlink = statxbuf->stx_nlink;
+        st.st_mtim.tv_sec = statxbuf->stx_mtime.tv_sec;
+        st.st_mtim.tv_nsec = statxbuf->stx_mtime.tv_nsec;
         apply_emulated_hardlink(&st);
         statxbuf->stx_ino = st.st_ino;
         statxbuf->stx_nlink = st.st_nlink;
