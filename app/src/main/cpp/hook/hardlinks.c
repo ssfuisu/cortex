@@ -420,6 +420,47 @@ static void apply_emulated_hardlink(struct stat *st) {
     st->st_ino = (ino_t)s.group_ino;
 }
 
+// The app's own user and group, which the hook presents as root: getuid() and getpwuid() say so,
+// and stat() does as well, so that a program that compares a file's owner with getuid() sees the
+// files it made as its own (git's "dubious ownership", sshd's /run/sshd, tmux's socket directory,
+// ssh's ~/.ssh/config). -1 until known; a test sets them.
+static uid_t g_app_uid = (uid_t)-1;
+static gid_t g_app_gid = (gid_t)-1;
+
+static void load_app_ids(void) {
+#ifdef CORTEX_HOST_TEST
+    uid_t uid = getuid();
+    gid_t gid = getgid();
+#else
+    // The real ones (getuid() and syscall() are the hook's own, which answer 0)
+    static uid_t (*orig_getuid)(void) = NULL;
+    static gid_t (*orig_getgid)(void) = NULL;
+    if (!orig_getuid) orig_getuid = (uid_t (*)(void))dlsym(RTLD_NEXT, "getuid");
+    if (!orig_getgid) orig_getgid = (gid_t (*)(void))dlsym(RTLD_NEXT, "getgid");
+    if (!orig_getuid || !orig_getgid) return;
+    uid_t uid = orig_getuid();
+    gid_t gid = orig_getgid();
+#endif
+    __atomic_store_n(&g_app_gid, gid, __ATOMIC_RELAXED);
+    __atomic_store_n(&g_app_uid, uid, __ATOMIC_RELAXED);
+}
+
+static void present_owner_as_root(uid_t *uid, gid_t *gid) {
+    if (__atomic_load_n(&g_app_uid, __ATOMIC_RELAXED) == (uid_t)-1) load_app_ids();
+    uid_t app_uid = __atomic_load_n(&g_app_uid, __ATOMIC_RELAXED);
+    gid_t app_gid = __atomic_load_n(&g_app_gid, __ATOMIC_RELAXED);
+    if (app_uid == (uid_t)-1) return;
+    if (uid && *uid == app_uid) *uid = 0;
+    if (gid && *gid == app_gid) *gid = 0;
+}
+
+// What the stat() family returns: emulated hard links as real ones, the app's files as root's.
+static void apply_stat_emulation(struct stat *st) {
+    if (!st) return;
+    apply_emulated_hardlink(st);
+    present_owner_as_root(&st->st_uid, &st->st_gid);
+}
+
 static int real_fstatat(int dirfd, const char *path, struct stat *st, int flags) {
 #ifdef CORTEX_HOST_TEST
     return fstatat(dirfd, path, st, flags);

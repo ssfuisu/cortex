@@ -89,7 +89,7 @@ int hook_linkat(int olddirfd, const char *oldpath, int newdirfd, const char *new
 
 int hook_stat(const char *path, struct stat *st) {
     int ret = stat(path, st);
-    if (ret == 0) apply_emulated_hardlink(st);
+    if (ret == 0) apply_stat_emulation(st);
     return ret;
 }
 

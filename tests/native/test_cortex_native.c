@@ -1072,6 +1072,49 @@ static void test_emulated_hardlinks_shared(void) {
 
 /* 9c. DNS servers of both families, queries and replies (the hook's own resolver) */
 /* 10b. A program that starts a TCP server tells the app its port and name */
+// The app's files look like root's to the programs (the hook says they run as root): git, sshd
+// and tmux compare a file's owner with getuid()
+static void test_app_files_owned_by_root(void) {
+    uid_t saved_uid = g_app_uid;
+    gid_t saved_gid = g_app_gid;
+    g_app_uid = 10123;
+    g_app_gid = 10123;
+
+    uid_t uid = 10123;
+    gid_t gid = 10123;
+    present_owner_as_root(&uid, &gid);
+    ASSERT_TRUE(uid == 0 && gid == 0, "the app's user and group are root's");
+    uid = 1000;
+    gid = 20123;
+    present_owner_as_root(&uid, &gid);
+    ASSERT_TRUE(uid == 1000 && gid == 20123, "other users and groups stay (the app's cache group too)");
+    uid = 10123;
+    present_owner_as_root(&uid, NULL);
+    ASSERT_TRUE(uid == 0, "the user alone, as statx asks for it");
+
+    struct stat st;
+    memset(&st, 0, sizeof(st));
+    st.st_uid = 10123;
+    st.st_gid = 9997;
+    apply_stat_emulation(&st);
+    ASSERT_TRUE(st.st_uid == 0 && st.st_gid == 9997, "a stat() result: the app's files are root's");
+
+    // A real file through the stat hook, with the ids of whoever runs the test as the app's
+    g_app_uid = (uid_t)-1;
+    char path[PATH_MAX];
+    snprintf(path, sizeof(path), "%s/cortex_owner_XXXXXX", get_test_tmp_dir());
+    int fd = mkstemp(path);
+    ASSERT_TRUE(fd >= 0, "a file");
+    close(fd);
+    memset(&st, 0, sizeof(st));
+    ASSERT_EQ(hook_stat(path, &st), 0, "stat");
+    ASSERT_TRUE(st.st_uid == 0 && st.st_gid == 0, "a file the tests made is root's");
+    unlink(path);
+
+    g_app_uid = saved_uid;
+    g_app_gid = saved_gid;
+}
+
 static void test_listening_port_report(void) {
     const char *tmp = get_test_tmp_dir();
     char root[PATH_MAX], dir[PATH_MAX], file[PATH_MAX];
@@ -1916,6 +1959,7 @@ int main(void) {
     test_emulated_hardlink_groups();
     test_emulated_hardlink_original_removed();
     test_emulated_hardlinks_shared();
+    test_app_files_owned_by_root();
     test_listening_port_report();
     test_dns_helpers();
     test_static_syscall_patching();

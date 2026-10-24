@@ -42,6 +42,14 @@ of a GitHub release from the section of its version here. Older versions are des
   app decompresses itself, on a thread of its own, while it unpacks them. The APK is 31 MB instead
   of 40.5 MB (arm64-v8a) and 29 MB instead of 37.9 MB (armeabi-v7a).
 
+### Fixed
+
+- **git works in your repositories again**: it refused them with "detected dubious ownership".
+  Programs in Cortex run as root, but the files they made showed the app's own user as their owner;
+  now they show root, as `ls -l` already did by name. This also lets `tmux` start (its socket
+  directory had "unsafe permissions"), `ssh` read `~/.ssh/config` ("Bad owner") and the SSH server
+  start.
+
 ### For developers
 
 - The GitHub Actions run on Node 24 and are pinned to commits; Dependabot keeps them current.

@@ -418,7 +418,7 @@ int stat(const char *pathname, struct stat *statbuf) {
         const char *retry = usrmerge_retry_path(target, alt, sizeof(alt));
         if (retry) ret = orig_stat(retry, statbuf);
     }
-    if (ret == 0) apply_emulated_hardlink(statbuf);
+    if (ret == 0) apply_stat_emulation(statbuf);
     return ret;
 }
 
@@ -450,7 +450,7 @@ int lstat(const char *pathname, struct stat *statbuf) {
             }
         }
     }
-    if (ret == 0) apply_emulated_hardlink(statbuf);
+    if (ret == 0) apply_stat_emulation(statbuf);
     return ret;
 }
 
@@ -482,7 +482,7 @@ int fstatat(int dirfd, const char *pathname, struct stat *statbuf, int flags) {
             }
         }
     }
-    if (ret == 0) apply_emulated_hardlink(statbuf);
+    if (ret == 0) apply_stat_emulation(statbuf);
     return ret;
 }
 
@@ -491,7 +491,7 @@ int fstat(int fd, struct stat *statbuf) {
     static int (*orig_fstat)(int, struct stat *) = NULL;
     if (!orig_fstat) orig_fstat = (int (*)(int, struct stat *))dlsym(RTLD_NEXT, "fstat");
     int ret = orig_fstat ? orig_fstat(fd, statbuf) : -1;
-    if (ret == 0) apply_emulated_hardlink(statbuf);
+    if (ret == 0) apply_stat_emulation(statbuf);
     return ret;
 }
 
@@ -577,6 +577,13 @@ int statx(int dirfd, const char *pathname, int flags, unsigned int mask, struct 
                 statxbuf->stx_mask |= STATX_INO | STATX_NLINK;
             }
         }
+    }
+    if (ret == 0 && statxbuf) {
+        uid_t uid = (uid_t)statxbuf->stx_uid;
+        gid_t gid = (gid_t)statxbuf->stx_gid;
+        present_owner_as_root((statxbuf->stx_mask & STATX_UID) ? &uid : NULL, (statxbuf->stx_mask & STATX_GID) ? &gid : NULL);
+        statxbuf->stx_uid = (uint32_t)uid;
+        statxbuf->stx_gid = (uint32_t)gid;
     }
     return ret;
 }

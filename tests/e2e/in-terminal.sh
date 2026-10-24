@@ -99,6 +99,8 @@ hard_links_between_processes() {
 }
 export -f hard_links_between_processes
 expect hard-links-shared "links 2 then 1, same inode" hard_links_between_processes
+# The files Cortex makes are root's, the user programs run as (test -O compares the owner with geteuid())
+check own-files bash -c 'f=$(mktemp) && [ -O "$f" ] && [ -G "$f" ] && [ "$(stat -c %u:%g "$f")" = 0:0 ]; s=$?; rm -f "$f"; exit $s'
 check sha256sum bash -c 'echo hi | sha256sum | grep -q ^98ea6e4f216f2fb4b69fff9b3a44842c38686ca685f3f55dc48c5d3fb1107be4'
 check shared-storage bash -c 'echo hi > "$0/written-by-ubuntu.txt" && [ "$(cat "$0/written-by-ubuntu.txt")" = hi ]' "$OUT"
 

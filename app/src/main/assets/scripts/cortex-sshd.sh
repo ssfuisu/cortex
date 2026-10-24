@@ -105,7 +105,10 @@ EOF
 ensure_installed() {
     [ -x "$SSHD" ] && return 0
     echo "Installing openssh-server (once)..."
-    DEBIAN_FRONTEND=noninteractive apt-get install -y openssh-server || die "openssh-server could not be installed"
+    # Without what it recommends: systemd's login and resolver (which would make /etc/resolv.conf a
+    # link to one that does not run), python3 for ssh-import-id, xauth
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends openssh-server ||
+        die "openssh-server could not be installed"
     [ -x "$SSHD" ] || die "$SSHD is missing after installing openssh-server"
 }
 
