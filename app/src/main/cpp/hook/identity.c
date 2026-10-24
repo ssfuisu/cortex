@@ -24,6 +24,14 @@ int getgroups(int size, gid_t list[]) {
     if (size > 0 && list != NULL) list[0] = 0;
     return 1;
 }
+// What programs built with _FORTIFY_SOURCE call when the buffer's size is known (the check is
+// glibc's): without it the count came from the hook (1) and the list from the kernel (the app's
+// groups, more than one), and sshd ended the login on "getgroups: Invalid argument"
+extern void __chk_fail(void) __attribute__((__noreturn__));
+int __getgroups_chk(int size, gid_t list[], size_t listlen) {
+    if (size > 0 && (size_t)size * sizeof(gid_t) > listlen) __chk_fail();
+    return getgroups(size, list);
+}
 int setgroups(size_t size, const gid_t *list) { (void)size; (void)list; return 0; }
 int initgroups(const char *user, gid_t group) { (void)user; (void)group; return 0; }
 

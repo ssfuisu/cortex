@@ -54,6 +54,9 @@ of a GitHub release from the section of its version here. Older versions are des
   descriptor that did not exist.
 - sshd's privilege-separated user has root's ids, as apt's sandbox user is root: Cortex cannot drop
   privileges, and sshd ended each connection when it found it could take them back.
+- Programs built with `_FORTIFY_SOURCE` (all of Ubuntu's) get the hook's answer from `getgroups()`
+  and `recvfrom()` too: their checked variants went past it, and sshd ended each login on
+  "getgroups: Invalid argument".
 
 ### For developers
 

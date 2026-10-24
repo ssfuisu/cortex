@@ -147,6 +147,15 @@ ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
     return ret;
 }
 
+// What programs built with _FORTIFY_SOURCE call when the buffer's size is known; the check is
+// glibc's
+extern void __chk_fail(void) __attribute__((__noreturn__));
+ssize_t __recvfrom_chk(int sockfd, void *buf, size_t len, size_t buflen, int flags,
+                       struct sockaddr *src_addr, socklen_t *addrlen) {
+    if (len > buflen) __chk_fail();
+    return recvfrom(sockfd, buf, len, flags, src_addr, addrlen);
+}
+
 ssize_t recvmsg(int sockfd, struct msghdr *msg, int flags) {
     static ssize_t (*orig_recvmsg)(int, struct msghdr *, int) = NULL;
     if (!orig_recvmsg) orig_recvmsg = (ssize_t (*)(int, struct msghdr *, int))dlsym(RTLD_NEXT, "recvmsg");
