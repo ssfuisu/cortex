@@ -104,12 +104,25 @@ check own-files bash -c 'f=$(mktemp) && [ -O "$f" ] && [ -G "$f" ] && [ "$(stat 
 check sha256sum bash -c 'echo hi | sha256sum | grep -q ^98ea6e4f216f2fb4b69fff9b3a44842c38686ca685f3f55dc48c5d3fb1107be4'
 check shared-storage bash -c 'echo hi > "$0/written-by-ubuntu.txt" && [ "$(cat "$0/written-by-ubuntu.txt")" = hi ]' "$OUT"
 
+# skip NAME WHY: a check left out
+skip() {
+    echo "SKIP $1: $2" >> "$RESULTS"
+    printf '\033[33m-\033[0m %s\n' "$1"
+}
+# Without packages (E2E_NO_APT, the 16 KB image: its translator spins forever in apt's signature
+# check of the package lists)
+NO_APT="${CORTEX_E2E_NO_APT:-}"
+
 # Packages from Ubuntu's archive. The app comes without package lists: the first install runs
 # "apt-get update" by itself (/usr/local/bin/apt-get).
-expect apt-install "package lists are empty" apt-get install -y --no-install-recommends hello python3-minimal
-check apt-update apt-get update
-expect hello "Hello, world!" hello
-expect python3 "4" python3 -c 'print(2 + 2)'
+if [ -z "$NO_APT" ]; then
+    expect apt-install "package lists are empty" apt-get install -y --no-install-recommends hello python3-minimal
+    check apt-update apt-get update
+    expect hello "Hello, world!" hello
+    expect python3 "4" python3 -c 'print(2 + 2)'
+else
+    for name in apt-install apt-update hello python3; do skip "$name" "no packages on this emulator"; done
+fi
 
 # cortex-api
 expect api-info '"app"' cortex-api info
@@ -138,7 +151,11 @@ ssh_login() {
     [ "$s" = 0 ] || { echo "--- sshd log"; tail -n 40 ~/.cortex/sshd.log; return 1; }
 }
 export -f ssh_login
-expect ssh-server "ssh-login-ok as root" ssh_login
+if [ -z "$NO_APT" ]; then
+    expect ssh-server "ssh-login-ok as root" ssh_login
+else
+    skip ssh-server "openssh-server is a package"
+fi
 
 # A web server for the notification about it, which run-emulator-test.sh looks for (perl-base is
 # part of every Ubuntu system); it answers for three minutes

@@ -14,8 +14,10 @@
 #                          no screenshots, restart or update, and failed checks are its results
 #   E2E_TIMEOUT=SECONDS    how long the script may take (default 3000)
 #   E2E_PAGE_SIZE=BYTES    the page size the emulator must have (the 16 KB image)
-#   E2E_SKIP_WITHOUT_ABI=1 an image that cannot run the ABI's apps is a skip, not a failure The app's ARM Ubuntu runs on an x86_64 emulator
-# through the image's ARM translation, which must also run ARM programs started from a shell
+#   E2E_SKIP_WITHOUT_ABI=1 an image that cannot run the ABI's apps is a skip, not a failure
+#   E2E_NO_APT=1           the checks that install packages (apt, the SSH server) are left out
+#
+# The app's ARM Ubuntu runs on an x86_64 emulator through the image's ARM translation, which must also run ARM programs started from a shell
 # (binfmt_misc). They are started through emu-runner.c, which keeps Cortex's LD_PRELOAD and
 # LD_LIBRARY_PATH away from the translator (see there).
 set -u
@@ -53,12 +55,14 @@ diagnose() { # once: the app's processes, and Ubuntu's bash started directly (te
     log "Diagnostics"
     adb push tests/e2e/diagnose.sh /data/local/tmp/cortex-diagnose.sh >/dev/null &&
         sh_ sh /data/local/tmp/cortex-diagnose.sh "$PKG" 2>&1 | tee "$OUT/diagnose.txt"
-    adb pull /data/local/tmp/cortex-strace.txt "$OUT/strace-direct.txt" >/dev/null 2>&1
-    adb pull /data/local/tmp/cortex-strace2.txt "$OUT/strace-fork.txt" >/dev/null 2>&1
+    timeout 120 adb pull /data/local/tmp/cortex-strace.txt "$OUT/strace-direct.txt" >/dev/null 2>&1
+    timeout 120 adb pull /data/local/tmp/cortex-strace2.txt "$OUT/strace-fork.txt" >/dev/null 2>&1
 }
-sh_() { adb shell "$@" | tr -d '\r'; }  # the output of a command on the device
-run_() { adb shell "$@" >/dev/null 2>&1; } # only whether it succeeded
-shot() { adb exec-out screencap -p > "$OUT/screens/$1.png" 2>/dev/null || rm -f "$OUT/screens/$1.png"; }
+# Each adb command has a time limit: one that hangs (a slow emulator, adbd stuck) would otherwise
+# hold the waiting loops, and E2E_TIMEOUT, forever
+sh_() { timeout 300 adb shell "$@" | tr -d '\r'; }  # the output of a command on the device
+run_() { timeout 60 adb shell "$@" >/dev/null 2>&1; } # only whether it succeeded
+shot() { timeout 60 adb exec-out screencap -p > "$OUT/screens/$1.png" 2>/dev/null || rm -f "$OUT/screens/$1.png"; }
 tap_center() { sh_ input tap $(($1 / 2)) $(($2 / 2)); }
 
 # Types TEXT into the focused view, as from a hardware keyboard, then Enter. (adb runs the command
@@ -66,8 +70,8 @@ tap_center() { sh_ input tap $(($1 / 2)) $(($2 / 2)); }
 type_line() {
     local q
     q=$(printf '%s' "$1" | sed -e 's/ /%s/g' -e "s/'/'\\\\''/g")
-    adb shell "input text '$q'"
-    adb shell input keyevent 66
+    timeout 60 adb shell "input text '$q'"
+    timeout 60 adb shell input keyevent 66
 }
 
 # Taps the view with this resource id (of the app), found in the window's accessibility dump. The
@@ -237,6 +241,7 @@ log "Running the tests in the terminal"
 tap_center "$WIDTH" "$HEIGHT"
 sleep 2
 TEST_COMMAND="CORTEX_E2E_EMULATOR=1 CORTEX_E2E_ARCH=$DPKG_ARCH bash /sdcard/Download/cortex-e2e.sh"
+[ "${E2E_NO_APT:-0}" = 1 ] && TEST_COMMAND="CORTEX_E2E_NO_APT=1 $TEST_COMMAND"
 type_line "$TEST_COMMAND"
 if ! wait_for 90 run_ test -d "$DEVICE_OUT/started"; then
     shot "03-not-started"
@@ -250,7 +255,7 @@ fi
 i=0
 until run_ test -f "$DEVICE_OUT/done"; do
     [ $((SECONDS - STARTED)) -lt "$E2E_TIMEOUT" ] || {
-        adb pull "$DEVICE_OUT" "$OUT/" >/dev/null 2>&1
+        timeout 120 adb pull "$DEVICE_OUT" "$OUT/" >/dev/null 2>&1
         die "the tests did not finish in time"
     }
     sleep 30
@@ -259,7 +264,7 @@ until run_ test -f "$DEVICE_OUT/done"; do
 done
 sleep 2
 shot "05-test-results"
-adb pull "$DEVICE_OUT" "$OUT/" >/dev/null || die "cannot read the results"
+timeout 120 adb pull "$DEVICE_OUT" "$OUT/" >/dev/null || die "cannot read the results"
 log "Results"
 cat "$OUT/cortex-e2e/results.txt"
 cat "$OUT/cortex-e2e/done"

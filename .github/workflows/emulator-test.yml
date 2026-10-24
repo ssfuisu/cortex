@@ -49,6 +49,9 @@ jobs:
             abi: arm64-v8a
             page-size: 16384
             skip-without-abi: 1
+            # Its translator spins forever in apt's signature check (gpgv); phones with 16 KB
+            # pages run Ubuntu's code themselves
+            no-apt: 1
             experimental: true
     steps:
       - name: Checkout Source Code
@@ -100,7 +103,7 @@ jobs:
           disk-size: 8G
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot
           disable-animations: true
-          script: E2E_PAGE_SIZE=${{ matrix.page-size }} E2E_SKIP_WITHOUT_ABI=${{ matrix.skip-without-abi || 0 }} bash tests/e2e/run-emulator-test.sh apks e2e-out ${{ matrix.abi }}
+          script: E2E_PAGE_SIZE=${{ matrix.page-size }} E2E_SKIP_WITHOUT_ABI=${{ matrix.skip-without-abi || 0 }} E2E_NO_APT=${{ matrix.no-apt || 0 }} bash tests/e2e/run-emulator-test.sh apks e2e-out ${{ matrix.abi }}
 
       - name: Compare the start-up times with earlier runs
         if: always() && hashFiles('e2e-out/timings.env') != ''
