@@ -320,6 +320,19 @@ static void test_extract_zstd_tar(void) {
     mkdir(dest, 0755);
     ASSERT_EQ(extract_tar_archive(blob_zst, dest), -1, "damage that only the checksum shows fails");
 
+    // The extractor stops at an entry it refuses while the decoder thread still has megabytes for
+    // it (more than the pipe holds): it fails, and does not wait for the decoder forever
+    char stop_src[PATH_MAX], stop_zst[PATH_MAX];
+    snprintf(stop_src, sizeof(stop_src), "%s/stop", base);
+    snprintf(stop_zst, sizeof(stop_zst), "%s/stop.tar.zst", base);
+    ASSERT_EQ(sh("mkdir -p '%s' && cd '%s' && ln -s ../../../../outside escape && head -c 4000000 /dev/urandom > big.bin"
+                 " && tar -cf - escape big.bin | zstd -q -1 > '%s'", stop_src, stop_src, stop_zst), 0, "an archive with a refused entry first");
+    snprintf(dest, sizeof(dest), "%s/dest-stop", base);
+    mkdir(dest, 0755);
+    alarm(60); // a decoder that is not stopped ends the test
+    ASSERT_EQ(extract_tar_archive(stop_zst, dest), -1, "an extraction that stops early fails");
+    alarm(0);
+
     rm_rf(base);
 }
 

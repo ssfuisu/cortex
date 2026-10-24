@@ -39,7 +39,8 @@ of a GitHub release from the section of its version here. Older versions are des
 ### Improved
 
 - **A smaller app that unpacks faster**: Ubuntu's files are compressed with Zstandard, which the
-  app decompresses itself while it unpacks them.
+  app decompresses itself, on a thread of its own, while it unpacks them. The APK is 31 MB instead
+  of 40.5 MB (arm64-v8a) and 29 MB instead of 37.9 MB (armeabi-v7a).
 
 ### For developers
 
