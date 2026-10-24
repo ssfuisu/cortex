@@ -302,6 +302,24 @@ static void test_extract_zstd_tar(void) {
     mkdir(dest, 0755);
     ASSERT_EQ(extract_tar_archive(bad, dest), -1, "a damaged archive fails");
 
+    // Data that does not compress is stored as it is, which only the frame's checksum at the end
+    // covers: random data, damaged in its middle. The extractor stops at the archive's end marker;
+    // a megabyte that does not compress after it keeps the checksum out of what it has read then
+    char blob_src[PATH_MAX], blob_tar[PATH_MAX], blob_zst[PATH_MAX];
+    snprintf(blob_src, sizeof(blob_src), "%s/blob", base);
+    snprintf(blob_tar, sizeof(blob_tar), "%s/blob.tar", base);
+    snprintf(blob_zst, sizeof(blob_zst), "%s/blob.tar.zst", base);
+    ASSERT_EQ(sh("mkdir -p '%s/data' && head -c 2000000 /dev/urandom > '%s/data/random.bin'", blob_src, blob_src), 0, "random data");
+    ASSERT_EQ(sh("tar -C '%s' -cf '%s' data && head -c 1000000 /dev/urandom >> '%s'", blob_src, blob_tar, blob_tar), 0, "its archive");
+    ASSERT_EQ(sh("zstd -q -19 '%s' -o '%s'", blob_tar, blob_zst), 0, "compressed");
+    snprintf(dest, sizeof(dest), "%s/dest-blob", base);
+    mkdir(dest, 0755);
+    ASSERT_EQ(extract_tar_archive(blob_zst, dest), 0, "random data extracts");
+    ASSERT_EQ(sh("dd if=/dev/zero of='%s' bs=1 seek=1000000 count=64 conv=notrunc 2>/dev/null", blob_zst), 0, "damaged inside the stored data");
+    snprintf(dest, sizeof(dest), "%s/dest-blob-bad", base);
+    mkdir(dest, 0755);
+    ASSERT_EQ(extract_tar_archive(blob_zst, dest), -1, "damage that only the checksum shows fails");
+
     rm_rf(base);
 }
 

@@ -975,12 +975,15 @@ static ssize_t tar_source_read(tar_source *src, void *buf, size_t count) {
             src->in_buf.pos = 0;
         }
         ZSTD_outBuffer out = { src->out, src->out_cap, 0 };
+        size_t in_before = src->in_buf.pos;
         size_t ret = ZSTD_decompressStream(src->zstd, &out, &src->in_buf);
         if (ZSTD_isError(ret)) {
             LOGE("The archive cannot be decompressed (zstd error %d)", (int)ZSTD_getErrorCode(ret));
             return -1;
         }
-        src->frame_left = ret;
+        // A call with nothing left to read answers that it expects a new frame: only one that read
+        // or made something tells whether the last frame is complete
+        if (src->in_buf.pos != in_before || out.pos > 0) src->frame_left = ret;
         src->out_pos = 0;
         src->out_len = out.pos;
         if (out.pos == 0 && src->in_eof && src->in_buf.pos == src->in_buf.size) {
@@ -994,6 +997,19 @@ static ssize_t tar_source_read(tar_source *src, void *buf, size_t count) {
     return (ssize_t)total;
 }
 
+// Reads a compressed stream to its end after the archive's end marker: zstd stores data that does
+// not compress as it is, which only the frame's checksum at the end covers, and it checks that only
+// when it gets there. 0 when the stream is complete and undamaged.
+static int tar_source_finish(tar_source *src) {
+    if (!src->zstd) return 0;
+    char rest[4096];
+    for (;;) {
+        ssize_t n = tar_source_read(src, rest, sizeof(rest));
+        if (n < 0) return -1;
+        if (n == 0) return 0;
+    }
+}
+
 static int extract_tar_source(tar_source *src, const char *dest_dir);
 
 // Extracts the tar stream (or zstd-compressed tar stream) read from fd (a file or a pipe, which is
@@ -1002,6 +1018,10 @@ static int extract_tar_fd(int fd, const char *dest_dir) {
     if (fd < 0 || !dest_dir) return -1;
     tar_source src;
     int res = tar_source_open(&src, fd) == 0 ? extract_tar_source(&src, dest_dir) : -1;
+    if (res == 0 && tar_source_finish(&src) != 0) {
+        LOGE("The compressed archive is damaged");
+        res = -1;
+    }
     tar_source_close(&src);
     return res;
 }
