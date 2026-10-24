@@ -61,8 +61,11 @@ of a GitHub release from the section of its version here. Older versions are des
 ### For developers
 
 - The GitHub Actions run on Node 24 and are pinned to commits; Dependabot keeps them current.
-- The emulator test also runs on Google's 16 KB page size image of Android 15, checks the restored
-  session, the SSH login with a key and the web server notification.
+- The emulator test also runs on Google's 16 KB page size image of Android 15 (without the checks
+  that install packages: its ARM translator spins forever in apt's first update), checks the
+  restored session, the SSH login with a key, the web server notification and that the files
+  Cortex makes are root's. Its adb commands have time limits, so that a stuck emulator ends the
+  test at its timeout.
 - A nightly run installs about 30 popular packages (Python, Node.js, gcc, Rust, Go, Java, git,
   PostgreSQL, Redis, nginx...) in the latest release on the emulator and shows which work in its
   job summary.
