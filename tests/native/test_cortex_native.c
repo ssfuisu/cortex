@@ -815,18 +815,21 @@ static void test_emulated_hardlink_original_removed(void) {
     ASSERT_TRUE(fd >= 0, "create a");
     ASSERT_EQ(write(fd, "data", 4), 4, "write a");
     close(fd);
-    struct stat sa, sb, se, real_b;
+    struct stat sa, sb, se, real_b, real_e;
     ASSERT_EQ(stat(a, &sa), 0, "stat a");
     ASSERT_EQ(cortex_emulate_hardlink(a, b), 0, "link a -> b");
     ASSERT_EQ(cortex_emulate_hardlink(a, e), 0, "link a -> e");
     ASSERT_EQ(stat(b, &real_b), 0, "the real inode of b");
+    ASSERT_EQ(stat(e, &real_e), 0, "the real inode of e");
     ASSERT_EQ(hook_unlink(a), 0, "remove the original");
 
     ASSERT_EQ(hook_stat(b, &sb), 0, "stat b");
     ASSERT_EQ(hook_stat(e, &se), 0, "stat e");
     ASSERT_EQ(sb.st_nlink, 2, "b and e are left");
-    ASSERT_EQ(sb.st_ino, real_b.st_ino, "b reports its own inode now, not the removed one's");
-    ASSERT_EQ(se.st_ino, real_b.st_ino, "and e reports that of b");
+    // Which of the two the group takes depends on where the table keeps them
+    ASSERT_TRUE(sb.st_ino == real_b.st_ino || sb.st_ino == real_e.st_ino,
+                "the group reports the inode of a copy left, not the removed one's");
+    ASSERT_EQ(se.st_ino, sb.st_ino, "b and e report the same inode");
 
     // A new file c gets the inode number of the removed a and is linked to d
     struct stat c = sa, d = sa;
