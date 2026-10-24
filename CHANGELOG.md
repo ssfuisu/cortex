@@ -49,6 +49,9 @@ of a GitHub release from the section of its version here. Older versions are des
   now they show root, as `ls -l` already did by name. This also lets `tmux` start (its socket
   directory had "unsafe permissions"), `ssh` read `~/.ssh/config` ("Bad owner") and the SSH server
   start.
+- Servers that take connections with `accept()` (OpenSSH's among them) get them: the call is made
+  as `accept4()`, the one Android's seccomp filter is made for. On the emulator it answered with a
+  descriptor that did not exist.
 
 ### For developers
 

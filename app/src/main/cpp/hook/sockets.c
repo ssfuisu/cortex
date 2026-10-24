@@ -171,6 +171,20 @@ int getpeername(int sockfd, struct sockaddr *addr, socklen_t *addrlen) {
     return ret;
 }
 
+// accept() as accept4() without flags, the call bionic makes for both: Android's seccomp filter
+// for apps is made from what bionic calls. On the x86_64 emulator a translated accept() answered
+// with its system call number (43) as the new descriptor, and sshd failed every connection with
+// "fcntl(43, F_GETFL): Bad file descriptor" (Perl, Python and nginx use accept4 themselves).
+int accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen) {
+    static int (*orig_accept4)(int, struct sockaddr *, socklen_t *, int) = NULL;
+    if (!orig_accept4) orig_accept4 = (int (*)(int, struct sockaddr *, socklen_t *, int))dlsym(RTLD_NEXT, "accept4");
+    if (!orig_accept4) {
+        errno = ENOSYS;
+        return -1;
+    }
+    return orig_accept4(sockfd, addr, addrlen, 0);
+}
+
 #ifndef AF_NETLINK
 #define AF_NETLINK 16
 #endif
