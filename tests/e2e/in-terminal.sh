@@ -135,6 +135,7 @@ ssh_login() {
     cortex-sshd stop
     [ "$s" = 0 ] || { echo "--- sshd log"; tail -n 40 ~/.cortex/sshd.log; return 1; }
 }
+export -f ssh_login
 expect ssh-server "ssh-login-ok as root" ssh_login
 
 # A web server for the notification about it, which run-emulator-test.sh looks for (perl-base is
