@@ -136,6 +136,37 @@ int prctl(int option, ...) {
     return orig_prctl ? orig_prctl(option, arg2, arg3, arg4, arg5) : 0;
 }
 
+// Limits that leave a process no new descriptors (RLIMIT_NOFILE below 16) or no file writes
+// (RLIMIT_FSIZE 0) are not applied. Sandboxes give them to their unprivileged part (sshd's before
+// login sets 1 and 0, with the seccomp filter above), and Android's ARM translator (emulators, x86
+// devices) needs new descriptors and memory files in the process: sshd's died in it ("CHECK failed"
+// in its mmap) and the client's connection was reset. Other limits are set as asked.
+static int sandbox_only_limit(int resource, const struct rlimit *rlim) {
+    if (!rlim) return 0;
+    if (resource == RLIMIT_NOFILE) return rlim->rlim_cur < 16;
+    if (resource == RLIMIT_FSIZE) return rlim->rlim_cur == 0;
+    return 0;
+}
+
+int setrlimit(__rlimit_resource_t resource, const struct rlimit *rlim) {
+    if (sandbox_only_limit((int)resource, rlim)) return 0;
+    static int (*orig_setrlimit)(__rlimit_resource_t, const struct rlimit *) = NULL;
+#if defined(__USE_FILE_OFFSET64) && !defined(__LP64__)
+    // With 64-bit file offsets on a 32-bit system this function is setrlimit64
+    if (!orig_setrlimit) orig_setrlimit = (int (*)(__rlimit_resource_t, const struct rlimit *))dlsym(RTLD_NEXT, "setrlimit64");
+#else
+    if (!orig_setrlimit) orig_setrlimit = (int (*)(__rlimit_resource_t, const struct rlimit *))dlsym(RTLD_NEXT, "setrlimit");
+#endif
+    if (!orig_setrlimit) {
+        errno = ENOSYS;
+        return -1;
+    }
+    return orig_setrlimit(resource, rlim);
+}
+#if defined(__LP64__)
+__asm__(".globl setrlimit64\n" ".set setrlimit64, setrlimit\n");
+#endif
+
 #ifndef LANDLOCK_CREATE_RULESET_VERSION
 #define LANDLOCK_CREATE_RULESET_VERSION (1U << 0)
 #endif
