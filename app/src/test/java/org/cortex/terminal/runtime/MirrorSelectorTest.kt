@@ -3,6 +3,7 @@ package org.cortex.terminal.runtime
 import org.cortex.terminal.runtime.MirrorSelector.OFFICIAL
 import org.cortex.terminal.runtime.MirrorSelector.Probe
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -81,5 +82,40 @@ class MirrorSelectorTest {
         assertEquals(yandex, MirrorSelector.status(root))
         File(root, "etc/apt/sources.list.d/ubuntu.sources").appendText("# mine\n")
         assertTrue(MirrorSelector.status(root).startsWith("custom sources"))
+    }
+
+    private fun listsOf(root: File) = File(root, "var/lib/apt/lists").apply { mkdirs() }
+
+    @Test
+    fun anotherServerDropsThePackageListsOfTheOldOne() {
+        val root = tempFolder.newFolder("rootfs")
+        MirrorSelector.setMirror(root, OFFICIAL)
+        val packages = File(listsOf(root), "ports.ubuntu.com_ubuntu-ports_dists_noble_main_binary-arm64_Packages")
+        val release = File(listsOf(root), "ports.ubuntu.com_ubuntu-ports_dists_noble_InRelease")
+        packages.writeText("old")
+        release.writeText("old")
+
+        assertTrue(MirrorSelector.setMirror(root, OFFICIAL))
+        assertTrue("the same server keeps its lists", packages.exists())
+
+        assertTrue(MirrorSelector.setMirror(root, yandex))
+        assertFalse("so that the apt wrapper fetches the new server's", packages.exists())
+        assertTrue(release.exists())
+        assertEquals(yandex, MirrorSelector.status(root))
+    }
+
+    @Test
+    fun whileAptRunsTheSourcesAndListsStay() {
+        val root = tempFolder.newFolder("rootfs")
+        MirrorSelector.setMirror(root, OFFICIAL)
+        val packages = File(listsOf(root), "ports.ubuntu.com_ubuntu-ports_dists_noble_main_binary-arm64_Packages")
+        packages.writeText("in use")
+
+        FileLocks.tryLock(AptConfigurator.aptLockFiles(root))!!.use {
+            assertFalse(MirrorSelector.setMirror(root, yandex))
+        }
+
+        assertEquals(OFFICIAL, MirrorSelector.status(root))
+        assertTrue(packages.exists())
     }
 }

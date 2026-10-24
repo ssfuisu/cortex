@@ -318,6 +318,35 @@ static void hl_update_group_locked(cortex_hl_table_t *t, uint64_t group_dev, uin
     }
 }
 
+// Removes the copy in slot i. A group reports the inode number of one of its copies (the original);
+// when that copy goes, the group reports another one's: the number of a removed file can be given to
+// a new file, which must not show up as linked to the copies that are left.
+static void hl_remove_copy_locked(cortex_hl_table_t *t, long i) {
+    uint64_t group_dev = t->slots[i].group_dev, group_ino = t->slots[i].group_ino;
+    int reported = t->slots[i].dev == group_dev && t->slots[i].ino == group_ino;
+    hl_remove_locked(t, i);
+    if (reported) {
+        uint64_t new_dev = 0, new_ino = 0;
+        int found = 0;
+        for (uint32_t j = 0; j < CORTEX_HL_SLOTS; j++) {
+            cortex_hl_slot_t *s = &t->slots[j];
+            if (s->state != CORTEX_HL_USED || s->group_ino != group_ino || s->group_dev != group_dev) continue;
+            if (!found) {
+                new_dev = s->dev;
+                new_ino = s->ino;
+                found = 1;
+            }
+            s->group_dev = new_dev;
+            s->group_ino = new_ino;
+        }
+        if (found) {
+            group_dev = new_dev;
+            group_ino = new_ino;
+        }
+    }
+    hl_update_group_locked(t, group_dev, group_ino);
+}
+
 // Records that the file [copy] is an emulated hard link of [old].
 static void register_emulated_hardlink(const struct stat *old, const struct stat *copy) {
     cortex_hl_table_t *t = hl_table(1);
@@ -331,12 +360,8 @@ static void register_emulated_hardlink(const struct stat *old, const struct stat
         group_dev = t->slots[i].group_dev;
         group_ino = t->slots[i].group_ino;
     } else {
-        if (i >= 0) {
-            // A stale slot of an earlier file with this inode number
-            uint64_t gd = t->slots[i].group_dev, gi = t->slots[i].group_ino;
-            hl_remove_locked(t, i);
-            hl_update_group_locked(t, gd, gi);
-        }
+        // A stale slot of an earlier file with this inode number
+        if (i >= 0) hl_remove_copy_locked(t, i);
         hl_put_locked(t, old, group_dev, group_ino);
     }
     if (hl_put_locked(t, copy, group_dev, group_ino) == 0 || hl_find_locked(t, old->st_dev, old->st_ino) >= 0) {
@@ -353,11 +378,7 @@ static void unregister_emulated_hardlink(dev_t dev, ino_t ino) {
     int saved_errno = errno;
     int fd = hl_write_begin(t);
     long i = hl_find_locked(t, dev, ino);
-    if (i >= 0) {
-        uint64_t group_dev = t->slots[i].group_dev, group_ino = t->slots[i].group_ino;
-        hl_remove_locked(t, i);
-        hl_update_group_locked(t, group_dev, group_ino);
-    }
+    if (i >= 0) hl_remove_copy_locked(t, i);
     hl_write_end(t, fd);
     errno = saved_errno;
 }

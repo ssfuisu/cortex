@@ -539,11 +539,11 @@ jobs:
       # The debug app and UbuntuOnDeviceTest for Firebase Test Lab (device-test.yml), when the
       # repository is set up for it (tests/device/README.md)
       - name: Build the APKs for the Device Test
-        if: vars.FIREBASE_PROJECT_ID != '' && (github.event_name == 'pull_request' || github.event.inputs.dry_run == 'true')
+        if: vars.FIREBASE_PROJECT_ID != '' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event.inputs.dry_run == 'true')
         run: ./gradlew assembleDebug assembleDebugAndroidTest --build-cache --parallel --stacktrace
 
       - name: Upload the APKs for the Device Test
-        if: vars.FIREBASE_PROJECT_ID != '' && (github.event_name == 'pull_request' || github.event.inputs.dry_run == 'true')
+        if: vars.FIREBASE_PROJECT_ID != '' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event.inputs.dry_run == 'true')
         uses: actions/upload-artifact@v4
         with:
           name: cortex-device-test-apks
@@ -639,13 +639,15 @@ jobs:
       run-id: ${{ inputs.emulator_test_of_run }}
 
   # UbuntuOnDeviceTest on real phones in Firebase Test Lab (device-test.yml), when the repository
-  # is set up for it: pull requests and dry runs.
+  # is set up for it: pull requests from this repository (a fork's get no secrets) and dry runs. It
+  # gets the one secret it needs.
   device-test:
     name: Device Test
     needs: build
-    if: ${{ !cancelled() && needs.build.result == 'success' && vars.FIREBASE_PROJECT_ID != '' && (github.event_name == 'pull_request' || github.event.inputs.dry_run == 'true') }}
+    if: ${{ !cancelled() && needs.build.result == 'success' && vars.FIREBASE_PROJECT_ID != '' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event.inputs.dry_run == 'true') }}
     permissions:
       contents: read
       actions: read
     uses: ./.github/workflows/device-test.yml
-    secrets: inherit
+    secrets:
+      GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}

@@ -51,6 +51,9 @@ object MirrorSelector {
 
     private const val SOURCES = "etc/apt/sources.list.d/ubuntu.sources"
 
+    private const val NONE_ANSWERED = "No mirror answered; the sources are unchanged.\n"
+    private const val APT_BUSY = "apt or dpkg is running; the sources are unchanged.\n"
+
     /** A measured mirror: [millis] to fetch the index and the index's [date], null when it failed. */
     class Probe(val url: String, val millis: Long?, val date: Long?) {
         val ok: Boolean get() = millis != null && date != null
@@ -128,8 +131,23 @@ object MirrorSelector {
         }
     }
 
-    fun setMirror(root: File, mirror: String) {
-        FileInstaller.install(File(root, SOURCES), sourcesFor(mirror), 420) // 0644
+    /**
+     * Makes apt use [mirror]; false, and nothing changed, while apt or dpkg runs. When the server
+     * changes, the package lists of the old one go: the apt wrapper fetches new ones before the next
+     * install, which with the old lists still there it would not (and apt would find no packages).
+     */
+    fun setMirror(root: File, mirror: String): Boolean {
+        val locks = FileLocks.tryLock(AptConfigurator.aptLockFiles(root)) ?: return false
+        locks.use {
+            val changed = status(root) != mirror
+            FileInstaller.install(File(root, SOURCES), sourcesFor(mirror), 420) // 0644
+            if (changed) {
+                File(root, "var/lib/apt/lists").listFiles()?.forEach { f ->
+                    if (f.isFile && f.name.contains("_Packages")) f.delete()
+                }
+            }
+        }
+        return true
     }
 
     /**
@@ -145,24 +163,22 @@ object MirrorSelector {
         val chosen = choose(probes)
         val current = try { File(root, SOURCES).readText() } catch (e: Exception) { "" }
         when {
-            chosen == null -> report.append("No mirror answered; the sources are unchanged.\n")
+            chosen == null -> report.append(NONE_ANSWERED)
             keepCustom && current.isNotEmpty() && mirrorOf(current) == null ->
                 report.append("The sources were changed by hand; they are left as they are.\n")
-            else -> {
-                setMirror(root, chosen)
-                report.append("Using $chosen\n")
-            }
+            setMirror(root, chosen) -> report.append("Using $chosen\n")
+            else -> report.append(APT_BUSY)
         }
         Log.i(TAG, report.toString().trimEnd())
         return report.toString()
     }
 
-    /** The automatic choice after the first start, made once (again when no mirror answered). */
+    /** The automatic choice after the first start, made once (again when no mirror answered or apt ran). */
     fun selectOnce(root: File) {
         val marker = File(root, CHOSEN_MARKER)
         if (marker.exists()) return
         val report = select(root, keepCustom = true)
-        if (!report.contains("No mirror answered")) {
+        if (!report.endsWith(NONE_ANSWERED) && !report.endsWith(APT_BUSY)) {
             try {
                 FileInstaller.install(marker, report, 384)
             } catch (e: Exception) {

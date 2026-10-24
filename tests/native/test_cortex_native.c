@@ -773,7 +773,8 @@ static void test_emulated_hardlink_groups(void) {
     ASSERT_EQ(hook_unlink(a), 0, "unlink a");
     ASSERT_EQ(hook_stat(b, &sb), 0, "stat b after a went away");
     ASSERT_EQ(sb.st_nlink, 2, "b and c are left");
-    ASSERT_EQ(sb.st_ino, plain.st_ino, "b still reports the inode of the link group");
+    ASSERT_EQ(hook_stat(c, &sc), 0, "stat c after a went away");
+    ASSERT_TRUE(sb.st_ino != plain.st_ino && sb.st_ino == sc.st_ino, "with a gone, b and c report one of theirs");
     dev_t hl_dev = 0;
     ino_t hl_ino = 0;
     ASSERT_EQ(lookup_emulated_hardlink_at(dirfd, "b", &hl_dev, &hl_ino), 1, "b, named relative to the directory, is found");
@@ -793,6 +794,54 @@ static void test_emulated_hardlink_groups(void) {
     ASSERT_EQ(sc.st_nlink, 301, "all 300 copies and c are counted");
 
     close(dirfd);
+    rm_rf(dir);
+    hl_reset_for_test();
+}
+
+/* 9c. When the original of a group goes, the copies left report one of theirs: its inode number can
+ * be given to a new file, which must not join them */
+static void test_emulated_hardlink_original_removed(void) {
+    const char *tmp = get_test_tmp_dir();
+    char dir[PATH_MAX], a[PATH_MAX], b[PATH_MAX], e[PATH_MAX];
+    snprintf(dir, sizeof(dir), "%s/cortex_hlo_%d", tmp, getpid());
+    rm_rf(dir);
+    ASSERT_EQ(mkdir(dir, 0700), 0, "mkdir test dir");
+    snprintf(a, sizeof(a), "%s/a", dir);
+    snprintf(b, sizeof(b), "%s/b", dir);
+    snprintf(e, sizeof(e), "%s/e", dir);
+    hl_reset_for_test();
+
+    int fd = open(a, O_CREAT | O_WRONLY | O_TRUNC, 0600);
+    ASSERT_TRUE(fd >= 0, "create a");
+    ASSERT_EQ(write(fd, "data", 4), 4, "write a");
+    close(fd);
+    struct stat sa, sb, se, real_b;
+    ASSERT_EQ(stat(a, &sa), 0, "stat a");
+    ASSERT_EQ(cortex_emulate_hardlink(a, b), 0, "link a -> b");
+    ASSERT_EQ(cortex_emulate_hardlink(a, e), 0, "link a -> e");
+    ASSERT_EQ(stat(b, &real_b), 0, "the real inode of b");
+    ASSERT_EQ(hook_unlink(a), 0, "remove the original");
+
+    ASSERT_EQ(hook_stat(b, &sb), 0, "stat b");
+    ASSERT_EQ(hook_stat(e, &se), 0, "stat e");
+    ASSERT_EQ(sb.st_nlink, 2, "b and e are left");
+    ASSERT_EQ(sb.st_ino, real_b.st_ino, "b reports its own inode now, not the removed one's");
+    ASSERT_EQ(se.st_ino, real_b.st_ino, "and e reports that of b");
+
+    // A new file c gets the inode number of the removed a and is linked to d
+    struct stat c = sa, d = sa;
+    c.st_mtim.tv_sec = sa.st_mtim.tv_sec + 100;
+    d.st_mtim = c.st_mtim;
+    d.st_ino = (ino_t)0x7ffffff0;
+    register_emulated_hardlink(&c, &d);
+    ASSERT_EQ(hook_stat(b, &sb), 0, "stat b");
+    ASSERT_EQ(sb.st_nlink, 2, "b's group still has two copies");
+    struct stat sd = d;
+    sd.st_nlink = 1;
+    apply_emulated_hardlink(&sd);
+    ASSERT_EQ(sd.st_nlink, 2, "c and d form a group of their own");
+    ASSERT_EQ(sd.st_ino, sa.st_ino, "which reports c's inode");
+
     rm_rf(dir);
     hl_reset_for_test();
 }
@@ -1362,7 +1411,8 @@ static void test_readlink_result_may_change(void) {
     ASSERT_EQ(readlink_result_may_change("/bin", 7), 0, "bin -> usr/bin is reported as it is");
     ASSERT_EQ(readlink_result_may_change("/usr/bin/awk", 21), 1, "an absolute link may point into the rootfs path");
     ASSERT_EQ(readlink_result_may_change("/usr/bin/awk", (long long)g_cortex_root_len), 1, "a link as long as the rootfs path");
-    ASSERT_EQ(readlink_result_may_change("/usr/bin/x", 18), 0, "shorter than ../etc/alternatives and the rootfs path");
+    ASSERT_EQ(readlink_result_may_change("/usr/bin/x", 14), 0, "shorter than ../alternatives and the rootfs path");
+    ASSERT_EQ(readlink_result_may_change("/etc/foo/x", 15), 1, "../alternatives from next to /etc/alternatives may be normalized");
     ASSERT_EQ(readlink_result_may_change("/usr/bin/x", 19), 1, "../etc/alternatives may be normalized");
     ASSERT_EQ(readlink_result_may_change("/etc/alternatives/awk", 2), 1, "any ../ link in /etc/alternatives");
     ASSERT_EQ(readlink_result_may_change("/etc/alternatives/awk", 1), 0, "a one-character target cannot start with ..");
@@ -1370,8 +1420,9 @@ static void test_readlink_result_may_change(void) {
     ASSERT_EQ(readlink_result_may_change("relative/link", 60), 1, "a long target of a relative path may hold the rootfs");
 
     /* the rule agrees with postprocess_readlink on every short target */
-    const char *targets[] = { "usr/bin", "../lib", "mawk", "/bin/sh", "../../etc/x", "../etc/alternatives/awk" };
-    const char *links[] = { "/bin", "/usr/bin/awk", "/etc/alternatives/awk", "rel" };
+    const char *targets[] = { "usr/bin", "../lib", "mawk", "/bin/sh", "../../etc/x", "../etc/alternatives/awk",
+                              "../alternatives", "../alternatives/vi" };
+    const char *links[] = { "/bin", "/usr/bin/awk", "/etc/alternatives/awk", "/etc/foo/x", "rel" };
     for (size_t t = 0; t < sizeof(targets) / sizeof(targets[0]); t++) {
         for (size_t l = 0; l < sizeof(links) / sizeof(links[0]); l++) {
             char buf[PATH_MAX];
@@ -1686,6 +1737,7 @@ int main(void) {
     test_sigsys_and_close_fds();
     test_hardlink_emulation_and_st_nlink();
     test_emulated_hardlink_groups();
+    test_emulated_hardlink_original_removed();
     test_emulated_hardlinks_shared();
     test_dns_helpers();
     test_static_syscall_patching();

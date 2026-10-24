@@ -371,13 +371,16 @@ object ApiCommands {
     /** The Ubuntu mirror apt uses: shown, chosen anew by measuring them, or back to the official one. */
     private fun mirror(context: Context, req: ApiRequest): ApiResult {
         val root = org.cortex.terminal.runtime.Environment.getCortexRoot(context)
-        return when (req.args.singleOrNull() ?: "show") {
+        if (req.args.size > 1) throw IllegalArgumentException("usage: mirror [show|auto|official]")
+        return when (req.args.firstOrNull() ?: "show") {
             "show" -> ok(org.cortex.terminal.runtime.MirrorSelector.status(root))
             "auto" -> ok(org.cortex.terminal.runtime.MirrorSelector.select(root, keepCustom = false))
-            "official" -> {
-                org.cortex.terminal.runtime.MirrorSelector.setMirror(root, org.cortex.terminal.runtime.MirrorSelector.OFFICIAL)
-                ok(org.cortex.terminal.runtime.MirrorSelector.OFFICIAL)
-            }
+            "official" ->
+                if (org.cortex.terminal.runtime.MirrorSelector.setMirror(root, org.cortex.terminal.runtime.MirrorSelector.OFFICIAL)) {
+                    ok(org.cortex.terminal.runtime.MirrorSelector.OFFICIAL)
+                } else {
+                    fail("apt or dpkg is running: try again when it has finished")
+                }
             else -> throw IllegalArgumentException("usage: mirror [show|auto|official]")
         }
     }

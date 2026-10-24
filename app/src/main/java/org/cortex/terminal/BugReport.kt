@@ -28,7 +28,9 @@ object BugReport {
     fun write(context: Context): File {
         val dir = File(context.cacheDir, "reports")
         dir.mkdirs()
-        dir.listFiles()?.forEach { it.delete() } // only the newest one is kept
+        // Older reports go after a day: the app a report was shared with may not have read it yet
+        val dayAgo = System.currentTimeMillis() - 24 * 3600 * 1000L
+        dir.listFiles()?.forEach { if (it.lastModified() < dayAgo) it.delete() }
         val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
         val file = File(dir, "cortex-report-$stamp.txt")
         file.writeText(text(context))

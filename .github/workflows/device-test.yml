@@ -8,6 +8,9 @@ name: Device Test
 #   variable FIREBASE_RESULTS_BUCKET  optional: a Cloud Storage bucket of your own for the results
 on:
   workflow_call:
+    secrets:
+      GCP_SA_KEY:
+        required: false
 
 jobs:
   firebase:
@@ -15,22 +18,38 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
+      # Skipped, not failed, until the key is there (the project variable may be set first)
+      - name: Check for the service account key
+        id: key
+        env:
+          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+        run: |
+          if [ -n "$GCP_SA_KEY" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::The secret GCP_SA_KEY is not set: the device test is skipped (tests/device/README.md)"
+          fi
+
       # The debug app (arm64-v8a) and the test APK, signed with the same debug key
       - name: Download the APKs of this run
+        if: steps.key.outputs.present == 'true'
         uses: actions/download-artifact@v4
         with:
           name: cortex-device-test-apks
           path: apks
 
       - name: Authenticate with Google Cloud
+        if: steps.key.outputs.present == 'true'
         uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
 
       - name: Set up gcloud
+        if: steps.key.outputs.present == 'true'
         uses: google-github-actions/setup-gcloud@v2
 
       - name: Run the test on Firebase Test Lab
+        if: steps.key.outputs.present == 'true'
         env:
           PROJECT: ${{ vars.FIREBASE_PROJECT_ID }}
           # Pixel 6 with Android 13 and a Pixel 8 with Android 14 (see "gcloud firebase test android
