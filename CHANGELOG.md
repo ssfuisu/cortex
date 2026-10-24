@@ -57,9 +57,10 @@ of a GitHub release from the section of its version here. Older versions are des
 - Programs built with `_FORTIFY_SOURCE` (all of Ubuntu's) get the hook's answer from `getgroups()`
   and `recvfrom()` too: their checked variants went past it, and sshd ended each login on
   "getgroups: Invalid argument".
-- Limits that leave a process no new file descriptors or file writes (sandboxes such as sshd's set
-  them before login) are not applied: Android's ARM translator on emulators and x86 devices needs
-  them, and died in sshd's process.
+- On x86 devices and emulators, which run Cortex through Android's ARM translator, programs that
+  close all their descriptors (sshd does at start) no longer close the translator's own memory file
+  with them, and limits that leave a process no new descriptors or file writes (sandboxes such as
+  sshd's set them before login) are not applied: the translator aborted in sshd's processes.
 
 ### For developers
 

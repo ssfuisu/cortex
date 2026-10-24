@@ -4,7 +4,62 @@
 // Calls an app may not make (chown, mknod, capabilities, prctl, landlock, seccomp, namespaces,
 // close_range) and the generic syscall() entry point.
 
+// The ARM translator of x86 devices and emulators (ndk_translation, houdini) keeps memory files of
+// its own open in the process (ndk_translation at descriptor 3) and needs them whenever it
+// translates more code: a program that closes every descriptor it did not open (sshd at start,
+// closefrom(3)) made it abort later ("CHECK failed" in mmap_posix.cc). The memory files open when
+// the hook starts in a translated process survive close(), close_range() and closefrom(); phones
+// that run ARM code themselves have none.
+#define CORTEX_MAX_KEPT_FDS 4
+static int g_kept_fds[CORTEX_MAX_KEPT_FDS]; // ascending
+static int g_kept_fd_count = 0;
+
+static int is_kept_fd(int fd) {
+    for (int i = 0; i < g_kept_fd_count; i++) {
+        if (g_kept_fds[i] == fd) return 1;
+    }
+    return 0;
+}
+
+// Calls fn for each part of [first, last] that leaves out the descriptors in kept (ascending);
+// the first nonzero answer of fn is returned, else 0.
+static int for_each_range_without(unsigned int first, unsigned int last, const int *kept, int nkept,
+                                  int (*fn)(unsigned int, unsigned int, void *), void *arg) {
+    unsigned int from = first;
+    for (int i = 0; i < nkept && from <= last; i++) {
+        if (kept[i] < 0 || (unsigned int)kept[i] < from || (unsigned int)kept[i] > last) continue;
+        unsigned int k = (unsigned int)kept[i];
+        if (k > from) {
+            int r = fn(from, k - 1, arg);
+            if (r != 0) return r;
+        }
+        if (k == last) return 0;
+        from = k + 1;
+    }
+    return from <= last ? fn(from, last, arg) : 0;
+}
+
 #ifndef CORTEX_HOST_TEST
+
+__attribute__((constructor(102))) static void find_translator_files(void) {
+    ssize_t (*real_readlink)(const char *, char *, size_t) = (ssize_t (*)(const char *, char *, size_t))dlsym(RTLD_NEXT, "readlink");
+    if (!real_readlink) return;
+    char path[PATH_MAX];
+    ssize_t n = real_readlink("/proc/self/exe", path, sizeof(path) - 1);
+    if (n <= 0) return;
+    path[n] = '\0';
+    const char *base = strrchr(path, '/');
+    base = base ? base + 1 : path;
+    if (strncmp(base, "ndk_translation", 15) != 0 && strncmp(base, "houdini", 7) != 0) return;
+    for (int fd = 3; fd < 64 && g_kept_fd_count < CORTEX_MAX_KEPT_FDS; fd++) {
+        char link[32], target[64];
+        snprintf(link, sizeof(link), "/proc/self/fd/%d", fd);
+        ssize_t m = real_readlink(link, target, sizeof(target) - 1);
+        if (m <= 0) continue;
+        target[m] = '\0';
+        if (strncmp(target, "/memfd:", 7) == 0) g_kept_fds[g_kept_fd_count++] = fd;
+    }
+}
 
 int chown(const char *pathname, uid_t owner, gid_t group) { (void)pathname; (void)owner; (void)group; return 0; }
 int fchown(int fd, uid_t owner, gid_t group) { (void)fd; (void)owner; (void)group; return 0; }
@@ -317,7 +372,26 @@ int setns(int fd, int nstype) {
 #define CLOSE_RANGE_CLOEXEC (1U << 2)
 #endif
 
+static int close_range_all(unsigned int first, unsigned int last, int flags);
+
+static int close_range_part(unsigned int first, unsigned int last, void *flags) {
+    return close_range_all(first, last, *(int *)flags);
+}
+
 int close_range(unsigned int first, unsigned int last, int flags) {
+    // Close-on-exec only (CLOSE_RANGE_CLOEXEC) leaves the translator's files open
+    if (g_kept_fd_count > 0 && !(flags & CLOSE_RANGE_CLOEXEC)) {
+        return for_each_range_without(first, last, g_kept_fds, g_kept_fd_count, close_range_part, &flags);
+    }
+    return close_range_all(first, last, flags);
+}
+
+// glibc's closefrom() makes the close_range system call itself, past the function above
+void closefrom(int lowfd) {
+    close_range(lowfd < 0 ? 0U : (unsigned int)lowfd, ~0U, 0);
+}
+
+static int close_range_all(unsigned int first, unsigned int last, int flags) {
     static int (*orig_close_range)(unsigned int, unsigned int, int) = NULL;
     if (!orig_close_range) {
         orig_close_range = (int (*)(unsigned int, unsigned int, int))dlsym(RTLD_NEXT, "close_range");

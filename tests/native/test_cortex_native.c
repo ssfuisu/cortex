@@ -1091,6 +1091,40 @@ static void test_emulated_hardlinks_shared(void) {
 
 /* 9c. DNS servers of both families, queries and replies (the hook's own resolver) */
 /* 10b. A program that starts a TCP server tells the app its port and name */
+// close_range() and closefrom() leave the ARM translator's memory files out: the parts around them
+struct range_record { unsigned int first[8], last[8]; int n; };
+static int record_range(unsigned int first, unsigned int last, void *arg) {
+    struct range_record *r = (struct range_record *)arg;
+    if (r->n < 8) { r->first[r->n] = first; r->last[r->n] = last; }
+    r->n++;
+    return 0;
+}
+
+static void test_close_ranges_keep_translator_files(void) {
+    struct range_record r;
+    int kept3[] = { 3 };
+    memset(&r, 0, sizeof(r));
+    for_each_range_without(3, ~0U, kept3, 1, record_range, &r);
+    ASSERT_TRUE(r.n == 1 && r.first[0] == 4 && r.last[0] == ~0U, "closefrom(3) around 3: 4 to the end");
+    memset(&r, 0, sizeof(r));
+    for_each_range_without(0, ~0U, kept3, 1, record_range, &r);
+    ASSERT_TRUE(r.n == 2 && r.first[0] == 0 && r.last[0] == 2 && r.first[1] == 4, "0 to the end: 0-2 and 4 on");
+    int kept[] = { 3, 7 };
+    memset(&r, 0, sizeof(r));
+    for_each_range_without(5, 10, kept, 2, record_range, &r);
+    ASSERT_TRUE(r.n == 2 && r.first[0] == 5 && r.last[0] == 6 && r.first[1] == 8 && r.last[1] == 10, "5-10 around 7");
+    memset(&r, 0, sizeof(r));
+    for_each_range_without(3, 3, kept, 2, record_range, &r);
+    ASSERT_TRUE(r.n == 0, "only a kept descriptor: nothing to close");
+    memset(&r, 0, sizeof(r));
+    for_each_range_without(10, 20, kept, 2, record_range, &r);
+    ASSERT_TRUE(r.n == 1 && r.first[0] == 10 && r.last[0] == 20, "a range without kept descriptors stays whole");
+    memset(&r, 0, sizeof(r));
+    for_each_range_without(3, 7, kept, 2, record_range, &r);
+    ASSERT_TRUE(r.n == 1 && r.first[0] == 4 && r.last[0] == 6, "kept at both ends: what is between");
+    ASSERT_TRUE(!is_kept_fd(3), "without a translator no descriptor is kept");
+}
+
 // The app's files look like root's to the programs (the hook says they run as root): git, sshd
 // and tmux compare a file's owner with getuid()
 static void test_app_files_owned_by_root(void) {
@@ -1978,6 +2012,7 @@ int main(void) {
     test_emulated_hardlink_groups();
     test_emulated_hardlink_original_removed();
     test_emulated_hardlinks_shared();
+    test_close_ranges_keep_translator_files();
     test_app_files_owned_by_root();
     test_listening_port_report();
     test_dns_helpers();

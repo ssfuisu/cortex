@@ -215,6 +215,8 @@ static void clear_dns_redirect(int fd) {
 int close(int fd) {
     static int (*orig_close)(int) = NULL;
     if (!orig_close) orig_close = (int (*)(int))dlsym(RTLD_NEXT, "close");
+    // The ARM translator's memory file (privileged.c): left open, as if it were closed
+    if (g_kept_fd_count > 0 && is_kept_fd(fd)) return 0;
     clear_dns_redirect(fd);
     return orig_close ? orig_close(fd) : -1;
 }
