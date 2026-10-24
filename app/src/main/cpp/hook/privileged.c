@@ -7,9 +7,9 @@
 // The ARM translator of x86 devices and emulators (ndk_translation, houdini) keeps memory files of
 // its own open in the process (ndk_translation at descriptor 3) and needs them whenever it
 // translates more code: a program that closes every descriptor it did not open (sshd at start,
-// closefrom(3)) made it abort later ("CHECK failed" in mmap_posix.cc). The memory files open when
-// the hook starts in a translated process survive close(), close_range() and closefrom(); phones
-// that run ARM code themselves have none.
+// closefrom(3)) made it abort later ("CHECK failed" in mmap_posix.cc). Its memory files open when
+// the hook starts survive close(), close_range() and closefrom(); phones that run ARM code
+// themselves have none.
 #define CORTEX_MAX_KEPT_FDS 4
 static int g_kept_fds[CORTEX_MAX_KEPT_FDS]; // ascending
 static int g_kept_fd_count = 0;
@@ -41,23 +41,30 @@ static int for_each_range_without(unsigned int first, unsigned int last, const i
 
 #ifndef CORTEX_HOST_TEST
 
+// ndk_translation's file is "/memfd:child"; any memory file counts in a process whose executable is
+// a translator's runner (houdini). ndk_translation shows a program its own path as /proc/self/exe,
+// so the name is what tells there.
 __attribute__((constructor(102))) static void find_translator_files(void) {
     ssize_t (*real_readlink)(const char *, char *, size_t) = (ssize_t (*)(const char *, char *, size_t))dlsym(RTLD_NEXT, "readlink");
     if (!real_readlink) return;
     char path[PATH_MAX];
+    int runner = 0;
     ssize_t n = real_readlink("/proc/self/exe", path, sizeof(path) - 1);
-    if (n <= 0) return;
-    path[n] = '\0';
-    const char *base = strrchr(path, '/');
-    base = base ? base + 1 : path;
-    if (strncmp(base, "ndk_translation", 15) != 0 && strncmp(base, "houdini", 7) != 0) return;
+    if (n > 0) {
+        path[n] = '\0';
+        const char *base = strrchr(path, '/');
+        base = base ? base + 1 : path;
+        runner = strncmp(base, "ndk_translation", 15) == 0 || strncmp(base, "houdini", 7) == 0;
+    }
     for (int fd = 3; fd < 64 && g_kept_fd_count < CORTEX_MAX_KEPT_FDS; fd++) {
         char link[32], target[64];
         snprintf(link, sizeof(link), "/proc/self/fd/%d", fd);
         ssize_t m = real_readlink(link, target, sizeof(target) - 1);
         if (m <= 0) continue;
         target[m] = '\0';
-        if (strncmp(target, "/memfd:", 7) == 0) g_kept_fds[g_kept_fd_count++] = fd;
+        if (strncmp(target, "/memfd:child", 12) == 0 || (runner && strncmp(target, "/memfd:", 7) == 0)) {
+            g_kept_fds[g_kept_fd_count++] = fd;
+        }
     }
 }
 
