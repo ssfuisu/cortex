@@ -129,4 +129,21 @@
     <string name="root_session_failed">ਰੂਟ ਸੈਸ਼ਨ ਸ਼ੁਰੂ ਨਹੀਂ ਹੋ ਸਕਿਆ। ਜੇ ਰੂਟ ਪਹੁੰਚ ਨਹੀਂ ਰਹੀ, ਤਾਂ ਸੈਟਿੰਗਾਂ ਵਿੱਚ ਰੂਟ ਮੋਡ ਬੰਦ ਕੀਤਾ ਜਾ ਸਕਦਾ ਹੈ।</string>
     <string name="api_channel_name">ਕਮਾਂਡਾਂ ਤੋਂ ਸੁਨੇਹੇ</string>
     <string name="api_channel_description">ਟਰਮੀਨਲ ਦੇ ਪ੍ਰੋਗਰਾਮ cortex-api ਜਾਂ notify-send ਨਾਲ ਜੋ ਸੂਚਨਾਵਾਂ ਦਿਖਾਉਂਦੇ ਹਨ</string>
+    <string name="extra_keys_error">~/.cortex/keys: %1$s। ਪੂਰਵ-ਨਿਰਧਾਰਤ ਕੁੰਜੀਆਂ ਦਿਖਾਈਆਂ ਜਾ ਰਹੀਆਂ ਹਨ।</string>
+    <string name="pref_cat_sessions">ਸੈਸ਼ਨ</string>
+    <string name="pref_restore_sessions_title">ਸੈਸ਼ਨ ਮੁੜ ਲਿਆਓ</string>
+    <string name="pref_restore_sessions_summary">ਜਦੋਂ Android, Cortex ਨੂੰ ਬੰਦ ਕਰਦਾ ਹੈ, ਤਾਂ ਅਗਲੀ ਵਾਰ ਖੋਲ੍ਹਣ ’ਤੇ ਸੈਸ਼ਨ ਆਪਣੇ ਫੋਲਡਰਾਂ ਅਤੇ ਆਉਟਪੁੱਟ ਦੇ ਆਖ਼ਰੀ ਹਿੱਸੇ ਨਾਲ ਵਾਪਸ ਆਉਂਦੇ ਹਨ (ਉਨ੍ਹਾਂ ਦੇ ਪ੍ਰੋਗਰਾਮ ਨਵੇਂ ਸਿਰਿਓਂ ਸ਼ੁਰੂ ਹੁੰਦੇ ਹਨ)</string>
+    <string name="session_restored">ਮੁੜ ਲਿਆਂਦਾ: Android ਨੇ Cortex ਬੰਦ ਕਰ ਦਿੱਤਾ ਸੀ, ਇੱਥੇ ਚੱਲ ਰਹੇ ਪ੍ਰੋਗਰਾਮ ਰੁਕ ਗਏ</string>
+    <string name="pref_cat_remote">ਰਿਮੋਟ ਪਹੁੰਚ</string>
+    <string name="pref_ssh_title">SSH ਸਰਵਰ ਸ਼ੁਰੂ ਕਰੋ</string>
+    <string name="pref_ssh_summary">ਕੰਪਿਊਟਰ ਤੋਂ Cortex ਵਰਤਣ ਲਈ ਨਵੇਂ ਸੈਸ਼ਨ ਵਿੱਚ ਪੋਰਟ 8022 ’ਤੇ OpenSSH ਸ਼ੁਰੂ ਕਰਦਾ ਹੈ (ਪਹਿਲੀ ਵਾਰ ਇੰਸਟਾਲ ਕਰਦਾ ਹੈ; cortex-sshd stop ਇਸਨੂੰ ਰੋਕਦਾ ਹੈ)</string>
+    <string name="servers_channel_name">ਲੋਕਲ ਵੈੱਬ ਸਰਵਰ</string>
+    <string name="servers_channel_description">Cortex ਦੇ ਪ੍ਰੋਗਰਾਮਾਂ ਵੱਲੋਂ ਸ਼ੁਰੂ ਕੀਤੇ ਵੈੱਬ ਸਰਵਰ, ਬ੍ਰਾਊਜ਼ਰ ਵਿੱਚ ਖੋਲ੍ਹਣ ਲਈ</string>
+    <string name="server_notification_title">%1$s ਪੋਰਟ %2$d ’ਤੇ ਵੈੱਬ ਪੰਨੇ ਦੇ ਰਿਹਾ ਹੈ</string>
+    <string name="server_notification_title_unknown">ਪੋਰਟ %1$d ’ਤੇ ਵੈੱਬ ਸਰਵਰ ਚੱਲ ਰਿਹਾ ਹੈ</string>
+    <string name="server_notification_text">%1$s ਖੋਲ੍ਹਣ ਲਈ ਟੈਪ ਕਰੋ</string>
+    <string name="server_open">ਖੋਲ੍ਹੋ</string>
+    <string name="server_copy_link">ਲਿੰਕ ਕਾਪੀ ਕਰੋ</string>
+    <string name="pref_servers_title">ਲੋਕਲ ਵੈੱਬ ਸਰਵਰ</string>
+    <string name="pref_servers_summary">ਜਦੋਂ Cortex ਦਾ ਕੋਈ ਪ੍ਰੋਗਰਾਮ ਵੈੱਬ ਪੰਨੇ ਦਿੰਦਾ ਹੈ (ਜਿਵੇਂ npm run dev), ਤਾਂ ਬ੍ਰਾਊਜ਼ਰ ਵਿੱਚ ਖੋਲ੍ਹਣ ਲਈ ਸੂਚਨਾ</string>
 </resources>

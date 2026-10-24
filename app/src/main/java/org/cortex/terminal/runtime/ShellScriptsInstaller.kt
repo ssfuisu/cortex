@@ -152,6 +152,14 @@ object ShellScriptsInstaller {
                 "#!/bin/sh\nexec service \"\$@\"\n"
             )
             FileInstaller.install(File(localBin, "cortex-service"), cortexServiceScript, 448)
+
+            // The SSH server as a service, for "service cortex-sshd start" and the start with Cortex
+            // (cortex-sshd enable)
+            FileInstaller.install(
+                File(root, "etc/init.d/cortex-sshd"),
+                "#!/bin/sh\nexec /usr/local/bin/cortex-sshd \"\$@\"\n",
+                493 // 0755
+            )
         } catch (e: Exception) {
             Log.e(TAG, "Failed to ensure service manager", e)
         }
@@ -275,11 +283,12 @@ object ShellScriptsInstaller {
         }
     }
 
-    /** Installs cortex-api (Android features for the shell) and notify-send, which uses it. */
+    /** Installs cortex-api (Android features for the shell), notify-send and cortex-sshd, which use it. */
     private fun ensureApiTools(localBin: File, context: Context?) {
         val tools = listOf(
             "cortex-api" to "cortex-api.sh",
-            "notify-send" to "notify-send.sh"
+            "notify-send" to "notify-send.sh",
+            "cortex-sshd" to "cortex-sshd.sh"
         )
         for ((name, asset) in tools) {
             try {

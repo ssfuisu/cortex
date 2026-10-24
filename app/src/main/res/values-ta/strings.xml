@@ -129,4 +129,21 @@
     <string name="root_session_failed">ரூட் அமர்வைத் தொடங்க முடியவில்லை. ரூட் அணுகல் இல்லையெனில், அமைப்புகளில் ரூட் பயன்முறையை முடக்கலாம்.</string>
     <string name="api_channel_name">கட்டளைகளிலிருந்து வரும் செய்திகள்</string>
     <string name="api_channel_description">டெர்மினலில் உள்ள நிரல்கள் cortex-api அல்லது notify-send மூலம் காட்டும் அறிவிப்புகள்</string>
+    <string name="extra_keys_error">~/.cortex/keys: %1$s. இயல்புநிலை விசைகள் காட்டப்படுகின்றன.</string>
+    <string name="pref_cat_sessions">அமர்வுகள்</string>
+    <string name="pref_restore_sessions_title">அமர்வுகளை மீட்டமை</string>
+    <string name="pref_restore_sessions_summary">Android, Cortex-ஐ மூடும்போது அடுத்த முறை திறக்கையில் அமர்வுகள் தங்கள் கோப்புறைகளுடனும் வெளியீட்டின் இறுதிப் பகுதியுடனும் திரும்பி வரும் (அவற்றிலுள்ள நிரல்கள் புதிதாகத் தொடங்கும்)</string>
+    <string name="session_restored">மீட்டமைக்கப்பட்டது: Android, Cortex-ஐ மூடியிருந்தது; இங்கு இயங்கிய நிரல்கள் நின்றுவிட்டன</string>
+    <string name="pref_cat_remote">தொலைநிலை அணுகல்</string>
+    <string name="pref_ssh_title">SSH சேவையகத்தைத் தொடங்கு</string>
+    <string name="pref_ssh_summary">கணினியிலிருந்து Cortex-ஐப் பயன்படுத்த புதிய அமர்வில் போர்ட் 8022-இல் OpenSSH-ஐத் தொடங்கும் (முதல் முறை நிறுவும்; cortex-sshd stop அதை நிறுத்தும்)</string>
+    <string name="servers_channel_name">உள்ளூர் இணையச் சேவையகங்கள்</string>
+    <string name="servers_channel_description">Cortex நிரல்கள் தொடங்கும் இணையச் சேவையகங்கள், உலாவியில் திறப்பதற்கு</string>
+    <string name="server_notification_title">%1$s போர்ட் %2$d-இல் இணையப் பக்கங்களை வழங்குகிறது</string>
+    <string name="server_notification_title_unknown">போர்ட் %1$d-இல் இணையச் சேவையகம் இயங்குகிறது</string>
+    <string name="server_notification_text">%1$s-ஐத் திறக்கத் தட்டவும்</string>
+    <string name="server_open">திற</string>
+    <string name="server_copy_link">இணைப்பை நகலெடு</string>
+    <string name="pref_servers_title">உள்ளூர் இணையச் சேவையகங்கள்</string>
+    <string name="pref_servers_summary">Cortex நிரல் இணையப் பக்கங்களை வழங்கும்போது (npm run dev போல) உலாவியில் திறக்க அறிவிப்பு</string>
 </resources>

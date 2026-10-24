@@ -12,7 +12,7 @@ import java.util.zip.GZIPInputStream
 
 object BootstrapManager {
     private const val TAG = "BootstrapManager"
-    const val CURRENT_BOOTSTRAP_VERSION = 12637
+    const val CURRENT_BOOTSTRAP_VERSION = 12638
 
     fun initializeFileSystem(context: Context) {
         val root = Environment.getCortexRoot(context)
@@ -180,10 +180,11 @@ object BootstrapManager {
 
     fun findBootstrapAsset(context: Context): String? {
         val is64 = Process.is64Bit()
+        // .tar.zst since 1.26.38 (the native extractor decompresses it); the others from older builds
         val candidates = if (is64) {
-            listOf("bootstrap-arm64.tar", "bootstrap-arm64.tar.gz", "bootstrap-arm.tar", "bootstrap-arm.tar.gz")
+            listOf("bootstrap-arm64.tar.zst", "bootstrap-arm64.tar", "bootstrap-arm64.tar.gz", "bootstrap-arm.tar.zst", "bootstrap-arm.tar", "bootstrap-arm.tar.gz")
         } else {
-            listOf("bootstrap-arm.tar", "bootstrap-arm.tar.gz")
+            listOf("bootstrap-arm.tar.zst", "bootstrap-arm.tar", "bootstrap-arm.tar.gz")
         }
         for (cand in candidates) {
             try {
@@ -205,7 +206,7 @@ object BootstrapManager {
         return installBootstrap(context, { context.assets.open(assetName) }, onProgress)
     }
 
-    /** [installBootstrapFromAssets] with the archive (tar or tar.gz) from [open], which tests use. */
+    /** [installBootstrapFromAssets] with the archive (tar, tar.gz or tar.zst) from [open], which tests use. */
     internal fun installBootstrap(
         context: Context,
         open: () -> InputStream,
@@ -252,15 +253,23 @@ object BootstrapManager {
                 openBootstrap(open).use { stream ->
                     tmpTar.outputStream().use { out -> stream.copyTo(out) }
                 }
-                val tarCmd = when {
-                    File("/system/bin/tar").exists() -> listOf("/system/bin/tar", "-xf", tmpTar.absolutePath, "-C", root.absolutePath)
-                    File("/system/bin/toybox").exists() -> listOf("/system/bin/toybox", "tar", "-xf", tmpTar.absolutePath, "-C", root.absolutePath)
-                    else -> listOf("tar", "-xf", tmpTar.absolutePath, "-C", root.absolutePath)
+                // From the file, the native extractor can still do it (the system tar cannot read zstd)
+                val fromFile = try {
+                    PtyNative.extractTar(tmpTar.absolutePath, root.absolutePath) == 0
+                } catch (t: Throwable) {
+                    false
                 }
-                val process = ProcessBuilder(tarCmd).redirectErrorStream(true).start()
-                process.inputStream.readBytes()
-                process.waitFor()
-                ensureOwnerAccess(root)
+                if (!fromFile) {
+                    val tarCmd = when {
+                        File("/system/bin/tar").exists() -> listOf("/system/bin/tar", "-xf", tmpTar.absolutePath, "-C", root.absolutePath)
+                        File("/system/bin/toybox").exists() -> listOf("/system/bin/toybox", "tar", "-xf", tmpTar.absolutePath, "-C", root.absolutePath)
+                        else -> listOf("tar", "-xf", tmpTar.absolutePath, "-C", root.absolutePath)
+                    }
+                    val process = ProcessBuilder(tarCmd).redirectErrorStream(true).start()
+                    process.inputStream.readBytes()
+                    process.waitFor()
+                    ensureOwnerAccess(root)
+                }
             }
 
             ensureDynamicLinkerSymlinks(root)
@@ -312,7 +321,8 @@ object BootstrapManager {
     }
 
     /**
-     * The bootstrap archive as a plain tar stream (unzipped when it is gzip-compressed). [onProgress]
+     * The bootstrap archive as a tar stream: unzipped when it is gzip-compressed, as it is when it is a
+     * tar or zstd-compressed (which the native extractor decompresses). [onProgress]
      * gets the share of the asset read so far (0-100), when its size is known.
      */
     private fun openBootstrap(open: () -> InputStream, onProgress: ((Int) -> Unit)? = null): InputStream {

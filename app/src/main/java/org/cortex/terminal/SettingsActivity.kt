@@ -67,6 +67,10 @@ class SettingsActivity : AppCompatActivity() {
                 }
             }
 
+            // A size set with two fingers on the terminal is not one of the list's
+            findPreference<ListPreference>("terminal_font_size")?.summaryProvider =
+                Preference.SummaryProvider<ListPreference> { pref -> pref.entry ?: pref.value?.let { "$it sp" } }
+
             findPreference<androidx.preference.SwitchPreferenceCompat>(CortexDocumentsProvider.PREF_DOCUMENTS_ENABLED)
                 ?.setOnPreferenceChangeListener { _, newValue ->
                     CortexDocumentsProvider.setEnabled(requireContext(), newValue as Boolean)
@@ -93,6 +97,14 @@ class SettingsActivity : AppCompatActivity() {
                     }
                     startActivity(intent)
                 } catch (e: Exception) {}
+                true
+            }
+
+            // The SSH server, started in a new session where its output (the first time: the
+            // installation of openssh-server) and how to connect can be read
+            findPreference<Preference>("ssh_server")?.setOnPreferenceClickListener {
+                org.cortex.terminal.MainActivity.pendingSessionCommand = "cortex-sshd start"
+                activity?.finish()
                 true
             }
 

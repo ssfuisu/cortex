@@ -28,6 +28,9 @@ object ApiServer {
     private const val TAG = "CortexApi"
 
     private var server: ServerSocket? = null
+
+    /** The port cortex-api listens on (null while it does not). */
+    val port: Int? get() = server?.localPort
     private var workers: ExecutorService? = null
 
     private fun confFile(context: Context) = File(Environment.getCortexRoot(context), "run/cortex-api")

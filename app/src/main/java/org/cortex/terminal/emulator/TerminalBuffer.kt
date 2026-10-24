@@ -586,6 +586,31 @@ class TerminalBuffer(var rows: Int, var cols: Int, private val maxHistory: Int =
         }
     }
 
+    /**
+     * The last [maxLines] lines of the main screen and its scrollback as text (also while a
+     * full-screen program shows the alternate screen): wrapped rows joined, the empty lines below
+     * the last one left out.
+     */
+    fun transcript(maxLines: Int): String {
+        val main = (if (isAlternate) alternateScreen else null) ?: screen
+        val lines = ArrayList<String>()
+        val line = StringBuilder()
+        fun add(row: TerminalRow) {
+            if (row.isWrapped) {
+                line.append(row.chars, 0, row.cols)
+            } else {
+                line.append(row.getText())
+                lines.add(line.toString())
+                line.setLength(0)
+            }
+        }
+        for (row in history) add(row)
+        for (row in main) add(row)
+        if (line.isNotEmpty()) lines.add(line.toString())
+        while (lines.isNotEmpty() && lines[lines.size - 1].isBlank()) lines.removeAt(lines.size - 1)
+        return lines.subList(maxOf(0, lines.size - maxLines), lines.size).joinToString("\n")
+    }
+
     fun getSelectedText(r1: Int, c1: Int, r2: Int, c2: Int): String {
         val (startRow, startCol, endRow, endCol) = if (r1 < r2 || (r1 == r2 && c1 <= c2)) {
             listOf(r1, c1, r2, c2)

@@ -129,4 +129,21 @@
     <string name="root_session_failed">نشست روت شروع نشد. اگر دسترسی روت از بین رفته است، حالت روت را می‌توان در تنظیمات خاموش کرد.</string>
     <string name="api_channel_name">پیام‌های فرمان‌ها</string>
     <string name="api_channel_description">اعلان‌هایی که برنامه‌های ترمینال با cortex-api یا notify-send نشان می‌دهند</string>
+    <string name="extra_keys_error">~/.cortex/keys: %1$s. کلیدهای پیش‌فرض نمایش داده می‌شوند.</string>
+    <string name="pref_cat_sessions">نشست‌ها</string>
+    <string name="pref_restore_sessions_title">بازیابی نشست‌ها</string>
+    <string name="pref_restore_sessions_summary">وقتی Android برنامه Cortex را می‌بندد، نشست‌ها در اجرای بعدی با پوشه‌ها و انتهای خروجی‌شان برمی‌گردند (برنامه‌های درونشان از نو شروع می‌شوند)</string>
+    <string name="session_restored">بازیابی شد: Android برنامه Cortex را بسته بود و برنامه‌هایی که اینجا اجرا می‌شدند متوقف شدند</string>
+    <string name="pref_cat_remote">دسترسی از راه دور</string>
+    <string name="pref_ssh_title">راه‌اندازی سرور SSH</string>
+    <string name="pref_ssh_summary">OpenSSH را روی درگاه 8022 در نشستی تازه اجرا می‌کند تا از رایانه با Cortex کار کنید (بار اول نصبش می‌کند؛ cortex-sshd stop آن را متوقف می‌کند)</string>
+    <string name="servers_channel_name">سرورهای وب محلی</string>
+    <string name="servers_channel_description">سرورهای وبی که برنامه‌های Cortex اجرا می‌کنند، برای باز کردن در مرورگر</string>
+    <string name="server_notification_title">%1$s روی درگاه %2$d صفحه وب ارائه می‌کند</string>
+    <string name="server_notification_title_unknown">یک سرور وب روی درگاه %1$d اجرا می‌شود</string>
+    <string name="server_notification_text">برای باز کردن %1$s ضربه بزنید</string>
+    <string name="server_open">باز کردن</string>
+    <string name="server_copy_link">کپی پیوند</string>
+    <string name="pref_servers_title">سرورهای وب محلی</string>
+    <string name="pref_servers_summary">اعلانی وقتی برنامه‌ای در Cortex صفحه وب ارائه می‌کند (مانند npm run dev)، برای باز کردن در مرورگر</string>
 </resources>

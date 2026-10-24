@@ -26,6 +26,9 @@ class CortexService : Service() {
         const val ACTION_EXIT = "org.cortex.terminal.action.EXIT"
         const val ACTION_TOGGLE_WAKELOCK = "org.cortex.terminal.action.TOGGLE_WAKELOCK"
         const val ACTION_UPDATE_NOTIFICATION = "org.cortex.terminal.action.UPDATE_NOTIFICATION"
+        // "Copy link" of a local server's notification (LocalServers)
+        const val ACTION_COPY_LINK = "org.cortex.terminal.action.COPY_LINK"
+        const val EXTRA_LINK = "org.cortex.terminal.extra.LINK"
 
         var instance: CortexService? = null
             private set
@@ -46,14 +49,17 @@ class CortexService : Service() {
             if (lastVersionCode != 0 && lastVersionCode < appVersion && _sessionManager != null) {
                 android.util.Log.i("CortexService", "App version updated from $lastVersionCode to $appVersion. Resetting sessions.")
                 try {
-                    _sessionManager?.destroyAll()
+                    // They come back in the new version (SessionStore)
+                    _sessionManager?.destroyAll(forget = false)
                 } catch (e: Exception) {}
                 _sessionManager = null
             }
             lastVersionCode = appVersion
 
             if (_sessionManager == null) {
-                _sessionManager = SessionManager(context.applicationContext)
+                _sessionManager = SessionManager(context.applicationContext).also {
+                    it.store = org.cortex.terminal.session.SessionStore(java.io.File(context.filesDir, "sessions"))
+                }
             }
             return _sessionManager!!
         }
@@ -119,6 +125,7 @@ class CortexService : Service() {
     }
 
     private var wakeLock: PowerManager.WakeLock? = null
+    private var localServers: LocalServers? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -164,6 +171,8 @@ class CortexService : Service() {
         }
         // cortex-api: Android features for the shell, while sessions can run.
         org.cortex.terminal.api.ApiServer.start(this)
+        // The web servers that programs in Cortex start
+        localServers = LocalServers(applicationContext, org.cortex.terminal.runtime.Environment.getCortexRoot(this)).also { it.start() }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -200,6 +209,17 @@ class CortexService : Service() {
             }
             ACTION_UPDATE_NOTIFICATION -> {
                 updateNotificationDisplay()
+            }
+            ACTION_COPY_LINK -> {
+                intent.getStringExtra(EXTRA_LINK)?.takeIf { it.startsWith("http://localhost:") }?.let { link ->
+                    try {
+                        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("URL", link))
+                        android.widget.Toast.makeText(this, LocaleHelper.wrap(this).getString(R.string.copied_url, link), android.widget.Toast.LENGTH_SHORT).show()
+                    } catch (e: Exception) {
+                        android.util.Log.w("CortexService", "Copying the link failed", e)
+                    }
+                }
             }
             ACTION_STOP -> {
                 stopForeground(true)
@@ -369,6 +389,8 @@ class CortexService : Service() {
     }
 
     override fun onDestroy() {
+        localServers?.stop()
+        localServers = null
         org.cortex.terminal.api.ApiServer.stop(this)
         releaseWakeLock()
         instance = null

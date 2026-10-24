@@ -70,6 +70,7 @@ object ApiCommands {
             "tts" -> tts(context, req)
             "wakelock" -> wakelock(context, req)
             "mirror" -> mirror(context, req)
+            "network" -> network(context)
             else -> fail("unknown command '${req.command}' (cortex-api --help lists them)")
         }
     } catch (e: IllegalArgumentException) {
@@ -122,6 +123,35 @@ object ApiCommands {
                 "foreground" to CortexApp.isInForeground
             )
         )
+    }
+
+    /**
+     * The phone's addresses in its networks (Wi-Fi first), one "interface address" line each, as the
+     * apps see them (ip and ifconfig cannot ask Android for them).
+     */
+    private fun network(context: Context): ApiResult {
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+        val lines = mutableListOf<Pair<Int, String>>()
+        @Suppress("DEPRECATION") // allNetworks: the only list of networks before API 31
+        val networks = cm.allNetworks
+        for (network in networks) {
+            val props = cm.getLinkProperties(network) ?: continue
+            val caps = cm.getNetworkCapabilities(network)
+            val rank = when {
+                caps == null -> 3
+                caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) -> 0
+                caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_ETHERNET) -> 1
+                else -> 2
+            }
+            val name = props.interfaceName ?: "?"
+            for (link in props.linkAddresses) {
+                val address = link.address
+                if (address.isLoopbackAddress) continue
+                lines += rank to "$name ${address.hostAddress?.substringBefore('%')}"
+            }
+        }
+        if (lines.isEmpty()) return fail("no network")
+        return ok(lines.sortedBy { it.first }.joinToString("\n") { it.second })
     }
 
     private fun battery(context: Context): ApiResult {

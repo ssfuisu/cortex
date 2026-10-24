@@ -42,16 +42,16 @@ jobs:
 
     steps:
       - name: Checkout Source Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
           distribution: 'temurin'
           java-version: '17'
 
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v4
+        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
 
       - name: Accept Android SDK Licenses
         run: |
@@ -61,7 +61,7 @@ jobs:
           yes | sdkmanager --licenses || true
 
       - name: Cache Android NDK and CMake
-        uses: actions/cache@v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: cache-ndk
         with:
           path: |
@@ -78,7 +78,10 @@ jobs:
           sdkmanager --install "ndk;26.1.10909125" "cmake;3.22.1"
 
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
+        uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+        with:
+          # The MIT one on actions/cache (the default since v6 is a proprietary library)
+          cache-provider: basic
 
       - name: Make Gradle Wrapper Executable
         run: chmod +x gradlew
@@ -113,7 +116,7 @@ jobs:
           test -s signing/cortex.lineage
 
       - name: Cache cortex-hook Libraries
-        uses: actions/cache@v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: cache-hook
         with:
           path: hook-libs
@@ -164,18 +167,18 @@ jobs:
           echo "All hook libraries verified: fully compatible with Ubuntu 24.04 LTS (glibc <= 2.39)."
 
       - name: Cache Prepared Ubuntu Bootstrap Archives
-        uses: actions/cache@v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: cache-bootstrap
         with:
           path: |
-            app/src/main/assets/bootstrap-arm64.tar.gz
-            app/src/main/assets/bootstrap-arm.tar.gz
+            app/src/main/assets/bootstrap-arm64.tar.zst
+            app/src/main/assets/bootstrap-arm.tar.zst
             app/src/main/assets/cacert.pem
-          key: bootstrap-rootfs-v4-${{ hashFiles('scripts/setup-extra-rootfs.sh', 'scripts/patch-bootstrap-ld.py', 'app/src/main/cpp/cortex-hook.c', 'app/src/main/cpp/hook/**', 'app/src/main/assets/*.gpg', '.github/workflows/build-release.yml') }}
+          key: bootstrap-rootfs-v5-${{ hashFiles('scripts/setup-extra-rootfs.sh', 'scripts/patch-bootstrap-ld.py', 'app/src/main/cpp/cortex-hook.c', 'app/src/main/cpp/hook/**', 'app/src/main/assets/*.gpg', '.github/workflows/build-release.yml') }}
 
       - name: Set up QEMU for multi-arch containers
         if: steps.cache-bootstrap.outputs.cache-hit != 'true'
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
 
       - name: Bundle Ubuntu 24.04 LTS Glibc Bootstrap into APK
         env:
@@ -196,7 +199,7 @@ jobs:
           cp hook-libs/cortex-chroot-arm64.elf app/src/main/assets/cortex-chroot-arm64.elf
           cp hook-libs/cortex-chroot-arm.elf app/src/main/assets/cortex-chroot-arm.elf
 
-          if [ "$CACHE_HIT" = "true" ] && [ -f app/src/main/assets/bootstrap-arm64.tar.gz ] && [ -f app/src/main/assets/bootstrap-arm.tar.gz ]; then
+          if [ "$CACHE_HIT" = "true" ] && [ -f app/src/main/assets/bootstrap-arm64.tar.zst ] && [ -f app/src/main/assets/bootstrap-arm.tar.zst ]; then
             echo "Using cached pre-built Ubuntu bootstrap archives. Skipping rootfs generation."
           else
             echo "Preparing dpkg tables, APT sandbox, hosts, and DNS config for bootstrap..."
@@ -306,14 +309,13 @@ jobs:
           echo "Patching dynamic linkers in bootstrap archives for Android seccomp compliance..."
           python3 scripts/patch-bootstrap-ld.py
 
-          echo "Compressing bootstrap archives with max gzip compression (pigz)..."
-          if command -v pigz >/dev/null 2>&1; then
-            pigz -9 -f app/src/main/assets/bootstrap-arm64.tar
-            pigz -9 -f app/src/main/assets/bootstrap-arm.tar
-          else
-            gzip -9 -f app/src/main/assets/bootstrap-arm64.tar
-            gzip -9 -f app/src/main/assets/bootstrap-arm.tar
-          fi
+          # zstd: smaller than the APK's own compression and several times faster to unpack. Level 19
+          # keeps the window at 8 MB, which is what the app's decoder needs as memory.
+          echo "Compressing bootstrap archives with zstd -19..."
+          for arch in arm64 arm; do
+            zstd -19 -T0 -q --rm -f "app/src/main/assets/bootstrap-$arch.tar" -o "app/src/main/assets/bootstrap-$arch.tar.zst"
+            zstd -q -t "app/src/main/assets/bootstrap-$arch.tar.zst"
+          done
           fi
 
           if [ ! -f app/src/main/assets/cacert.pem ]; then
@@ -338,7 +340,7 @@ jobs:
       - name: Run Native & Shell Script Tests and Verify PR Debug Build
         if: github.event_name == 'pull_request'
         run: |
-          gcc -std=gnu11 -O2 -Wall -Wextra -pthread tests/native/test_cortex_native.c -o /tmp/test_cortex_native -ldl
+          gcc -std=gnu11 -O2 -Wall -Wextra -pthread tests/native/test_cortex_native.c app/src/main/cpp/zstd/zstd_decoder.c -o /tmp/test_cortex_native -ldl
           /tmp/test_cortex_native
           gcc -std=gnu11 -O2 -Wall -Wextra tests/bench/micro.c -o /tmp/micro_bench
           bash tests/scripts/test_shell_scripts.sh
@@ -371,7 +373,7 @@ jobs:
 
       - name: Upload the Debug APKs for the Emulator Test
         if: github.event_name == 'pull_request'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: cortex-debug-apk
           path: app/build/outputs/apk/debug/*.apk
@@ -386,7 +388,7 @@ jobs:
           RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
           RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
         run: |
-          gcc -std=gnu11 -O2 -Wall -Wextra -pthread tests/native/test_cortex_native.c -o /tmp/test_cortex_native -ldl
+          gcc -std=gnu11 -O2 -Wall -Wextra -pthread tests/native/test_cortex_native.c app/src/main/cpp/zstd/zstd_decoder.c -o /tmp/test_cortex_native -ldl
           /tmp/test_cortex_native
           gcc -std=gnu11 -O2 -Wall -Wextra tests/bench/micro.c -o /tmp/micro_bench
           bash tests/scripts/test_shell_scripts.sh
@@ -514,12 +516,15 @@ jobs:
           # Each APK carries the bootstrap, the hook, root mode's helper and the C development overlay of its own architecture only
           check_assets() {
             unzip -l "$1" > /tmp/apk-assets.txt
-            for need in "assets/bootstrap-$2.tar" "assets/devpkgs-$2.tar" "assets/libcortex-hook-$2.so" "assets/cortex-chroot-$2.elf"; do
+            for need in "assets/bootstrap-$2.tar.zst" "assets/devpkgs-$2.tar" "assets/libcortex-hook-$2.so" "assets/cortex-chroot-$2.elf"; do
               grep -q "$need" /tmp/apk-assets.txt || { echo "ERROR: $1 has no $need"; exit 1; }
             done
             for stray in "assets/bootstrap-$3.tar" "assets/devpkgs-$3.tar" "assets/libcortex-hook-$3.so" "assets/cortex-chroot-$3.elf"; do
               if grep -q "$stray" /tmp/apk-assets.txt; then echo "ERROR: $1 still carries $stray"; exit 1; fi
             done
+            # Stored as it is (already compressed), so that the extractor reads it straight from the APK
+            unzip -v "$1" | grep "assets/bootstrap-$2.tar.zst" | grep -q " Stored " ||
+              { echo "ERROR: $1 compresses assets/bootstrap-$2.tar.zst again"; exit 1; }
           }
           check_assets release-apks/Cortex-arm64-v8a-signed.apk arm64 arm
           check_assets release-apks/Cortex-armeabi-v7a-signed.apk arm arm64
@@ -530,7 +535,7 @@ jobs:
 
       - name: Upload Artifacts
         if: github.event_name != 'pull_request'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: cortex-release-apks
           path: release-apks/*.apk
@@ -544,7 +549,7 @@ jobs:
 
       - name: Upload the APKs for the Device Test
         if: vars.FIREBASE_PROJECT_ID != '' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event.inputs.dry_run == 'true')
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: cortex-device-test-apks
           path: |

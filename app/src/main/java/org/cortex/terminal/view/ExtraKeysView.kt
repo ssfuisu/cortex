@@ -31,6 +31,7 @@ class ExtraKeysView @JvmOverloads constructor(
     // Deferred key dispatch: a press only fires its key after a tiny delay so a
     // horizontal swipe across the toolbar can cancel it instead of typing garbage.
     private var pendingKeyAction: Runnable? = null
+    private var pendingKeyView: View? = null
     private var keyDownX = 0f
     private var keyDownY = 0f
 
@@ -46,8 +47,18 @@ class ExtraKeysView @JvmOverloads constructor(
         private const val KEY_DEFER_MS = 55L
         private const val REPEAT_START_MS = 400L
         private const val REPEAT_INTERVAL_MS = 60L
-        private val REPEATABLE_KEYS = setOf("←", "→", "↑", "↓")
+
+        /** The height of one row of keys, in dp. */
+        const val ROW_HEIGHT_DP = 38
     }
+
+    /** [modifier]: CTRL or ALT, whose buttons show when they are on. */
+    private class KeyButton(
+        val label: String,
+        val repeats: Boolean,
+        val action: () -> Any?,
+        val modifier: ExtraKeysLayout.Special? = null
+    )
 
     var terminalView: TerminalView? = null
         set(value) {
@@ -63,56 +74,100 @@ class ExtraKeysView @JvmOverloads constructor(
     private var ctrlButton: Button? = null
     private var altButton: Button? = null
 
+    /** The rows of keys shown now. */
+    var rowCount = 0
+        private set
+
     init {
         orientation = VERTICAL
         setBackgroundColor(Color.parseColor("#161722"))
         val pad = (2 * resources.displayMetrics.density).toInt()
         setPadding(pad, pad, pad, pad)
-        buildLayout()
+        setKeys(ExtraKeysLayout.DEFAULT_ROWS)
     }
 
-    private fun buildLayout() {
-        val row1Keys = listOf(
-            "ESC" to { terminalView?.sendKeySequence(KeyEvent.KEYCODE_ESCAPE) },
-            "☰" to { onMenuClick?.invoke() },
-            "FIND" to { onSearchToggle?.invoke() },
-            "HOME" to { terminalView?.sendKeySequence(KeyEvent.KEYCODE_MOVE_HOME) },
-            "↑" to { terminalView?.sendKeySequence(KeyEvent.KEYCODE_DPAD_UP) },
-            "END" to { terminalView?.sendKeySequence(KeyEvent.KEYCODE_MOVE_END) },
-            "PGUP" to { terminalView?.sendKeySequence(KeyEvent.KEYCODE_PAGE_UP) }
-        )
+    /** Shows these rows of keys (from ~/.cortex/keys, see [ExtraKeysLayout]). */
+    fun setKeys(rows: List<List<ExtraKeysLayout.Key>>) {
+        cancelPendingKey()
+        cancelRepeat()
+        removeAllViews()
+        ctrlButton = null
+        altButton = null
+        for (row in rows) {
+            addView(createRow(row.map { key -> KeyButton(key.label, keyRepeats(key), actionFor(key), modifierOf(key)) }))
+        }
+        rowCount = rows.size
+        updateModifierStyles()
+    }
 
-        val row2Keys = listOf(
-            "⇆" to { terminalView?.sendKeySequence(KeyEvent.KEYCODE_TAB) },
-            "CTRL" to { toggleCtrl() },
-            "ALT" to { toggleAlt() },
-            "←" to { terminalView?.sendKeySequence(KeyEvent.KEYCODE_DPAD_LEFT) },
-            "↓" to { terminalView?.sendKeySequence(KeyEvent.KEYCODE_DPAD_DOWN) },
-            "→" to { terminalView?.sendKeySequence(KeyEvent.KEYCODE_DPAD_RIGHT) },
-            "PGDN" to { terminalView?.sendKeySequence(KeyEvent.KEYCODE_PAGE_DOWN) }
-        )
+    private fun keyRepeats(key: ExtraKeysLayout.Key) =
+        key is ExtraKeysLayout.SpecialKey && key.special.repeats
 
-        addView(createRow(row1Keys))
-        addView(createRow(row2Keys))
+    private fun modifierOf(key: ExtraKeysLayout.Key) =
+        (key as? ExtraKeysLayout.SpecialKey)?.special?.takeIf {
+            it == ExtraKeysLayout.Special.CTRL || it == ExtraKeysLayout.Special.ALT
+        }
+
+    private fun actionFor(key: ExtraKeysLayout.Key): () -> Any? = when (key) {
+        is ExtraKeysLayout.TextKey -> {
+            val text = key.text
+            // One character goes through CTRL and ALT (CTRL then c is Ctrl+C), more are typed as they are
+            if (text.length == 1) { { terminalView?.sendChar(text[0]) } } else { { terminalView?.sendText(text) } }
+        }
+        is ExtraKeysLayout.SpecialKey -> when (key.special) {
+            ExtraKeysLayout.Special.CTRL -> { { toggleCtrl() } }
+            ExtraKeysLayout.Special.ALT -> { { toggleAlt() } }
+            ExtraKeysLayout.Special.MENU -> { { onMenuClick?.invoke() } }
+            ExtraKeysLayout.Special.FIND -> { { onSearchToggle?.invoke() } }
+            ExtraKeysLayout.Special.PASTE -> { { terminalView?.pasteFromClipboard() } }
+            ExtraKeysLayout.Special.KEYBOARD -> { { terminalView?.toggleKeyboard() } }
+            ExtraKeysLayout.Special.SPACE -> { { terminalView?.sendChar(' ') } }
+            else -> {
+                val keyCode = keyCodeOf(key.special);
+                { terminalView?.sendKeySequence(keyCode) }
+            }
+        }
+    }
+
+    private fun keyCodeOf(special: ExtraKeysLayout.Special): Int = when (special) {
+        ExtraKeysLayout.Special.ESC -> KeyEvent.KEYCODE_ESCAPE
+        ExtraKeysLayout.Special.TAB -> KeyEvent.KEYCODE_TAB
+        ExtraKeysLayout.Special.UP -> KeyEvent.KEYCODE_DPAD_UP
+        ExtraKeysLayout.Special.DOWN -> KeyEvent.KEYCODE_DPAD_DOWN
+        ExtraKeysLayout.Special.LEFT -> KeyEvent.KEYCODE_DPAD_LEFT
+        ExtraKeysLayout.Special.RIGHT -> KeyEvent.KEYCODE_DPAD_RIGHT
+        ExtraKeysLayout.Special.HOME -> KeyEvent.KEYCODE_MOVE_HOME
+        ExtraKeysLayout.Special.END -> KeyEvent.KEYCODE_MOVE_END
+        ExtraKeysLayout.Special.PGUP -> KeyEvent.KEYCODE_PAGE_UP
+        ExtraKeysLayout.Special.PGDN -> KeyEvent.KEYCODE_PAGE_DOWN
+        ExtraKeysLayout.Special.INS -> KeyEvent.KEYCODE_INSERT
+        ExtraKeysLayout.Special.DEL -> KeyEvent.KEYCODE_FORWARD_DEL
+        ExtraKeysLayout.Special.BKSP -> KeyEvent.KEYCODE_DEL
+        ExtraKeysLayout.Special.ENTER -> KeyEvent.KEYCODE_ENTER
+        else -> KeyEvent.KEYCODE_F1 + (special.ordinal - ExtraKeysLayout.Special.F1.ordinal)
     }
 
     @SuppressLint("ClickableViewAccessibility")
-    private fun createRow(keys: List<Pair<String, () -> Any?>>): LinearLayout {
+    private fun createRow(keys: List<KeyButton>): LinearLayout {
         val rowLayout = LinearLayout(context).apply {
             orientation = HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             layoutParams = LayoutParams(
                 LayoutParams.MATCH_PARENT,
-                (38 * resources.displayMetrics.density).toInt()
+                (ROW_HEIGHT_DP * resources.displayMetrics.density).toInt()
             )
         }
 
         val marginPx = (2 * resources.displayMetrics.density).toInt()
 
-        for ((label, action) in keys) {
+        for (key in keys) {
+            val label = key.label
+            val action = key.action
             val btn = Button(context).apply {
                 text = label
                 textSize = if (label.length > 3) 10f else 12f
+                maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
                 typeface = Typeface.DEFAULT_BOLD
                 setTextColor(Color.parseColor("#ffffff"))
                 setBackgroundResource(R.drawable.key_button_bg)
@@ -146,7 +201,7 @@ class ExtraKeysView @JvmOverloads constructor(
                                 pendingKeyAction = null
                                 pendingKeyView = null
                                 try { action() } catch (_: Exception) {}
-                                if (label in REPEATABLE_KEYS) armRepeat(v, action)
+                                if (key.repeats) armRepeat(v, action)
                             }
                             pendingKeyAction = runnable
                             pendingKeyView = v
@@ -192,16 +247,14 @@ class ExtraKeysView @JvmOverloads constructor(
                 }
             }
 
-            if (label == "CTRL") ctrlButton = btn
-            if (label == "ALT") altButton = btn
+            if (key.modifier == ExtraKeysLayout.Special.CTRL) ctrlButton = btn
+            if (key.modifier == ExtraKeysLayout.Special.ALT) altButton = btn
 
             rowLayout.addView(btn)
         }
 
         return rowLayout
     }
-
-    private var pendingKeyView: View? = null
 
     private fun cancelPendingKey(v: View? = null) {
         val target = v ?: pendingKeyView

@@ -13,7 +13,7 @@ on:
 
 jobs:
   emulator:
-    name: Ubuntu on an Android emulator (API ${{ matrix.api-level }}, ${{ matrix.abi }})
+    name: Ubuntu on an Android emulator (API ${{ matrix.api-level }}, ${{ matrix.abi }}${{ matrix.page-size && ', 16 KB pages' || '' }})
     # GitHub's x86_64 Linux runners have KVM; the ARM Ubuntu runs through the image's ARM translation.
     runs-on: ubuntu-24.04
     timeout-minutes: 90
@@ -27,6 +27,7 @@ jobs:
           # runners have no KVM for an arm64 emulator.
           - id: api34
             api-level: 34
+            target: google_apis
             abi: arm64-v8a
             experimental: false
           # The 32-bit APK: of Google's x86_64 images only Android 11's translates 32-bit ARM code
@@ -35,16 +36,28 @@ jobs:
           # run-emulator-test.sh).
           - id: api30-armeabi-v7a
             api-level: 30
+            target: google_apis
             abi: armeabi-v7a
             experimental: false
+          # Phones with 16 KB memory pages (Android 15 on, such as the Pixel 8 with the developer
+          # option): Google's 16 KB image. Whether its translator runs arm64 apps is not known
+          # beforehand, so an image without one is a skip; until it has passed, a failure does not
+          # fail the run.
+          - id: api35-16k
+            api-level: 35
+            target: google_apis_ps16k
+            abi: arm64-v8a
+            page-size: 16384
+            skip-without-abi: 1
+            experimental: true
     steps:
       - name: Checkout Source Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # cortex-debug-apk (pull requests) or cortex-release-apks (other runs)
       - name: Download the APKs of this run
         if: inputs.run-id == ''
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: cortex-*-apk*
           merge-multiple: true
@@ -52,7 +65,7 @@ jobs:
 
       - name: Download the APKs of an earlier run
         if: inputs.run-id != ''
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: cortex-*-apk*
           merge-multiple: true
@@ -69,25 +82,25 @@ jobs:
 
       # The start-up figures of earlier runs (timing-trend.sh), kept in the Actions cache
       - name: Restore the start-up timing history
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: e2e-history
           key: e2e-timings-${{ matrix.id }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: e2e-timings-${{ matrix.id }}-
 
       - name: Run the test on the emulator
-        uses: reactivecircus/android-emulator-runner@v2
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
           # Its x86_64 image translates ARM code
           api-level: ${{ matrix.api-level }}
           arch: x86_64
-          target: google_apis
+          target: ${{ matrix.target }}
           profile: pixel_6
           ram-size: 4096M
           disk-size: 8G
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot
           disable-animations: true
-          script: bash tests/e2e/run-emulator-test.sh apks e2e-out ${{ matrix.abi }}
+          script: E2E_PAGE_SIZE=${{ matrix.page-size }} E2E_SKIP_WITHOUT_ABI=${{ matrix.skip-without-abi || 0 }} bash tests/e2e/run-emulator-test.sh apks e2e-out ${{ matrix.abi }}
 
       - name: Compare the start-up times with earlier runs
         if: always() && hashFiles('e2e-out/timings.env') != ''
@@ -100,14 +113,14 @@ jobs:
 
       - name: Save the start-up timing history
         if: always() && hashFiles('e2e-history/timings.csv') != ''
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: e2e-history
           key: e2e-timings-${{ matrix.id }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Upload results and screenshots
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: emulator-test-results-${{ matrix.id }}
           path: e2e-out

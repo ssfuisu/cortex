@@ -27,7 +27,7 @@ cleanup() {
 trap cleanup EXIT
 
 echo "=== 0. Checking LF line endings and syntax ==="
-for script_name in reload.sh service.sh systemctl.sh su.sh cortex-shell.sh cortex-backup.sh cortex-api.sh notify-send.sh apt-autoupdate.sh; do
+for script_name in reload.sh service.sh systemctl.sh su.sh cortex-shell.sh cortex-backup.sh cortex-api.sh notify-send.sh apt-autoupdate.sh cortex-sshd.sh; do
     script_path="$ASSETS_SCRIPTS/$script_name"
     if LC_ALL=C grep -q $'\r' "$script_path"; then
         fail "$script_name contains CRLF line endings"
@@ -540,13 +540,44 @@ echo "secret" > "$BK_ROOT/root/r.txt"
 echo "junk" > "$BK_ROOT/home/.cache/big"
 ln -s /nonexistent-sdcard "$BK_ROOT/home/storage"
 
+# Stand-ins for apt: the test machine's own must not be listed or run
+BK_BIN="$TEST_TMP/bk_bin"
+BK_APT_LOG="$TEST_TMP/bk_apt.log"
+mkdir -p "$BK_BIN"
+cat > "$BK_BIN/apt-mark" <<'EOS'
+#!/bin/bash
+[ "$1" = showmanual ] && printf '%s\n' vim git nodejs libfoo:armhf brokenpkg -oDebug::x=1
+EOS
+cat > "$BK_BIN/dpkg-query" <<'EOS'
+#!/bin/bash
+printf '%s\n' "vim arm64 ii" "git all ii" "libc6 arm64 ii" "nodejs arm64 rc"
+EOS
+cat > "$BK_BIN/dpkg" <<'EOS'
+#!/bin/bash
+[ "$1" = --print-architecture ] && echo arm64
+EOS
+cat > "$BK_BIN/apt-get" <<'EOS'
+#!/bin/bash
+echo "apt-get $*" >> "$BK_APT_LOG"
+# A package that is gone from the archive makes an install of several fail
+[ "$1" = install ] && for a in "$@"; do [ "$a" = brokenpkg ] && exit 100; done
+exit 0
+EOS
+chmod +x "$BK_BIN"/*
+export BK_APT_LOG
+mkdir -p "$BK_ROOT/etc/apt/sources.list.d" "$BK_ROOT/etc/apt/keyrings"
+echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_22.x nodistro main" > "$BK_ROOT/etc/apt/sources.list.d/nodesource.list"
+echo "key" > "$BK_ROOT/etc/apt/keyrings/nodesource.gpg"
+echo "Types: deb" > "$BK_ROOT/etc/apt/sources.list.d/ubuntu.sources"
+backup() { CORTEX_ROOT="$BK_ROOT" PATH="$BK_BIN:$PATH" bash "$BACKUP_SH" "$@"; }
+
 if CORTEX_ROOT="$BK_ROOT" bash -n "$BACKUP_SH" 2>/dev/null; then
     pass "cortex-backup.sh passes bash -n syntax check"
 else
     fail "cortex-backup.sh failed bash -n syntax check"
 fi
 
-CORTEX_ROOT="$BK_ROOT" CORTEX_BACKUP_DIR="$BK_OUT" bash "$BACKUP_SH" create >/dev/null 2>&1
+CORTEX_BACKUP_DIR="$BK_OUT" backup create >/dev/null 2>&1
 BK_FILE="$(ls "$BK_OUT"/cortex-backup-*.tar.gz 2>/dev/null | head -n 1)"
 if [ -n "$BK_FILE" ] && tar -tzf "$BK_FILE" | grep -q '^home/proj/a.txt$' && tar -tzf "$BK_FILE" | grep -q '^root/r.txt$'; then
     pass "cortex-backup creates an archive with home/ and root/"
@@ -559,13 +590,57 @@ else
     fail "cortex-backup included caches or the storage link"
 fi
 
-rm -rf "$BK_ROOT/home/proj"
+if [ -n "$BK_FILE" ] && tar -tzf "$BK_FILE" | grep -qx 'home/.cortex/backup/packages.list' &&
+   tar -tzf "$BK_FILE" | grep -qx 'home/.cortex/backup/apt/sources.list.d/nodesource.list' &&
+   tar -tzf "$BK_FILE" | grep -qx 'home/.cortex/backup/apt/keyrings/nodesource.gpg' &&
+   ! tar -tzf "$BK_FILE" | grep -q 'ubuntu.sources'; then
+    pass "cortex-backup keeps the packages installed with apt and other vendors' sources (not Cortex's own)"
+else
+    fail "cortex-backup did not keep the package list and sources"
+fi
+
+rm -rf "$BK_ROOT/home/proj" "$BK_ROOT/home/.cortex"
+rm -f "$BK_ROOT/etc/apt/sources.list.d/nodesource.list" "$BK_ROOT/etc/apt/keyrings/nodesource.gpg"
+echo "Types: deb # changed" > "$BK_ROOT/etc/apt/sources.list.d/ubuntu.sources"
 echo "stale" > "$BK_ROOT/root/r.txt"
-if CORTEX_ROOT="$BK_ROOT" bash "$BACKUP_SH" restore "$BK_FILE" --yes >/dev/null 2>&1 &&
+: > "$BK_APT_LOG"
+if BK_RESTORE_OUT="$(backup restore "$BK_FILE" --yes 2>&1)" &&
    [ "$(cat "$BK_ROOT/home/proj/a.txt" 2>/dev/null)" = "hello" ] && [ "$(cat "$BK_ROOT/root/r.txt")" = "secret" ]; then
     pass "cortex-backup restore brings deleted and changed files back"
 else
     fail "cortex-backup restore did not restore the files"
+fi
+# nodejs is only "rc" (removed, configuration left) and so missing; the bad name is never passed on
+BK_EXPECTED='apt-get update
+apt-get install -y nodejs libfoo:armhf brokenpkg
+apt-get install -y nodejs
+apt-get install -y libfoo:armhf
+apt-get install -y brokenpkg'
+if [ "$(cat "$BK_APT_LOG")" = "$BK_EXPECTED" ] && echo "$BK_RESTORE_OUT" | grep -q "could not be installed: brokenpkg"; then
+    pass "restore installs the missing packages, one by one when one is gone, and says which failed"
+else
+    fail "restore installed: $(cat "$BK_APT_LOG" | tr '\n' ';') output: $BK_RESTORE_OUT"
+fi
+if [ -f "$BK_ROOT/etc/apt/sources.list.d/nodesource.list" ] && [ -f "$BK_ROOT/etc/apt/keyrings/nodesource.gpg" ] &&
+   [ "$(cat "$BK_ROOT/etc/apt/sources.list.d/ubuntu.sources")" = "Types: deb # changed" ]; then
+    pass "restore puts other vendors' apt sources back and leaves Cortex's own"
+else
+    fail "restore did not put the apt sources back as expected"
+fi
+: > "$BK_APT_LOG"
+backup restore "$BK_FILE" --yes --no-packages >/dev/null 2>&1
+if [ ! -s "$BK_APT_LOG" ]; then
+    pass "restore --no-packages leaves the packages alone"
+else
+    fail "restore --no-packages ran apt: $(cat "$BK_APT_LOG")"
+fi
+: > "$BK_APT_LOG"
+rm -f "$BK_ROOT/etc/apt/sources.list.d/nodesource.list" "$BK_ROOT/etc/apt/keyrings/nodesource.gpg"
+printf 'y\nn\nn\n' | backup restore "$BK_FILE" >/dev/null 2>&1
+if [ ! -s "$BK_APT_LOG" ] && [ ! -e "$BK_ROOT/etc/apt/sources.list.d/nodesource.list" ]; then
+    pass "restore asks before adding other vendors' sources and before installing the packages"
+else
+    fail "restore installed packages after the answer no: $(cat "$BK_APT_LOG")"
 fi
 
 # An archive that is not a Cortex backup (or tries to leave home/ and root/) must be refused untouched.
@@ -593,6 +668,76 @@ if ! CORTEX_ROOT="$BK_ROOT" bash "$BACKUP_SH" create -o "$BK_FILE" >/dev/null 2>
     pass "cortex-backup never overwrites an existing backup"
 else
     fail "cortex-backup overwrote an existing backup"
+fi
+
+echo "=== 6b. Testing cortex-sshd.sh ==="
+SSHD_SH="$ASSETS_SCRIPTS/cortex-sshd.sh"
+SR="$TEST_TMP/sshd_root"
+SBIN="$TEST_TMP/sshd_bin"
+mkdir -p "$SR/usr/sbin" "$SR/etc" "$SR/run" "$SBIN" "$TEST_TMP/sshd_home"
+# sshd: -t checks the configuration; otherwise it starts in the background and writes its PidFile
+cat > "$SR/usr/sbin/sshd" <<'EOS'
+#!/bin/bash
+[ "$1" = -t ] && exit 0
+pidfile="$(sed -n 's/^PidFile //p' "$SSHD_TEST_CONF")"
+sleep 300 >/dev/null 2>&1 </dev/null &
+echo $! > "$SSHD_TEST_ROOT$pidfile"
+EOS
+printf '#!/bin/bash\nexit 0\n' > "$SBIN/ssh-keygen"
+printf '#!/bin/bash\n[ "$1" = network ] && printf "wlan0 192.168.1.23\\nwlan0 fe80::1\\nrmnet0 2a00:1450::5\\n"\n' > "$SBIN/cortex-api"
+printf '#!/bin/bash\necho root\n' > "$SBIN/id"
+chmod +x "$SR/usr/sbin/sshd" "$SBIN"/*
+echo 'root:*:19700:0:99999:7:::' > "$SR/etc/shadow"
+sshd_() {
+    HOME="$TEST_TMP/sshd_home" CORTEX_SSHD_ROOT="$SR" SSHD_TEST_ROOT="$SR" \
+        SSHD_TEST_CONF="$SR/etc/ssh/sshd_config.d/cortex.conf" PATH="$SBIN:$PATH" bash "$SSHD_SH" "$@"
+}
+
+OUT="$(sshd_ start 2>&1)"
+if grep -qx 'Port 8022' "$SR/etc/ssh/sshd_config.d/cortex.conf" && grep -qx 'UsePAM no' "$SR/etc/ssh/sshd_config.d/cortex.conf" &&
+   echo "$OUT" | grep -q 'ssh -p 8022 root@192.168.1.23$' && echo "$OUT" | grep -q 'root@2a00:1450::5   (IPv6)' &&
+   ! echo "$OUT" | grep -q 'fe80' && echo "$OUT" | grep -q 'Nobody can log in yet' && [ -d "$SR/run/sshd" ]; then
+    pass "cortex-sshd starts sshd on port 8022 and says how to connect and that nobody can log in yet"
+else
+    fail "cortex-sshd start: $OUT"
+fi
+SSHD_PID="$(cat "$SR/run/cortex-sshd.pid" 2>/dev/null)"
+if sshd_ status | grep -q "runs on port 8022 (process $SSHD_PID)" && [ "$(sshd_ start 2>&1 | grep -c 'runs on port')" = 1 ] &&
+   [ "$(cat "$SR/run/cortex-sshd.pid")" = "$SSHD_PID" ]; then
+    pass "cortex-sshd status shows it; start again leaves the running one"
+else
+    fail "cortex-sshd status or a second start went wrong"
+fi
+
+KEY='ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGtestkeytestkeytestkeytestkeytestkeytestkey you@laptop'
+sshd_ key "$KEY" >/dev/null
+printf '%s\r\n' "$KEY" | sshd_ key >/dev/null
+if [ "$(grep -c . "$TEST_TMP/sshd_home/.ssh/authorized_keys")" = 1 ] && sshd_ status | grep -q 'one of the 1 keys' &&
+   ! sshd_ key "-o ProxyCommand=evil" >/dev/null 2>&1 && ! sshd_ key 'command="x" ssh-ed25519 AAAA' >/dev/null 2>&1; then
+    pass "cortex-sshd key adds a key once (also from stdin) and refuses what is not a key line"
+else
+    fail "cortex-sshd key: $(cat "$TEST_TMP/sshd_home/.ssh/authorized_keys" 2>/dev/null)"
+fi
+
+if ! sshd_ start -p 80 >/dev/null 2>&1 && sshd_ restart -p 2222 >/dev/null 2>&1 &&
+   grep -qx 'Port 2222' "$SR/etc/ssh/sshd_config.d/cortex.conf" && ! kill -0 "$SSHD_PID" 2>/dev/null &&
+   sshd_ status | grep -q 'port 2222'; then
+    pass "cortex-sshd refuses ports below 1024 and restarts on another port"
+else
+    fail "cortex-sshd port change"
+fi
+
+sshd_ enable >/dev/null
+[ -f "$SR/etc/cortex/autostart/cortex-sshd" ] && sshd_ disable >/dev/null && [ ! -e "$SR/etc/cortex/autostart/cortex-sshd" ] \
+    && pass "cortex-sshd enable and disable the start with Cortex" || fail "cortex-sshd enable/disable"
+
+SSHD_PID="$(cat "$SR/run/cortex-sshd.pid" 2>/dev/null)"
+sshd_ stop >/dev/null
+if ! kill -0 "$SSHD_PID" 2>/dev/null && ! sshd_ status >/dev/null 2>&1; then
+    pass "cortex-sshd stop ends it"
+else
+    fail "cortex-sshd stop left process $SSHD_PID"
+    kill "$SSHD_PID" 2>/dev/null
 fi
 
 echo "=== 7. Checking translations ==="

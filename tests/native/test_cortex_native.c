@@ -216,6 +216,95 @@ static void test_pax_header_parsing(void) {
 }
 
 /* 4. End-to-end extract_tar_archive tests */
+// Runs a shell command made like printf's text; 0 when it succeeded
+__attribute__((format(printf, 1, 2)))
+static int sh(const char *fmt, ...) {
+    char cmd[3 * PATH_MAX];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(cmd, sizeof(cmd), fmt, ap);
+    va_end(ap);
+    return system(cmd) == 0 ? 0 : -1;
+}
+
+/* 4z. The bootstrap archive is a .tar.zst: the extractor decompresses it, from a file or a pipe */
+static void test_extract_zstd_tar(void) {
+    if (system("command -v zstd >/dev/null 2>&1") != 0) {
+        // GitHub's runners have it; elsewhere the test is left out
+        ASSERT_TRUE(getenv("CI") == NULL, "zstd is installed in CI");
+        fprintf(stderr, "SKIP the zstd tests: no zstd\n");
+        return;
+    }
+    char base[PATH_MAX], src[PATH_MAX], tar[PATH_MAX], zst[PATH_MAX], dest[PATH_MAX], path[PATH_MAX];
+    snprintf(base, sizeof(base), "%s/cortex_zstd_test_XXXXXX", get_test_tmp_dir());
+    ASSERT_TRUE(mkdtemp(base) != NULL, "mkdtemp");
+    snprintf(src, sizeof(src), "%s/src", base);
+    snprintf(tar, sizeof(tar), "%s/bootstrap.tar", base);
+    snprintf(zst, sizeof(zst), "%s/bootstrap.tar.zst", base);
+    // Files larger than zstd's buffers, a link and an empty directory
+    ASSERT_EQ(sh("mkdir -p '%s/usr/bin' '%s/usr/lib/empty'", src, src), 0, "source tree");
+    ASSERT_EQ(sh("head -c 3000000 /dev/urandom > '%s/usr/lib/random.bin' && seq 1 400000 > '%s/usr/lib/numbers.txt'", src, src), 0, "big files");
+    ASSERT_EQ(sh("echo hello > '%s/usr/bin/hello' && ln -s hello '%s/usr/bin/hi'", src, src), 0, "small file and a link");
+    ASSERT_EQ(sh("tar -C '%s' -cf '%s' usr", src, tar), 0, "tar");
+    ASSERT_EQ(sh("zstd -q -19 '%s' -o '%s'", tar, zst), 0, "zstd -19");
+
+    snprintf(dest, sizeof(dest), "%s/dest-file", base);
+    mkdir(dest, 0755);
+    ASSERT_EQ(extract_tar_archive(zst, dest), 0, "a .tar.zst file extracts");
+    ASSERT_EQ(sh("diff -r '%s' '%s'", src, dest), 0, "with the same files");
+    snprintf(path, sizeof(path), "%s/usr/bin/hi", dest);
+    char link[16] = "";
+    ASSERT_TRUE(readlink(path, link, sizeof(link) - 1) == 5 && strcmp(link, "hello") == 0, "and the link");
+
+    // Through a pipe, as the app gives it (another process writes the asset into it)
+    int fds[2];
+    ASSERT_EQ(pipe(fds), 0, "pipe");
+    pid_t writer = fork();
+    if (writer == 0) {
+        close(fds[0]);
+        int in = open(zst, O_RDONLY);
+        char buf[7777];
+        ssize_t n;
+        while (in >= 0 && (n = read(in, buf, sizeof(buf))) > 0) {
+            if (write(fds[1], buf, (size_t)n) != n) break;
+        }
+        _exit(0);
+    }
+    close(fds[1]);
+    snprintf(dest, sizeof(dest), "%s/dest-pipe", base);
+    mkdir(dest, 0755);
+    ASSERT_EQ(extract_tar_fd(fds[0], dest), 0, "a .tar.zst from a pipe extracts");
+    close(fds[0]);
+    waitpid(writer, NULL, 0);
+    ASSERT_EQ(sh("diff -r '%s' '%s'", src, dest), 0, "with the same files");
+
+    // Two frames one after the other (zstd writes them so for input it gets in parts)
+    char two[PATH_MAX];
+    snprintf(two, sizeof(two), "%s/two.tar.zst", base);
+    ASSERT_EQ(sh("head -c 1048576 '%s' | zstd -q -3 > '%s'", tar, two), 0, "first frame");
+    ASSERT_EQ(sh("tail -c +1048577 '%s' | zstd -q -3 >> '%s'", tar, two), 0, "second frame");
+    snprintf(dest, sizeof(dest), "%s/dest-two", base);
+    mkdir(dest, 0755);
+    ASSERT_EQ(extract_tar_archive(two, dest), 0, "two frames extract");
+    ASSERT_EQ(sh("diff -r '%s' '%s'", src, dest), 0, "with the same files");
+
+    // A download that broke off, and damaged data
+    char cut[PATH_MAX], bad[PATH_MAX];
+    snprintf(cut, sizeof(cut), "%s/cut.tar.zst", base);
+    snprintf(bad, sizeof(bad), "%s/bad.tar.zst", base);
+    ASSERT_EQ(sh("head -c 400000 '%s' > '%s'", zst, cut), 0, "cut archive");
+    snprintf(dest, sizeof(dest), "%s/dest-cut", base);
+    mkdir(dest, 0755);
+    ASSERT_EQ(extract_tar_archive(cut, dest), -1, "an archive that ends too early fails");
+    ASSERT_EQ(sh("cp '%s' '%s'", zst, bad), 0, "a copy");
+    ASSERT_EQ(sh("dd if=/dev/zero of='%s' bs=1 seek=200000 count=4096 conv=notrunc 2>/dev/null", bad), 0, "damaged in the middle");
+    snprintf(dest, sizeof(dest), "%s/dest-bad", base);
+    mkdir(dest, 0755);
+    ASSERT_EQ(extract_tar_archive(bad, dest), -1, "a damaged archive fails");
+
+    rm_rf(base);
+}
+
 static void test_extract_tar_end_to_end(void) {
     char tmp_base[PATH_MAX];
     snprintf(tmp_base, sizeof(tmp_base), "%s/cortex_tar_test_XXXXXX", get_test_tmp_dir());
@@ -951,6 +1040,59 @@ static void test_emulated_hardlinks_shared(void) {
 }
 
 /* 9c. DNS servers of both families, queries and replies (the hook's own resolver) */
+/* 10b. A program that starts a TCP server tells the app its port and name */
+static void test_listening_port_report(void) {
+    const char *tmp = get_test_tmp_dir();
+    char root[PATH_MAX], dir[PATH_MAX], file[PATH_MAX];
+    snprintf(root, sizeof(root), "%s/cortex_listen_%d", tmp, getpid());
+    rm_rf(root);
+    snprintf(dir, sizeof(dir), "%s/run/cortex/listening", root);
+
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    ASSERT_TRUE(fd >= 0, "a TCP socket");
+    struct sockaddr_in sin;
+    memset(&sin, 0, sizeof(sin));
+    sin.sin_family = AF_INET;
+    sin.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    ASSERT_EQ(bind(fd, (struct sockaddr *)&sin, sizeof(sin)), 0, "bound to a free port");
+    ASSERT_EQ(listen(fd, 4), 0, "listening");
+    socklen_t len = sizeof(sin);
+    getsockname(fd, (struct sockaddr *)&sin, &len);
+    int port = ntohs(sin.sin_port);
+    ASSERT_EQ(listening_tcp_port(fd), port, "the port of a listening socket");
+
+    snprintf(file, sizeof(file), "%s/%d", dir, port);
+    report_listening_port(root, strlen(root), port, "node");
+    ASSERT_TRUE(access(file, F_OK) != 0, "nothing without the app's directory");
+
+    char cmd[PATH_MAX + 16];
+    snprintf(cmd, sizeof(cmd), "mkdir -p '%s'", dir);
+    ASSERT_EQ(system(cmd), 0, "the app's directory");
+    report_listening_port(root, strlen(root), port, "node");
+    char expected[64], got[64] = "";
+    snprintf(expected, sizeof(expected), "%d node\n", (int)getpid());
+    FILE *f = fopen(file, "r");
+    ASSERT_TRUE(f != NULL, "the port is reported");
+    if (f) {
+        size_t n = fread(got, 1, sizeof(got) - 1, f);
+        got[n] = '\0';
+        fclose(f);
+    }
+    ASSERT_STR_EQ(got, expected, "with the process and its name");
+    report_listening_port(root, strlen(root), 0, "x");
+    report_listening_port(root, 0, port + 1, "x");
+    ASSERT_TRUE(access(dir, F_OK) == 0, "no report for port 0 or without a rootfs");
+
+    int udp = socket(AF_INET, SOCK_DGRAM, 0);
+    ASSERT_EQ(listening_tcp_port(-1), 0, "no port for a bad descriptor");
+    int unix_fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    ASSERT_EQ(listening_tcp_port(unix_fd), 0, "no port for a Unix socket");
+    close(udp);
+    close(unix_fd);
+    close(fd);
+    rm_rf(root);
+}
+
 static void test_dns_helpers(void) {
     cortex_dns_server_t s;
     ASSERT_EQ(dns_server_from_string("8.8.8.8", &s), 1, "IPv4 server");
@@ -1734,6 +1876,7 @@ int main(void) {
     test_symlink_containment();
     test_pax_header_parsing();
     test_extract_tar_end_to_end();
+    test_extract_zstd_tar();
     test_check_elf_dynamic();
     test_find_dynamic_linker();
     test_nss_fallback_semantics();
@@ -1742,6 +1885,7 @@ int main(void) {
     test_emulated_hardlink_groups();
     test_emulated_hardlink_original_removed();
     test_emulated_hardlinks_shared();
+    test_listening_port_report();
     test_dns_helpers();
     test_static_syscall_patching();
     test_absolutize_exec_path();

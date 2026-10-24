@@ -1,9 +1,59 @@
 // Part of libcortex-hook.so, included by cortex-hook.c (one translation unit, so the
 // parts share their static functions and are built with the same command as before).
 //
-// Sockets: Unix socket paths in the rootfs, and the redirected DNS queries of loopback DNS.
+// Sockets: Unix socket paths in the rootfs, the redirected DNS queries of loopback DNS, and the
+// TCP servers programs start (the app offers to open them in the browser).
+
+// The TCP port a listening socket was bound to, 0 for other sockets.
+static int listening_tcp_port(int fd) {
+    struct sockaddr_storage ss;
+    socklen_t len = sizeof(ss);
+    memset(&ss, 0, sizeof(ss));
+    if (syscall(SYS_getsockname, fd, (struct sockaddr *)&ss, &len) != 0) return 0;
+    if (ss.ss_family == AF_INET && len >= (socklen_t)sizeof(struct sockaddr_in))
+        return ntohs(((struct sockaddr_in *)&ss)->sin_port);
+    if (ss.ss_family == AF_INET6 && len >= (socklen_t)sizeof(struct sockaddr_in6))
+        return ntohs(((struct sockaddr_in6 *)&ss)->sin6_port);
+    return 0;
+}
+
+// Tells the app that this program listens on [port]: $CORTEX_ROOT/run/cortex/listening/PORT with
+// "PID NAME" (ListeningPorts). Raw system calls: nothing of this library runs again.
+static void report_listening_port(const char *root, size_t root_len, int port, const char *name) {
+    if (root_len == 0 || port <= 0 || port > 65535) return;
+    char path[PATH_MAX];
+    int n = snprintf(path, sizeof(path), "%.*s/run/cortex/listening/%d", (int)root_len, root, port);
+    if (n <= 0 || n >= (int)sizeof(path)) return;
+    int out = (int)syscall(SYS_openat, AT_FDCWD, path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+    if (out < 0) return; // no app watching (the directory is the app's)
+    char line[160];
+    int m = snprintf(line, sizeof(line), "%d %.100s\n", (int)getpid(), name && name[0] ? name : "?");
+    if (m > 0) syscall(SYS_write, out, line, (size_t)(m < (int)sizeof(line) ? m : (int)sizeof(line) - 1));
+    syscall(SYS_close, out);
+}
 
 #ifndef CORTEX_HOST_TEST
+
+int listen(int sockfd, int backlog) {
+    static int (*orig_listen)(int, int) = NULL;
+    if (!orig_listen) orig_listen = (int (*)(int, int))dlsym(RTLD_NEXT, "listen");
+    if (!orig_listen) {
+        errno = ENOSYS;
+        return -1;
+    }
+    int ret = orig_listen(sockfd, backlog);
+    if (ret == 0) {
+        int saved_errno = errno;
+        int port = listening_tcp_port(sockfd);
+        if (port > 0) {
+            init_cortex_hook();
+            extern char *program_invocation_short_name;
+            report_listening_port(g_cortex_root, g_cortex_root_len, port, program_invocation_short_name);
+        }
+        errno = saved_errno;
+    }
+    return ret;
+}
 
 int bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen) {
     static int (*orig_bind)(int, const struct sockaddr *, socklen_t) = NULL;

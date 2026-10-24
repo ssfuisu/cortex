@@ -129,4 +129,21 @@
     <string name="root_session_failed">Root-økten kunne ikke starte. Hvis root-tilgangen er borte, kan root-modus slås av i innstillingene.</string>
     <string name="api_channel_name">Meldinger fra kommandoer</string>
     <string name="api_channel_description">Varsler som programmer i terminalen viser med cortex-api eller notify-send</string>
+    <string name="extra_keys_error">~/.cortex/keys: %1$s. Standardtastene vises.</string>
+    <string name="pref_cat_sessions">Økter</string>
+    <string name="pref_restore_sessions_title">Gjenopprett økter</string>
+    <string name="pref_restore_sessions_summary">Når Android avslutter Cortex, kommer øktene tilbake ved neste oppstart, i mappene sine og med slutten av utdataene sine (programmene i dem starter på nytt)</string>
+    <string name="session_restored">gjenopprettet: Android hadde avsluttet Cortex, programmene som kjørte her, er stoppet</string>
+    <string name="pref_cat_remote">Ekstern tilgang</string>
+    <string name="pref_ssh_title">Start SSH-serveren</string>
+    <string name="pref_ssh_summary">Starter OpenSSH på port 8022 i en ny økt, for å bruke Cortex fra en datamaskin (installerer den første gang; cortex-sshd stop stopper den)</string>
+    <string name="servers_channel_name">Lokale nettservere</string>
+    <string name="servers_channel_description">Nettservere som programmer i Cortex starter, for å åpne dem i nettleseren</string>
+    <string name="server_notification_title">%1$s leverer nettsider på port %2$d</string>
+    <string name="server_notification_title_unknown">En nettserver kjører på port %1$d</string>
+    <string name="server_notification_text">Trykk for å åpne %1$s</string>
+    <string name="server_open">Åpne</string>
+    <string name="server_copy_link">Kopier lenke</string>
+    <string name="pref_servers_title">Lokale nettservere</string>
+    <string name="pref_servers_summary">Et varsel når et program i Cortex leverer nettsider (som npm run dev), for å åpne dem i nettleseren</string>
 </resources>

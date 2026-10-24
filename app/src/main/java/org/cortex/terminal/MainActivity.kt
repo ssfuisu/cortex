@@ -29,6 +29,8 @@ import org.cortex.terminal.session.SessionAdapter
 import org.cortex.terminal.session.SessionManager
 import org.cortex.terminal.session.TerminalSession
 import org.cortex.terminal.update.UpdateManager
+import org.cortex.terminal.view.ExtraKeysConfig
+import org.cortex.terminal.view.ExtraKeysLayout
 import org.cortex.terminal.view.ExtraKeysView
 import org.cortex.terminal.view.TerminalSearchBar
 import org.cortex.terminal.view.TerminalView
@@ -38,6 +40,13 @@ class MainActivity : AppCompatActivity() {
     companion object {
         var instance: MainActivity? = null
             private set
+
+        /**
+         * A command for a new session, run when the terminal is shown next (Settings > SSH server).
+         * Only from inside the app: an intent extra would let other apps run commands.
+         */
+        @Volatile
+        var pendingSessionCommand: String? = null
 
         // Base-system extraction is process-wide: if the activity is re-created while it runs (a
         // permission dialog, a configuration change, the user re-opening the app) the new instance
@@ -68,6 +77,8 @@ class MainActivity : AppCompatActivity() {
     private val btnDrawerNewSession: TextView get() = binding.btnDrawerNewSession
 
     private lateinit var sessionManager: SessionManager
+    private lateinit var extraKeysConfig: ExtraKeysConfig
+    private val applyExtraKeysRunnable = Runnable { applyExtraKeys() }
     private var isBootstrapping = false
     private var bootstrapDialog: android.app.Dialog? = null
 
@@ -75,6 +86,7 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        extraKeysConfig = ExtraKeysConfig(Environment.getHomeDir(this))
 
         setupBackPressedDispatcher()
         drawerLayout.setDrawerLockMode(DrawerLayout.LOCK_MODE_UNLOCKED)
@@ -134,6 +146,13 @@ class MainActivity : AppCompatActivity() {
             } else {
                 false
             }
+        }
+
+        // Two fingers change the text size; it is kept like the one chosen in the settings
+        terminalView.onTextSizeChangedByPinch = { sp ->
+            PreferenceManager.getDefaultSharedPreferences(this).edit()
+                .putString("terminal_font_size", sp.toInt().toString())
+                .apply()
         }
 
         extraKeysView.terminalView = terminalView
@@ -321,7 +340,7 @@ class MainActivity : AppCompatActivity() {
                         return@runOnUiThread
                     }
                     if (success) {
-                        createNewSession()
+                        restoreOrCreateSession()
                         terminalView.post {
                             terminalView.showKeyboard()
                         }
@@ -338,7 +357,7 @@ class MainActivity : AppCompatActivity() {
         } else {
             checkAndRequestStoragePermission()
             if (sessionManager.sessions.isEmpty()) {
-                createNewSession()
+                restoreOrCreateSession()
             } else {
                 val current = sessionManager.currentSession ?: sessionManager.sessions[0]
                 terminalView.session = current
@@ -354,6 +373,12 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         applyPreferences()
+        // ~/.cortex/keys: what changed while Cortex was away, then each save at once
+        applyExtraKeys()
+        extraKeysConfig.watch {
+            terminalView.removeCallbacks(applyExtraKeysRunnable)
+            terminalView.postDelayed(applyExtraKeysRunnable, 150)
+        }
         if (UpdateManager.isUpdateAvailable) {
             updateRedDot.visibility = android.view.View.VISIBLE
         }
@@ -365,15 +390,45 @@ class MainActivity : AppCompatActivity() {
         if (current != null) {
             terminalView.session = current
         } else if (!isBootstrapping && BootstrapManager.isBootstrapInstalled(this) && sessionManager.sessions.isEmpty()) {
-            createNewSession()
+            restoreOrCreateSession()
+        }
+        if (!isBootstrapping && BootstrapManager.isBootstrapInstalled(this)) {
+            pendingSessionCommand?.let { command ->
+                pendingSessionCommand = null
+                // Typed ahead: the shell reads it once it is ready
+                createNewSession().write("$command\r")
+            }
         }
         terminalView.requestLayout()
         terminalView.postInvalidate()
     }
 
+    override fun onStop() {
+        super.onStop()
+        // Android may end the app from now on: keep the directories and output for then
+        if (::sessionManager.isInitialized) sessionManager.saveState()
+    }
+
     override fun onPause() {
         super.onPause()
         terminalView.clearSelection()
+        extraKeysConfig.stopWatching()
+        terminalView.removeCallbacks(applyExtraKeysRunnable)
+    }
+
+    /** Shows the keys of ~/.cortex/keys when it changed (the default ones without it or when it is wrong). */
+    private fun applyExtraKeys() {
+        val result = extraKeysConfig.loadIfChanged() ?: return
+        val rows = result.rows.ifEmpty { ExtraKeysLayout.DEFAULT_ROWS }
+        extraKeysView.setKeys(rows)
+        val bar = binding.bottomBarContainer
+        val height = (rows.size * ExtraKeysView.ROW_HEIGHT_DP * resources.displayMetrics.density).toInt()
+        if (bar.layoutParams.height != height) {
+            bar.layoutParams = bar.layoutParams.apply { this.height = height }
+        }
+        result.error?.let {
+            Toast.makeText(this, getString(R.string.extra_keys_error, it), Toast.LENGTH_LONG).show()
+        }
     }
 
     private fun applyPreferences() {
@@ -414,6 +469,7 @@ class MainActivity : AppCompatActivity() {
         val app = applicationContext
         kotlin.concurrent.thread(name = "Cortex-StartupMaintenance") {
             val started = android.os.SystemClock.uptimeMillis()
+            ExtraKeysConfig(Environment.getHomeDir(app)).writeExample()
             try {
                 BootstrapManager.initializeFileSystem(app)
             } catch (e: Exception) {
@@ -497,6 +553,17 @@ class MainActivity : AppCompatActivity() {
             return installed
         } finally {
             synchronized(bootstrapLock) { bootstrapInProgress = false }
+        }
+    }
+
+    /** Brings back the sessions Android ended with the app (Settings > Restore sessions), else starts one. */
+    private fun restoreOrCreateSession() {
+        if (sessionManager.restore(terminalView.rows, terminalView.cols, terminalView.width, terminalView.height)) {
+            terminalView.session = sessionManager.currentSession
+            sessionAdapter.notifyDataSetChanged()
+            CortexService.updateNotification(this)
+        } else {
+            createNewSession()
         }
     }
 
@@ -702,6 +769,7 @@ class MainActivity : AppCompatActivity() {
         sessionManager.onSessionChanged = null
         try { if (searchBar.isShowing()) searchBar.hide() } catch (_: Exception) {}
         terminalView.onUrlTapped = null
+        terminalView.onTextSizeChangedByPinch = null
         terminalView.onSearchChanged = null
         terminalView.session = null
         if (instance == this) instance = null

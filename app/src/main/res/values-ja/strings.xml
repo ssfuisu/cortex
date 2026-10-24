@@ -129,4 +129,21 @@
     <string name="root_session_failed">root セッションを開始できませんでした。root アクセスがなくなった場合は、設定で root モードをオフにできます。</string>
     <string name="api_channel_name">コマンドからのメッセージ</string>
     <string name="api_channel_description">ターミナルのプログラムが cortex-api または notify-send で表示する通知</string>
+    <string name="extra_keys_error">~/.cortex/keys: %1$s。標準のキーを表示しています。</string>
+    <string name="pref_cat_sessions">セッション</string>
+    <string name="pref_restore_sessions_title">セッションを復元</string>
+    <string name="pref_restore_sessions_summary">Android が Cortex を終了したとき、次回の起動でセッションがそのフォルダーと出力の末尾とともに戻ります(中のプログラムは最初から起動します)</string>
+    <string name="session_restored">復元しました: Android が Cortex を終了したため、ここで動いていたプログラムは停止しました</string>
+    <string name="pref_cat_remote">リモートアクセス</string>
+    <string name="pref_ssh_title">SSH サーバーを起動</string>
+    <string name="pref_ssh_summary">パソコンから Cortex を使えるよう、新しいセッションでポート 8022 の OpenSSH を起動します(初回はインストールします。cortex-sshd stop で停止)</string>
+    <string name="servers_channel_name">ローカル Web サーバー</string>
+    <string name="servers_channel_description">Cortex のプログラムが起動した Web サーバー(ブラウザーで開くため)</string>
+    <string name="server_notification_title">%1$s がポート %2$d で Web ページを提供しています</string>
+    <string name="server_notification_title_unknown">ポート %1$d で Web サーバーが動いています</string>
+    <string name="server_notification_text">タップして %1$s を開く</string>
+    <string name="server_open">開く</string>
+    <string name="server_copy_link">リンクをコピー</string>
+    <string name="pref_servers_title">ローカル Web サーバー</string>
+    <string name="pref_servers_summary">Cortex のプログラムが Web ページを提供したとき(npm run dev など)、ブラウザーで開くための通知</string>
 </resources>

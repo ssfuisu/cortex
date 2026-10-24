@@ -8,6 +8,7 @@ Cortex is a free and open-source terminal app and a native alternative to Termux
 [![Stars](https://img.shields.io/github/stars/ssfuisu/cortex?style=for-the-badge&color=yellow)](https://github.com/ssfuisu/cortex/stargazers)
 [![Telegram](https://img.shields.io/badge/Telegram-@ratzgn-2CA5E0?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/ratzgn)
 [![License](https://img.shields.io/badge/License-Apache_2.0-green.svg?style=for-the-badge)](LICENSE)
+[![Package compatibility](https://img.shields.io/github/actions/workflow/status/ssfuisu/cortex/compat-nightly.yml?style=for-the-badge&label=packages)](https://github.com/ssfuisu/cortex/actions/workflows/compat-nightly.yml)
 
 **[Download the latest APK](https://github.com/ssfuisu/cortex/releases/latest)** · [Website](https://ssfuisu.github.io/cortex/) · [Changelog](CHANGELOG.md) · [Report a bug](https://github.com/ssfuisu/cortex/issues) · [Telegram](https://t.me/ratzgn)
 
@@ -50,11 +51,13 @@ Pick Cortex when you need Ubuntu's own `.deb` packages and a genuine glibc witho
 - **High-Speed AI & Developer Launchers**: One-command instant CDN setups for OpenCode, Meta Muse Code, and Google Antigravity.
 - **Bun & Node.js Crash Prevention**: Transparent `inotify_add_watch` auto-provisioning ensures Bun-based tools like OpenCode never crash due to missing configuration directories.
 - **Modern Material 3 Terminal Interface**: Sleek dark UI, high-framerate font rendering, full 256-color & 24-bit TrueColor support, and JetBrains Mono monospace typography.
-- **2-Row Virtual Keyboard Toolbar**: Quick-access tactile keys for `ESC`, `TAB`, `CTRL`, `ALT`, arrow navigation, pipes (`|`), brackets, and symbol combinations.
+- **Virtual Keyboard Toolbar of Your Own**: Quick-access keys for `ESC`, `TAB`, `CTRL`, `ALT` and the arrows; `~/.cortex/keys` sets up to 4 rows of your own keys, `F1`-`F12`, symbols and text such as `git status` (see [Your Own Keys](#your-own-keys)). Two fingers change the text size.
+- **Sessions That Come Back**: When Android ends Cortex, its sessions are there again at the next start, in their folders and with the end of their output.
 - **Integrated Terminal Search**: Swipe across the keyboard toolbar or tap `FIND` to search through 5,000 lines of scrollback buffer with real-time match counts and navigation.
 - **Clickable Links & Clipboard Image Insertion**: Underlined URLs and OSC 8 hyperlinks are copied to the clipboard when tapped; tapping images in your keyboard clipboard automatically saves and types their file path.
 - **Multi-Session Management**: Seamlessly spawn, switch between, and manage multiple active terminal sessions from the left navigation drawer.
 - **Full Storage & Background Services**: Deep `/sdcard` device storage integration and standard background service controls via `service`, `/etc/init.d/`, and `/etc/cortex/autostart`.
+- **SSH Server and Local Web Servers**: `cortex-sshd` (or Settings > Remote access) starts Ubuntu's OpenSSH on port 8022 to use Cortex from a computer, and a notification opens the web servers programs start (`npm run dev`, `python3 -m http.server`) in the browser (see [Remote Access](#remote-access)).
 - **Android Integration**: `cortex-api` for notifications, the clipboard, opening links and files in Android apps, sharing, battery state, speech and vibration; `notify-send` and `xdg-open` use it (see [Android Integration](#android-integration-cortex-api)).
 - **Root Mode**: On a rooted phone, sessions can run as real root in a chroot of the same Ubuntu files, with nothing translated or emulated (see [Root Mode](#root-mode)).
 
@@ -152,6 +155,8 @@ Programs talk to the Android side through standard terminal escape sequences, so
 - **Focus events (mode 1004):** `tmux` (`set -g focus-events on`), vim and neovim are told when Cortex goes to the background or another session is shown, which `autoread` and similar features use.
 - **Synchronized output (mode 2026):** programs that announce their frames, such as neovim 0.10 and newer, are only shown complete frames, so full-screen redraws no longer flicker.
 - **Rewrapping:** when the phone is turned or the font size changes, long lines in the scrollback and on the screen are rewrapped for the new width instead of staying broken or cut off.
+- **Text size with two fingers:** spreading or pinching them on the terminal changes the text size (6 to 36), which Cortex keeps.
+- **Sessions that come back:** when Android ends Cortex (to free memory, or for an update of the app), its sessions are there again at the next start: as many as there were, the one that was shown, each in its folder and with the end of its output, dimmed. The programs that ran in them have stopped and start anew. Leaving Cortex with *Exit* closes them for good; *Settings > Sessions* turns it off.
 
 > The prompt hooks are added to `PROMPT_COMMAND` at login. If your `~/.bashrc` *replaces* `PROMPT_COMMAND` instead of appending to it (`PROMPT_COMMAND="...;$PROMPT_COMMAND"`), automatic reload and the marks are lost.
 
@@ -159,11 +164,12 @@ Programs talk to the Android side through standard terminal escape sequences, so
 
 ```
 cortex-backup                  # saves ~/ and /root to /sdcard/Download/cortex-backup-<date>.tar.gz
-cortex-backup restore FILE     # puts them back (asks first; --yes skips the question)
+cortex-backup restore FILE     # puts them back and installs the missing packages (asks first; --yes skips the questions)
+cortex-backup packages         # installs the packages of the restored backup later
 cortex-backup list             # shows existing backups
 ```
 
-Caches (`~/.cache`, `~/.npm/_cacache`) and the `~/storage` link are skipped (`--include-caches` keeps them). Archives that contain anything outside `home/` and `root/` are refused. Installed packages are not part of a backup: reinstall them with `apt` after restoring on a fresh install.
+Caches (`~/.cache`, `~/.npm/_cacache`) and the `~/storage` link are skipped (`--include-caches` keeps them). Archives that contain anything outside `home/` and `root/` are refused. The installed programs themselves are not part of a backup, but the list of the packages installed with `apt` is, with the apt sources and keys of other vendors (such as NodeSource): `restore` puts the sources back and installs the packages that are missing, after asking (`--no-packages` leaves them out). A package that is gone from the archive does not stop the others.
 
 ## Files App Integration
 
@@ -186,6 +192,7 @@ cortex-api tts "hello"
 cortex-api vibrate -d 500
 cortex-api wakelock on              # also: wakelock off, wakelock status
 cortex-api mirror show              # the Ubuntu mirror apt uses; also: mirror auto, mirror official
+cortex-api network                  # the phone's addresses, Wi-Fi first (ip and ifconfig cannot ask Android)
 cortex-api info
 cortex-api --help
 ```
@@ -195,6 +202,34 @@ cortex-api --help
 </p>
 
 `notify-send` shows its notifications on Android through it, and `xdg-open` (with `open`, `termux-open` and the browser names) opens links and files in Android apps. The app listens on `127.0.0.1` while it runs; the port and a secret token are in `/run/cortex-api`, which only Cortex itself and root can read, so other apps cannot use it. Android lets an app open other apps only while it is on screen, and from Android 10 on also read the clipboard only then, so those commands report an error while Cortex is in the background.
+
+## Remote Access
+
+**SSH.** Settings > Remote access > *Start the SSH server* (or the command `cortex-sshd`) installs Ubuntu's OpenSSH the first time, starts it on port 8022 (ports below 1024 need root on Android) and shows how to connect:
+
+```
+cortex-sshd                          # start; shows "ssh -p 8022 root@192.168.1.23" and who can log in
+cortex-sshd key 'ssh-ed25519 AAAA... you@computer'   # let a computer's key in (or: passwd)
+cortex-sshd enable                   # start it with Cortex from now on (disable: no longer)
+cortex-sshd status | stop | restart [-p PORT]
+```
+
+The server runs while Cortex runs; `cortex-api wakelock on` keeps it going with the screen off. Its settings are in `/etc/ssh/sshd_config.d/cortex.conf`, its log in `~/.cortex/sshd.log`.
+
+**Local web servers.** When a program in Cortex serves web pages (`npm run dev`, `python3 -m http.server`, `jupyter lab`, `hugo server`...), a notification offers to open it in the browser or to copy its address, and goes away when the server stops. Only servers that answer HTTP count, so SSH, databases and the like stay quiet. Settings > Notifications & Clipboard > *Local web servers* turns it off.
+
+## Your Own Keys
+
+The keys above the keyboard come from `~/.cortex/keys` when it exists; Cortex uses it as soon as it is saved. `~/.cortex/keys.example` has the keys as they are now and explains the format:
+
+```
+# one row per line (up to 4), keys separated by spaces (up to 12 a row)
+ESC MENU FIND HOME UP END PGUP
+TAB CTRL ALT LEFT DOWN RIGHT PGDN
+| ~ / - gs="git status\n" F5 PASTE KEYBOARD
+```
+
+A key is a name (`ESC TAB CTRL ALT UP DOWN LEFT RIGHT HOME END PGUP PGDN INS DEL BKSP ENTER SPACE F1`...`F12`, `MENU` for the sessions, `FIND`, `PASTE`, `KEYBOARD`), one or more symbols (`|`, `~`, `::`), text in quotes (`"\e:wq\n"`: `\n` is Enter, `\e` Escape), or `LABEL=KEY` for another label on the button. `CTRL` and `ALT` also work with the symbols (`CTRL` then `c` is Ctrl+C) and with the arrow keys (`CTRL` then `←` moves by a word). A file Cortex cannot use is reported with its line, and the default keys are shown.
 
 ## Root Mode
 
@@ -255,6 +290,9 @@ Static C and C++ programs do (see above). Go programs built without cgo start, b
 
 **Does it work on IPv6-only mobile networks?**
 Yes. On networks that only give IPv6 DNS servers, Cortex uses them, and its fallback resolver asks for IPv6 addresses when a program wants one.
+
+**Can I use Cortex from my computer?**
+Yes, over SSH: Settings > Remote access > *Start the SSH server*, or `cortex-sshd` in the terminal. See [Remote Access](#remote-access).
 
 **How do I back up my files?**
 Run `cortex-backup`. See [Backup and Restore](#backup-and-restore).

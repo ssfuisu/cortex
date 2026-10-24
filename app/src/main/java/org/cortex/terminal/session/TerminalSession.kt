@@ -12,6 +12,7 @@ import java.io.File
 import java.io.IOException
 import java.util.concurrent.Executors
 import kotlin.concurrent.thread
+import kotlin.concurrent.withLock
 
 class TerminalSession(
     private val context: Context,
@@ -45,6 +46,28 @@ class TerminalSession(
     var isRoot = false
         private set
 
+    /** Where the shell starts instead of the home directory (a session brought back), if it still exists. */
+    var startDirectory: String? = null
+
+    /** Output shown, dimmed, before the shell starts: the end of a session brought back. */
+    var restoredOutput: String? = null
+
+    /** The shell's directory now (not known for root sessions, whose shell is under su). */
+    fun currentDirectory(): String? {
+        val pid = ptyProcess?.pid ?: return null
+        if (isRoot || !isRunning) return null
+        return try {
+            android.system.Os.readlink("/proc/$pid/cwd").takeIf { it.startsWith("/") }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /** The end of the main screen's text, for [SessionStore]. */
+    fun transcript(): String = emulator.lock.withLock {
+        SessionStore.trimOutput(emulator.buffer.transcript(SessionStore.MAX_LINES))
+    }
+
     fun start() {
         if (isRunning) return
 
@@ -52,6 +75,9 @@ class TerminalSession(
         val env = Environment.buildEnvironment(context)
         var ptyEnv = env
         var cwd = Environment.getHomeDir(context).absolutePath
+        startDirectory?.let { dir -> if (File(dir).isDirectory) cwd = dir }
+        restoredOutput?.let { showRestoredOutput(it) }
+        restoredOutput = null
 
         var args = if (shell.endsWith("sh") || shell.endsWith("bash")) {
             arrayOf("-l", "-i") // Interactive login shell
@@ -148,6 +174,16 @@ class TerminalSession(
         } catch (e: Exception) {
             Log.e(tag, "Error launching session", e)
         }
+    }
+
+    private fun showRestoredOutput(output: String) {
+        val sb = StringBuilder()
+        if (output.isNotEmpty()) {
+            sb.append("\u001b[2m").append(output.replace("\n", "\r\n")).append("\u001b[0m\r\n")
+        }
+        sb.append("\u001b[2m── ").append(context.getString(R.string.session_restored)).append(" ──\u001b[0m\r\n")
+        val bytes = sb.toString().toByteArray(Charsets.UTF_8)
+        emulator.processInput(bytes, 0, bytes.size)
     }
 
     private val writeExecutor = Executors.newSingleThreadExecutor { runnable ->

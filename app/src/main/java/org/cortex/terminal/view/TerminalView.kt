@@ -18,6 +18,7 @@ import android.view.GestureDetector
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.MotionEvent
+import android.view.ScaleGestureDetector
 import android.view.View
 import android.view.ViewGroup
 import android.view.accessibility.AccessibilityNodeInfo
@@ -412,6 +413,36 @@ class TerminalView @JvmOverloads constructor(
         return false
     }
 
+    // Two fingers change the text size in whole sp, applied at once (the rows and columns follow);
+    // the size from the start of the pinch is the base, so small movements do not add up
+    private var pinchStartSp = 0f
+    private var pinchScale = 1f
+    private var touchHadTwoFingers = false
+
+    private val scaleDetector = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+        override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
+            pinchStartSp = terminalTextSizeSp
+            pinchScale = 1f
+            scroller.abortAnimation()
+            removeCallbacks(flingRunnable)
+            return true
+        }
+
+        override fun onScale(detector: ScaleGestureDetector): Boolean {
+            pinchScale *= detector.scaleFactor
+            val sp = pinchTextSize(pinchStartSp, pinchScale)
+            if (sp != terminalTextSizeSp) setTerminalTextSize(sp)
+            return true
+        }
+
+        override fun onScaleEnd(detector: ScaleGestureDetector) {
+            if (terminalTextSizeSp != pinchStartSp) onTextSizeChangedByPinch?.invoke(terminalTextSizeSp)
+        }
+    }).apply {
+        // Double tap and drag would scale with one finger, which scrolls
+        isQuickScaleEnabled = false
+    }
+
     private val gestureDetector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
         override fun onDown(e: MotionEvent): Boolean {
             scroller.abortAnimation()
@@ -536,7 +567,15 @@ class TerminalView @JvmOverloads constructor(
         measureCharDimensions()
     }
 
+    /** The text size in sp, as set or changed with two fingers. */
+    var terminalTextSizeSp = 11f
+        private set
+
+    /** Called with the new size in sp when two fingers changed it, so that it is kept. */
+    var onTextSizeChangedByPinch: ((Float) -> Unit)? = null
+
     fun setTerminalTextSize(sp: Float) {
+        terminalTextSizeSp = sp
         val px = sp * resources.displayMetrics.scaledDensity
         textPaint.textSize = px
         measureCharDimensions()
@@ -853,6 +892,24 @@ class TerminalView @JvmOverloads constructor(
         }
 
         if (onTerminalTouchWhenDrawerOpen?.invoke() == true) {
+            return true
+        }
+
+        scaleDetector.onTouchEvent(event)
+        if (event.actionMasked == MotionEvent.ACTION_POINTER_DOWN && !touchHadTwoFingers) {
+            // A pinch: no scrolling, long press or keyboard for the rest of this touch
+            touchHadTwoFingers = true
+            val cancel = MotionEvent.obtain(event)
+            cancel.action = MotionEvent.ACTION_CANCEL
+            gestureDetector.onTouchEvent(cancel)
+            cancel.recycle()
+            parent?.requestDisallowInterceptTouchEvent(true)
+        }
+        if (touchHadTwoFingers) {
+            if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
+                touchHadTwoFingers = false
+                isEdgeDrag = false
+            }
             return true
         }
 
@@ -1609,6 +1666,18 @@ class TerminalView @JvmOverloads constructor(
         isAltPressed = false
     }
 
+    /** Types [text] as it is (a key of the toolbar); "\n" is Enter, CTRL and ALT do not apply. */
+    fun sendText(text: String) {
+        val sess = session ?: return
+        if (!sess.isRunning) return
+        clearSelection()
+        scrollOffset = 0
+        sess.write(text.replace("\r\n", "\r").replace('\n', '\r').toByteArray(Charsets.UTF_8))
+        restartCursorBlink()
+        isCtrlPressed = false
+        isAltPressed = false
+    }
+
     fun sendKeySequence(keyCode: Int): Boolean {
         val sess = session ?: return false
         if (!sess.isRunning) {
@@ -1676,3 +1745,11 @@ class TerminalView @JvmOverloads constructor(
         }
     }
 }
+
+/** The text sizes two fingers can set, in sp. */
+internal const val MIN_PINCH_TEXT_SP = 6f
+internal const val MAX_PINCH_TEXT_SP = 36f
+
+/** The text size for a pinch that started at [startSp] and has scaled by [scale]: whole sp. */
+internal fun pinchTextSize(startSp: Float, scale: Float): Float =
+    Math.round(startSp * scale).toFloat().coerceIn(MIN_PINCH_TEXT_SP, MAX_PINCH_TEXT_SP)

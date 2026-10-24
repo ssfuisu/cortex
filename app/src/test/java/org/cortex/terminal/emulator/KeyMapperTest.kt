@@ -42,4 +42,29 @@ class KeyMapperTest {
         assertEquals(1, ctrlZ.size)
         assertEquals(26, ctrlZ[0].toInt())
     }
+
+    private fun seq(keyCode: Int, ctrl: Boolean = false, alt: Boolean = false) =
+        KeyMapper.getEscapeSequence(keyCode, isCtrl = ctrl, isAlt = alt)?.let { String(it, Charsets.UTF_8) }
+
+    @Test
+    fun functionKeysAsXtermSendsThem() {
+        assertEquals("\u001bOP", seq(android.view.KeyEvent.KEYCODE_F1))
+        assertEquals("\u001bOS", seq(android.view.KeyEvent.KEYCODE_F4))
+        assertEquals("\u001b[15~", seq(android.view.KeyEvent.KEYCODE_F5))
+        assertEquals("\u001b[17~", seq(android.view.KeyEvent.KEYCODE_F6))
+        assertEquals("\u001b[21~", seq(android.view.KeyEvent.KEYCODE_F10))
+        assertEquals("\u001b[24~", seq(android.view.KeyEvent.KEYCODE_F12))
+        assertEquals("Alt puts ESC in front", "\u001b\u001b[15~", seq(android.view.KeyEvent.KEYCODE_F5, alt = true))
+    }
+
+    @Test
+    fun ctrlWithCursorAndEditingKeys() {
+        assertEquals("\u001b[1;5D", seq(android.view.KeyEvent.KEYCODE_DPAD_LEFT, ctrl = true))
+        assertEquals("\u001b[1;5C", seq(android.view.KeyEvent.KEYCODE_DPAD_RIGHT, ctrl = true))
+        assertEquals("\u001b[1;7A", seq(android.view.KeyEvent.KEYCODE_DPAD_UP, ctrl = true, alt = true))
+        assertEquals("\u001b[3;5~", seq(android.view.KeyEvent.KEYCODE_FORWARD_DEL, ctrl = true))
+        assertEquals("\u001b[1;5P", seq(android.view.KeyEvent.KEYCODE_F1, ctrl = true))
+        assertEquals("\u001b[24;5~", seq(android.view.KeyEvent.KEYCODE_F12, ctrl = true))
+        assertEquals("keys without a modified form stay", "\t", seq(android.view.KeyEvent.KEYCODE_TAB, ctrl = true))
+    }
 }

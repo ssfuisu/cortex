@@ -16,8 +16,8 @@ android {
         // from the app's writable data directory (filesDir). Android 10+ (targetSdk >= 29)
         // enforces SELinux W^X restrictions preventing execution from writable app data storage.
         targetSdk = 28
-        versionCode = 12637
-        versionName = "1.26.37"
+        versionCode = 12638
+        versionName = "1.26.38"
         // UbuntuOnDeviceTest (app/src/androidTest), on Firebase Test Lab
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -44,7 +44,8 @@ android {
     }
 
     androidResources {
-        noCompress += listOf("gz", "tgz", "gpg")
+        // zst: the bootstrap archive, read by the native extractor as it is
+        noCompress += listOf("gz", "tgz", "gpg", "zst")
     }
 
     val releaseStoreFile = System.getenv("RELEASE_STORE_FILE")

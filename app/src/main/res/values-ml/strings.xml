@@ -129,4 +129,21 @@
     <string name="root_session_failed">റൂട്ട് സെഷൻ ആരംഭിക്കാനായില്ല. റൂട്ട് ആക്സസ് ഇല്ലാതായെങ്കിൽ, ക്രമീകരണങ്ങളിൽ റൂട്ട് മോഡ് ഓഫാക്കാം.</string>
     <string name="api_channel_name">കമാൻഡുകളിൽ നിന്നുള്ള സന്ദേശങ്ങൾ</string>
     <string name="api_channel_description">ടെർമിനലിലെ പ്രോഗ്രാമുകൾ cortex-api അല്ലെങ്കിൽ notify-send ഉപയോഗിച്ച് കാണിക്കുന്ന അറിയിപ്പുകൾ</string>
+    <string name="extra_keys_error">~/.cortex/keys: %1$s. ഡിഫോൾട്ട് കീകൾ കാണിക്കുന്നു.</string>
+    <string name="pref_cat_sessions">സെഷനുകൾ</string>
+    <string name="pref_restore_sessions_title">സെഷനുകൾ പുനഃസ്ഥാപിക്കുക</string>
+    <string name="pref_restore_sessions_summary">Android, Cortex അടയ്ക്കുമ്പോൾ, അടുത്ത തവണ തുറക്കുമ്പോൾ സെഷനുകൾ അവയുടെ ഫോൾഡറുകളും ഔട്ട്പുട്ടിന്റെ അവസാന ഭാഗവുമായി തിരിച്ചുവരും (അവയിലെ പ്രോഗ്രാമുകൾ പുതുതായി ആരംഭിക്കും)</string>
+    <string name="session_restored">പുനഃസ്ഥാപിച്ചു: Android, Cortex അടച്ചിരുന്നു, ഇവിടെ പ്രവർത്തിച്ചിരുന്ന പ്രോഗ്രാമുകൾ നിന്നു</string>
+    <string name="pref_cat_remote">വിദൂര ആക്‌സസ്</string>
+    <string name="pref_ssh_title">SSH സെർവർ ആരംഭിക്കുക</string>
+    <string name="pref_ssh_summary">കമ്പ്യൂട്ടറിൽ നിന്ന് Cortex ഉപയോഗിക്കാൻ പുതിയ സെഷനിൽ പോർട്ട് 8022-ൽ OpenSSH ആരംഭിക്കുന്നു (ആദ്യ തവണ ഇൻസ്റ്റാൾ ചെയ്യുന്നു; cortex-sshd stop അത് നിർത്തുന്നു)</string>
+    <string name="servers_channel_name">ലോക്കൽ വെബ് സെർവറുകൾ</string>
+    <string name="servers_channel_description">Cortex-ലെ പ്രോഗ്രാമുകൾ ആരംഭിക്കുന്ന വെബ് സെർവറുകൾ, ബ്രൗസറിൽ തുറക്കാൻ</string>
+    <string name="server_notification_title">%1$s പോർട്ട് %2$d-ൽ വെബ് പേജുകൾ നൽകുന്നു</string>
+    <string name="server_notification_title_unknown">പോർട്ട് %1$d-ൽ ഒരു വെബ് സെർവർ പ്രവർത്തിക്കുന്നു</string>
+    <string name="server_notification_text">%1$s തുറക്കാൻ ടാപ്പ് ചെയ്യുക</string>
+    <string name="server_open">തുറക്കുക</string>
+    <string name="server_copy_link">ലിങ്ക് പകർത്തുക</string>
+    <string name="pref_servers_title">ലോക്കൽ വെബ് സെർവറുകൾ</string>
+    <string name="pref_servers_summary">Cortex-ലെ ഒരു പ്രോഗ്രാം വെബ് പേജുകൾ നൽകുമ്പോൾ (npm run dev പോലെ) ബ്രൗസറിൽ തുറക്കാൻ ഒരു അറിയിപ്പ്</string>
 </resources>

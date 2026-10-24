@@ -38,6 +38,21 @@
             app:title="@string/pref_secure_screen_title" />
     </PreferenceCategory>
 
+    <PreferenceCategory app:title="@string/pref_cat_sessions">
+        <SwitchPreferenceCompat
+            app:defaultValue="true"
+            app:key="restore_sessions"
+            app:summary="@string/pref_restore_sessions_summary"
+            app:title="@string/pref_restore_sessions_title" />
+    </PreferenceCategory>
+
+    <PreferenceCategory app:title="@string/pref_cat_remote">
+        <Preference
+            app:key="ssh_server"
+            app:summary="@string/pref_ssh_summary"
+            app:title="@string/pref_ssh_title" />
+    </PreferenceCategory>
+
     <PreferenceCategory app:title="@string/pref_cat_language">
         <ListPreference
             app:defaultValue="system"
@@ -69,6 +84,12 @@
             app:key="allow_osc52"
             app:summary="@string/pref_clipboard_summary"
             app:title="@string/pref_clipboard_title" />
+
+        <SwitchPreferenceCompat
+            app:defaultValue="true"
+            app:key="notify_servers"
+            app:summary="@string/pref_servers_summary"
+            app:title="@string/pref_servers_title" />
     </PreferenceCategory>
 
     <PreferenceCategory app:title="@string/pref_cat_files">

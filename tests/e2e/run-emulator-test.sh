@@ -6,7 +6,15 @@
 #     run-emulator-test.sh APK_DIR OUT_DIR [ABI]
 #
 # ABI is the APK to test: arm64-v8a (the default) or armeabi-v7a. Needs adb, gcc and a running
-# emulator with adb root (a "google_apis" image). The app's ARM Ubuntu runs on an x86_64 emulator
+# emulator with adb root (a "google_apis" image).
+#
+# Environment:
+#   E2E_SCRIPT=FILE        the script typed into the terminal (default tests/e2e/in-terminal.sh)
+#   E2E_MODE=compat        only that script's results (the package compatibility run, compat.sh):
+#                          no screenshots, restart or update, and failed checks are its results
+#   E2E_TIMEOUT=SECONDS    how long the script may take (default 3000)
+#   E2E_PAGE_SIZE=BYTES    the page size the emulator must have (the 16 KB image)
+#   E2E_SKIP_WITHOUT_ABI=1 an image that cannot run the ABI's apps is a skip, not a failure The app's ARM Ubuntu runs on an x86_64 emulator
 # through the image's ARM translation, which must also run ARM programs started from a shell
 # (binfmt_misc). They are started through emu-runner.c, which keeps Cortex's LD_PRELOAD and
 # LD_LIBRARY_PATH away from the translator (see there).
@@ -26,6 +34,9 @@ case "$ABI" in
     *) echo "unknown ABI $ABI" >&2; exit 2 ;;
 esac
 DEVICE_OUT=/sdcard/Download/cortex-e2e
+E2E_SCRIPT="${E2E_SCRIPT:-tests/e2e/in-terminal.sh}"
+E2E_MODE="${E2E_MODE:-full}"
+E2E_TIMEOUT="${E2E_TIMEOUT:-3000}"
 mkdir -p "$OUT/screens"
 
 log() { echo "== $*"; }
@@ -131,8 +142,21 @@ adb wait-for-device
 sh_ cmd overlay enable com.android.internal.systemui.navbar.threebutton || true
 sh_ settings put secure show_ime_with_hard_keyboard 0 || true
 
-sh_ getprop ro.product.cpu.abilist | tr ',' '\n' | grep -qx "$ABI" ||
+page_size=$(sh_ getconf PAGESIZE)
+echo "page size: $page_size"
+if [ -n "${E2E_PAGE_SIZE:-}" ] && [ "$page_size" != "$E2E_PAGE_SIZE" ]; then
+    die "the emulator has pages of $page_size bytes, not $E2E_PAGE_SIZE"
+fi
+
+if ! sh_ getprop ro.product.cpu.abilist | tr ',' '\n' | grep -qx "$ABI"; then
+    if [ "${E2E_SKIP_WITHOUT_ABI:-0}" = 1 ]; then
+        echo "::notice::SKIP: this image cannot run $ABI apps (no ARM translation): $(sh_ getprop ro.product.cpu.abilist)"
+        [ -n "${GITHUB_STEP_SUMMARY:-}" ] &&
+            echo "Skipped: this emulator image cannot run $ABI apps (it has no ARM translation)." >> "$GITHUB_STEP_SUMMARY"
+        exit 0
+    fi
     die "this image cannot run $ABI apps (no ARM translation): $(sh_ getprop ro.product.cpu.abilist)"
+fi
 
 # ARM programs started with exec() (bash, apt, ...) go through binfmt_misc to the translator.
 binfmt=/proc/sys/fs/binfmt_misc
@@ -181,7 +205,7 @@ adb push "$OUT/cortex-emu-runner" /data/local/tmp/cortex-emu-runner >/dev/null &
 sh_ sh /data/local/tmp/use-emu-runner.sh "$PKG" /data/local/tmp/cortex-emu-runner "$BINFMT_NAME" | tee -a "$OUT/binfmt_misc.txt"
 sh_ cat "/proc/sys/fs/binfmt_misc/${BINFMT_NAME}_dyn" | grep -q cortex-emu-runner || die "cortex-emu-runner is not registered"
 sh_ rm -rf "$DEVICE_OUT"
-adb push tests/e2e/in-terminal.sh /sdcard/Download/cortex-e2e.sh >/dev/null || die "cannot copy the test script"
+adb push "$E2E_SCRIPT" /sdcard/Download/cortex-e2e.sh >/dev/null || die "cannot copy the test script"
 
 adb logcat -c
 adb logcat -v time > "$OUT/logcat.txt" 2>&1 &
@@ -223,7 +247,7 @@ if ! wait_for 90 run_ test -d "$DEVICE_OUT/started"; then
 fi
 i=0
 until run_ test -f "$DEVICE_OUT/done"; do
-    [ $((SECONDS - STARTED)) -lt 3000 ] || {
+    [ $((SECONDS - STARTED)) -lt "$E2E_TIMEOUT" ] || {
         adb pull "$DEVICE_OUT" "$OUT/" >/dev/null 2>&1
         die "the tests did not finish in time"
     }
@@ -238,12 +262,20 @@ log "Results"
 cat "$OUT/cortex-e2e/results.txt"
 cat "$OUT/cortex-e2e/done"
 
+if [ "$E2E_MODE" = compat ]; then
+    # Which packages work is the result: a failed one is not a failure of the run
+    log "Took $((SECONDS - STARTED)) s"
+    exit 0
+fi
 if grep -q '^FAIL' "$OUT/cortex-e2e/results.txt"; then
     status=1
     diagnose
 fi
+# in-terminal.sh's notifications, and the one about the web server it left running (the app looks
+# for servers every few seconds)
+sleep 8
 notifications=$(sh_ dumpsys notification --noredact)
-for title in "Cortex e2e notification" "Cortex e2e notify-send"; do
+for title in "Cortex e2e notification" "Cortex e2e notify-send" "serves web pages on port 8642"; do
     if printf '%s\n' "$notifications" | grep -F -q "$title"; then
         echo "PASS the notification \"$title\" is shown"
     else
@@ -276,6 +308,8 @@ sh_ input swipe 2 $((HEIGHT / 2)) $((WIDTH * 2 / 3)) $((HEIGHT / 2)) 300
 sleep 2
 tap_id btnDrawerNewSession || log "no new-session button found"
 sleep 8
+# A directory for this session, which it is to be in again after the restart
+run_line "mkdir -p ~/restore-test && cd ~/restore-test && clear"
 sh_ input swipe 2 $((HEIGHT / 2)) $((WIDTH * 2 / 3)) $((HEIGHT / 2)) 300
 sleep 2
 shot "12-sessions"
@@ -305,8 +339,11 @@ sleep 10
 if [ "$RUN_UBUNTU" = 1 ]; then
     tap_center "$WIDTH" "$HEIGHT"
     sleep 2
-    type_line "id -u > $DEVICE_OUT/after-restart.txt"
+    type_line "id -u > $DEVICE_OUT/after-restart.txt; pwd > $DEVICE_OUT/after-restart-pwd.txt"
     pass_or_fail "a session works after a restart" wait_for 90 run_ test -s "$DEVICE_OUT/after-restart.txt"
+    # Kept when Cortex went to the background (the settings), brought back by this start
+    pass_or_fail "the sessions were kept" run_ test -s "$DATA/files/sessions"
+    pass_or_fail "the session came back in its directory" wait_for 30 run_ grep -q "restore-test" "$DEVICE_OUT/after-restart-pwd.txt"
 else
     pass_or_fail "the app runs after a restart" app_runs
 fi

@@ -1,0 +1,11 @@
+# Pull requests for newer versions of the actions the workflows use (they are pinned to commits,
+# with the version in a comment, which Dependabot updates too)
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ["*"]
