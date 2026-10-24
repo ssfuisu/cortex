@@ -44,7 +44,7 @@ of a GitHub release from the section of its version here. Older versions are des
 
 ### Fixed
 
-- **git works in your repositories again**: it refused them with "detected dubious ownership".
+- **git works in your repositories**: it refused them with "detected dubious ownership".
   Programs in Cortex run as root, but the files they made showed the app's own user as their owner;
   now they show root, as `ls -l` already did by name. This also lets `tmux` start (its socket
   directory had "unsafe permissions"), `ssh` read `~/.ssh/config` ("Bad owner") and the SSH server
