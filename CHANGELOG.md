@@ -41,6 +41,8 @@ of a GitHub release from the section of its version here. Older versions are des
 
 - On Android 14 the settings reached under the navigation bar, which covered the last ones.
 - `~/.local/bin/reload` was only installed from the second start on.
+- `cortex-api` could stop with a crash of Android's ARM translator on x86 devices (emulators,
+  Chromebooks): it opened its connection on file descriptor 3, which the translator uses itself.
 
 ### For developers
 

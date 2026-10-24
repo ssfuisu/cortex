@@ -349,6 +349,15 @@ ERR="$(CORTEX_API_CONF="$API_DIR/missing" bash "$API_SH" battery 2>&1 </dev/null
 [ "$STATUS" = 1 ] && echo "$ERR" | grep -q "Cortex is not running" && pass "a missing /run/cortex-api says Cortex is not running" || fail "missing conf: $STATUS '$ERR'"
 api --help | grep -q "notification \[-t TITLE\]" && pass "cortex-api --help works without the app" || fail "cortex-api --help"
 
+# A descriptor that is open stays as it is (the ARM translator of x86 devices keeps its memory file at
+# 3): the cat that prints the answer still finds the caller's file there
+mkdir -p "$API_DIR/fdcheck"
+printf '#!/bin/bash\nreadlink /proc/self/fd/3 > "%s"\nexec "%s" "$@"\n' "$API_DIR/fd3" "$(command -v cat)" > "$API_DIR/fdcheck/cat"
+chmod +x "$API_DIR/fdcheck/cat"
+OUT="$(CORTEX_API_CONF="$API_CONF" PATH="$API_DIR/fdcheck:$PATH" bash "$API_SH" battery 3<"$API_SH" </dev/null)"
+[ "$OUT" = "ok battery" ] && [ "$(cat "$API_DIR/fd3")" = "$(realpath "$API_SH")" ] \
+    && pass "cortex-api leaves descriptor 3 alone" || fail "cortex-api descriptor 3: output '$OUT', fd 3 was '$(cat "$API_DIR/fd3" 2>/dev/null)'"
+
 cp "$API_SH" "$API_DIR/bin/cortex-api" && chmod +x "$API_DIR/bin/cortex-api"
 CORTEX_API_CONF="$API_CONF" PATH="$API_DIR/bin:$PATH" bash "$ASSETS_SCRIPTS/notify-send.sh" -u critical -t 5000 -i dialog-information "Derleme bitti" "0 hata" </dev/null
 [ "$?" = 0 ] && [ "$(last args)" = '["-t", "Derleme bitti", "-c", "0 hata"]' ] && pass "notify-send shows SUMMARY and BODY through cortex-api" || fail "notify-send: $(last args)"

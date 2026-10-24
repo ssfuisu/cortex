@@ -123,8 +123,10 @@ send_block() {
     printf '%s\n%s' "${#1}" "$1"
 }
 
-# (The braces keep 2>/dev/null to the connection attempt: on a bare exec it would stay.)
-{ exec 3<>"/dev/tcp/127.0.0.1/$port"; } 2>/dev/null || die "Cortex does not answer: open the Cortex app"
+# (The braces keep 2>/dev/null to the connection attempt: on a bare exec it would stay.) On a free
+# descriptor that bash picks, not a fixed one: an open one would be closed, and the ARM translator
+# of x86 devices keeps its own memory file at 3 (it aborts when it needs it next).
+{ exec {api}<>"/dev/tcp/127.0.0.1/$port"; } 2>/dev/null || die "Cortex does not answer: open the Cortex app"
 {
     printf 'CORTEX-API 1\n%s\n%s\n%s\n' "$token" "$cmd" "${#args[@]}"
     for a in ${args[@]+"${args[@]}"}; do
@@ -135,14 +137,14 @@ send_block() {
     else
         printf -- '-1\n'
     fi
-} >&3
+} >&"$api"
 
-IFS= read -r status <&3 || die "no answer from Cortex"
+IFS= read -r status <&"$api" || die "no answer from Cortex"
 if [ "$status" = 0 ]; then
-    cat <&3
+    cat <&"$api"
 else
-    cat <&3 >&2
+    cat <&"$api" >&2
 fi
-exec 3<&-
+exec {api}<&-
 case "$status" in ''|*[!0-9]*) exit 1 ;; esac
 exit "$status"
