@@ -196,8 +196,10 @@ log "Starting $ABI programs through cortex-emu-runner"
 translator=$(sh_ cat "/proc/sys/fs/binfmt_misc/${BINFMT_NAME}_dyn" | sed -n 's/^interpreter //p')
 [ -n "$translator" ] || die "the image registers no ARM translator with binfmt_misc"
 echo "translator: $translator"
+# Its segments aligned for 16 KB pages too: a kernel with them refuses the 4 KB ones (EINVAL)
 gcc -static -nostdlib -ffreestanding -fno-builtin -fno-tree-loop-distribute-patterns -fno-stack-protector \
-    -fno-pie -no-pie -O2 -Wall -Wextra -DRUNNER="\"$translator\"" -o "$OUT/cortex-emu-runner" tests/e2e/emu-runner.c ||
+    -fno-pie -no-pie -O2 -Wall -Wextra -Wl,-z,max-page-size=16384 -DRUNNER="\"$translator\"" \
+    -o "$OUT/cortex-emu-runner" tests/e2e/emu-runner.c ||
     die "cannot build cortex-emu-runner"
 adb push "$OUT/cortex-emu-runner" /data/local/tmp/cortex-emu-runner >/dev/null &&
     adb push tests/e2e/use-emu-runner.sh /data/local/tmp/use-emu-runner.sh >/dev/null ||
