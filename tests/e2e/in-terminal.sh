@@ -52,6 +52,10 @@ expect() {
     id
     dpkg --print-architecture
     echo "page size: $(getconf PAGESIZE)"
+    # What a program sees of itself: on an x86 device or emulator the ARM translator's own memory
+    # file is among its descriptors (the hook keeps it open, privileged.c)
+    echo "/proc/self/exe: $(readlink /proc/self/exe)"
+    ls -l /proc/self/fd/ 2>&1 | sed -n '2,12p'
     df -h / 2>/dev/null
     LD_SHOW_AUXV=1 /bin/true | grep -E "AT_HWCAP|AT_PLATFORM"
     grep -m 1 -i features /proc/cpuinfo
