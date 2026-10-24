@@ -644,6 +644,25 @@ static void test_nss_fallback_semantics(void) {
     ASSERT_TRUE(pw_ssh != NULL, "getpwnam('_ssh') must return _ssh user");
     ASSERT_EQ(pw_ssh->pw_uid, 100, "getpwnam('_ssh')->pw_uid must be 100");
     ASSERT_EQ(pw_ssh->pw_gid, 100, "getpwnam('_ssh')->pw_gid must be 100");
+
+    /* sshd's privilege-separated user has root's ids (Cortex cannot drop privileges, and sshd
+       checks that it did): the built-in entry, getpwnam_r's, and the one of /etc/passwd */
+    struct passwd *pw_sshd = hook_getpwnam("sshd");
+    ASSERT_TRUE(pw_sshd != NULL && strcmp(pw_sshd->pw_name, "sshd") == 0, "getpwnam('sshd') finds the user");
+    ASSERT_TRUE(pw_sshd->pw_uid == 0 && pw_sshd->pw_gid == 0, "getpwnam('sshd') has root's ids");
+    pw_res = &pwd_buf;
+    ASSERT_EQ(hook_getpwnam_r("sshd", &pwd_buf, str_buf, sizeof(str_buf), &pw_res), 0, "getpwnam_r('sshd')");
+    ASSERT_TRUE(pw_res == &pwd_buf && pwd_buf.pw_uid == 0 && pwd_buf.pw_gid == 0, "getpwnam_r('sshd') has root's ids");
+    memset(&pwd_buf, 0, sizeof(pwd_buf));
+    pwd_buf.pw_name = (char *)"sshd";
+    pwd_buf.pw_uid = 101;
+    pwd_buf.pw_gid = 65534;
+    g_test_orig_nss_r_ret = 0;
+    g_test_orig_nss_r_found = 1;
+    ASSERT_EQ(hook_getpwnam_r("sshd", &pwd_buf, str_buf, sizeof(str_buf), &pw_res), 0, "getpwnam_r('sshd') from /etc/passwd");
+    ASSERT_TRUE(pwd_buf.pw_uid == 0 && pwd_buf.pw_gid == 0, "the one from /etc/passwd has root's ids too");
+    g_test_orig_nss_r_found = 0;
+    ASSERT_TRUE(hook_getpwnam("root")->pw_uid == 0 && hook_getpwnam("_ssh")->pw_uid == 100, "other users keep their ids");
     ASSERT_TRUE(hook_getgrnam("messagebus") == NULL,
                 "getgrnam('messagebus') must return NULL when absent from /etc/group");
     ASSERT_TRUE(hook_getgrgid(100) == NULL,

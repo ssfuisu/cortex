@@ -52,6 +52,8 @@ of a GitHub release from the section of its version here. Older versions are des
 - Servers that take connections with `accept()` (OpenSSH's among them) get them: the call is made
   as `accept4()`, the one Android's seccomp filter is made for. On the emulator it answered with a
   descriptor that did not exist.
+- sshd's privilege-separated user has root's ids, as apt's sandbox user is root: Cortex cannot drop
+  privileges, and sshd ended each connection when it found it could take them back.
 
 ### For developers
 

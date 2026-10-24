@@ -601,6 +601,18 @@ int CORTEX_NSS_SYM(getgrnam_r)(const char *name, struct group *grp, char *buf, s
     return (err == ERANGE) ? ERANGE : 0;
 }
 
+// sshd's privilege-separated user is root's ids: Cortex cannot drop privileges (setuid() and
+// setgid() only pretend to), and sshd's unprivileged part checks after dropping them that it cannot
+// take them back, which ended it ("permanently_set_uid: was able to restore old [e]gid"). Like apt's
+// sandbox user (APT::Sandbox::User "root"), it then runs as the rest does.
+static struct passwd *present_privsep_user_as_root(struct passwd *pwd) {
+    if (pwd && pwd->pw_name && strcmp(pwd->pw_name, "sshd") == 0) {
+        pwd->pw_uid = 0;
+        pwd->pw_gid = 0;
+    }
+    return pwd;
+}
+
 struct passwd *CORTEX_NSS_SYM(getpwuid)(uid_t uid) {
 #ifndef CORTEX_HOST_TEST
     static struct passwd *(*orig_getpwuid)(uid_t) = NULL;
@@ -619,11 +631,11 @@ struct passwd *CORTEX_NSS_SYM(getpwnam)(const char *name) {
     static struct passwd *(*orig_getpwnam)(const char *) = NULL;
     if (!orig_getpwnam) orig_getpwnam = (struct passwd *(*)(const char *))dlsym(RTLD_NEXT, "getpwnam");
     struct passwd *res = orig_getpwnam ? orig_getpwnam(name) : NULL;
-    if (res) return res;
+    if (res) return present_privsep_user_as_root(res);
 #endif
 
     int err = cortex_lookup_passwd(name, 0, 1, &s_pwd_storage, s_pwd_buf, sizeof(s_pwd_buf));
-    if (err == 0) return &s_pwd_storage;
+    if (err == 0) return present_privsep_user_as_root(&s_pwd_storage);
     return NULL;
 }
 
@@ -660,7 +672,10 @@ int CORTEX_NSS_SYM(getpwnam_r)(const char *name, struct passwd *pwd, char *buf, 
     int ret = g_test_orig_nss_r_ret;
     if (result) *result = (ret == 0 && g_test_orig_nss_r_found) ? pwd : NULL;
 #endif
-    if (ret == 0 && result && *result != NULL) return 0;
+    if (ret == 0 && result && *result != NULL) {
+        present_privsep_user_as_root(*result);
+        return 0;
+    }
     if (ret != 0 && ret != ENOENT) {
         if (result) *result = NULL;
         return ret;
@@ -668,6 +683,7 @@ int CORTEX_NSS_SYM(getpwnam_r)(const char *name, struct passwd *pwd, char *buf, 
 
     int err = cortex_lookup_passwd(name, 0, 1, pwd, buf, buflen);
     if (err == 0) {
+        present_privsep_user_as_root(pwd);
         if (result) *result = pwd;
         return 0;
     }
