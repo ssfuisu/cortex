@@ -49,7 +49,18 @@ static int for_each_range_without(unsigned int first, unsigned int last, const i
 // code itself: the descriptors that are open (/proc/self/fd, read at once) are all that are asked
 // about, where asking about each of the numbers from 3 to 63 was 61 readlink() calls in every
 // process that was started.
+// Set once this process knows that it has none (it looked, or was told by CORTEX_NT=0 in its
+// environment, which prepare_cortex_env hands on to the programs it starts)
+static int g_no_translator = 0;
+
 __attribute__((constructor(102))) static void find_translator_files(void) {
+    // The first program of a session looks; the ones it starts are told (a translator is there for
+    // all the programs of a machine or for none, and where it is not known they look as before)
+    const char *known = getenv("CORTEX_NT");
+    if (known && known[0] == '0' && known[1] == '\0') {
+        g_no_translator = 1;
+        return;
+    }
     ssize_t (*real_readlink)(const char *, char *, size_t) = (ssize_t (*)(const char *, char *, size_t))dlsym(RTLD_NEXT, "readlink");
     int (*real_open)(const char *, int, ...) = (int (*)(const char *, int, ...))dlsym(RTLD_NEXT, "open");
     int (*real_close)(int) = (int (*)(int))dlsym(RTLD_NEXT, "close");
@@ -78,7 +89,10 @@ __attribute__((constructor(102))) static void find_translator_files(void) {
         if ((size_t)n + 64 <= sizeof(entries)) break;
     }
     real_close(dir);
-    if (nopen == 0) return;
+    if (nopen == 0) {
+        g_no_translator = 1;
+        return;
+    }
 
     char path[PATH_MAX];
     int runner = 0;
@@ -109,6 +123,7 @@ __attribute__((constructor(102))) static void find_translator_files(void) {
             g_kept_fds[g_kept_fd_count++] = open_fds[i];
         }
     }
+    if (g_kept_fd_count == 0) g_no_translator = 1;
 }
 
 int chown(const char *pathname, uid_t owner, gid_t group) { (void)pathname; (void)owner; (void)group; return 0; }

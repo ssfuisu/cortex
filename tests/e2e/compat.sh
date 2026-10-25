@@ -122,9 +122,12 @@ package fish "fish" "hi" 'fish -c "echo hi"'
 # Servers
 package redis "redis-server" "PONG" \
     'redis-server --port 6390 --daemonize yes --save "" >/dev/null && sleep 2 && redis-cli -p 6390 ping; redis-cli -p 6390 shutdown nosave >/dev/null 2>&1'
-package nginx "nginx-light" "hello from nginx" \
+package nginx "nginx-light curl" "hello from nginx" \
     'mkdir -p ng && echo "hello from nginx" > ng/index.html && printf "daemon on; pid %s/ng/pid; error_log %s/ng/err; events {} http { access_log off; server { listen 8088; root %s/ng; } }\n" "$PWD" "$PWD" "$PWD" > ng/conf && nginx -c "$PWD/ng/conf" && sleep 1 && curl -s http://127.0.0.1:8088/; nginx -c "$PWD/ng/conf" -s stop'
-# As on Ubuntu: the package's cluster, started as a service, and psql as the postgres user
+package postgresql-client "postgresql-client" "psql (PostgreSQL)" 'psql --version'
+# As on Ubuntu: the package's cluster, started as a service, and psql as the postgres user. It installs,
+# but the server refuses to run as root and Cortex's root is only pretended (pg_createcluster stops at
+# "Could not change user id"), so this one is a known gap outside root mode.
 package postgresql "postgresql" "1" \
     'service postgresql start && sleep 5 && su postgres -s /bin/sh -c "psql -tAc \"select 1\""; s=$?; service postgresql stop >/dev/null 2>&1; exit $s'
 

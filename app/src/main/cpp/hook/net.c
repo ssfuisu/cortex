@@ -272,7 +272,6 @@ static inline int is_loopback_dns(const struct sockaddr *addr, socklen_t addrlen
 static in_addr_t get_primary_dns(void) {
     static in_addr_t cached_dns = 0;
     static time_t last_check = 0;
-    static time_t last_resolv_mtime = 0;
     static pthread_mutex_t dns_mutex = PTHREAD_MUTEX_INITIALIZER;
 
     struct timespec ts;
@@ -324,7 +323,6 @@ static in_addr_t get_primary_dns(void) {
 
     struct stat st;
     if (stat(resolv_path, &st) == 0) {
-        last_resolv_mtime = st.st_mtime;
         if (new_dns == 0) {
             FILE *f = fopen(resolv_path, "r");
             if (f) {

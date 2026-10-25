@@ -280,13 +280,42 @@ static const char *const k_rootfs_lib_dirs[] = {
     "/usr/lib/arm-linux-gnueabihf/systemd", "/lib/arm-linux-gnueabihf/systemd",
 };
 
+// Whether the ':'-separated list holds the directory dir[0..dir_len) as one of its entries.
+static int lib_dir_list_has(const char *list, const char *dir, size_t dir_len) {
+    if (!list) return 0;
+    for (const char *p = list; *p;) {
+        const char *end = strchr(p, ':');
+        size_t len = end ? (size_t)(end - p) : strlen(p);
+        if (len == dir_len && memcmp(p, dir, len) == 0) return 1;
+        if (!end) break;
+        p = end + 1;
+    }
+    return 0;
+}
+
 // Appends the rootfs library directories as a ':'-separated list (with a leading ':' when
-// `separate` is set). Returns the new length.
-static size_t append_rootfs_lib_dirs(char *out, size_t outsz, size_t used, int separate) {
+// `separate` is set), leaving out those that `have` (a list too, or NULL) names already: the
+// caller's LD_LIBRARY_PATH is usually this very list, and ld.so spends time on every directory of
+// the list it is given, in every program that is started, and tries it again for each library that
+// is not found. Returns the new length.
+static size_t append_rootfs_lib_dirs_missing_from(char *out, size_t outsz, size_t used, int separate, const char *have) {
     for (size_t i = 0; i < sizeof(k_rootfs_lib_dirs) / sizeof(k_rootfs_lib_dirs[0]); i++) {
-        if (separate || i > 0) used = cortex_append(out, outsz, used, ":", 1);
+        size_t dir_len = strlen(k_rootfs_lib_dirs[i]);
+        if (have && have[0] != '\0') {
+            char full[PATH_MAX];
+            size_t n = cortex_append(full, sizeof(full), 0, g_cortex_root, g_cortex_root_len);
+            n = cortex_append(full, sizeof(full), n, k_rootfs_lib_dirs[i], dir_len);
+            if (lib_dir_list_has(have, full, n)) continue;
+        }
+        if (separate) used = cortex_append(out, outsz, used, ":", 1);
+        separate = 1;
         used = cortex_append(out, outsz, used, g_cortex_root, g_cortex_root_len);
-        used = cortex_append(out, outsz, used, k_rootfs_lib_dirs[i], strlen(k_rootfs_lib_dirs[i]));
+        used = cortex_append(out, outsz, used, k_rootfs_lib_dirs[i], dir_len);
     }
     return used;
+}
+
+// All of them.
+static size_t append_rootfs_lib_dirs(char *out, size_t outsz, size_t used, int separate) {
+    return append_rootfs_lib_dirs_missing_from(out, outsz, used, separate, NULL);
 }

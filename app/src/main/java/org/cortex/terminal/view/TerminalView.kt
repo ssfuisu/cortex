@@ -591,7 +591,7 @@ class TerminalView @JvmOverloads constructor(
 
     fun setTerminalTextSize(sp: Float) {
         terminalTextSizeSp = sp
-        val px = sp * resources.displayMetrics.scaledDensity
+        val px = sp * resources.displayMetrics.density * resources.configuration.fontScale
         textPaint.textSize = px
         measureCharDimensions()
         updateTerminalDimensions()

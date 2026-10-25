@@ -28,7 +28,6 @@ object Environment {
         val root = getCortexRoot(context).absolutePath
         val home = getHomeDir(context).absolutePath
         val tmp = getTmpDir(context).absolutePath
-        val nativeLibs = getNativeLibDir(context).absolutePath
 
         val pathList = listOf(
             "/home/.local/bin",

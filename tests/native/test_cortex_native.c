@@ -1763,6 +1763,35 @@ static void test_path_helpers(void) {
     append_rootfs_lib_dirs(with_sep, sizeof(with_sep), 1, 1);
     ASSERT_TRUE(strncmp(with_sep, "x:/data", 7) == 0, "separate=1 starts with ':'");
 
+    /* the caller's list that is this list already adds nothing, a part of it only what it lacks */
+    char merged[4096];
+    size_t used = (size_t)snprintf(merged, sizeof(merged), "%s", dirs);
+    size_t merged_len = append_rootfs_lib_dirs_missing_from(merged, sizeof(merged), used, 1, dirs);
+    ASSERT_EQ(merged_len, used, "the same list adds no directory");
+    ASSERT_STR_EQ(merged, dirs, "and leaves the list as it was");
+    const char *root = "/data/data/org.cortex.terminal/files/cortex";
+    char caller[512];
+    snprintf(caller, sizeof(caller), "%s/usr/lib/aarch64-linux-gnu:/opt/own/lib:%s/lib", root, root);
+    used = (size_t)snprintf(merged, sizeof(merged), "%s", caller);
+    append_rootfs_lib_dirs_missing_from(merged, sizeof(merged), used, 1, caller);
+    char expect_first[512];
+    snprintf(expect_first, sizeof(expect_first), "%s:%s/lib/aarch64-linux-gnu:", caller, root);
+    ASSERT_TRUE(strncmp(merged, expect_first, strlen(expect_first)) == 0,
+                "the caller's directories stay first, the missing ones follow in the usual order");
+    entries = 1;
+    for (const char *p = merged; *p; p++) entries += (*p == ':');
+    ASSERT_EQ(entries, 13 + 1, "13 directories of the rootfs, and the caller's own one");
+    char only_root[4096];
+    append_rootfs_lib_dirs_missing_from(only_root, sizeof(only_root), 0, 0, "");
+    ASSERT_STR_EQ(only_root, dirs, "no list of the caller's adds all of them, without a leading ':'");
+    char prefix_only[256];
+    snprintf(prefix_only, sizeof(prefix_only), "%s/lib/aarch64-linux-gnu-extra", root);
+    used = (size_t)snprintf(merged, sizeof(merged), "%s", prefix_only);
+    append_rootfs_lib_dirs_missing_from(merged, sizeof(merged), used, 1, prefix_only);
+    entries = 1;
+    for (const char *p = merged; *p; p++) entries += (*p == ':');
+    ASSERT_EQ(entries, 13 + 1, "a directory whose name only begins like one of the list is not that one");
+
     /* SELinux label filtering of listxattr() results */
     char list1[] = "user.a\0security.selinux\0user.b";
     ssize_t n1 = drop_selinux_xattr(list1, (ssize_t)sizeof(list1));

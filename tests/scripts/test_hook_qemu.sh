@@ -131,6 +131,9 @@ prog kept_parent <<'EOC'
 #include <sys/mman.h>
 #include <unistd.h>
 int main(int argc, char **argv) {
+    // This program started without a translator's file (the memory file is made below), so the hook
+    // would tell the next one that there is none; as on a machine that has a translator, it is not
+    putenv("CORTEX_NT=1");
     int fd = memfd_create("child", 0);
     if (fd != 3) {
         if (dup2(fd, 3) != 3) return 2;
@@ -144,6 +147,35 @@ EOC
 out=$(run "$work/kept_parent" "$work/root/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1" "$work/hook.so" "$work/root/lib/aarch64-linux-gnu" "$work/kept_child")
 check "a descriptor that is the translator's memory file stays open" test "$out" = "descriptor 3 after close(): kept"
 [ "$out" = "descriptor 3 after close(): kept" ] || echo "        got: $out"
+
+# A program that found no translator's files tells the ones it starts, which then do not look (the
+# look is a system call to /proc/self/fd in every program that is started)
+prog nt_child <<'EOC'
+#include <stdio.h>
+#include <stdlib.h>
+int main(void) {
+    const char *v = getenv("CORTEX_NT");
+    printf("CORTEX_NT=%s\n", v ? v : "unset");
+    return 0;
+}
+EOC
+prog nt_parent <<'EOC'
+#include <stdlib.h>
+#include <unistd.h>
+int main(int argc, char **argv) {
+    if (argc > 1) putenv(argv[1]);
+    char *args[] = { "nt_child", NULL };
+    execv("/bin/nt_child", args);
+    return 3;
+}
+EOC
+mkdir -p "$work/root/bin" && cp "$work/nt_child" "$work/root/bin/nt_child"
+out=$(run "$work/nt_parent")
+check "a program started by one that found no translator is told so" test "$out" = "CORTEX_NT=0"
+[ "$out" = "CORTEX_NT=0" ] || echo "        got: $out"
+out=$(run "$work/nt_parent" CORTEX_NT=1)
+check "a value of its own is left as it is" test "$out" = "CORTEX_NT=1"
+[ "$out" = "CORTEX_NT=1" ] || echo "        got: $out"
 
 # The descriptors of an ordinary program are closed as asked
 prog plain_child <<'EOC'

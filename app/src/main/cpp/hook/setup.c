@@ -74,6 +74,14 @@ static void init_cortex_hook(void) {
     g_initialized = 1;
 }
 
+// Before the program runs: init_cortex_hook() sets variables, and setenv() may move the block the
+// environment is kept in. A program that had changed its environment (putenv, setenv) and passed it
+// to execv() before its first call into the hook handed the exec code a block that was freed by the
+// time it was read.
+__attribute__((constructor(103))) static void init_cortex_hook_early(void) {
+    init_cortex_hook();
+}
+
 void tzset(void) {
     static void (*orig_tzset)(void) = NULL;
     if (!orig_tzset) orig_tzset = (void (*)(void))dlsym(RTLD_NEXT, "tzset");

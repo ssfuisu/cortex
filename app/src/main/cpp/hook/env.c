@@ -13,10 +13,11 @@ static char **clean_env_for_system(char *const envp[]) {
     int dst = 0;
     int has_path = 0;
     for (int i = 0; i < count; i++) {
-        if (strncmp(envp[i], "LD_PRELOAD=", 11) != 0 &&
-            strncmp(envp[i], "LD_LIBRARY_PATH=", 16) != 0 &&
-            strncmp(envp[i], "GLIBC_TUNABLES=", 15) != 0) {
-            if (strncmp(envp[i], "PATH=", 5) == 0) {
+        char first = envp[i][0];
+        if (!((first == 'L' && (strncmp(envp[i], "LD_PRELOAD=", 11) == 0 ||
+                                strncmp(envp[i], "LD_LIBRARY_PATH=", 16) == 0)) ||
+              (first == 'G' && strncmp(envp[i], "GLIBC_TUNABLES=", 15) == 0))) {
+            if (first == 'P' && strncmp(envp[i], "PATH=", 5) == 0) {
                 has_path = 1;
                 size_t plen = strlen(envp[i]);
                 char *new_path = malloc(plen + 64);
@@ -56,31 +57,41 @@ static char **prepare_cortex_env(char *const envp[], const char *real_exe) {
 
     const char *chosen_real_exe = (real_exe && real_exe[0] != '\0') ? real_exe : (g_real_exe[0] != '\0' ? g_real_exe : NULL);
 
+    // Every variable is looked at on every exec, so only the names that start with its first letter
+    // are compared (this was 13 strncmp() calls for each of the 30 or so variables)
+    int has_nt = 0;
     while (envp && envp[count]) {
-        if (strncmp(envp[count], "LD_PRELOAD=", 11) == 0) {
-            has_preload = 1;
-        } else if (strncmp(envp[count], "LD_LIBRARY_PATH=", 16) == 0) {
-            has_ld_library_path = 1;
-        } else if (strncmp(envp[count], "CORTEX_ROOT=", 12) == 0) {
-            has_root = 1;
-        } else if (strncmp(envp[count], "GLIBC_TUNABLES=", 15) == 0) {
-            has_tunables = 1;
-        } else if (strncmp(envp[count], "PATH=", 5) == 0) {
-            has_path = 1;
-        } else if (strncmp(envp[count], "TMPDIR=", 7) == 0) {
-            has_tmp = 1;
-        } else if (strncmp(envp[count], "DPKG_DEB_THREADS_MAX=", 21) == 0) {
-            has_threads_max = 1;
-        } else if (strncmp(envp[count], "XZ_OPT=", 7) == 0) {
-            has_xz_opt = 1;
-        } else if (strncmp(envp[count], "XZ_DEFAULTS=", 12) == 0) {
-            has_xz_defaults = 1;
-        } else if (strncmp(envp[count], "DEBIAN_FRONTEND=", 16) == 0) {
-            has_frontend = 1;
-        } else if (strncmp(envp[count], "DEBCONF_FRONTEND=", 17) == 0) {
-            has_debconf_frontend = 1;
-        } else if (strncmp(envp[count], "DEBCONF_NONINTERACTIVE_SEEN=", 28) == 0) {
-            has_debconf_seen = 1;
+        const char *e = envp[count];
+        switch (e[0]) {
+        case 'L':
+            if (strncmp(e, "LD_PRELOAD=", 11) == 0) has_preload = 1;
+            else if (strncmp(e, "LD_LIBRARY_PATH=", 16) == 0) has_ld_library_path = 1;
+            break;
+        case 'C':
+            if (strncmp(e, "CORTEX_ROOT=", 12) == 0) has_root = 1;
+            else if (strncmp(e, "CORTEX_NT=", 10) == 0) has_nt = 1;
+            break;
+        case 'G':
+            if (strncmp(e, "GLIBC_TUNABLES=", 15) == 0) has_tunables = 1;
+            break;
+        case 'P':
+            if (strncmp(e, "PATH=", 5) == 0) has_path = 1;
+            break;
+        case 'T':
+            if (strncmp(e, "TMPDIR=", 7) == 0) has_tmp = 1;
+            break;
+        case 'X':
+            if (strncmp(e, "XZ_OPT=", 7) == 0) has_xz_opt = 1;
+            else if (strncmp(e, "XZ_DEFAULTS=", 12) == 0) has_xz_defaults = 1;
+            break;
+        case 'D':
+            if (strncmp(e, "DPKG_DEB_THREADS_MAX=", 21) == 0) has_threads_max = 1;
+            else if (strncmp(e, "DEBIAN_FRONTEND=", 16) == 0) has_frontend = 1;
+            else if (strncmp(e, "DEBCONF_FRONTEND=", 17) == 0) has_debconf_frontend = 1;
+            else if (strncmp(e, "DEBCONF_NONINTERACTIVE_SEEN=", 28) == 0) has_debconf_seen = 1;
+            break;
+        default:
+            break;
         }
         count++;
     }
@@ -89,7 +100,7 @@ static char **prepare_cortex_env(char *const envp[], const char *real_exe) {
     int dst = 0;
     for (int i = 0; i < count; i++) {
         // If we have an explicit real executable, drop the inherited entry to replace with the fresh target
-        if (chosen_real_exe && strncmp(envp[i], "CORTEX_REAL_EXE=", 16) == 0) {
+        if (chosen_real_exe && envp[i][0] == 'C' && strncmp(envp[i], "CORTEX_REAL_EXE=", 16) == 0) {
             continue;
         }
         new_env[dst++] = envp[i];
@@ -136,6 +147,11 @@ static char **prepare_cortex_env(char *const envp[], const char *real_exe) {
             snprintf(str, PATH_MAX + 16, "CORTEX_ROOT=%s", g_cortex_root);
             new_env[dst++] = str;
         }
+    }
+    // This process looked for the ARM translator's files and found none: the programs it starts
+    // need not look again (it takes a look at /proc/self/fd in each of them, see privileged.c)
+    if (!has_nt && g_no_translator) {
+        new_env[dst++] = strdup("CORTEX_NT=0");
     }
     if (!has_tunables) {
         new_env[dst++] = strdup("GLIBC_TUNABLES=glibc.pthread.rseq=0");

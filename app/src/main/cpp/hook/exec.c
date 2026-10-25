@@ -39,17 +39,6 @@ static void resolve_symlinks(const char *path, char *out, size_t out_size, int d
     resolve_symlinks(next_path, out, out_size, depth + 1);
 }
 
-static int has_pt_interp(const char *path) {
-    if (!path || path[0] == '\0') return 0;
-    int fd = open(path, O_RDONLY);
-    if (fd < 0) return 0;
-    unsigned char ehdr[64];
-    ssize_t n = read(fd, ehdr, sizeof(ehdr));
-    int ret = check_elf_dynamic(fd, ehdr, n);
-    close(fd);
-    return ret;
-}
-
 static char **ensure_hook_in_envp(char *const envp[], const char *real_exe) {
     return prepare_cortex_env(envp, real_exe);
 }
@@ -61,7 +50,7 @@ static void build_ld_library_path(char *const envp[], char *out_buf, size_t out_
     const char *caller_ld = NULL;
     if (envp) {
         for (int i = 0; envp[i] != NULL; i++) {
-            if (strncmp(envp[i], "LD_LIBRARY_PATH=", 16) == 0) {
+            if (envp[i][0] == 'L' && strncmp(envp[i], "LD_LIBRARY_PATH=", 16) == 0) {
                 caller_ld = envp[i] + 16;
                 break;
             }
@@ -96,7 +85,7 @@ static void build_ld_library_path(char *const envp[], char *out_buf, size_t out_
     }
 
     size_t used = cortex_append(out_buf, out_size, 0, rewritten_caller, strlen(rewritten_caller));
-    append_rootfs_lib_dirs(out_buf, out_size, used, used > 0);
+    append_rootfs_lib_dirs_missing_from(out_buf, out_size, used, used > 0, rewritten_caller);
 }
 
 // The file whose header decides how to start `target`: the symlink-resolved ELF (so ld.so and

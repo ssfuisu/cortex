@@ -290,6 +290,29 @@ if [ ! -d /system/bin ]; then
     [ "$OUT" = "ok" ] && pass "root mode is recognised without CORTEX_CHROOT (no CORTEX_ROOT, no /system)" || fail "root mode detection: got '$OUT'"
 fi
 
+# Normal mode on a phone without root (no su to ask, or one that does not give root): sudo and su run
+# what they are given in Cortex's own root, instead of failing with "root not found"
+nomode() { env -u CORTEX_CHROOT -u CORTEX_HOST_SU CORTEX_ROOT="$SU_TEST_DIR" PATH="$ROOTMODE_STUBS:$PATH" SHELL="$BASH_EXEC" "$@"; }
+OUT="$(nomode CORTEX_INVOKED_AS=sudo bash "$SU_SH" printf '%s|%s' "arg with spaces" "arg'quote" 2>&1)"
+[ "$OUT" = "arg with spaces|arg'quote" ] && pass "no root: sudo runs the command with its arguments" || fail "no root: sudo command: got '$OUT'"
+OUT="$(nomode CORTEX_INVOKED_AS=sudo bash "$SU_SH" -E -n -- printf ok 2>&1)"
+[ "$OUT" = "ok" ] && pass "no root: sudo ignores its options" || fail "no root: sudo options: got '$OUT'"
+OUT="$(nomode CORTEX_INVOKED_AS=sudo bash "$SU_SH" -u postgres psql -l 2>&1)"
+[ "$OUT" = "runuser -u postgres -- psql -l" ] && pass "no root: sudo -u USER uses runuser" || fail "no root: sudo -u: got '$OUT'"
+OUT="$(nomode CORTEX_INVOKED_AS=su bash "$SU_SH" -c 'printf "%s|%s" "$1" "$2"' _ one 'two words' 2>&1)"
+[ "$OUT" = "one|two words" ] && pass "no root: su -c runs the command with the shell's arguments" || fail "no root: su -c: got '$OUT'"
+OUT="$(nomode CORTEX_INVOKED_AS=su bash "$SU_SH" root -c 'printf ok' 2>&1)"
+[ "$OUT" = "ok" ] && pass "no root: su root -c runs the command" || fail "no root: su root -c: got '$OUT'"
+OUT="$(nomode CORTEX_INVOKED_AS=su bash "$SU_SH" - postgres 2>&1)"
+[ "$OUT" = "runuser -l postgres" ] && pass "no root: su - USER uses runuser -l" || fail "no root: su - USER: got '$OUT'"
+OUT="$(nomode CORTEX_INVOKED_AS=su bash "$SU_SH" postgres -c 'psql -l' 2>&1)"
+[ "$OUT" = "runuser -u postgres -- $BASH_EXEC -c psql -l" ] && pass "no root: su USER -c CMD uses runuser -u" || fail "no root: su USER -c: got '$OUT'"
+NOROOT_SU="$TEST_TMP/mock_su_no_root"
+printf '#!%s\nexit 1\n' "$BASH_EXEC" > "$NOROOT_SU"
+chmod +x "$NOROOT_SU"
+OUT="$(env -u CORTEX_CHROOT CORTEX_HOST_SU="$NOROOT_SU" CORTEX_ROOT="$SU_TEST_DIR" CORTEX_INVOKED_AS=sudo bash "$SU_SH" printf ok 2>&1)"
+[ "$OUT" = "ok" ] && pass "a su that does not give root: sudo runs the command in Cortex's root" || fail "su without root: got '$OUT'"
+
 TSU_DIR="$TEST_TMP/tsu-dir"
 mkdir -p "$TSU_DIR"
 printf '#!%s\necho "as=${CORTEX_INVOKED_AS:-none} $*"\n' "$BASH_EXEC" > "$TSU_DIR/su"

@@ -222,7 +222,7 @@ class CortexService : Service() {
                 }
             }
             ACTION_STOP -> {
-                stopForeground(true)
+                stopForeground(Service.STOP_FOREGROUND_REMOVE)
                 stopSelf()
                 return START_NOT_STICKY
             }
@@ -279,7 +279,7 @@ class CortexService : Service() {
             _sessionManager = null
         } catch (e: Exception) {}
 
-        stopForeground(true)
+        stopForeground(Service.STOP_FOREGROUND_REMOVE)
         stopSelf()
 
         MainActivity.instance?.let { act ->
@@ -382,7 +382,7 @@ class CortexService : Service() {
     override fun onTaskRemoved(rootIntent: Intent?) {
         // Keep running in foreground if there are active sessions
         if (_sessionManager == null || _sessionManager?.sessions?.isEmpty() == true) {
-            stopForeground(true)
+            stopForeground(Service.STOP_FOREGROUND_REMOVE)
             stopSelf()
         }
         super.onTaskRemoved(rootIntent)

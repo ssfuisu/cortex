@@ -19,41 +19,87 @@ quote_args() {
 INVOKED_AS="${CORTEX_INVOKED_AS:-$(basename "$0")}"
 unset CORTEX_INVOKED_AS
 
+# sudo (and "root") where the shell already is root, as far as the programs can tell: real root in
+# root mode, and in normal mode Cortex's own root of the Ubuntu files (the preloaded library presents
+# the app's user as root). The command is run as it is; "-u USER" goes through runuser.
+sudo_direct() {
+    local target_user="" login=0
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            -u|--user) target_user="${2:-}"; shift; [ "$#" -gt 0 ] && shift ;;
+            -u*) target_user="${1#-u}"; shift ;;
+            --user=*) target_user="${1#--user=}"; shift ;;
+            -i|--login) login=1; shift ;;
+            -g|--group|-p|--prompt|-C|--close-from|-D|--chdir|-h|--host|-r|--role|-t|--type|-T|--command-timeout)
+                shift; [ "$#" -gt 0 ] && shift ;;
+            --) shift; break ;;
+            -*) shift ;; # -E, -H, -n, -S, -k, -s, ...: nothing to do as root
+            *) break ;;
+        esac
+    done
+    if [ -n "$target_user" ] && [ "$target_user" != "root" ] && [ "$target_user" != "0" ]; then
+        if [ "$login" = 1 ]; then
+            [ "$#" -eq 0 ] && exec runuser -l "$target_user"
+            exec runuser -l "$target_user" -c "$(quote_args "$@")"
+        fi
+        [ "$#" -eq 0 ] && exec runuser -u "$target_user" -- "${SHELL:-/bin/bash}"
+        exec runuser -u "$target_user" -- "$@"
+    fi
+    if [ "$#" -eq 0 ]; then
+        [ "$login" = 1 ] && exec /bin/bash -l
+        exec "${SHELL:-/bin/bash}"
+    fi
+    [ "$login" = 1 ] && exec /bin/bash -l -c "$(quote_args "$@")"
+    exec "$@"
+}
+
+# su (and tsu) on a phone without root: root's shell is the one already running; another user goes
+# through runuser, which sets the ids the way the preloaded library lets it. Takes the usual forms:
+# su, su -, su -c CMD, su USER, su - USER, su USER -c CMD, su -s SHELL.
+su_direct() {
+    local login=0 command="" have_command=0 target_user="" shell_path=""
+    local shell_args=()
+    # Android's su starts with -c and hands what follows the command to the shell ("su -c CMD ARG..."),
+    # where Ubuntu's su takes the user name there
+    local android_style=0
+    [ "${1:-}" = "-c" ] && android_style=1
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            -|-l|--login) login=1; shift ;;
+            -c|--command) have_command=1; command="${2:-}"; shift; [ "$#" -gt 0 ] && shift ;;
+            --command=*) have_command=1; command="${1#--command=}"; shift ;;
+            -s|--shell) shell_path="${2:-}"; shift; [ "$#" -gt 0 ] && shift ;;
+            --shell=*) shell_path="${1#--shell=}"; shift ;;
+            -g|--group|-G|--supp-group|-w|--whitelist-environment) shift; [ "$#" -gt 0 ] && shift ;;
+            --) shift; break ;;
+            -*) shift ;; # -m, -p, -P, --preserve-environment, ...
+            *)
+                if [ -z "$target_user" ] && [ "$android_style" = 0 ]; then target_user="$1"; else shell_args+=("$1"); fi
+                shift ;;
+        esac
+    done
+    shell_args+=("$@")
+    local shell_cmd="${shell_path:-${SHELL:-/bin/bash}}"
+    case "$target_user" in root|0) target_user="" ;; esac
+    if [ -n "$target_user" ]; then
+        if [ "$login" = 1 ]; then
+            [ "$have_command" = 1 ] && exec runuser -l "$target_user" -c "$command"
+            exec runuser -l "$target_user"
+        fi
+        [ "$have_command" = 1 ] && exec runuser -u "$target_user" -- "$shell_cmd" -c "$command" "${shell_args[@]}"
+        exec runuser -u "$target_user" -- "$shell_cmd" "${shell_args[@]}"
+    fi
+    local login_flag=()
+    [ "$login" = 1 ] && login_flag=(-l)
+    [ "$have_command" = 1 ] && exec "$shell_cmd" "${login_flag[@]}" -c "$command" "${shell_args[@]}"
+    exec "$shell_cmd" "${login_flag[@]}" "${shell_args[@]}"
+}
+
 # Root mode: the shell is already real root in a chroot of the rootfs (normal mode always has
 # CORTEX_ROOT and sees Android's /system). su is Ubuntu's own su then, and sudo runs the command.
 if [ -n "${CORTEX_CHROOT:-}" ] || { [ -z "${CORTEX_ROOT:-}" ] && [ ! -d /system/bin ]; }; then
     case "$INVOKED_AS" in
-        sudo|root)
-            target_user=""
-            login=0
-            while [ "$#" -gt 0 ]; do
-                case "$1" in
-                    -u|--user) target_user="${2:-}"; shift; [ "$#" -gt 0 ] && shift ;;
-                    -u*) target_user="${1#-u}"; shift ;;
-                    --user=*) target_user="${1#--user=}"; shift ;;
-                    -i|--login) login=1; shift ;;
-                    -g|--group|-p|--prompt|-C|--close-from|-D|--chdir|-h|--host|-r|--role|-t|--type|-T|--command-timeout)
-                        shift; [ "$#" -gt 0 ] && shift ;;
-                    --) shift; break ;;
-                    -*) shift ;; # -E, -H, -n, -S, -k, -s, ...: nothing to do as root
-                    *) break ;;
-                esac
-            done
-            if [ -n "$target_user" ] && [ "$target_user" != "root" ] && [ "$target_user" != "0" ]; then
-                if [ "$login" = 1 ]; then
-                    [ "$#" -eq 0 ] && exec runuser -l "$target_user"
-                    exec runuser -l "$target_user" -c "$(quote_args "$@")"
-                fi
-                [ "$#" -eq 0 ] && exec runuser -u "$target_user" -- "${SHELL:-/bin/bash}"
-                exec runuser -u "$target_user" -- "$@"
-            fi
-            if [ "$#" -eq 0 ]; then
-                [ "$login" = 1 ] && exec /bin/bash -l
-                exec "${SHELL:-/bin/bash}"
-            fi
-            [ "$login" = 1 ] && exec /bin/bash -l -c "$(quote_args "$@")"
-            exec "$@"
-            ;;
+        sudo|root) sudo_direct "$@" ;;
         *)
             for real_su in ${CORTEX_REAL_SU:-} /usr/bin/su /bin/su; do
                 if [ -x "$real_su" ]; then
@@ -64,6 +110,15 @@ if [ -n "${CORTEX_CHROOT:-}" ] || { [ -z "${CORTEX_ROOT:-}" ] && [ ! -d /system/
             ;;
     esac
 fi
+
+# No Android root to ask (nothing called su on the phone, or it does not give root): Cortex's root
+# of the Ubuntu files is what there is, and "sudo apt install x" from any guide works as it is.
+no_android_root() {
+    case "$INVOKED_AS" in
+        sudo|root) sudo_direct "$@" ;;
+        *) su_direct "$@" ;;
+    esac
+}
 
 find_host_su() {
     if [ -n "${CORTEX_HOST_SU:-}" ]; then
@@ -122,9 +177,9 @@ find_host_su() {
 
 HOST_SU=$(find_host_su)
 
-if [ -z "$HOST_SU" ]; then
-    echo "root not found" >&2
-    exit 1
+# find_host_su answers plain "su" when it found nothing
+if [ -z "$HOST_SU" ] || [ "$HOST_SU" = "su" ]; then
+    no_android_root "$@"
 fi
 
 if [ -x "$HOST_SU" ] || [ -f "$HOST_SU" ]; then
@@ -168,8 +223,7 @@ CHECK_ROOT() {
 }
 
 if ! CHECK_ROOT; then
-    echo "root not found" >&2
-    exit 1
+    no_android_root "$@"
 fi
 
 if [ -z "${CORTEX_ROOT:-}" ]; then

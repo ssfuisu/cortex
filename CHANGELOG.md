@@ -4,6 +4,74 @@ What changed in each version of Cortex Terminal, newest first. The release workf
 of a GitHub release from the section of its version here. Older versions are described on the
 [GitHub releases](https://github.com/ssfuisu/cortex/releases) page.
 
+## 1.26.40 (2026-10-25)
+
+### Fixed
+
+- **redis, nginx and PostgreSQL install.** The Ubuntu image kept only `root`, `daemon` and `cortex` in
+  `/etc/passwd` and `/etc/group`, but the scripts of packages use the system users and groups every
+  Ubuntu has (`man`, `www-data`, `adm`, `tty`, `staff`...): `apt install redis-server`, `nginx` or
+  `postgresql` (and any package whose man page the man-db trigger makes, with `setpriv --reuid=man`)
+  stopped halfway. Cortex now adds what is missing from the list Ubuntu's own `base-passwd` keeps in
+  the image (`/usr/share/base-passwd`), with locked entries in `/etc/shadow` and `/etc/gshadow`, and
+  changes nothing that is there. redis then starts and answers (`PONG`) in the emulator test, nginx
+  installs and serves a page. PostgreSQL installs too, but its server refuses to run as root and an
+  app cannot become another user, so the cluster the package would make is not made outside root
+  mode (`psql` works).
+- **ripgrep, `rustc` and `cargo` crashed at the first file they opened.** Rust asks whether `statx`
+  exists by calling it with a NULL path; glibc's header says the path is never NULL, so the compiler
+  deleted the hook's check. Both programs now work (emulator test: ripgrep and Rust's hello world).
+- **`chfn` and `adduser --gecos` (which PostgreSQL's installation runs) failed** ("Authentication
+  failure"): Ubuntu's libraries found Android's SELinux and PAM's root check then refused root.
+  SELinux is off for Ubuntu's programs, and the shadow database is read from the image's
+  `/etc/shadow` (`getspnam`).
+- **`go run` and `go build` could crash at random** (a segmentation fault in the Go tool): the
+  scratch memory that Cortex's change in a Go program uses for the paths it rewrites was shared by
+  goroutines that ran at the same time. Each slot now belongs to the goroutine that took it until
+  it is done (the build runs a stress test: 96 goroutines read 200 files 300 times each).
+- **`sudo` and `su` on a phone without root said "root not found".** `sudo apt install x`, the first
+  line of nearly every guide, now runs the command as it is (Cortex's shell is root inside Ubuntu as
+  far as the programs can tell); `sudo -u USER`, `sudo -i`, `su USER`, `su -c CMD` and `su -` work
+  through `runuser` and the shell. On a phone that gives Cortex real root they still ask Android for it.
+- A program that called `putenv()` or `setenv()` and then `execv()` before it used any file could
+  crash in the exec (the hook set its variables only then, and the block the program had passed was
+  freed by that). The hook now starts before the program does.
+
+### Faster
+
+- **Starting programs.** What the library adds to starting a program is about half of what it was.
+  The look for the ARM translator's memory files (x86 emulators and Chromebooks; a phone has none)
+  asked about each descriptor from 3 to 63, 61 system calls in every program; it now reads
+  `/proc/self/fd` once, and only in the first program of a session: the ones it starts are told
+  there is nothing to find (`CORTEX_NT=0`). `ld.so` is given every library directory once instead
+  of twice, and the environment is prepared with a fifth of the comparisons. Measured against 1.26.39
+  with the same benchmark on one x86 machine: the library's share of starting `ld.so` 457 µs ->
+  189 µs, starting a program as a shell does 16% faster, a script 11%. Counted with qemu-user a
+  program that does nothing makes 177 system calls instead of 236 (170 without the library), a
+  shell starting a program five times 548 instead of 916, a login shell 1,111 instead of 1,357,
+  `dpkg -l` 569 instead of 752, `ls -l` 713 instead of 837.
+- **Less waking of the phone.** The watch for local web servers looked every 3 seconds even when
+  nothing was listening, and on Android 10 and newer every look asked `/proc/net`, which they
+  refuse (each refusal a line in the system log). There it now looks every 15 seconds when there is
+  nothing to follow and asks `/proc/net` again only every 10 minutes; the hook's own reports still
+  wake it at once.
+- No warning from the compiler or the Android SDK that the code can avoid: the unused function and
+  variable, `stopForeground(true)` and `scaledDensity` are replaced.
+
+### For developers
+
+- `tests/scripts/test_hook_qemu.sh` runs the hook under qemu-user with small programs (statx with a
+  NULL path, SELinux, the shadow file, the translator's descriptors, `CORTEX_NT`, `putenv` +
+  `execv`); the build runs it. `tests/scripts/test_go_programs.sh` has a stress test of the Go
+  change. `tests/scripts/test_shell_scripts.sh` covers `sudo` and `su` without root.
+- The package compatibility run takes the packages to test (`only`) and the APKs of a dry run
+  (`apk_run`); the nginx test installs the `curl` it needs, and PostgreSQL has a client row (passes)
+  next to the server row (a known gap outside root mode: the server refuses to run as root, and an
+  app cannot become another user).
+- Known gaps, seen in the x86 emulator only: Go programs and the JVM's compiler crash inside the
+  emulator's ARM translator (a Go program also when it is not changed by Cortex; they run under
+  qemu-user and on phones).
+
 ## 1.26.39 (2026-10-25)
 
 ### New
