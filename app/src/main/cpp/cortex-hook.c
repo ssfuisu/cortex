@@ -31,6 +31,7 @@
 #include <sys/time.h>
 #include <pwd.h>
 #include <grp.h>
+#include <shadow.h>
 #include <pthread.h>
 #include <sys/sendfile.h>
 #include <sys/mman.h>

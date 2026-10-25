@@ -56,8 +56,27 @@ class LocalServers(private val context: Context, private val root: File) {
         if (executor != null) return
         executor = Executors.newSingleThreadScheduledExecutor { r ->
             Thread(r, "Cortex-LocalServers").apply { isDaemon = true }
-        }.also { it.scheduleWithFixedDelay({ safely { poll() } }, 1, POLL_SECONDS, TimeUnit.SECONDS) }
+        }
+        scheduleNext(1)
     }
+
+    // The next look: soon while there is something to follow (or /proc/net can be read, where servers
+    // the hook does not see are found), seldom when there is nothing: the hook's reports wake the
+    // watch by themselves (FileObserver), and every look is a wake-up of the phone
+    private fun scheduleNext(delaySeconds: Long) {
+        val running = executor ?: return
+        try {
+            running.schedule({
+                safely { poll() }
+                scheduleNext(nextDelaySeconds())
+            }, delaySeconds, TimeUnit.SECONDS)
+        } catch (_: java.util.concurrent.RejectedExecutionException) {
+        }
+    }
+
+    private fun nextDelaySeconds(): Long =
+        if (pending.isNotEmpty() || shown.isNotEmpty() || SystemClock.elapsedRealtime() >= procRetryAt) POLL_SECONDS
+        else IDLE_POLL_SECONDS
 
     @Synchronized
     fun stop() {
@@ -194,7 +213,12 @@ class LocalServers(private val context: Context, private val root: File) {
         null
     }
 
+    // When /proc/net may be asked again (Android 10 and newer refuse it, and every refusal is a line
+    // in the system log and a wake-up for nothing)
+    private var procRetryAt = 0L
+
     private fun procListening(): Set<Int>? {
+        if (SystemClock.elapsedRealtime() < procRetryAt) return null
         val uids = if (RootMode.isEnabled(context)) setOf(Process.myUid(), 0) else setOf(Process.myUid())
         var any = false
         val ports = mutableSetOf<Int>()
@@ -207,7 +231,10 @@ class LocalServers(private val context: Context, private val root: File) {
             any = true
             ports += ServerPorts.parseProcNetListening(text, uids)
         }
-        if (!any) return null
+        if (!any) {
+            procRetryAt = SystemClock.elapsedRealtime() + PROC_RETRY_MS
+            return null
+        }
         // Only a list that has cortex-api's own port shows the app's sockets
         val api = ApiServer.port
         return if (api == null || api in ports) ports else null
@@ -288,6 +315,8 @@ class LocalServers(private val context: Context, private val root: File) {
         const val CHANNEL_ID = "cortex_servers"
         const val PREF_NOTIFY_SERVERS = "notify_servers"
         private const val POLL_SECONDS = 3L
+        private const val IDLE_POLL_SECONDS = 15L
+        private const val PROC_RETRY_MS = 10 * 60 * 1000L
         private const val GIVE_UP_MS = 60_000L
         private const val CONNECT_TIMEOUT_MS = 500
         private const val READ_TIMEOUT_MS = 1500

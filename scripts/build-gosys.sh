@@ -35,7 +35,7 @@ trap 'rm -rf "$tmp"' EXIT
 "${CC[@]}" -std=gnu11 -O2 -Wall -Wextra -Werror \
   -ffreestanding -fno-builtin -nostdlib -fPIE -fvisibility=hidden -fno-stack-protector \
   -fno-asynchronous-unwind-tables -fno-unwind-tables -fno-tree-loop-distribute-patterns \
-  -mcmodel=tiny -mgeneral-regs-only -mno-outline-atomics -ffixed-x18 \
+  -mcmodel=tiny -mgeneral-regs-only -mno-outline-atomics -ffixed-x18 -ffixed-x28 \
   -c "$src/gosys.c" -o "$tmp/gosys.o"
 "${LD[@]}" -T "$src/gosys.ld" -nostdlib -o "$tmp/gosys.elf" "$tmp/gosys.o"
 "${OBJCOPY[@]}" -O binary "$tmp/gosys.elf" "$tmp/gosys.bin"

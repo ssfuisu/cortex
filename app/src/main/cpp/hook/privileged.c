@@ -65,10 +65,11 @@ __attribute__((constructor(102))) static void find_translator_files(void) {
         long n = real_getdents64(dir, entries, sizeof(entries));
         if (n <= 0) break;
         for (long off = 0; off < n;) {
-            struct linux_dirent64_head { unsigned long long ino; long long next; unsigned short reclen; unsigned char type; } *e =
-                (struct linux_dirent64_head *)(entries + off);
-            const char *name = entries + off + sizeof(*e);
-            off += e->reclen;
+            // struct linux_dirent64: d_ino (8), d_off (8), d_reclen (2), d_type (1), then d_name
+            unsigned short reclen;
+            memcpy(&reclen, entries + off + 16, sizeof(reclen));
+            const char *name = entries + off + 19;
+            off += reclen ? reclen : n; // a record without a length ends the buffer
             if (name[0] < '0' || name[0] > '9') continue; // "." and ".."
             int fd = atoi(name);
             if (fd >= 3 && fd < 64 && fd != dir) open_fds[nopen++] = (unsigned char)fd;

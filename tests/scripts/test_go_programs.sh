@@ -189,6 +189,13 @@ once=$(hash_of "$work/patched")
 "$work/gopatch" "$root" "$work/patched" >/dev/null
 check "a second patch changes nothing" test "$(hash_of "$work/patched")" = "$once"
 
+# Ninety-six goroutines read two hundred files, each its own. The scratch memory for the rewritten
+# paths was shared by sixteen slots in turn, and a thread that had not run for a moment found
+# another call's path in its slot: `go build` opened other files than it asked for.
+stress_out=$(run_in_root "$work/patched" stress | tail -n 1)
+check "many calls at once each get the file they asked for" bash -c "[[ '$stress_out' == 'stress=ok'* ]]"
+[[ "$stress_out" == 'stress=ok'* ]] || echo "        $stress_out"
+
 # CORTEX_NO_GOSYS=1: the program as it was built, and the code comes back with the next start
 CORTEX_NO_GOSYS=1 "$work/gopatch" "$root" "$work/patched" >/dev/null
 check "CORTEX_NO_GOSYS takes the code out again, exactly" test "$(hash_of "$work/patched")" = "$before"

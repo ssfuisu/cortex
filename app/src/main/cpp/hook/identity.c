@@ -530,6 +530,101 @@ static int cortex_lookup_passwd(const char *search_name, uid_t search_uid, int b
     return 0;
 }
 
+#ifndef CORTEX_HOST_TEST
+// The shadow database (/etc/shadow) of the rootfs. libc reads the real /etc/shadow of the machine,
+// which Android does not have: pam_unix's account check for root found no entry and answered
+// "Authentication failure", so chfn, chsh and `adduser --gecos` (the installation of PostgreSQL)
+// failed. The fields are "name:hash:lastchange:min:max:warn:inactive:expire:flag", numbers empty
+// when unset (libc stores -1 then).
+static int cortex_lookup_shadow(const char *name, struct spwd *sp, char *buf, size_t buflen) {
+    if (!name || !sp || !buf) return EINVAL;
+    char path_buf[PATH_MAX];
+    const char *path = rewrite_path("/etc/shadow", path_buf, sizeof(path_buf));
+    static int (*orig_open)(const char *, int, ...) = NULL;
+    if (!orig_open) orig_open = (int (*)(const char *, int, ...))dlsym(RTLD_NEXT, "open");
+    int fd = (orig_open && path) ? orig_open(path, O_RDONLY | O_CLOEXEC) : -1;
+    if (fd < 0) return ENOENT;
+    FILE *f = fdopen(fd, "r");
+    if (!f) {
+        close(fd);
+        return ENOENT;
+    }
+    size_t name_len = strlen(name);
+    char line[1024];
+    int err = ENOENT;
+    while (fgets(line, sizeof(line), f)) {
+        if (strncmp(line, name, name_len) != 0 || line[name_len] != ':') continue;
+        line[strcspn(line, "\r\n")] = '\0';
+        char *fields[9] = {0};
+        int n = 0;
+        char *cursor = line;
+        while (n < 9) {
+            fields[n++] = cursor;
+            char *colon = strchr(cursor, ':');
+            if (!colon) break;
+            *colon = '\0';
+            cursor = colon + 1;
+        }
+        size_t need = strlen(fields[0]) + 1 + strlen(fields[1] ? fields[1] : "") + 1;
+        if (n < 2 || need > buflen) {
+            err = n < 2 ? ENOENT : ERANGE;
+            break;
+        }
+        char *out = buf;
+        sp->sp_namp = out;
+        memcpy(out, fields[0], strlen(fields[0]) + 1);
+        out += strlen(fields[0]) + 1;
+        sp->sp_pwdp = out;
+        memcpy(out, fields[1], strlen(fields[1]) + 1);
+        long number[6];
+        for (int i = 0; i < 6; i++) {
+            const char *v = (2 + i < n) ? fields[2 + i] : NULL;
+            number[i] = (v && v[0] != '\0') ? strtol(v, NULL, 10) : -1;
+        }
+        sp->sp_lstchg = number[0];
+        sp->sp_min = number[1];
+        sp->sp_max = number[2];
+        sp->sp_warn = number[3];
+        sp->sp_inact = number[4];
+        sp->sp_expire = number[5];
+        sp->sp_flag = (8 < n && fields[8][0] != '\0') ? strtoul(fields[8], NULL, 10) : (unsigned long)-1;
+        err = 0;
+        break;
+    }
+    fclose(f);
+    return err;
+}
+
+int getspnam_r(const char *name, struct spwd *spbuf, char *buf, size_t buflen, struct spwd **result) {
+    static int (*orig_getspnam_r)(const char *, struct spwd *, char *, size_t, struct spwd **) = NULL;
+    if (!orig_getspnam_r) orig_getspnam_r = (int (*)(const char *, struct spwd *, char *, size_t, struct spwd **))dlsym(RTLD_NEXT, "getspnam_r");
+    int ret = ENOENT;
+    if (orig_getspnam_r) {
+        ret = orig_getspnam_r(name, spbuf, buf, buflen, result);
+        if ((ret == 0 && result && *result) || ret == ERANGE) return ret;
+    }
+    int err = cortex_lookup_shadow(name, spbuf, buf, buflen);
+    if (err == 0) {
+        if (result) *result = spbuf;
+        return 0;
+    }
+    if (result) *result = NULL;
+    return err == ENOENT ? (ret != 0 ? ret : ENOENT) : err;
+}
+
+struct spwd *getspnam(const char *name) {
+    static struct spwd entry;
+    static char entry_buf[1024];
+    struct spwd *found = NULL;
+    int err = getspnam_r(name, &entry, entry_buf, sizeof(entry_buf), &found);
+    if (err != 0) {
+        errno = err;
+        return NULL;
+    }
+    return found;
+}
+#endif /* !CORTEX_HOST_TEST */
+
 static struct group s_grp_storage;
 static char s_grp_buf[2048];
 static struct passwd s_pwd_storage;

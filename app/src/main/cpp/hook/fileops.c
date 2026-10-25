@@ -292,6 +292,13 @@ ssize_t __readlinkat_chk(int dirfd, const char *pathname, char *buf, size_t bufs
     return readlinkat(dirfd, pathname, buf, bufsiz);
 }
 
+// Ubuntu's programs find Android's SELinux (enforcing) through libselinux and then ask its policy
+// questions it has no answers for. The one that mattered: PAM's pam_rootok, which lets root
+// change its own entries, asks "may this user be root" and was refused, so chfn, chsh and
+// `adduser --gecos` (the installation of PostgreSQL) failed with "PAM: Authentication failure".
+// Ubuntu does not use SELinux, so for its programs it is off, as its labels are hidden below.
+int is_selinux_enabled(void) { return 0; }
+
 // Extended attributes take the same paths as stat(). Without these hooks coreutils read
 // security.selinux with the Ubuntu path itself: `ls -l` printed an error line for every file
 // Android lacks (/etc/os-release) and showed Android's own label for the ones it has

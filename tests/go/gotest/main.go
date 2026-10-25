@@ -30,9 +30,79 @@ func first(b []byte) string {
 	return s
 }
 
+// stress reads many files from many goroutines at once, each of them its own, and checks every read
+// returned the file that was asked for. The paths are rewritten into a scratch area: when two calls
+// shared one, a thread that was not running for a moment found another path in it and Go programs
+// (go build, go list) opened the wrong files.
+func stress() {
+	dir := "/tmp/gostress"
+	os.RemoveAll(dir)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		fmt.Printf("stress=ERR %v\n", err)
+		return
+	}
+	const files = 200
+	for i := 0; i < files; i++ {
+		name := fmt.Sprintf("%s/f%03d", dir, i)
+		if err := os.WriteFile(name, []byte(fmt.Sprintf("file %03d\n", i)), 0o644); err != nil {
+			fmt.Printf("stress=ERR %v\n", err)
+			return
+		}
+	}
+	const workers = 96
+	const rounds = 300
+	errs := make(chan string, workers)
+	done := make(chan bool, workers)
+	for w := 0; w < workers; w++ {
+		go func(w int) {
+			bad := 0
+			first := ""
+			for r := 0; r < rounds; r++ {
+				i := (w*7 + r*13) % files
+				name := fmt.Sprintf("%s/f%03d", dir, i)
+				b, err := os.ReadFile(name)
+				if err != nil || string(b) != fmt.Sprintf("file %03d\n", i) {
+					bad++
+					if first == "" {
+						first = fmt.Sprintf("%s: read %q err=%v", name, b, err)
+					}
+				}
+				if _, err := os.Stat(name); err != nil {
+					bad++
+					if first == "" {
+						first = fmt.Sprintf("%s: stat err=%v", name, err)
+					}
+				}
+			}
+			if bad > 0 {
+				errs <- fmt.Sprintf("worker %d: %d wrong, first: %s", w, bad, first)
+			}
+			done <- true
+		}(w)
+	}
+	for w := 0; w < workers; w++ {
+		<-done
+	}
+	close(errs)
+	var wrong []string
+	for e := range errs {
+		wrong = append(wrong, e)
+	}
+	os.RemoveAll(dir)
+	if len(wrong) > 0 {
+		fmt.Printf("stress=WRONG %v\n", wrong[:1])
+		return
+	}
+	fmt.Printf("stress=ok %d reads\n", workers*rounds)
+}
+
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "ubuntu" {
 		ubuntu()
+		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "stress" {
+		stress()
 		return
 	}
 	b, err := os.ReadFile("/etc/os-release")

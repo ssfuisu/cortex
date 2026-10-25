@@ -166,10 +166,52 @@ static int rewriting(const struct gosys_hdr *h) {
     return m == 1;
 }
 
-static char *take_slot(const struct gosys_hdr *h) {
+#define NO_SLOT 0xffffffffu
+#define NR_SCHED_YIELD 124
+
+// Who is making the call: the goroutine (x28 holds it, and the code is built not to touch x28). A
+// goroutine makes one call at a time, and the vfork child that a goroutine makes runs with the same
+// x28 as the goroutine does. (TPIDR_EL0 does not tell the threads of a Go program apart: its runtime
+// leaves it unset without cgo.)
+static inline u64 thread_tag(void) {
+    u64 t;
+    __asm__ volatile("mov %0, x28" : "=r"(t));
+    return t;
+}
+
+// A slot for the call this goroutine is making; *held is its number, to give back when the call is
+// done. Each slot has a word of its own that holds who has it (0: nobody), so that taking one is one
+// compare-and-swap, and no other goroutine can ever mistake it for its own.
+static char *take_slot(const struct gosys_hdr *h, u32 *held) {
     char *base = (char *)h + h->scratch_rel;
-    u32 n = __atomic_fetch_add((u32 *)base, 1u, __ATOMIC_RELAXED);
-    return base + GOSYS_STATE_SIZE + (u64)(n % GOSYS_SLOTS) * GOSYS_SLOT_SIZE;
+    u64 *owner = (u64 *)(base + 64);
+    u64 me = thread_tag() | 1; // never 0
+    u32 mine = NO_SLOT;
+    // Slots this goroutine left behind (a vfork child of it took one, then exec'd) are its own again
+    for (u32 i = 0; i < GOSYS_SLOTS; i++) {
+        if (__atomic_load_n(&owner[i], __ATOMIC_RELAXED) != me) continue;
+        if (mine == NO_SLOT)
+            mine = i;
+        else
+            __atomic_store_n(&owner[i], 0, __ATOMIC_RELEASE);
+    }
+    while (mine == NO_SLOT) {
+        for (u32 i = 0; i < GOSYS_SLOTS && mine == NO_SLOT; i++) {
+            u64 none = 0;
+            if (__atomic_load_n(&owner[i], __ATOMIC_RELAXED) == 0 &&
+                __atomic_compare_exchange_n(&owner[i], &none, me, 0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED))
+                mine = i;
+        }
+        if (mine == NO_SLOT) sc(NR_SCHED_YIELD, 0, 0, 0, 0, 0, 0); // all taken: the others finish soon
+    }
+    *held = mine;
+    return base + GOSYS_STATE_SIZE + (u64)mine * GOSYS_SLOT_SIZE;
+}
+
+static void put_slot(const struct gosys_hdr *h, u32 held) {
+    if (held == NO_SLOT) return;
+    char *base = (char *)h + h->scratch_rel;
+    __atomic_store_n((u64 *)(base + 64) + held, 0, __ATOMIC_RELEASE);
 }
 
 // A path as the program expects to see it, from one of the kernel's: the rootfs prefix removed.
@@ -206,11 +248,11 @@ static void put_hex16(char *out, u64 v) {
 // bind() and connect() of a Unix socket with a path: mapped like hook/setup.c does, and hashed
 // into /tmp when it does not fit the 108 bytes of sun_path (the same name, so a Go server and a
 // program using the C library find each other)
-static i64 with_sockaddr(const struct gosys_hdr *h, i64 nr, i64 a0, i64 a1, i64 a2) {
+static i64 with_sockaddr(const struct gosys_hdr *h, u32 *held, i64 nr, i64 a0, i64 a1, i64 a2) {
     const unsigned char *sa = (const unsigned char *)a1;
     if (!sa || a2 < 4 || a2 > 128 || sa[0] != 1 /* AF_UNIX */ || sa[1] != 0 || sa[2] != '/')
         return sc(nr, a0, a1, a2, 0, 0, 0);
-    char *slot = take_slot(h);
+    char *slot = take_slot(h, held);
     char *orig = slot + SLOT_PATH_A;
     u64 max = (u64)a2 - 2;
     if (max > 108) max = 108;
@@ -287,13 +329,13 @@ static i64 exec_host(const struct gosys_hdr *h, char *slot, const char *p, i64 a
 // Cortex is started (Ubuntu's dynamic programs through ld.so, scripts through their interpreter,
 // static programs patched first), with the argv[0] the caller chose. Without bash it is env,
 // which cannot set argv[0]. The path is passed as the caller wrote it.
-static i64 with_execve(const struct gosys_hdr *h, i64 a0, i64 a1, i64 a2) {
+static i64 with_execve(const struct gosys_hdr *h, u32 *held, i64 a0, i64 a1, i64 a2) {
     const char *path = (const char *)a0;
     char *const *argv = (char *const *)a1;
     char *const *envp = (char *const *)a2;
     if (!path || path[0] == '\0') return sc(NR_EXECVE, a0, a1, a2, 0, 0, 0);
 
-    char *slot = take_slot(h);
+    char *slot = take_slot(h, held);
     const char *p = path[0] == '/' ? rw_path(h, path, slot + SLOT_PATH_A, SLOT_PATH_CAP) : path;
     int wrap = h->ldso_len != 0 && h->runner_len != 0 && (path[0] != '/' || in_root(h, p));
     if (!wrap) {
@@ -359,7 +401,7 @@ static i64 with_execve(const struct gosys_hdr *h, i64 a0, i64 a1, i64 a2) {
 
 // Rewrites the path arguments `i1` and `i2` (an index into a[], -1: none) that are absolute, makes
 // the call, and shows the program the paths it expects in what the call returns.
-static i64 with_paths(const struct gosys_hdr *h, i64 nr, i64 *a, int i1, int i2) {
+static i64 with_paths(const struct gosys_hdr *h, u32 *held, i64 nr, i64 *a, int i1, int i2) {
     char *slot = 0;
     int proc_link = 0;
     int idx[2] = { i1, i2 };
@@ -368,7 +410,7 @@ static i64 with_paths(const struct gosys_hdr *h, i64 nr, i64 *a, int i1, int i2)
         if (i < 0) continue;
         const char *p = (const char *)a[i];
         if (!p || p[0] != '/') continue;
-        if (!slot) slot = take_slot(h);
+        if (!slot) slot = take_slot(h, held);
         if (nr == NR_READLINKAT && k == 0 && pre(p, "/proc", 5)) proc_link = 1;
         a[i] = (i64)rw_path(h, p, slot + (k ? SLOT_PATH_B : SLOT_PATH_A), SLOT_PATH_CAP);
     }
@@ -377,10 +419,8 @@ static i64 with_paths(const struct gosys_hdr *h, i64 nr, i64 *a, int i1, int i2)
     return r;
 }
 
-__attribute__((section(".text.cxgo_entry"), used, noinline))
-i64 cxgo_entry(i64 a0, i64 a1, i64 a2, i64 a3, i64 a4, i64 a5, i64 unused, i64 nr) {
-    (void)unused;
-    const struct gosys_hdr *h = hdr();
+// The call itself; a slot that it takes is given back by cxgo_entry
+static i64 handle(const struct gosys_hdr *h, u32 *held, i64 nr, i64 a0, i64 a1, i64 a2, i64 a3, i64 a4, i64 a5) {
     i64 a[6] = { a0, a1, a2, a3, a4, a5 };
     switch (nr) {
     case NR_OPENAT: case NR_FACCESSAT: case NR_FACCESSAT2: case NR_FCHMODAT: case NR_FCHMODAT2:
@@ -401,24 +441,34 @@ i64 cxgo_entry(i64 a0, i64 a1, i64 a2, i64 a3, i64 a4, i64 a5, i64 unused, i64 n
     case NR_FCHOWNAT: case NR_NEWFSTATAT: case NR_STATX: case NR_READLINKAT: case NR_MKDIRAT:
     case NR_MKNODAT: case NR_UNLINKAT: case NR_UTIMENSAT: case NR_OPENAT2: case NR_NAME_TO_HANDLE_AT:
     case NR_INOTIFY_ADD_WATCH:
-        return with_paths(h, nr, a, 1, -1);
+        return with_paths(h, held, nr, a, 1, -1);
     case NR_CHDIR: case NR_CHROOT: case NR_STATFS: case NR_TRUNCATE: case NR_SETXATTR:
     case NR_LSETXATTR: case NR_GETXATTR: case NR_LGETXATTR: case NR_LISTXATTR: case NR_LLISTXATTR:
     case NR_REMOVEXATTR: case NR_LREMOVEXATTR:
-        return with_paths(h, nr, a, 0, -1);
+        return with_paths(h, held, nr, a, 0, -1);
     case NR_RENAMEAT: case NR_RENAMEAT2: case NR_LINKAT:
-        return with_paths(h, nr, a, 1, 3);
+        return with_paths(h, held, nr, a, 1, 3);
     case NR_SYMLINKAT: // the target is data, only the link is a path
-        return with_paths(h, nr, a, 2, -1);
+        return with_paths(h, held, nr, a, 2, -1);
     case NR_GETCWD: {
         i64 r = sc(nr, a0, a1, 0, 0, 0, 0);
         return r > 0 ? unmap_prefix(h, (char *)a0, r, 1) : r;
     }
     case NR_BIND: case NR_CONNECT:
-        return with_sockaddr(h, nr, a0, a1, a2);
+        return with_sockaddr(h, held, nr, a0, a1, a2);
     case NR_EXECVE:
-        return with_execve(h, a0, a1, a2);
+        return with_execve(h, held, a0, a1, a2);
     default:
         return sc(nr, a0, a1, a2, a3, a4, a5);
     }
+}
+
+__attribute__((section(".text.cxgo_entry"), used, noinline))
+i64 cxgo_entry(i64 a0, i64 a1, i64 a2, i64 a3, i64 a4, i64 a5, i64 unused, i64 nr) {
+    (void)unused;
+    const struct gosys_hdr *h = hdr();
+    u32 held = NO_SLOT;
+    i64 r = handle(h, &held, nr, a0, a1, a2, a3, a4, a5);
+    put_slot(h, held);
+    return r;
 }
