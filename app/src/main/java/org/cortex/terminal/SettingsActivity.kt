@@ -27,6 +27,27 @@ class SettingsActivity : AppCompatActivity() {
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
         supportActionBar?.title = getString(R.string.settings_title)
 
+        // In the colors of the terminal's scheme, like the screens of the terminal itself (this
+        // screen can be the first of a new process, so the scheme is read here too)
+        val themeKey = androidx.preference.PreferenceManager.getDefaultSharedPreferences(this)
+            .getString("terminal_theme", "catppuccin") ?: "catppuccin"
+        org.cortex.terminal.emulator.TerminalColor.applyTheme(themeKey)
+        org.cortex.terminal.view.Chrome.apply(
+            org.cortex.terminal.emulator.TerminalColor.SCHEMES.getValue(org.cortex.terminal.emulator.TerminalColor.currentThemeId)
+        )
+        val p = org.cortex.terminal.view.Chrome.palette
+        window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(p.bg))
+        findViewById<android.view.View>(R.id.settings_root).setBackgroundColor(p.bg)
+        supportActionBar?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(p.bar))
+        supportActionBar?.title = android.text.SpannableString(getString(R.string.settings_title)).apply {
+            setSpan(android.text.style.ForegroundColorSpan(p.text), 0, length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
+        window.statusBarColor = p.bar
+        window.navigationBarColor = p.bar
+        val controller = androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
+        controller.isAppearanceLightStatusBars = !p.dark
+        controller.isAppearanceLightNavigationBars = !p.dark
+
         if (savedInstanceState == null) {
             supportFragmentManager
                 .beginTransaction()
@@ -54,6 +75,15 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     class SettingsFragment : PreferenceFragmentCompat() {
+        override fun onDisplayPreferenceDialog(preference: Preference) {
+            // The color schemes are shown as they look
+            if (preference.key == "terminal_theme" && preference is ListPreference) {
+                ThemePicker.show(requireContext(), preference)
+                return
+            }
+            super.onDisplayPreferenceDialog(preference)
+        }
+
         override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
             setPreferencesFromResource(R.xml.root_preferences, rootKey)
 

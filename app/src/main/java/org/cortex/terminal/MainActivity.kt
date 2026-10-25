@@ -87,7 +87,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var extraKeysConfig: ExtraKeysConfig
     private val applyExtraKeysRunnable = Runnable { applyExtraKeys() }
     private var isBootstrapping = false
-    private var bootstrapDialog: android.app.Dialog? = null
+    private var bootstrapDialog: BootstrapDialog? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -297,17 +297,7 @@ class MainActivity : AppCompatActivity() {
 
         if (!systemReady) {
             isBootstrapping = true
-            val progress = if (bootstrapInstalledAtStart) null else android.app.ProgressDialog(this).apply {
-                setMessage(getString(R.string.bootstrap_progress))
-                // A bar with the share of the archive extracted so far; until the first figure
-                // arrives (and for an archive of unknown size) it just moves.
-                setProgressStyle(android.app.ProgressDialog.STYLE_HORIZONTAL)
-                setProgressNumberFormat(null)
-                max = 100
-                isIndeterminate = true
-                setCancelable(false)
-                setCanceledOnTouchOutside(false)
-            }
+            val progress = if (bootstrapInstalledAtStart) null else BootstrapDialog(this)
             bootstrapDialog = progress
             try {
                 progress?.show()

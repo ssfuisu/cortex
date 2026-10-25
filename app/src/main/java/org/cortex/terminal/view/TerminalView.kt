@@ -9,6 +9,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.RectF
 import android.graphics.Rect
 import android.graphics.Typeface
 import android.text.InputType
@@ -283,6 +284,15 @@ class TerminalView @JvmOverloads constructor(
         strokeWidth = 3f
     }
 
+    // While the screen is scrolled back into the history: where it is in it, and a way back to the end
+    private val scrollThumbPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val jumpPillPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val jumpArrowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+        textAlign = Paint.Align.CENTER
+    }
+    private val jumpPillRect = RectF()
+
     private var actionPopup: PopupWindow? = null
     private val pinHandlePath = Path()
 
@@ -535,6 +545,11 @@ class TerminalView @JvmOverloads constructor(
         }
 
         override fun onSingleTapUp(e: MotionEvent): Boolean {
+            if (scrollOffset > 0 && !jumpPillRect.isEmpty && jumpPillRect.contains(e.x, e.y)) {
+                scrollOffset = 0
+                invalidate()
+                return true
+            }
             if (isSelecting) {
                 clearSelection()
             }
@@ -755,9 +770,41 @@ class TerminalView @JvmOverloads constructor(
                     }
                 }
             }
+            drawScrollOverlay(canvas, buffer.history.size)
         } finally {
             emulator.lock.unlock()
         }
+    }
+
+    /**
+     * A thin thumb at the right edge that shows where the screen is in the history, and a round button
+     * at the bottom that takes it back to the newest line (a tap, see onSingleTapUp). Nothing is drawn
+     * at the end of the history or while text is selected.
+     */
+    private fun drawScrollOverlay(canvas: Canvas, historyLines: Int) {
+        if (scrollOffset <= 0 || historyLines <= 0 || isSelecting) {
+            jumpPillRect.setEmpty()
+            return
+        }
+        val d = resources.displayMetrics.density
+        val p = Chrome.palette
+
+        val trackTop = 6 * d
+        val trackHeight = height - 12 * d
+        val thumbHeight = max(28 * d, trackHeight * rows / (historyLines + rows).toFloat())
+        val progress = 1f - scrollOffset.coerceAtMost(historyLines).toFloat() / historyLines
+        val thumbTop = trackTop + (trackHeight - thumbHeight) * progress
+        scrollThumbPaint.color = Chrome.withAlpha(p.accent, 150)
+        canvas.drawRoundRect(width - 5 * d, thumbTop, width - 2 * d, thumbTop + thumbHeight, 1.5f * d, 1.5f * d, scrollThumbPaint)
+
+        val pillWidth = 46 * d
+        val pillHeight = 36 * d
+        jumpPillRect.set(width - pillWidth - 14 * d, height - pillHeight - 14 * d, width - 14 * d, height - 14 * d)
+        jumpPillPaint.color = Chrome.withAlpha(p.accent, 235)
+        canvas.drawRoundRect(jumpPillRect, pillHeight / 2, pillHeight / 2, jumpPillPaint)
+        jumpArrowPaint.color = p.onAccent
+        jumpArrowPaint.textSize = 18 * d
+        canvas.drawText("↓", jumpPillRect.centerX(), jumpPillRect.centerY() + 6.5f * d, jumpArrowPaint)
     }
 
     // ---- Drawing rows ----
