@@ -8,8 +8,8 @@ package org.cortex.terminal.runtime
  * PostgreSQL (or any package with a man page, whose man-db trigger runs as man) failed in the middle
  * of dpkg's work.
  *
- * The lists the image was made from are in the image itself (/usr/share/base-passwd/*.master). What
- * is missing is added after what is there; nothing that is there is changed.
+ * The lists the image was made from are in the image itself (passwd.master and group.master in
+ * /usr/share/base-passwd). What is missing is added after what is there; nothing that is there is changed.
  */
 internal object BaseUsers {
 
