@@ -17,7 +17,7 @@ of a GitHub release from the section of its version here. Older versions are des
   changes nothing that is there. redis then starts and answers (`PONG`) in the emulator test, nginx
   installs and serves a page. PostgreSQL installs too, but its server refuses to run as root and an
   app cannot become another user, so the cluster the package would make is not made outside root
-  mode (`psql` works).
+  mode (`psql` works). MariaDB (`mariadb-server`) installs, starts and answers queries.
 - **ripgrep, `rustc` and `cargo` crashed at the first file they opened.** Rust asks whether `statx`
   exists by calling it with a NULL path; glibc's header says the path is never NULL, so the compiler
   deleted the hook's check. Both programs now work (emulator test: ripgrep and Rust's hello world).

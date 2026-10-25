@@ -124,6 +124,8 @@ package redis "redis-server" "PONG" \
     'redis-server --port 6390 --daemonize yes --save "" >/dev/null && sleep 2 && redis-cli -p 6390 ping; redis-cli -p 6390 shutdown nosave >/dev/null 2>&1'
 package nginx "nginx-light curl" "hello from nginx" \
     'mkdir -p ng && echo "hello from nginx" > ng/index.html && printf "daemon on; pid %s/ng/pid; error_log %s/ng/err; events {} http { access_log off; server { listen 8088; root %s/ng; } }\n" "$PWD" "$PWD" "$PWD" > ng/conf && nginx -c "$PWD/ng/conf" && sleep 1 && curl -s http://127.0.0.1:8088/; nginx -c "$PWD/ng/conf" -s stop'
+package mariadb "mariadb-server" "42" \
+    '(mariadbd-safe --no-watch >/dev/null 2>&1 &); for i in $(seq 1 90); do mariadb -N -e "select 1" >/dev/null 2>&1 && break; sleep 1; done; mariadb -N -e "create database t; use t; create table x(a int); insert into x values (41); select a+1 from x"; s=$?; mariadb-admin shutdown >/dev/null 2>&1; exit $s'
 package postgresql-client "postgresql-client" "psql (PostgreSQL)" 'psql --version'
 # As on Ubuntu: the package's cluster, started as a service, and psql as the postgres user. It installs,
 # but the server refuses to run as root and Cortex's root is only pretended (pg_createcluster stops at
