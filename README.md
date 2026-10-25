@@ -14,8 +14,13 @@ Cortex is a free and open-source terminal app and a native alternative to Termux
 
 <p align="center">
   <img src="docs/screenshots/cortex-neofetch.jpg" width="31%" alt="neofetch in Cortex Terminal showing Ubuntu 24.04 LTS running natively on an Android phone" />
-  <img src="docs/screenshots/cortex-keyboard.jpg" width="31%" alt="Cortex Terminal virtual keyboard toolbar with ESC, TAB, CTRL, ALT and arrow keys" />
+  <img src="docs/screenshots/cortex-keyboard.jpg" width="31%" alt="Cortex Terminal with its session tabs, a command's results and the two rows of keys: ESC, TAB, CTRL, ALT and the arrows" />
   <img src="docs/screenshots/cortex-api.jpg" width="31%" alt="cortex-api in the terminal: the battery state as JSON, the Android clipboard and notify-send" />
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/cortex-sessions.jpg" width="31%" alt="The drawer of Cortex Terminal: one card for each session with its directory, and the New session button" />
+  <img src="docs/screenshots/cortex-themes.jpg" width="31%" alt="The color scheme picker: every scheme shown as a bit of terminal in its own colors" />
 </p>
 
 ## What is Cortex?
