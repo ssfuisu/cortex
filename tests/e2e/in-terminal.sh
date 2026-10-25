@@ -79,6 +79,10 @@ check os-release grep -q 'VERSION_ID="24.04"' /etc/os-release
 expect dpkg-arch "${CORTEX_E2E_ARCH:-arm64}" dpkg --print-architecture
 expect id-root "uid=0(root)" id
 expect bash-arrays ok bash -c 'declare -A m=([a]=ok); echo "${m[a]}"'
+# The system users and groups every Ubuntu has (packages' scripts use them), and sudo as a guide types it
+expect base-users "man:x:6:12:" getent passwd man
+expect base-groups "adm:x:4:" getent group adm
+expect sudo ok sudo printf ok
 expect pipes 100000 bash -c 'seq 1 100000 | sort -rn | head -n 1'
 expect perl ok perl -e 'print "ok\n"'
 
