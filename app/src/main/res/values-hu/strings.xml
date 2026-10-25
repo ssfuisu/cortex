@@ -75,6 +75,8 @@
     <string name="pref_font_title">Terminál betűtípusa</string>
     <string name="pref_theme_title">Színséma</string>
     <string name="pref_font_size_title">Betűméret</string>
+    <string name="pref_session_tabs_title">Munkamenet-fülek</string>
+    <string name="pref_session_tabs_summary">Egy sáv a terminál felett a munkamenetek közötti váltáshoz és újak indításához</string>
     <string name="pref_keep_screen_on_title">Képernyő bekapcsolva tartása</string>
     <string name="pref_keep_screen_on_summary">Megakadályozza a kijelző kikapcsolását, amíg a terminál aktív</string>
     <string name="pref_secure_screen_title">Biztonságos képernyő</string>

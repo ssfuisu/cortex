@@ -75,6 +75,8 @@
     <string name="pref_font_title">ٹرمینل فونٹ</string>
     <string name="pref_theme_title">رنگوں کی اسکیم</string>
     <string name="pref_font_size_title">فونٹ کا سائز</string>
+    <string name="pref_session_tabs_title">سیشن ٹیبز</string>
+    <string name="pref_session_tabs_summary">سیشنز کے درمیان سوئچ کرنے اور نئے شروع کرنے کے لیے ٹرمینل کے اوپر ایک پٹی</string>
     <string name="pref_keep_screen_on_title">اسکرین آن رکھیں</string>
     <string name="pref_keep_screen_on_summary">ٹرمینل فعال ہونے پر ڈسپلے کو بند ہونے سے روکتا ہے</string>
     <string name="pref_secure_screen_title">محفوظ اسکرین</string>

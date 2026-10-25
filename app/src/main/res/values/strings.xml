@@ -22,6 +22,8 @@
     <string name="clipboard_set_by_program">A terminal program copied text to the clipboard</string>
 
     <!-- Sessions drawer -->
+    <string name="drawer_mark" translatable="false">&gt;_</string>
+    <string name="drawer_subtitle" translatable="false">Ubuntu 24.04 LTS</string>
     <string name="drawer_sessions">Sessions</string>
     <string name="drawer_keyboard">Keyboard</string>
     <string name="drawer_new_session">+ New session</string>
@@ -99,6 +101,8 @@
     <string name="pref_font_title">Terminal Font</string>
     <string name="pref_theme_title">Color Scheme</string>
     <string name="pref_font_size_title">Font Size</string>
+    <string name="pref_session_tabs_title">Session tabs</string>
+    <string name="pref_session_tabs_summary">A strip above the terminal for switching between sessions and starting new ones</string>
     <string name="pref_keep_screen_on_title">Keep Screen On</string>
     <string name="pref_keep_screen_on_summary">Prevent the display from turning off while terminal is active</string>
     <string name="pref_secure_screen_title">Secure Screen</string>

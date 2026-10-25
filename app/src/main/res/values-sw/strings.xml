@@ -75,6 +75,8 @@
     <string name="pref_font_title">Fonti ya Terminal</string>
     <string name="pref_theme_title">Mpangilio wa Rangi</string>
     <string name="pref_font_size_title">Ukubwa wa Fonti</string>
+    <string name="pref_session_tabs_title">Vichupo vya vipindi</string>
+    <string name="pref_session_tabs_summary">Upau juu ya terminali wa kubadili kati ya vipindi na kuanza vipya</string>
     <string name="pref_keep_screen_on_title">Weka Skrini Ikiwa Imewaka</string>
     <string name="pref_keep_screen_on_summary">Huzuia skrini kuzimika wakati terminal inatumika</string>
     <string name="pref_secure_screen_title">Skrini Salama</string>

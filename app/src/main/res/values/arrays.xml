@@ -38,6 +38,13 @@
         <item>Gruvbox Dark</item>
         <item>One Dark</item>
         <item>Nord</item>
+        <item>Solarized Dark</item>
+        <item>Monokai</item>
+        <item>Rosé Pine</item>
+        <item>Everforest</item>
+        <item>GitHub Dark</item>
+        <item>Ayu Mirage</item>
+        <item>Black (AMOLED)</item>
     </string-array>
 
     <string-array name="terminal_theme_values" translatable="false">
@@ -47,6 +54,13 @@
         <item>gruvbox</item>
         <item>one_dark</item>
         <item>nord</item>
+        <item>solarized_dark</item>
+        <item>monokai</item>
+        <item>rose_pine</item>
+        <item>everforest</item>
+        <item>github_dark</item>
+        <item>ayu_mirage</item>
+        <item>amoled</item>
     </string-array>
 
     <string-array name="long_command_threshold_entries">

@@ -75,6 +75,8 @@
     <string name="pref_font_title">Шрифт термінала</string>
     <string name="pref_theme_title">Кольорова схема</string>
     <string name="pref_font_size_title">Розмір шрифту</string>
+    <string name="pref_session_tabs_title">Вкладки сеансів</string>
+    <string name="pref_session_tabs_summary">Смуга над терміналом для перемикання між сеансами та запуску нових</string>
     <string name="pref_keep_screen_on_title">Не вимикати екран</string>
     <string name="pref_keep_screen_on_summary">Не дає екрану вимикатися, поки термінал активний</string>
     <string name="pref_secure_screen_title">Захищений екран</string>

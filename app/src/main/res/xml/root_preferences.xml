@@ -26,6 +26,12 @@
             app:useSimpleSummaryProvider="true" />
 
         <SwitchPreferenceCompat
+            app:defaultValue="true"
+            app:key="show_session_tabs"
+            app:summary="@string/pref_session_tabs_summary"
+            app:title="@string/pref_session_tabs_title" />
+
+        <SwitchPreferenceCompat
             app:defaultValue="false"
             app:key="keep_screen_on"
             app:summary="@string/pref_keep_screen_on_summary"

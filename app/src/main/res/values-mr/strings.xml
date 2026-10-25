@@ -75,6 +75,8 @@
     <string name="pref_font_title">टर्मिनल फॉन्ट</string>
     <string name="pref_theme_title">रंगसंगती</string>
     <string name="pref_font_size_title">फॉन्ट आकार</string>
+    <string name="pref_session_tabs_title">सत्र टॅब</string>
+    <string name="pref_session_tabs_summary">सत्रांमध्ये बदलण्यासाठी आणि नवीन सुरू करण्यासाठी टर्मिनलच्या वरची पट्टी</string>
     <string name="pref_keep_screen_on_title">स्क्रीन चालू ठेवा</string>
     <string name="pref_keep_screen_on_summary">टर्मिनल सक्रिय असताना डिस्प्ले बंद होण्यापासून रोखते</string>
     <string name="pref_secure_screen_title">सुरक्षित स्क्रीन</string>

@@ -75,6 +75,8 @@
     <string name="pref_font_title">టెర్మినల్ ఫాంట్</string>
     <string name="pref_theme_title">రంగుల పథకం</string>
     <string name="pref_font_size_title">ఫాంట్ పరిమాణం</string>
+    <string name="pref_session_tabs_title">సెషన్ ట్యాబ్‌లు</string>
+    <string name="pref_session_tabs_summary">సెషన్‌ల మధ్య మారడానికి మరియు కొత్తవి ప్రారంభించడానికి టెర్మినల్ పైన ఉన్న పట్టీ</string>
     <string name="pref_keep_screen_on_title">స్క్రీన్‌ను ఆన్‌లో ఉంచు</string>
     <string name="pref_keep_screen_on_summary">టెర్మినల్ క్రియాశీలంగా ఉన్నప్పుడు డిస్‌ప్లే ఆఫ్ కాకుండా నిరోధిస్తుంది</string>
     <string name="pref_secure_screen_title">సురక్షిత స్క్రీన్</string>

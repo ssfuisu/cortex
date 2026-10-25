@@ -75,6 +75,8 @@
     <string name="pref_font_title">终端字体</string>
     <string name="pref_theme_title">配色方案</string>
     <string name="pref_font_size_title">字体大小</string>
+    <string name="pref_session_tabs_title">会话标签页</string>
+    <string name="pref_session_tabs_summary">终端上方的标签栏，用于切换会话和新建会话</string>
     <string name="pref_keep_screen_on_title">保持屏幕常亮</string>
     <string name="pref_keep_screen_on_summary">终端处于活动状态时防止屏幕关闭</string>
     <string name="pref_secure_screen_title">安全屏幕</string>

@@ -31,6 +31,7 @@ class TerminalSearchBar @JvmOverloads constructor(
 
     private val input: EditText
     private val countText: TextView
+    private val iconButtons = mutableListOf<ImageButton>()
 
     private var swipeStartX = 0f
     private var swipeStartY = 0f
@@ -90,6 +91,7 @@ class TerminalSearchBar @JvmOverloads constructor(
             layoutParams = LayoutParams(btnSize, btnSize).apply {
                 marginEnd = (4 * resources.displayMetrics.density).toInt()
             }
+            iconButtons.add(this)
             setImageResource(android.R.drawable.arrow_up_float)
             setBackgroundResource(R.drawable.icon_circle_bg)
             contentDescription = context.getString(R.string.search_previous)
@@ -102,6 +104,7 @@ class TerminalSearchBar @JvmOverloads constructor(
             layoutParams = LayoutParams(btnSize, btnSize).apply {
                 marginEnd = (4 * resources.displayMetrics.density).toInt()
             }
+            iconButtons.add(this)
             setImageResource(android.R.drawable.arrow_down_float)
             setBackgroundResource(R.drawable.icon_circle_bg)
             contentDescription = context.getString(R.string.search_next)
@@ -112,6 +115,7 @@ class TerminalSearchBar @JvmOverloads constructor(
 
         val btnClose = ImageButton(context).apply {
             layoutParams = LayoutParams(btnSize, btnSize)
+            iconButtons.add(this)
             setImageResource(android.R.drawable.ic_menu_close_clear_cancel)
             setBackgroundResource(R.drawable.icon_circle_bg)
             contentDescription = context.getString(R.string.search_close)
@@ -125,6 +129,25 @@ class TerminalSearchBar @JvmOverloads constructor(
             }
         }
         addView(btnClose)
+        applyPalette()
+    }
+
+    /** Draws the bar in the colors of the scheme now in use. */
+    fun applyPalette() {
+        val p = Chrome.palette
+        val d = resources.displayMetrics.density
+        val hairline = d.toInt().coerceAtLeast(1)
+        setBackgroundColor(p.bar)
+        input.background = Chrome.rounded(p.raised, 22 * d, p.outline, hairline)
+        input.setTextColor(p.text)
+        input.setHintTextColor(p.textFaint)
+        countText.setTextColor(p.textDim)
+        for (b in iconButtons) {
+            b.background = Chrome.ripple(
+                Chrome.rounded(p.raised, 24 * d, p.outline, hairline), Chrome.withAlpha(p.accent, 70), 24 * d
+            )
+            b.setColorFilter(p.text)
+        }
     }
 
     override fun onInterceptTouchEvent(ev: MotionEvent): Boolean {

@@ -75,6 +75,8 @@
     <string name="pref_font_title">Terminallettertype</string>
     <string name="pref_theme_title">Kleurenschema</string>
     <string name="pref_font_size_title">Lettergrootte</string>
+    <string name="pref_session_tabs_title">Sessietabbladen</string>
+    <string name="pref_session_tabs_summary">Een balk boven de terminal om te wisselen tussen sessies en nieuwe te starten</string>
     <string name="pref_keep_screen_on_title">Scherm aan houden</string>
     <string name="pref_keep_screen_on_summary">Voorkomt dat het scherm uitgaat terwijl de terminal actief is</string>
     <string name="pref_secure_screen_title">Beveiligd scherm</string>

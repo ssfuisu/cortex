@@ -75,6 +75,8 @@
     <string name="pref_font_title">Шрифт терминала</string>
     <string name="pref_theme_title">Цветовая схема</string>
     <string name="pref_font_size_title">Размер шрифта</string>
+    <string name="pref_session_tabs_title">Вкладки сеансов</string>
+    <string name="pref_session_tabs_summary">Полоса над терминалом для переключения между сеансами и запуска новых</string>
     <string name="pref_keep_screen_on_title">Не отключать экран</string>
     <string name="pref_keep_screen_on_summary">Не даёт экрану отключаться, пока терминал активен</string>
     <string name="pref_secure_screen_title">Защищённый экран</string>

@@ -75,6 +75,8 @@
     <string name="pref_font_title">ടെർമിനൽ ഫോണ്ട്</string>
     <string name="pref_theme_title">വർണ്ണ സ്കീം</string>
     <string name="pref_font_size_title">ഫോണ്ട് വലുപ്പം</string>
+    <string name="pref_session_tabs_title">സെഷൻ ടാബുകൾ</string>
+    <string name="pref_session_tabs_summary">സെഷനുകൾ മാറാനും പുതിയവ തുടങ്ങാനും ടെർമിനലിന് മുകളിലെ ഒരു സ്ട്രിപ്പ്</string>
     <string name="pref_keep_screen_on_title">സ്ക്രീൻ ഓണാക്കി നിർത്തുക</string>
     <string name="pref_keep_screen_on_summary">ടെർമിനൽ സജീവമായിരിക്കുമ്പോൾ ഡിസ്‌പ്ലേ ഓഫാകുന്നത് തടയുന്നു</string>
     <string name="pref_secure_screen_title">സുരക്ഷിത സ്ക്രീൻ</string>

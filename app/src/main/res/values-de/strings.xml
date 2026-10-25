@@ -75,6 +75,8 @@
     <string name="pref_font_title">Terminalschrift</string>
     <string name="pref_theme_title">Farbschema</string>
     <string name="pref_font_size_title">Schriftgröße</string>
+    <string name="pref_session_tabs_title">Sitzungs-Tabs</string>
+    <string name="pref_session_tabs_summary">Eine Leiste über dem Terminal zum Wechseln zwischen Sitzungen und zum Starten neuer</string>
     <string name="pref_keep_screen_on_title">Bildschirm anlassen</string>
     <string name="pref_keep_screen_on_summary">Verhindert, dass sich das Display ausschaltet, solange das Terminal aktiv ist</string>
     <string name="pref_secure_screen_title">Geschützter Bildschirm</string>

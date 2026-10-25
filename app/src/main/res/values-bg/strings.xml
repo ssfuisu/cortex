@@ -75,6 +75,8 @@
     <string name="pref_font_title">Шрифт на терминала</string>
     <string name="pref_theme_title">Цветова схема</string>
     <string name="pref_font_size_title">Размер на шрифта</string>
+    <string name="pref_session_tabs_title">Раздели за сесиите</string>
+    <string name="pref_session_tabs_summary">Лента над терминала за превключване между сесии и стартиране на нови</string>
     <string name="pref_keep_screen_on_title">Екранът да остава включен</string>
     <string name="pref_keep_screen_on_summary">Не позволява на екрана да се изключва, докато терминалът е активен</string>
     <string name="pref_secure_screen_title">Защитен екран</string>

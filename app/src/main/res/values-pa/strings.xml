@@ -75,6 +75,8 @@
     <string name="pref_font_title">ਟਰਮੀਨਲ ਫੌਂਟ</string>
     <string name="pref_theme_title">ਰੰਗ ਯੋਜਨਾ</string>
     <string name="pref_font_size_title">ਫੌਂਟ ਆਕਾਰ</string>
+    <string name="pref_session_tabs_title">ਸੈਸ਼ਨ ਟੈਬਾਂ</string>
+    <string name="pref_session_tabs_summary">ਸੈਸ਼ਨਾਂ ਵਿਚਕਾਰ ਬਦਲਣ ਅਤੇ ਨਵੇਂ ਸ਼ੁਰੂ ਕਰਨ ਲਈ ਟਰਮੀਨਲ ਦੇ ਉੱਪਰ ਇੱਕ ਪੱਟੀ</string>
     <string name="pref_keep_screen_on_title">ਸਕ੍ਰੀਨ ਚਾਲੂ ਰੱਖੋ</string>
     <string name="pref_keep_screen_on_summary">ਟਰਮੀਨਲ ਸਰਗਰਮ ਹੋਣ ਦੌਰਾਨ ਡਿਸਪਲੇ ਨੂੰ ਬੰਦ ਹੋਣ ਤੋਂ ਰੋਕਦਾ ਹੈ</string>
     <string name="pref_secure_screen_title">ਸੁਰੱਖਿਅਤ ਸਕ੍ਰੀਨ</string>

@@ -75,6 +75,8 @@
     <string name="pref_font_title">Font Terminal</string>
     <string name="pref_theme_title">Skema Warna</string>
     <string name="pref_font_size_title">Ukuran Font</string>
+    <string name="pref_session_tabs_title">Tab sesi</string>
+    <string name="pref_session_tabs_summary">Bilah di atas terminal untuk beralih antar sesi dan memulai sesi baru</string>
     <string name="pref_keep_screen_on_title">Biarkan Layar Menyala</string>
     <string name="pref_keep_screen_on_summary">Mencegah layar mati saat terminal aktif</string>
     <string name="pref_secure_screen_title">Layar Aman</string>

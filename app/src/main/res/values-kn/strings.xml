@@ -75,6 +75,8 @@
     <string name="pref_font_title">ಟರ್ಮಿನಲ್ ಫಾಂಟ್</string>
     <string name="pref_theme_title">ಬಣ್ಣ ಯೋಜನೆ</string>
     <string name="pref_font_size_title">ಫಾಂಟ್ ಗಾತ್ರ</string>
+    <string name="pref_session_tabs_title">ಸೆಷನ್ ಟ್ಯಾಬ್‌ಗಳು</string>
+    <string name="pref_session_tabs_summary">ಸೆಷನ್‌ಗಳ ನಡುವೆ ಬದಲಿಸಲು ಮತ್ತು ಹೊಸದನ್ನು ಪ್ರಾರಂಭಿಸಲು ಟರ್ಮಿನಲ್‌ನ ಮೇಲಿನ ಪಟ್ಟಿ</string>
     <string name="pref_keep_screen_on_title">ಪರದೆಯನ್ನು ಆನ್ ಆಗಿರಿಸಿ</string>
     <string name="pref_keep_screen_on_summary">ಟರ್ಮಿನಲ್ ಸಕ್ರಿಯವಾಗಿರುವಾಗ ಪ್ರದರ್ಶನ ಆಫ್ ಆಗುವುದನ್ನು ತಡೆಯುತ್ತದೆ</string>
     <string name="pref_secure_screen_title">ಸುರಕ್ಷಿತ ಪರದೆ</string>

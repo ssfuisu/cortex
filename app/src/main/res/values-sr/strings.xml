@@ -75,6 +75,8 @@
     <string name="pref_font_title">Фонт терминала</string>
     <string name="pref_theme_title">Шема боја</string>
     <string name="pref_font_size_title">Величина фонта</string>
+    <string name="pref_session_tabs_title">Картице сесија</string>
+    <string name="pref_session_tabs_summary">Трака изнад терминала за пребацивање између сесија и покретање нових</string>
     <string name="pref_keep_screen_on_title">Држи екран укљученим</string>
     <string name="pref_keep_screen_on_summary">Спречава гашење екрана док је терминал активан</string>
     <string name="pref_secure_screen_title">Безбедан екран</string>

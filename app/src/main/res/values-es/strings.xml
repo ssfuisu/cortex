@@ -75,6 +75,8 @@
     <string name="pref_font_title">Fuente del terminal</string>
     <string name="pref_theme_title">Combinación de colores</string>
     <string name="pref_font_size_title">Tamaño de fuente</string>
+    <string name="pref_session_tabs_title">Pestañas de sesión</string>
+    <string name="pref_session_tabs_summary">Una barra sobre el terminal para cambiar entre sesiones e iniciar otras nuevas</string>
     <string name="pref_keep_screen_on_title">Mantener pantalla encendida</string>
     <string name="pref_keep_screen_on_summary">Evita que la pantalla se apague mientras el terminal está activo</string>
     <string name="pref_secure_screen_title">Pantalla segura</string>

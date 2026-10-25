@@ -75,6 +75,8 @@
     <string name="pref_font_title">Päätteen fontti</string>
     <string name="pref_theme_title">Värimaailma</string>
     <string name="pref_font_size_title">Fontin koko</string>
+    <string name="pref_session_tabs_title">Istuntovälilehdet</string>
+    <string name="pref_session_tabs_summary">Pääteikkunan yläpuolella oleva palkki istuntojen vaihtamiseen ja uusien aloittamiseen</string>
     <string name="pref_keep_screen_on_title">Pidä näyttö päällä</string>
     <string name="pref_keep_screen_on_summary">Estää näyttöä sammumasta päätteen ollessa aktiivinen</string>
     <string name="pref_secure_screen_title">Suojattu näyttö</string>

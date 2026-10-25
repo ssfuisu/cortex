@@ -75,6 +75,8 @@
     <string name="pref_font_title">Font terminala</string>
     <string name="pref_theme_title">Shema boja</string>
     <string name="pref_font_size_title">Veličina fonta</string>
+    <string name="pref_session_tabs_title">Kartice sesija</string>
+    <string name="pref_session_tabs_summary">Traka iznad terminala za prebacivanje između sesija i pokretanje novih</string>
     <string name="pref_keep_screen_on_title">Zadrži zaslon uključenim</string>
     <string name="pref_keep_screen_on_summary">Sprječava gašenje zaslona dok je terminal aktivan</string>
     <string name="pref_secure_screen_title">Siguran zaslon</string>

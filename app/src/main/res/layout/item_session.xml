@@ -4,65 +4,99 @@
     android:id="@+id/sessionItemRoot"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:minHeight="56dp"
+    android:minHeight="62dp"
     android:orientation="horizontal"
     android:gravity="center_vertical"
-    android:layout_marginStart="10dp"
-    android:layout_marginEnd="10dp"
-    android:layout_marginTop="4dp"
-    android:layout_marginBottom="4dp"
-    android:paddingStart="14dp"
-    android:paddingEnd="10dp"
+    android:layout_marginStart="12dp"
+    android:layout_marginEnd="12dp"
+    android:layout_marginTop="3dp"
+    android:layout_marginBottom="3dp"
+    android:paddingStart="12dp"
+    android:paddingEnd="6dp"
     android:paddingTop="8dp"
-    android:paddingBottom="8dp"
-    android:background="@drawable/session_item_inactive_bg">
+    android:paddingBottom="8dp">
 
+    <!-- The session's number -->
+    <TextView
+        android:id="@+id/sessionIndexBadge"
+        android:layout_width="34dp"
+        android:layout_height="34dp"
+        android:gravity="center"
+        android:includeFontPadding="false"
+        android:textColor="@color/cortex_primary"
+        android:textSize="14sp"
+        android:textStyle="bold"
+        android:typeface="monospace"
+        tools:text="1" />
 
     <LinearLayout
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_weight="1"
-        android:gravity="center_vertical"
-        android:orientation="horizontal">
+        android:layout_marginStart="12dp"
+        android:orientation="vertical">
 
-        <TextView
-            android:id="@+id/sessionLabelText"
-            android:layout_width="wrap_content"
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            tools:text="Session 1"
-            android:textColor="@color/cortex_text_primary"
-            android:textSize="15sp"
-            android:textStyle="bold" />
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
 
-        <!-- Shown for sessions that run as real root (root mode) -->
+            <TextView
+                android:id="@+id/sessionLabelText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:maxLines="1"
+                tools:text="Session 1"
+                android:textColor="@color/cortex_text_primary"
+                android:textSize="15sp"
+                android:textStyle="bold" />
+
+            <!-- Shown for sessions that run as real root (root mode) -->
+            <TextView
+                android:id="@+id/sessionRootBadge"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:background="@drawable/root_badge_bg"
+                android:paddingStart="6dp"
+                android:paddingTop="1dp"
+                android:paddingEnd="6dp"
+                android:paddingBottom="1dp"
+                android:text="@string/session_root_badge"
+                android:textColor="@color/cortex_accent"
+                android:textSize="10sp"
+                android:textStyle="bold"
+                android:visibility="gone"
+                tools:visibility="visible" />
+        </LinearLayout>
+
+        <!-- The directory the shell is in -->
         <TextView
-            android:id="@+id/sessionRootBadge"
-            android:layout_width="wrap_content"
+            android:id="@+id/sessionPathText"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
-            android:background="@drawable/root_badge_bg"
-            android:paddingStart="6dp"
-            android:paddingTop="1dp"
-            android:paddingEnd="6dp"
-            android:paddingBottom="1dp"
-            android:text="@string/session_root_badge"
-            android:textColor="@color/cortex_accent"
+            android:layout_marginTop="2dp"
+            android:ellipsize="middle"
+            android:maxLines="1"
+            android:textColor="@color/cortex_text_muted"
             android:textSize="11sp"
-            android:textStyle="bold"
+            android:typeface="monospace"
             android:visibility="gone"
+            tools:text="~/project"
             tools:visibility="visible" />
     </LinearLayout>
 
     <TextView
         android:id="@+id/btnSessionClose"
-        android:layout_width="48dp"
-        android:layout_height="48dp"
+        android:layout_width="44dp"
+        android:layout_height="44dp"
         android:gravity="center"
         android:text="✕"
         android:textColor="@color/cortex_accent"
-        android:textSize="16sp"
+        android:textSize="15sp"
         android:textStyle="bold"
-        android:background="@drawable/icon_circle_bg"
         android:contentDescription="@string/close_session" />
 
 </LinearLayout>

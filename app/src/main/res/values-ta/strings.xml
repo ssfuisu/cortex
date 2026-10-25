@@ -75,6 +75,8 @@
     <string name="pref_font_title">டெர்மினல் எழுத்துரு</string>
     <string name="pref_theme_title">வண்ணத் திட்டம்</string>
     <string name="pref_font_size_title">எழுத்துரு அளவு</string>
+    <string name="pref_session_tabs_title">அமர்வு தாவல்கள்</string>
+    <string name="pref_session_tabs_summary">அமர்வுகளுக்கு இடையே மாறவும் புதியவற்றைத் தொடங்கவும் டெர்மினலின் மேலுள்ள பட்டை</string>
     <string name="pref_keep_screen_on_title">திரையை இயக்கத்தில் வை</string>
     <string name="pref_keep_screen_on_summary">டெர்மினல் செயலில் இருக்கும்போது திரை அணைவதைத் தடுக்கும்</string>
     <string name="pref_secure_screen_title">பாதுகாப்பான திரை</string>

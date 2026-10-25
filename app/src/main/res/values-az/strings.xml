@@ -75,6 +75,8 @@
     <string name="pref_font_title">Terminal şrifti</string>
     <string name="pref_theme_title">Rəng sxemi</string>
     <string name="pref_font_size_title">Şrift ölçüsü</string>
+    <string name="pref_session_tabs_title">Sessiya vərəqləri</string>
+    <string name="pref_session_tabs_summary">Sessiyalar arasında keçid etmək və yenisini başlatmaq üçün terminalın üstündəki zolaq</string>
     <string name="pref_keep_screen_on_title">Ekranı açıq saxla</string>
     <string name="pref_keep_screen_on_summary">Terminal aktiv olduqda ekranın sönməsinin qarşısını alır</string>
     <string name="pref_secure_screen_title">Təhlükəsiz ekran</string>

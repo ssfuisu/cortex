@@ -75,6 +75,8 @@
     <string name="pref_font_title">خط الطرفية</string>
     <string name="pref_theme_title">نظام الألوان</string>
     <string name="pref_font_size_title">حجم الخط</string>
+    <string name="pref_session_tabs_title">علامات تبويب الجلسات</string>
+    <string name="pref_session_tabs_summary">شريط فوق الطرفية للتبديل بين الجلسات وبدء جلسات جديدة</string>
     <string name="pref_keep_screen_on_title">إبقاء الشاشة قيد التشغيل</string>
     <string name="pref_keep_screen_on_summary">يمنع إيقاف تشغيل الشاشة أثناء نشاط الطرفية</string>
     <string name="pref_secure_screen_title">شاشة آمنة</string>

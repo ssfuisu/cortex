@@ -75,6 +75,8 @@
     <string name="pref_font_title">ターミナルのフォント</string>
     <string name="pref_theme_title">配色</string>
     <string name="pref_font_size_title">フォントサイズ</string>
+    <string name="pref_session_tabs_title">セッションタブ</string>
+    <string name="pref_session_tabs_summary">セッションの切り替えや新規作成ができる、ターミナル上部のバー</string>
     <string name="pref_keep_screen_on_title">画面をオンのままにする</string>
     <string name="pref_keep_screen_on_summary">ターミナルがアクティブな間、画面が消灯しないようにします</string>
     <string name="pref_secure_screen_title">セキュア画面</string>

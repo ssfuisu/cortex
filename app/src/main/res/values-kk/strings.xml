@@ -75,6 +75,8 @@
     <string name="pref_font_title">Терминал қарпі</string>
     <string name="pref_theme_title">Түс схемасы</string>
     <string name="pref_font_size_title">Қаріп өлшемі</string>
+    <string name="pref_session_tabs_title">Сеанс қойындылары</string>
+    <string name="pref_session_tabs_summary">Сеанстар арасында ауысу және жаңасын бастау үшін терминалдың үстіндегі жолақ</string>
     <string name="pref_keep_screen_on_title">Экранды қосулы ұстау</string>
     <string name="pref_keep_screen_on_summary">Терминал белсенді кезде дисплейдің өшуіне жол бермейді</string>
     <string name="pref_secure_screen_title">Қауіпсіз экран</string>

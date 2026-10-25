@@ -75,6 +75,8 @@
     <string name="pref_font_title">Fontul terminalului</string>
     <string name="pref_theme_title">Schemă de culori</string>
     <string name="pref_font_size_title">Dimensiunea fontului</string>
+    <string name="pref_session_tabs_title">File de sesiune</string>
+    <string name="pref_session_tabs_summary">O bară deasupra terminalului pentru a comuta între sesiuni și a porni altele noi</string>
     <string name="pref_keep_screen_on_title">Menține ecranul aprins</string>
     <string name="pref_keep_screen_on_summary">Împiedică stingerea ecranului cât timp terminalul este activ</string>
     <string name="pref_secure_screen_title">Ecran securizat</string>

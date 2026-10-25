@@ -163,6 +163,181 @@ object TerminalColor {
                 Color.rgb(0x8f, 0xbc, 0xbb), // 14
                 Color.rgb(0xec, 0xef, 0xf4)  // 15
             )
+        ),
+        "solarized_dark" to ColorScheme(
+            id = "solarized_dark",
+            displayName = "Solarized Dark",
+            fg = Color.rgb(0x83, 0x94, 0x96),
+            bg = Color.rgb(0x00, 0x2b, 0x36),
+            cursor = Color.rgb(0x93, 0xa1, 0xa1),
+            ansi = intArrayOf(
+                Color.rgb(0x07, 0x36, 0x42), // 0
+                Color.rgb(0xdc, 0x32, 0x2f), // 1
+                Color.rgb(0x85, 0x99, 0x00), // 2
+                Color.rgb(0xb5, 0x89, 0x00), // 3
+                Color.rgb(0x26, 0x8b, 0xd2), // 4
+                Color.rgb(0xd3, 0x36, 0x82), // 5
+                Color.rgb(0x2a, 0xa1, 0x98), // 6
+                Color.rgb(0xee, 0xe8, 0xd5), // 7
+                Color.rgb(0x58, 0x6e, 0x75), // 8
+                Color.rgb(0xcb, 0x4b, 0x16), // 9
+                Color.rgb(0x85, 0x99, 0x00), // 10
+                Color.rgb(0xb5, 0x89, 0x00), // 11
+                Color.rgb(0x26, 0x8b, 0xd2), // 12
+                Color.rgb(0x6c, 0x71, 0xc4), // 13
+                Color.rgb(0x2a, 0xa1, 0x98), // 14
+                Color.rgb(0xfd, 0xf6, 0xe3)  // 15
+            )
+        ),
+        "monokai" to ColorScheme(
+            id = "monokai",
+            displayName = "Monokai",
+            fg = Color.rgb(0xf8, 0xf8, 0xf2),
+            bg = Color.rgb(0x27, 0x28, 0x22),
+            cursor = Color.rgb(0xf8, 0xf8, 0xf0),
+            ansi = intArrayOf(
+                Color.rgb(0x27, 0x28, 0x22), // 0
+                Color.rgb(0xf9, 0x26, 0x72), // 1
+                Color.rgb(0xa6, 0xe2, 0x2e), // 2
+                Color.rgb(0xf4, 0xbf, 0x75), // 3
+                Color.rgb(0x66, 0xd9, 0xef), // 4
+                Color.rgb(0xae, 0x81, 0xff), // 5
+                Color.rgb(0xa1, 0xef, 0xe4), // 6
+                Color.rgb(0xf8, 0xf8, 0xf2), // 7
+                Color.rgb(0x75, 0x71, 0x5e), // 8
+                Color.rgb(0xf9, 0x26, 0x72), // 9
+                Color.rgb(0xa6, 0xe2, 0x2e), // 10
+                Color.rgb(0xf4, 0xbf, 0x75), // 11
+                Color.rgb(0x66, 0xd9, 0xef), // 12
+                Color.rgb(0xae, 0x81, 0xff), // 13
+                Color.rgb(0xa1, 0xef, 0xe4), // 14
+                Color.rgb(0xf9, 0xf8, 0xf5)  // 15
+            )
+        ),
+        "rose_pine" to ColorScheme(
+            id = "rose_pine",
+            displayName = "Rosé Pine",
+            fg = Color.rgb(0xe0, 0xde, 0xf4),
+            bg = Color.rgb(0x19, 0x17, 0x24),
+            cursor = Color.rgb(0xe0, 0xde, 0xf4),
+            ansi = intArrayOf(
+                Color.rgb(0x26, 0x23, 0x3a), // 0
+                Color.rgb(0xeb, 0x6f, 0x92), // 1
+                Color.rgb(0x31, 0x74, 0x8f), // 2
+                Color.rgb(0xf6, 0xc1, 0x77), // 3
+                Color.rgb(0x9c, 0xcf, 0xd8), // 4
+                Color.rgb(0xc4, 0xa7, 0xe7), // 5
+                Color.rgb(0xeb, 0xbc, 0xba), // 6
+                Color.rgb(0xe0, 0xde, 0xf4), // 7
+                Color.rgb(0x6e, 0x6a, 0x86), // 8
+                Color.rgb(0xeb, 0x6f, 0x92), // 9
+                Color.rgb(0x31, 0x74, 0x8f), // 10
+                Color.rgb(0xf6, 0xc1, 0x77), // 11
+                Color.rgb(0x9c, 0xcf, 0xd8), // 12
+                Color.rgb(0xc4, 0xa7, 0xe7), // 13
+                Color.rgb(0xeb, 0xbc, 0xba), // 14
+                Color.rgb(0xe0, 0xde, 0xf4)  // 15
+            )
+        ),
+        "everforest" to ColorScheme(
+            id = "everforest",
+            displayName = "Everforest",
+            fg = Color.rgb(0xd3, 0xc6, 0xaa),
+            bg = Color.rgb(0x2b, 0x33, 0x39),
+            cursor = Color.rgb(0xd3, 0xc6, 0xaa),
+            ansi = intArrayOf(
+                Color.rgb(0x4b, 0x56, 0x5c), // 0
+                Color.rgb(0xe6, 0x7e, 0x80), // 1
+                Color.rgb(0xa7, 0xc0, 0x80), // 2
+                Color.rgb(0xdb, 0xbc, 0x7f), // 3
+                Color.rgb(0x7f, 0xbb, 0xb3), // 4
+                Color.rgb(0xd6, 0x99, 0xb6), // 5
+                Color.rgb(0x83, 0xc0, 0x92), // 6
+                Color.rgb(0xd3, 0xc6, 0xaa), // 7
+                Color.rgb(0x5c, 0x6a, 0x72), // 8
+                Color.rgb(0xe6, 0x7e, 0x80), // 9
+                Color.rgb(0xa7, 0xc0, 0x80), // 10
+                Color.rgb(0xdb, 0xbc, 0x7f), // 11
+                Color.rgb(0x7f, 0xbb, 0xb3), // 12
+                Color.rgb(0xd6, 0x99, 0xb6), // 13
+                Color.rgb(0x83, 0xc0, 0x92), // 14
+                Color.rgb(0xe6, 0xdf, 0xc6)  // 15
+            )
+        ),
+        "github_dark" to ColorScheme(
+            id = "github_dark",
+            displayName = "GitHub Dark",
+            fg = Color.rgb(0xc9, 0xd1, 0xd9),
+            bg = Color.rgb(0x0d, 0x11, 0x17),
+            cursor = Color.rgb(0x58, 0xa6, 0xff),
+            ansi = intArrayOf(
+                Color.rgb(0x48, 0x4f, 0x58), // 0
+                Color.rgb(0xff, 0x7b, 0x72), // 1
+                Color.rgb(0x3f, 0xb9, 0x50), // 2
+                Color.rgb(0xd2, 0x99, 0x22), // 3
+                Color.rgb(0x58, 0xa6, 0xff), // 4
+                Color.rgb(0xbc, 0x8c, 0xff), // 5
+                Color.rgb(0x39, 0xc5, 0xcf), // 6
+                Color.rgb(0xb1, 0xba, 0xc4), // 7
+                Color.rgb(0x6e, 0x76, 0x81), // 8
+                Color.rgb(0xff, 0xa1, 0x98), // 9
+                Color.rgb(0x56, 0xd3, 0x64), // 10
+                Color.rgb(0xe3, 0xb3, 0x41), // 11
+                Color.rgb(0x79, 0xc0, 0xff), // 12
+                Color.rgb(0xd2, 0xa8, 0xff), // 13
+                Color.rgb(0x56, 0xd4, 0xdd), // 14
+                Color.rgb(0xf0, 0xf6, 0xfc)  // 15
+            )
+        ),
+        "ayu_mirage" to ColorScheme(
+            id = "ayu_mirage",
+            displayName = "Ayu Mirage",
+            fg = Color.rgb(0xcb, 0xcc, 0xc6),
+            bg = Color.rgb(0x1f, 0x24, 0x30),
+            cursor = Color.rgb(0xff, 0xcc, 0x66),
+            ansi = intArrayOf(
+                Color.rgb(0x19, 0x1e, 0x2a), // 0
+                Color.rgb(0xed, 0x82, 0x74), // 1
+                Color.rgb(0xa6, 0xcc, 0x70), // 2
+                Color.rgb(0xfa, 0xd0, 0x7b), // 3
+                Color.rgb(0x6d, 0xcb, 0xfa), // 4
+                Color.rgb(0xcf, 0xba, 0xfa), // 5
+                Color.rgb(0x90, 0xe1, 0xc6), // 6
+                Color.rgb(0xc7, 0xc7, 0xc7), // 7
+                Color.rgb(0x68, 0x68, 0x68), // 8
+                Color.rgb(0xf2, 0x87, 0x79), // 9
+                Color.rgb(0xba, 0xe6, 0x7e), // 10
+                Color.rgb(0xff, 0xd5, 0x80), // 11
+                Color.rgb(0x73, 0xd0, 0xff), // 12
+                Color.rgb(0xd4, 0xbf, 0xff), // 13
+                Color.rgb(0x95, 0xe6, 0xcb), // 14
+                Color.rgb(0xff, 0xff, 0xff)  // 15
+            )
+        ),
+        "amoled" to ColorScheme(
+            id = "amoled",
+            displayName = "Black (AMOLED)",
+            fg = Color.rgb(0xcd, 0xd6, 0xf4),
+            bg = Color.rgb(0x00, 0x00, 0x00),
+            cursor = Color.rgb(0x89, 0xb4, 0xfa),
+            ansi = intArrayOf(
+                Color.rgb(0x1e, 0x1e, 0x2e), // 0
+                Color.rgb(0xf3, 0x8b, 0xa8), // 1
+                Color.rgb(0xa6, 0xe3, 0xa1), // 2
+                Color.rgb(0xf9, 0xe2, 0xaf), // 3
+                Color.rgb(0x89, 0xb4, 0xfa), // 4
+                Color.rgb(0xcb, 0xa6, 0xf7), // 5
+                Color.rgb(0x89, 0xdc, 0xeb), // 6
+                Color.rgb(0xba, 0xc2, 0xde), // 7
+                Color.rgb(0x7f, 0x84, 0x9c), // 8
+                Color.rgb(0xf3, 0x8b, 0xa8), // 9
+                Color.rgb(0xa6, 0xe3, 0xa1), // 10
+                Color.rgb(0xf9, 0xe2, 0xaf), // 11
+                Color.rgb(0x89, 0xb4, 0xfa), // 12
+                Color.rgb(0xcb, 0xa6, 0xf7), // 13
+                Color.rgb(0x94, 0xe2, 0xd5), // 14
+                Color.rgb(0xa6, 0xad, 0xc8)  // 15
+            )
         )
     )
 

@@ -75,6 +75,8 @@
     <string name="pref_font_title">Fon Terminal</string>
     <string name="pref_theme_title">Skema Warna</string>
     <string name="pref_font_size_title">Saiz Fon</string>
+    <string name="pref_session_tabs_title">Tab sesi</string>
+    <string name="pref_session_tabs_summary">Jalur di atas terminal untuk bertukar antara sesi dan memulakan sesi baharu</string>
     <string name="pref_keep_screen_on_title">Kekalkan Skrin Hidup</string>
     <string name="pref_keep_screen_on_summary">Menghalang paparan daripada dimatikan semasa terminal aktif</string>
     <string name="pref_secure_screen_title">Skrin Selamat</string>

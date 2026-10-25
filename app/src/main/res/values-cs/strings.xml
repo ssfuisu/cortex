@@ -75,6 +75,8 @@
     <string name="pref_font_title">Písmo terminálu</string>
     <string name="pref_theme_title">Barevné schéma</string>
     <string name="pref_font_size_title">Velikost písma</string>
+    <string name="pref_session_tabs_title">Karty relací</string>
+    <string name="pref_session_tabs_summary">Pruh nad terminálem pro přepínání mezi relacemi a spouštění nových</string>
     <string name="pref_keep_screen_on_title">Nechat displej zapnutý</string>
     <string name="pref_keep_screen_on_summary">Zabrání vypnutí displeje, dokud je terminál aktivní</string>
     <string name="pref_secure_screen_title">Zabezpečená obrazovka</string>

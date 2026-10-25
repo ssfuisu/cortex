@@ -75,6 +75,8 @@
     <string name="pref_font_title">ટર્મિનલ ફૉન્ટ</string>
     <string name="pref_theme_title">રંગ યોજના</string>
     <string name="pref_font_size_title">ફૉન્ટનું કદ</string>
+    <string name="pref_session_tabs_title">સત્ર ટૅબ</string>
+    <string name="pref_session_tabs_summary">સત્રો વચ્ચે બદલવા અને નવા શરૂ કરવા માટે ટર્મિનલની ઉપરની પટ્ટી</string>
     <string name="pref_keep_screen_on_title">સ્ક્રીન ચાલુ રાખો</string>
     <string name="pref_keep_screen_on_summary">ટર્મિનલ સક્રિય હોય ત્યારે ડિસ્પ્લે બંધ થતું અટકાવે છે</string>
     <string name="pref_secure_screen_title">સુરક્ષિત સ્ક્રીન</string>

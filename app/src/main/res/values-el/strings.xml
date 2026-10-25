@@ -75,6 +75,8 @@
     <string name="pref_font_title">Γραμματοσειρά τερματικού</string>
     <string name="pref_theme_title">Χρωματικός συνδυασμός</string>
     <string name="pref_font_size_title">Μέγεθος γραμματοσειράς</string>
+    <string name="pref_session_tabs_title">Καρτέλες συνεδριών</string>
+    <string name="pref_session_tabs_summary">Μια γραμμή πάνω από το τερματικό για εναλλαγή μεταξύ συνεδριών και έναρξη νέων</string>
     <string name="pref_keep_screen_on_title">Να μένει ανοιχτή η οθόνη</string>
     <string name="pref_keep_screen_on_summary">Αποτρέπει το σβήσιμο της οθόνης ενώ το τερματικό είναι ενεργό</string>
     <string name="pref_secure_screen_title">Ασφαλής οθόνη</string>

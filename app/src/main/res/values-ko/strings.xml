@@ -75,6 +75,8 @@
     <string name="pref_font_title">터미널 글꼴</string>
     <string name="pref_theme_title">색 구성표</string>
     <string name="pref_font_size_title">글꼴 크기</string>
+    <string name="pref_session_tabs_title">세션 탭</string>
+    <string name="pref_session_tabs_summary">세션을 전환하고 새로 시작할 수 있는 터미널 위의 막대</string>
     <string name="pref_keep_screen_on_title">화면 켜 두기</string>
     <string name="pref_keep_screen_on_summary">터미널이 활성 상태인 동안 화면이 꺼지지 않게 합니다</string>
     <string name="pref_secure_screen_title">보안 화면</string>

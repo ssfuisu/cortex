@@ -2,7 +2,6 @@ package org.cortex.terminal.view
 
 import android.annotation.SuppressLint
 import android.content.Context
-import android.graphics.Color
 import android.graphics.Typeface
 import android.os.Handler
 import android.os.Looper
@@ -14,7 +13,6 @@ import android.view.MotionEvent
 import android.view.View
 import android.widget.Button
 import android.widget.LinearLayout
-import org.cortex.terminal.R
 
 class ExtraKeysView @JvmOverloads constructor(
     context: Context,
@@ -49,7 +47,7 @@ class ExtraKeysView @JvmOverloads constructor(
         private const val REPEAT_INTERVAL_MS = 60L
 
         /** The height of one row of keys, in dp. */
-        const val ROW_HEIGHT_DP = 38
+        const val ROW_HEIGHT_DP = 40
     }
 
     /** [modifier]: CTRL or ALT, whose buttons show when they are on. */
@@ -74,14 +72,19 @@ class ExtraKeysView @JvmOverloads constructor(
     private var ctrlButton: Button? = null
     private var altButton: Button? = null
 
+    /** Every key shown, to be drawn again when the color scheme changes. */
+    private val keyButtons = mutableListOf<Button>()
+
+    private fun dp(v: Float): Float = v * resources.displayMetrics.density
+
     /** The rows of keys shown now. */
     var rowCount = 0
         private set
 
     init {
         orientation = VERTICAL
-        setBackgroundColor(Color.parseColor("#161722"))
-        val pad = (2 * resources.displayMetrics.density).toInt()
+        setBackgroundColor(Chrome.palette.bar)
+        val pad = (3 * resources.displayMetrics.density).toInt()
         setPadding(pad, pad, pad, pad)
         setKeys(ExtraKeysLayout.DEFAULT_ROWS)
     }
@@ -91,6 +94,7 @@ class ExtraKeysView @JvmOverloads constructor(
         cancelPendingKey()
         cancelRepeat()
         removeAllViews()
+        keyButtons.clear()
         ctrlButton = null
         altButton = null
         for (row in rows) {
@@ -158,19 +162,18 @@ class ExtraKeysView @JvmOverloads constructor(
             )
         }
 
-        val marginPx = (2 * resources.displayMetrics.density).toInt()
+        val marginPx = (2.5f * resources.displayMetrics.density).toInt()
 
         for (key in keys) {
             val label = key.label
             val action = key.action
             val btn = Button(context).apply {
                 text = label
-                textSize = if (label.length > 3) 10f else 12f
+                textSize = if (label.length > 3) 11f else 13f
                 maxLines = 1
                 ellipsize = android.text.TextUtils.TruncateAt.END
-                typeface = Typeface.DEFAULT_BOLD
-                setTextColor(Color.parseColor("#ffffff"))
-                setBackgroundResource(R.drawable.key_button_bg)
+                typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+                styleKey(this, false)
                 isAllCaps = false
                 gravity = Gravity.CENTER
                 setPadding(0, 0, 0, 0)
@@ -192,6 +195,7 @@ class ExtraKeysView @JvmOverloads constructor(
                     when (event.action) {
                         MotionEvent.ACTION_DOWN -> {
                             v.isPressed = true
+                            pressFeedback(v, true)
                             v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
                             keyDownX = event.x
                             keyDownY = event.y
@@ -215,11 +219,13 @@ class ExtraKeysView @JvmOverloads constructor(
                                 cancelPendingKey(v)
                                 cancelRepeat()
                                 v.isPressed = false
+                                pressFeedback(v, false)
                             }
                             true
                         }
                         MotionEvent.ACTION_UP -> {
                             v.isPressed = false
+                            pressFeedback(v, false)
                             handledByTouch = true
                             try {
                                 v.performClick()
@@ -238,6 +244,7 @@ class ExtraKeysView @JvmOverloads constructor(
                         }
                         MotionEvent.ACTION_CANCEL -> {
                             v.isPressed = false
+                            pressFeedback(v, false)
                             cancelPendingKey(v)
                             cancelRepeat()
                             true
@@ -250,6 +257,7 @@ class ExtraKeysView @JvmOverloads constructor(
             if (key.modifier == ExtraKeysLayout.Special.CTRL) ctrlButton = btn
             if (key.modifier == ExtraKeysLayout.Special.ALT) altButton = btn
 
+            keyButtons.add(btn)
             rowLayout.addView(btn)
         }
 
@@ -337,28 +345,33 @@ class ExtraKeysView @JvmOverloads constructor(
         updateModifierStyles()
     }
 
+    /** A key in the colors of the scheme: flat and a little lighter than the bar, or the accent when it is on. */
+    private fun styleKey(btn: Button, on: Boolean) {
+        val p = Chrome.palette
+        val radius = dp(9f)
+        val stroke = dp(1f).toInt().coerceAtLeast(1)
+        btn.background = if (on) Chrome.activeKeyBackground(p, radius, stroke) else Chrome.keyBackground(p, radius, stroke)
+        btn.setTextColor(if (on) p.onAccent else p.text)
+    }
+
+    /** A key sinks a little under the finger. */
+    private fun pressFeedback(v: View, down: Boolean) {
+        val scale = if (down) 0.94f else 1f
+        v.animate().scaleX(scale).scaleY(scale).setDuration(if (down) 45L else 90L).start()
+    }
+
+    /** Draws the keys again in the colors of the scheme now in use. */
+    fun applyPalette() {
+        setBackgroundColor(Chrome.palette.bar)
+        for (btn in keyButtons) styleKey(btn, false)
+        updateModifierStyles()
+    }
+
     fun updateModifierStyles() {
         val view = terminalView ?: return
 
-        ctrlButton?.let { btn ->
-            if (view.isCtrlPressed) {
-                btn.setBackgroundResource(R.drawable.key_button_active)
-                btn.setTextColor(Color.parseColor("#12131a"))
-            } else {
-                btn.setBackgroundResource(R.drawable.key_button_bg)
-                btn.setTextColor(Color.parseColor("#f5f5f7"))
-            }
-        }
-
-        altButton?.let { btn ->
-            if (view.isAltPressed) {
-                btn.setBackgroundResource(R.drawable.key_button_active)
-                btn.setTextColor(Color.parseColor("#12131a"))
-            } else {
-                btn.setBackgroundResource(R.drawable.key_button_bg)
-                btn.setTextColor(Color.parseColor("#f5f5f7"))
-            }
-        }
+        ctrlButton?.let { btn -> styleKey(btn, view.isCtrlPressed) }
+        altButton?.let { btn -> styleKey(btn, view.isAltPressed) }
     }
 
     override fun onDetachedFromWindow() {

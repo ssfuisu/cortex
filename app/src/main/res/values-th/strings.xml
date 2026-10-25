@@ -75,6 +75,8 @@
     <string name="pref_font_title">แบบอักษรเทอร์มินัล</string>
     <string name="pref_theme_title">ชุดสี</string>
     <string name="pref_font_size_title">ขนาดแบบอักษร</string>
+    <string name="pref_session_tabs_title">แท็บเซสชัน</string>
+    <string name="pref_session_tabs_summary">แถบเหนือเทอร์มินัลสำหรับสลับระหว่างเซสชันและเริ่มเซสชันใหม่</string>
     <string name="pref_keep_screen_on_title">เปิดหน้าจอค้างไว้</string>
     <string name="pref_keep_screen_on_summary">ป้องกันไม่ให้หน้าจอปิดขณะเทอร์มินัลทำงาน</string>
     <string name="pref_secure_screen_title">หน้าจอปลอดภัย</string>

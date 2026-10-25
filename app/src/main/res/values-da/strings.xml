@@ -75,6 +75,8 @@
     <string name="pref_font_title">Terminalens skrifttype</string>
     <string name="pref_theme_title">Farveskema</string>
     <string name="pref_font_size_title">Skriftstørrelse</string>
+    <string name="pref_session_tabs_title">Sessionsfaner</string>
+    <string name="pref_session_tabs_summary">En bjælke over terminalen til at skifte mellem sessioner og starte nye</string>
     <string name="pref_keep_screen_on_title">Hold skærmen tændt</string>
     <string name="pref_keep_screen_on_summary">Forhindrer, at skærmen slukker, mens terminalen er aktiv</string>
     <string name="pref_secure_screen_title">Sikker skærm</string>

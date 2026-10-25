@@ -633,7 +633,11 @@ class TerminalView @JvmOverloads constructor(
 
     fun applyTheme() {
         cursorPaint.color = TerminalColor.CURSOR_COLOR
-        selectionHandlePaint.color = TerminalColor.CURSOR_COLOR
+        // Links, selection handles and search hits are in the accent of the scheme
+        selectionHandlePaint.color = Chrome.palette.accent
+        linkUnderlinePaint.color = Chrome.palette.accent
+        searchMatchPaint.color = Chrome.mix(TerminalColor.DEFAULT_BG, TerminalColor.DEFAULT_FG, 0.25f)
+        searchCurrentPaint.color = TerminalColor.ANSI_COLORS[3]
         invalidate()
     }
 

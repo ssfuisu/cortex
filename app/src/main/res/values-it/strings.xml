@@ -75,6 +75,8 @@
     <string name="pref_font_title">Carattere del terminale</string>
     <string name="pref_theme_title">Combinazione di colori</string>
     <string name="pref_font_size_title">Dimensione del carattere</string>
+    <string name="pref_session_tabs_title">Schede delle sessioni</string>
+    <string name="pref_session_tabs_summary">Una barra sopra il terminale per passare da una sessione all’altra e avviarne di nuove</string>
     <string name="pref_keep_screen_on_title">Mantieni schermo acceso</string>
     <string name="pref_keep_screen_on_summary">Impedisce allo schermo di spegnersi mentre il terminale è attivo</string>
     <string name="pref_secure_screen_title">Schermo protetto</string>

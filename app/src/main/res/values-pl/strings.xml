@@ -75,6 +75,8 @@
     <string name="pref_font_title">Czcionka terminala</string>
     <string name="pref_theme_title">Schemat kolorów</string>
     <string name="pref_font_size_title">Rozmiar czcionki</string>
+    <string name="pref_session_tabs_title">Karty sesji</string>
+    <string name="pref_session_tabs_summary">Pasek nad terminalem do przełączania między sesjami i uruchamiania nowych</string>
     <string name="pref_keep_screen_on_title">Nie wyłączaj ekranu</string>
     <string name="pref_keep_screen_on_summary">Zapobiega wyłączaniu wyświetlacza, gdy terminal jest aktywny</string>
     <string name="pref_secure_screen_title">Bezpieczny ekran</string>

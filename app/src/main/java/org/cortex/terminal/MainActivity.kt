@@ -1,6 +1,9 @@
 package org.cortex.terminal
 
 import android.content.Intent
+import android.content.res.ColorStateList
+import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -17,6 +20,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.view.GravityCompat
+import androidx.core.view.WindowCompat
 import androidx.drawerlayout.widget.DrawerLayout
 import androidx.preference.PreferenceManager
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -26,12 +30,15 @@ import org.cortex.terminal.runtime.BootstrapManager
 import org.cortex.terminal.runtime.Environment
 import org.cortex.terminal.service.CortexService
 import org.cortex.terminal.session.SessionAdapter
+import org.cortex.terminal.session.SessionLabels
 import org.cortex.terminal.session.SessionManager
 import org.cortex.terminal.session.TerminalSession
 import org.cortex.terminal.update.UpdateManager
+import org.cortex.terminal.view.Chrome
 import org.cortex.terminal.view.ExtraKeysConfig
 import org.cortex.terminal.view.ExtraKeysLayout
 import org.cortex.terminal.view.ExtraKeysView
+import org.cortex.terminal.view.SessionTabsView
 import org.cortex.terminal.view.TerminalSearchBar
 import org.cortex.terminal.view.TerminalView
 
@@ -209,32 +216,28 @@ class MainActivity : AppCompatActivity() {
                 sessionManager.switchTo(index)
                 drawerLayout.closeDrawer(GravityCompat.START)
             },
-            onClose = { index ->
-                val session = sessionManager.sessions.getOrNull(index)
-                if (session != null) {
-                    if (sessionManager.sessions.size > 1) {
-                        sessionManager.removeSession(session)
-                        sessionAdapter.notifyDataSetChanged()
-                        CortexService.updateNotification(this)
-                    } else {
-                        AlertDialog.Builder(this)
-                            .setTitle(R.string.exit_confirm_title)
-                            .setMessage(R.string.exit_confirm_message)
-                            .setPositiveButton(R.string.yes) { _, _ ->
-                                CortexService.instance?.exitAll() ?: run {
-                                    sessionManager.destroyAll()
-                                    finish()
-                                }
-                            }
-                            .setNegativeButton(R.string.no, null)
-                            .show()
-                    }
-                }
-            }
+            onClose = { index -> closeSession(index) }
         )
 
         sessionRecyclerView.layoutManager = LinearLayoutManager(this)
         sessionRecyclerView.adapter = sessionAdapter
+
+        // The tabs above the terminal do what the drawer's list does
+        binding.sessionTabs.onSelect = { index -> sessionManager.switchTo(index) }
+        binding.sessionTabs.onClose = { index -> closeSession(index) }
+        binding.sessionTabs.onNew = { createNewSession() }
+        // The directories shown in the drawer are those of the moment it opens
+        drawerLayout.addDrawerListener(object : DrawerLayout.SimpleDrawerListener() {
+            private var shown = false
+            override fun onDrawerSlide(drawerView: View, slideOffset: Float) {
+                if (slideOffset > 0f && !shown) {
+                    shown = true
+                    sessionAdapter.notifyDataSetChanged()
+                } else if (slideOffset == 0f) {
+                    shown = false
+                }
+            }
+        })
 
         sessionManager.onSessionChanged = { session ->
             runOnUiThread {
@@ -247,6 +250,7 @@ class MainActivity : AppCompatActivity() {
                     CortexService.updateNotification(this)
                     terminalView.session = session
                     sessionAdapter.notifyDataSetChanged()
+                    refreshTabs()
                     terminalView.invalidate()
                 }
             }
@@ -362,11 +366,57 @@ class MainActivity : AppCompatActivity() {
                 val current = sessionManager.currentSession ?: sessionManager.sessions[0]
                 terminalView.session = current
                 sessionAdapter.notifyDataSetChanged()
+                refreshTabs()
                 terminalView.invalidate()
             }
             terminalView.post {
                 terminalView.showKeyboard()
             }
+        }
+    }
+
+    /** Ends session [index], after asking when it is the last one (that ends Cortex). */
+    private fun closeSession(index: Int) {
+        val session = sessionManager.sessions.getOrNull(index) ?: return
+        if (sessionManager.sessions.size > 1) {
+            sessionManager.removeSession(session)
+            sessionAdapter.notifyDataSetChanged()
+            refreshTabs()
+            CortexService.updateNotification(this)
+        } else {
+            AlertDialog.Builder(this)
+                .setTitle(R.string.exit_confirm_title)
+                .setMessage(R.string.exit_confirm_message)
+                .setPositiveButton(R.string.yes) { _, _ ->
+                    CortexService.instance?.exitAll() ?: run {
+                        sessionManager.destroyAll()
+                        finish()
+                    }
+                }
+                .setNegativeButton(R.string.no, null)
+                .show()
+        }
+    }
+
+    /** Shows the sessions as tabs: each named by the directory its shell is in. */
+    private fun refreshTabs() {
+        if (!::sessionManager.isInitialized) return
+        val tabs: List<SessionTabsView.Tab>
+        val active: Int
+        synchronized(sessionManager.sessions) {
+            tabs = sessionManager.sessions.mapIndexed { i, s ->
+                SessionTabsView.Tab(SessionLabels.where(this, s)?.tab ?: getString(R.string.session_label, i + 1), s.isRoot)
+            }
+            active = sessionManager.currentSessionIndex
+        }
+        binding.sessionTabs.update(tabs, active)
+    }
+
+    // The tabs are named after the directories, which change as the shells move about
+    private val tabsRefresher = object : Runnable {
+        override fun run() {
+            refreshTabs()
+            binding.sessionTabs.postDelayed(this, 2500L)
         }
     }
 
@@ -401,6 +451,8 @@ class MainActivity : AppCompatActivity() {
         }
         terminalView.requestLayout()
         terminalView.postInvalidate()
+        binding.sessionTabs.removeCallbacks(tabsRefresher)
+        binding.sessionTabs.post(tabsRefresher)
     }
 
     override fun onStop() {
@@ -411,6 +463,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onPause() {
         super.onPause()
+        binding.sessionTabs.removeCallbacks(tabsRefresher)
         terminalView.clearSelection()
         extraKeysConfig.stopWatching()
         terminalView.removeCallbacks(applyExtraKeysRunnable)
@@ -439,7 +492,13 @@ class MainActivity : AppCompatActivity() {
 
         val themeKey = prefs.getString("terminal_theme", "catppuccin") ?: "catppuccin"
         org.cortex.terminal.emulator.TerminalColor.applyTheme(themeKey)
+        Chrome.apply(org.cortex.terminal.emulator.TerminalColor.SCHEMES.getValue(org.cortex.terminal.emulator.TerminalColor.currentThemeId))
         terminalView.applyTheme()
+        applyChrome()
+
+        val showTabs = prefs.getBoolean("show_session_tabs", true)
+        binding.sessionTabs.visibility = if (showTabs) View.VISIBLE else View.GONE
+        binding.tabsDivider.visibility = if (showTabs) View.VISIBLE else View.GONE
 
         val fontKey = prefs.getString("terminal_font", "jetbrains_mono") ?: "jetbrains_mono"
         terminalView.setTerminalFont(fontKey)
@@ -457,6 +516,59 @@ class MainActivity : AppCompatActivity() {
         } else {
             window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
         }
+    }
+
+    /**
+     * Draws everything around the terminal (the tabs, the keys, the drawer, the system bars) in the
+     * colors of the terminal's scheme, so that choosing another one changes the whole screen.
+     */
+    private fun applyChrome() {
+        val p = Chrome.palette
+        val density = resources.displayMetrics.density
+        val hairline = density.toInt().coerceAtLeast(1)
+
+        window.setBackgroundDrawable(ColorDrawable(p.bg))
+        drawerLayout.setBackgroundColor(p.bg)
+        drawerLayout.setScrimColor(Chrome.withAlpha(Chrome.BLACK, 150))
+        binding.sessionTabs.applyPalette()
+        binding.tabsDivider.setBackgroundColor(p.outline)
+        binding.dockDivider.setBackgroundColor(p.outline)
+        binding.bottomBarContainer.setBackgroundColor(p.bar)
+        extraKeysView.applyPalette()
+        searchBar.applyPalette()
+
+        // The drawer: the bar's color, rounded on the side that meets the terminal
+        val corner = 24 * density
+        binding.navDrawer.background = GradientDrawable().apply {
+            setColor(p.bar)
+            cornerRadii = floatArrayOf(0f, 0f, corner, corner, corner, corner, 0f, 0f)
+            setStroke(hairline, p.outline)
+        }
+        binding.drawerMark.background = Chrome.rounded(p.accent, 13 * density)
+        binding.drawerMark.setTextColor(p.onAccent)
+        binding.drawerTitle.setTextColor(p.text)
+        binding.drawerSubtitle.setTextColor(p.textFaint)
+        binding.drawerDivider.setBackgroundColor(p.outline)
+        binding.drawerSessionsLabel.setTextColor(p.textFaint)
+        fun roundButton() = Chrome.ripple(
+            Chrome.rounded(p.raised, 22 * density, p.outline, hairline), Chrome.withAlpha(p.accent, 70), 22 * density
+        )
+        layoutUpdateBadge.background = roundButton()
+        btnDrawerSettings.background = roundButton()
+        binding.btnUpdateCheck.imageTintList = ColorStateList.valueOf(p.accent)
+        btnDrawerSettings.imageTintList = ColorStateList.valueOf(p.textDim)
+        btnDrawerKeyboard.background = Chrome.buttonBackground(p, 16 * density, hairline, filled = false)
+        btnDrawerKeyboard.setTextColor(p.text)
+        btnDrawerNewSession.background = Chrome.buttonBackground(p, 16 * density, hairline, filled = true)
+        btnDrawerNewSession.setTextColor(p.onAccent)
+        if (::sessionAdapter.isInitialized) sessionAdapter.notifyDataSetChanged()
+
+        // The system bars take the bar's color, with icons that can be read on it
+        window.statusBarColor = p.bar
+        window.navigationBarColor = p.bar
+        val controller = WindowCompat.getInsetsController(window, window.decorView)
+        controller.isAppearanceLightStatusBars = !p.dark
+        controller.isAppearanceLightNavigationBars = !p.dark
     }
 
     /**
@@ -561,6 +673,7 @@ class MainActivity : AppCompatActivity() {
         if (sessionManager.restore(terminalView.rows, terminalView.cols, terminalView.width, terminalView.height)) {
             terminalView.session = sessionManager.currentSession
             sessionAdapter.notifyDataSetChanged()
+            refreshTabs()
             CortexService.updateNotification(this)
         } else {
             createNewSession()
@@ -576,6 +689,7 @@ class MainActivity : AppCompatActivity() {
         )
         terminalView.session = session
         sessionAdapter.notifyDataSetChanged()
+        refreshTabs()
         return session
     }
 
@@ -702,6 +816,7 @@ class MainActivity : AppCompatActivity() {
                     if (current != null) {
                         sessionManager.removeSession(current)
                         sessionAdapter.notifyDataSetChanged()
+                        refreshTabs()
                         return
                     }
                 }

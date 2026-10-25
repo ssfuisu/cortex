@@ -75,6 +75,8 @@
     <string name="pref_font_title">Police du terminal</string>
     <string name="pref_theme_title">Jeu de couleurs</string>
     <string name="pref_font_size_title">Taille de police</string>
+    <string name="pref_session_tabs_title">Onglets de session</string>
+    <string name="pref_session_tabs_summary">Une barre au-dessus du terminal pour passer d’une session à l’autre et en démarrer de nouvelles</string>
     <string name="pref_keep_screen_on_title">Garder l’écran allumé</string>
     <string name="pref_keep_screen_on_summary">Empêche l’écran de s’éteindre tant que le terminal est actif</string>
     <string name="pref_secure_screen_title">Écran sécurisé</string>

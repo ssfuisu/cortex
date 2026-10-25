@@ -75,6 +75,8 @@
     <string name="pref_font_title">قلم ترمینال</string>
     <string name="pref_theme_title">طرح رنگ</string>
     <string name="pref_font_size_title">اندازه قلم</string>
+    <string name="pref_session_tabs_title">زبانه‌های نشست</string>
+    <string name="pref_session_tabs_summary">نواری بالای ترمینال برای جابه‌جایی میان نشست‌ها و شروع نشست‌های تازه</string>
     <string name="pref_keep_screen_on_title">روشن نگه داشتن صفحه</string>
     <string name="pref_keep_screen_on_summary">از خاموش شدن صفحه نمایش در زمان فعال بودن ترمینال جلوگیری می‌کند</string>
     <string name="pref_secure_screen_title">صفحه امن</string>

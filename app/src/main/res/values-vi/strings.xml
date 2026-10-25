@@ -75,6 +75,8 @@
     <string name="pref_font_title">Phông chữ terminal</string>
     <string name="pref_theme_title">Bảng màu</string>
     <string name="pref_font_size_title">Cỡ chữ</string>
+    <string name="pref_session_tabs_title">Thẻ phiên</string>
+    <string name="pref_session_tabs_summary">Thanh phía trên terminal để chuyển giữa các phiên và bắt đầu phiên mới</string>
     <string name="pref_keep_screen_on_title">Giữ màn hình luôn bật</string>
     <string name="pref_keep_screen_on_summary">Ngăn màn hình tắt khi terminal đang hoạt động</string>
     <string name="pref_secure_screen_title">Màn hình bảo mật</string>

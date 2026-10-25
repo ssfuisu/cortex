@@ -75,6 +75,8 @@
     <string name="pref_font_title">Terminal yazı tipi</string>
     <string name="pref_theme_title">Renk şeması</string>
     <string name="pref_font_size_title">Yazı tipi boyutu</string>
+    <string name="pref_session_tabs_title">Oturum sekmeleri</string>
+    <string name="pref_session_tabs_summary">Oturumlar arasında geçiş yapmak ve yenilerini başlatmak için terminalin üstündeki şerit</string>
     <string name="pref_keep_screen_on_title">Ekranı açık tut</string>
     <string name="pref_keep_screen_on_summary">Terminal etkinken ekranın kapanmasını önler</string>
     <string name="pref_secure_screen_title">Güvenli ekran</string>

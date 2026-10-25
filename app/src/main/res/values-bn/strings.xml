@@ -75,6 +75,8 @@
     <string name="pref_font_title">টার্মিনাল ফন্ট</string>
     <string name="pref_theme_title">রঙের স্কিম</string>
     <string name="pref_font_size_title">ফন্টের আকার</string>
+    <string name="pref_session_tabs_title">সেশন ট্যাব</string>
+    <string name="pref_session_tabs_summary">সেশনের মধ্যে পরিবর্তন করতে ও নতুন সেশন শুরু করতে টার্মিনালের উপরের একটি স্ট্রিপ</string>
     <string name="pref_keep_screen_on_title">স্ক্রিন চালু রাখুন</string>
     <string name="pref_keep_screen_on_summary">টার্মিনাল সক্রিয় থাকা অবস্থায় ডিসপ্লে বন্ধ হওয়া আটকায়</string>
     <string name="pref_secure_screen_title">নিরাপদ স্ক্রিন</string>

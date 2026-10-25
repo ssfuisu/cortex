@@ -75,6 +75,8 @@
     <string name="pref_font_title">Font ng Terminal</string>
     <string name="pref_theme_title">Scheme ng Kulay</string>
     <string name="pref_font_size_title">Laki ng Font</string>
+    <string name="pref_session_tabs_title">Mga tab ng session</string>
+    <string name="pref_session_tabs_summary">Isang strip sa itaas ng terminal para lumipat sa pagitan ng mga session at magsimula ng bago</string>
     <string name="pref_keep_screen_on_title">Panatilihing Bukas ang Screen</string>
     <string name="pref_keep_screen_on_summary">Pinipigilan ang pag-off ng display habang aktibo ang terminal</string>
     <string name="pref_secure_screen_title">Secure na Screen</string>

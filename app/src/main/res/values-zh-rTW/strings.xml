@@ -75,6 +75,8 @@
     <string name="pref_font_title">終端機字型</string>
     <string name="pref_theme_title">配色方案</string>
     <string name="pref_font_size_title">字型大小</string>
+    <string name="pref_session_tabs_title">工作階段分頁</string>
+    <string name="pref_session_tabs_summary">終端機上方的分頁列，可切換工作階段並開啟新的工作階段</string>
     <string name="pref_keep_screen_on_title">保持螢幕開啟</string>
     <string name="pref_keep_screen_on_summary">終端機使用中時防止螢幕關閉</string>
     <string name="pref_secure_screen_title">安全螢幕</string>
