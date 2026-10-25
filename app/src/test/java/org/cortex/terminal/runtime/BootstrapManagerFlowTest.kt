@@ -62,6 +62,8 @@ class BootstrapManagerFlowTest {
         put("usr/bin/apt", "apt", base)
         put("usr/bin/mawk", "mawk", base)
         put("usr/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1", "ld.so", base)
+        put("usr/share/base-passwd/passwd.master", "root:*:0:0:root:/root:/bin/bash\nman:*:6:12:man:/var/cache/man:/usr/sbin/nologin\nwww-data:*:33:33:www-data:/var/www:/usr/sbin/nologin\n", base)
+        put("usr/share/base-passwd/group.master", "root:*:0:\nadm:*:4:\nman:*:12:\nnogroup:*:65534:\n", base)
         put("etc/skel/.bashrc", "# the image's .bashrc\n", base)
         put("etc/skel/.profile", "# the image's .profile\n", base)
         put("etc/profile", "if [ \"`id -u`\" -eq 0 ]; then PS1='# '; fi\n", base)
@@ -135,6 +137,13 @@ class BootstrapManagerFlowTest {
         assertEquals("root:x:0:0:root:${home.absolutePath}:/bin/bash", passwd[0])
         assertTrue(passwd.contains("cortex:x:0:0:Cortex:${home.absolutePath}:/bin/bash"))
         assertTrue(read("etc/group").startsWith("root:x:0:\n"))
+        // The system users and groups of every Ubuntu, which packages' scripts use (chown redis:adm,
+        // setpriv --reuid=man): once there, with locked shadow entries
+        assertTrue(passwd.contains("man:x:6:12:man:/var/cache/man:/usr/sbin/nologin"))
+        assertTrue(passwd.contains("www-data:x:33:33:www-data:/var/www:/usr/sbin/nologin"))
+        assertTrue(read("etc/group").lines().containsAll(listOf("adm:x:4:", "man:x:12:", "nogroup:x:65534:")))
+        assertTrue(read("etc/shadow").lines().contains("man:*:19700:0:99999:7:::"))
+        assertTrue(read("etc/gshadow").lines().contains("adm:*::"))
 
         val bundle = File(root, "etc/ssl/certs/ca-certificates.crt")
         assertArrayEquals(asset("cacert.pem"), bundle.readBytes())

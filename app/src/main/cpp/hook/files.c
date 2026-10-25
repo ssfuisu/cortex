@@ -546,6 +546,10 @@ int __fxstatat64(int ver, int dirfd, const char *pathname, struct stat64 *statbu
 
 // Hook statx
 int statx(int dirfd, const char *pathname, int flags, unsigned int mask, struct statx *statxbuf) {
+    // Rust's standard library asks whether statx exists by calling it with a NULL path and buffer
+    // (EFAULT means it does). glibc's header declares both as nonnull, so the compiler would drop
+    // the NULL check below and read the path: every Rust program (rg, rustc, cargo...) crashed.
+    __asm__ volatile("" : "+r"(pathname), "+r"(statxbuf));
     static int (*orig_statx)(int, const char *, int, unsigned int, struct statx *) = NULL;
     if (!orig_statx) orig_statx = (int (*)(int, const char *, int, unsigned int, struct statx *))dlsym(RTLD_NEXT, "statx");
     char buf[PATH_MAX];

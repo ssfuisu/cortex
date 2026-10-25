@@ -44,9 +44,41 @@ static int for_each_range_without(unsigned int first, unsigned int last, const i
 // ndk_translation's file is "/memfd:child"; any memory file counts in a process whose executable is
 // a translator's runner (houdini). ndk_translation shows a program its own path as /proc/self/exe,
 // so the name is what tells there.
+//
+// This runs at the start of every program, so it costs three system calls on a phone that runs ARM
+// code itself: the descriptors that are open (/proc/self/fd, read at once) are all that are asked
+// about, where asking about each of the numbers from 3 to 63 was 61 readlink() calls in every
+// process that was started.
 __attribute__((constructor(102))) static void find_translator_files(void) {
     ssize_t (*real_readlink)(const char *, char *, size_t) = (ssize_t (*)(const char *, char *, size_t))dlsym(RTLD_NEXT, "readlink");
-    if (!real_readlink) return;
+    int (*real_open)(const char *, int, ...) = (int (*)(const char *, int, ...))dlsym(RTLD_NEXT, "open");
+    int (*real_close)(int) = (int (*)(int))dlsym(RTLD_NEXT, "close");
+    ssize_t (*real_getdents64)(int, void *, size_t) = (ssize_t (*)(int, void *, size_t))dlsym(RTLD_NEXT, "getdents64");
+    if (!real_readlink || !real_open || !real_close) return;
+    int dir = real_getdents64 ? real_open("/proc/self/fd", O_RDONLY | O_DIRECTORY | O_CLOEXEC) : -1;
+    if (dir < 0) return;
+    // The numbers of the descriptors open now, those from 3 to 63 (the directory's own left out)
+    char entries[2048];
+    unsigned char open_fds[64];
+    int nopen = 0;
+    for (;;) {
+        long n = real_getdents64(dir, entries, sizeof(entries));
+        if (n <= 0) break;
+        for (long off = 0; off < n;) {
+            struct linux_dirent64_head { unsigned long long ino; long long next; unsigned short reclen; unsigned char type; } *e =
+                (struct linux_dirent64_head *)(entries + off);
+            const char *name = entries + off + sizeof(*e);
+            off += e->reclen;
+            if (name[0] < '0' || name[0] > '9') continue; // "." and ".."
+            int fd = atoi(name);
+            if (fd >= 3 && fd < 64 && fd != dir) open_fds[nopen++] = (unsigned char)fd;
+        }
+        // A short answer is the whole directory; asking again would only be told "no more"
+        if ((size_t)n + 64 <= sizeof(entries)) break;
+    }
+    real_close(dir);
+    if (nopen == 0) return;
+
     char path[PATH_MAX];
     int runner = 0;
     ssize_t n = real_readlink("/proc/self/exe", path, sizeof(path) - 1);
@@ -56,14 +88,24 @@ __attribute__((constructor(102))) static void find_translator_files(void) {
         base = base ? base + 1 : path;
         runner = strncmp(base, "ndk_translation", 15) == 0 || strncmp(base, "houdini", 7) == 0;
     }
-    for (int fd = 3; fd < 64 && g_kept_fd_count < CORTEX_MAX_KEPT_FDS; fd++) {
+    // In ascending order, as the list is kept
+    for (int i = 0; i < nopen - 1; i++) {
+        for (int j = i + 1; j < nopen; j++) {
+            if (open_fds[j] < open_fds[i]) {
+                unsigned char t = open_fds[i];
+                open_fds[i] = open_fds[j];
+                open_fds[j] = t;
+            }
+        }
+    }
+    for (int i = 0; i < nopen && g_kept_fd_count < CORTEX_MAX_KEPT_FDS; i++) {
         char link[32], target[64];
-        snprintf(link, sizeof(link), "/proc/self/fd/%d", fd);
+        snprintf(link, sizeof(link), "/proc/self/fd/%d", open_fds[i]);
         ssize_t m = real_readlink(link, target, sizeof(target) - 1);
         if (m <= 0) continue;
         target[m] = '\0';
         if (strncmp(target, "/memfd:child", 12) == 0 || (runner && strncmp(target, "/memfd:", 7) == 0)) {
-            g_kept_fds[g_kept_fd_count++] = fd;
+            g_kept_fds[g_kept_fd_count++] = open_fds[i];
         }
     }
 }

@@ -13,9 +13,18 @@ on:
         description: "The release to test (its tag; empty: the latest)"
         type: string
         default: ""
+      only:
+        description: "Only these packages (names of the table, separated by spaces; empty: all)"
+        type: string
+        default: ""
+      apk_run:
+        description: "Test the APKs of this run of Build and Release (a dry run's artifact) instead of a release"
+        type: string
+        default: ""
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: package-compatibility
@@ -34,12 +43,20 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.release }}
+          APK_RUN: ${{ inputs.apk_run }}
         run: |
           set -euo pipefail
           mkdir -p apks
-          # Without a tag, gh takes the latest release ($TAG is left unquoted for that)
-          gh release download $TAG --repo "$GITHUB_REPOSITORY" --pattern 'Cortex-arm64-v8a-signed.apk' --dir apks
-          gh release view $TAG --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName > tag.txt
+          if [ -n "$APK_RUN" ]; then
+            # The APKs a run of Build and Release made (a dry run keeps them for a day)
+            gh run download "$APK_RUN" --repo "$GITHUB_REPOSITORY" --name cortex-release-apks --dir apk-run
+            cp "$(find apk-run -name 'Cortex-arm64-v8a-signed.apk' | head -n 1)" apks/
+            echo "run $APK_RUN" > tag.txt
+          else
+            # Without a tag, gh takes the latest release ($TAG is left unquoted for that)
+            gh release download $TAG --repo "$GITHUB_REPOSITORY" --pattern 'Cortex-arm64-v8a-signed.apk' --dir apks
+            gh release view $TAG --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName > tag.txt
+          fi
           echo "Testing $(cat tag.txt)"
           ls -l apks
 
@@ -51,6 +68,8 @@ jobs:
 
       - name: Install and try the packages on the emulator
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        env:
+          E2E_COMPAT_ONLY: ${{ inputs.only }}
         with:
           api-level: 34
           arch: x86_64

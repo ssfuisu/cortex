@@ -19,6 +19,20 @@ if [ -n "${CORTEX_E2E_EMULATOR:-}" ]; then
         arm-sve arm-sve2 arm-sveaes arm-svepmull arm-svesha3 arm-svesm4 > /etc/gcrypt/hwf.deny
 fi
 
+# CORTEX_COMPAT_ONLY="redis nginx": only those packages (names as in the table), to look closer at some
+ONLY=" ${CORTEX_COMPAT_ONLY:-} "
+ONLY="${ONLY//,/ }"
+
+# What the system's users and groups look like to the tools that ask (a package's scripts do)
+{
+    echo "--- id: $(id)"
+    echo "--- passwd: $(wc -l < /etc/passwd) lines, group: $(wc -l < /etc/group) lines"
+    for u in man www-data nobody _apt redis; do echo "getent passwd $u: $(getent passwd $u || echo none)"; done
+    for g in adm tty shadow staff nogroup; do echo "getent group $g: $(getent group $g || echo none)"; done
+    echo "--- setpriv --reuid=man: $(setpriv --reuid=man id -u 2>&1)"
+    ls -la /etc/passwd* /etc/group* 2>&1
+} > "$OUT/diag-users.txt" 2>&1
+
 W="${CORTEX_COMPAT_DIR:-/tmp/cortex-compat}"
 rm -rf "$W"
 mkdir -p "$W"
@@ -28,6 +42,7 @@ cd "$W" || exit 1
 # records whether it succeeded with EXPECTED in its output, and how long the whole took
 package() {
     local name="$1" packages="$2" expected="$3" command="$4" out s started=$SECONDS
+    if [ "$ONLY" != "  " ] && [[ "$ONLY" != *" $name "* ]]; then return; fi
     printf '\033[36m…\033[0m %s\n' "$name"
     (
         echo "\$ apt-get install -y $packages"
@@ -35,7 +50,7 @@ package() {
         # terminal: apt-get changes the terminal's settings at its end and is stopped (SIGTTOU) for good.
         # So: --foreground, and no terminal as input.
         # shellcheck disable=SC2086 # the package list
-        timeout --foreground 900 apt-get install -y --no-install-recommends $packages < /dev/null 2>&1 | tail -n 15
+        timeout --foreground 900 apt-get install -y --no-install-recommends $packages < /dev/null 2>&1 | tail -n 250
         s=${PIPESTATUS[0]}
         [ "$s" = 0 ] || { echo "apt-get failed ($s)"; exit 10; }
         echo "\$ $command"

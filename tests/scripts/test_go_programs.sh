@@ -68,7 +68,7 @@ check() { # name, then a command that succeeds when the check does
 echo "== building"
 "$here/scripts/build-gosys.sh" || { echo "the added code did not build"; exit 1; }
 hook=$work/libcortex-hook.so
-aarch64-linux-gnu-gcc -std=gnu11 -shared -fPIC -O2 -w -Wl,-z,max-page-size=16384 -o "$hook" "$here/app/src/main/cpp/cortex-hook.c" -ldl \
+aarch64-linux-gnu-gcc -std=gnu11 -shared -fPIC -O2 -fno-delete-null-pointer-checks -w -Wl,-z,max-page-size=16384 -o "$hook" "$here/app/src/main/cpp/cortex-hook.c" -ldl \
   || { echo "the hook did not build"; exit 1; }
 gcc -std=gnu11 -O1 -w -o "$work/gopatch" "$here/tests/go/gopatch.c" -ldl -lpthread || { echo "gopatch did not build"; exit 1; }
 

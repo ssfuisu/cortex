@@ -131,8 +131,8 @@ jobs:
           mkdir -p hook-libs
           # The code that is added to static Go programs (gosys/gosys.c), which the 64-bit hook carries
           scripts/build-gosys.sh
-          aarch64-linux-gnu-gcc -std=gnu11 -shared -fPIC -O3 -Wall -Wno-nonnull-compare -Wl,-z,max-page-size=16384 -o hook-libs/libcortex-hook-arm64.so app/src/main/cpp/cortex-hook.c -ldl
-          arm-linux-gnueabihf-gcc -std=gnu11 -shared -fPIC -O3 -Wall -Wno-nonnull-compare -Wl,-z,max-page-size=16384 -o hook-libs/libcortex-hook-arm.so app/src/main/cpp/cortex-hook.c -ldl
+          aarch64-linux-gnu-gcc -std=gnu11 -shared -fPIC -O3 -fno-delete-null-pointer-checks -Wall -Wno-nonnull-compare -Wl,-z,max-page-size=16384 -o hook-libs/libcortex-hook-arm64.so app/src/main/cpp/cortex-hook.c -ldl
+          arm-linux-gnueabihf-gcc -std=gnu11 -shared -fPIC -O3 -fno-delete-null-pointer-checks -Wall -Wno-nonnull-compare -Wl,-z,max-page-size=16384 -o hook-libs/libcortex-hook-arm.so app/src/main/cpp/cortex-hook.c -ldl
           # Root mode's helper: a static executable, run as root before any chroot exists
           aarch64-linux-gnu-gcc -std=gnu11 -static -O2 -Wall -Wextra -Werror -Wl,-z,max-page-size=16384 -o hook-libs/cortex-chroot-arm64.elf app/src/main/cpp/root/cortex-chroot.c
           arm-linux-gnueabihf-gcc -std=gnu11 -static -O2 -Wall -Wextra -Werror -Wl,-z,max-page-size=16384 -o hook-libs/cortex-chroot-arm.elf app/src/main/cpp/root/cortex-chroot.c
@@ -341,7 +341,8 @@ jobs:
 
       # Static Go programs (hook/go_programs.c, gosys/): built for AArch64, patched like the hook does
       # and run with qemu-user on a root file system of Ubuntu's own arm64 packages. It also makes
-      # the added code's header, which the native tests below compile the hook with.
+      # the added code's header, which the native tests below compile the hook with. The hook's own
+      # programs under qemu-user (test_hook_qemu.sh) run here too.
       - name: Test static Go programs
         if: github.event_name == 'pull_request' || github.event.inputs.dry_run == 'true'
         env:
@@ -351,6 +352,7 @@ jobs:
           sudo apt-get update -o Acquire::Retries=3 -qq
           sudo apt-get install -y --no-install-recommends qemu-user gcc-aarch64-linux-gnu libc6-dev-arm64-cross binutils-aarch64-linux-gnu
           bash tests/scripts/test_go_programs.sh
+          CORTEX_REQUIRE_QEMU_TESTS=1 bash tests/scripts/test_hook_qemu.sh
 
       - name: Run Native & Shell Script Tests and Verify PR Debug Build
         if: github.event_name == 'pull_request'
