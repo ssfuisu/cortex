@@ -465,7 +465,7 @@ class MainActivity : AppCompatActivity() {
         val rows = result.rows.ifEmpty { ExtraKeysLayout.DEFAULT_ROWS }
         extraKeysView.setKeys(rows)
         val bar = binding.bottomBarContainer
-        val height = (rows.size * ExtraKeysView.ROW_HEIGHT_DP * resources.displayMetrics.density).toInt()
+        val height = (ExtraKeysView.barHeightDp(rows.size) * resources.displayMetrics.density).toInt()
         if (bar.layoutParams.height != height) {
             bar.layoutParams = bar.layoutParams.apply { this.height = height }
         }

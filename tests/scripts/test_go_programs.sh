@@ -189,6 +189,15 @@ once=$(hash_of "$work/patched")
 "$work/gopatch" "$root" "$work/patched" >/dev/null
 check "a second patch changes nothing" test "$(hash_of "$work/patched")" = "$once"
 
+# CORTEX_NO_GOSYS=1: the program as it was built, and the code comes back with the next start
+CORTEX_NO_GOSYS=1 "$work/gopatch" "$root" "$work/patched" >/dev/null
+check "CORTEX_NO_GOSYS takes the code out again, exactly" test "$(hash_of "$work/patched")" = "$before"
+check "and the file keeps its size and time" bash -c "test \"\$(stat -c %s '$work/patched')\" = '$size' && test \"\$(stat -c %Y '$work/patched')\" = '$mtime'"
+CORTEX_NO_GOSYS=1 "$work/gopatch" "$root" "$work/patched" >/dev/null
+check "and with it set nothing is added" test "$(hash_of "$work/patched")" = "$before"
+CORTEX_NO_GOSYS=0 "$work/gopatch" "$root" "$work/patched" >/dev/null
+check "CORTEX_NO_GOSYS=0 does not switch it off" test "$(hash_of "$work/patched")" = "$once"
+
 cp "$work/gotest-symbols" "$work/patched-symbols"
 "$work/gopatch" "$root" "$work/patched-symbols" >/dev/null
 run_in_root "$work/patched-symbols" | same_as_expected > "$work/diff.out" 2>&1

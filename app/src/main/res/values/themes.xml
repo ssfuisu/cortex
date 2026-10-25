@@ -34,6 +34,10 @@
     <style name="Theme.Cortex.Settings" parent="Theme.Material3.Dark">
         <item name="colorPrimary">@color/cortex_primary</item>
         <item name="colorOnPrimary">@color/cortex_bg</item>
+        <item name="colorAccent">@color/cortex_primary</item>
+        <item name="colorSecondary">@color/cortex_primary</item>
+        <item name="colorOnSecondary">@color/cortex_bg</item>
+        <item name="colorControlActivated">@color/cortex_primary</item>
         <item name="colorSurface">@color/cortex_surface</item>
         <item name="colorOnSurface">@color/cortex_text_primary</item>
 

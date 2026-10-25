@@ -225,6 +225,7 @@ static int elf_is_go(int fd, const struct cortex_phdr *ph, int n) {
 #ifdef CORTEX_HAVE_GOSYS
 static int prepare_go_program(int fd, const char *path, const struct stat *st);
 static uint32_t go_blob_fingerprint(void);
+static int go_disabled(void);
 #endif
 
 // What was done to a file is recorded with its size and time, with the rootfs (a Go program carries
@@ -232,11 +233,13 @@ static uint32_t go_blob_fingerprint(void);
 // the programs again.
 static void static_marker(const struct stat *st, char *buf, size_t size) {
     unsigned fingerprint = 0;
+    const char *off = "";
 #ifdef CORTEX_HAVE_GOSYS
     fingerprint = go_blob_fingerprint();
+    if (go_disabled()) off = " off";
 #endif
-    snprintf(buf, size, "3 %lld %lld.%09ld %08x %s", (long long)st->st_size, (long long)st->st_mtim.tv_sec,
-             (long)st->st_mtim.tv_nsec, fingerprint, g_cortex_root);
+    snprintf(buf, size, "3 %lld %lld.%09ld %08x %s%s", (long long)st->st_size, (long long)st->st_mtim.tv_sec,
+             (long)st->st_mtim.tv_nsec, fingerprint, g_cortex_root, off);
 }
 
 // Makes a static program safe to start (see above). Runs before every start of one, so a program

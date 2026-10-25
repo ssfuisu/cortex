@@ -42,7 +42,7 @@
         <FrameLayout
             android:id="@+id/bottomBarContainer"
             android:layout_width="match_parent"
-            android:layout_height="80dp"
+            android:layout_height="86dp"
             android:background="@color/cortex_surface_container">
 
             <!-- 2-Row Extra Keys Keyboard Toolbar -->

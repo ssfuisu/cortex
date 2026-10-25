@@ -243,6 +243,14 @@ static int go_undo(int wfd, struct go_ph *ph, int cave_seg, const struct gosys_t
     return rc;
 }
 
+// CORTEX_NO_GOSYS=1 (any value but empty or 0): no code is added to Go programs, and the code that is
+// in one is taken out again, so that a program can be run as it was built, to see whether a fault
+// is the program's or the code's. The marker of a prepared program says it (static_marker).
+static int go_disabled(void) {
+    const char *v = getenv("CORTEX_NO_GOSYS");
+    return v && v[0] != '\0' && strcmp(v, "0") != 0;
+}
+
 // The three branches that connect the call site and the code: site -> thunk, thunk -> entry (bl),
 // thunk -> the instruction after the site. 0 when one of them is too far.
 static int go_branches(uint64_t cave_v, uint64_t site_v, uint32_t *to_thunk, uint32_t *to_entry, uint32_t *back) {
@@ -317,6 +325,19 @@ static int prepare_go_program(int fd, const char *path, const struct stat *st) {
         if (memcmp(t.magic, "CXGOEND1", 8) != 0 || t.total_size > s->filesz || t.total_size < sizeof(t) + sizeof(struct gosys_hdr)) continue;
         tr = t;
         cave_seg = order[i];
+    }
+
+    if (go_disabled()) {
+        if (cave_seg >= 0) {
+            wfd = go_open_for_write(fd, st, path, &made_writable);
+            if (wfd < 0) {
+                rc = -1;
+            } else {
+                rc = go_undo(wfd, ph, cave_seg, &tr, site_off);
+                changed = rc == 0;
+            }
+        }
+        goto done;
     }
 
     if (cave_seg >= 0) {

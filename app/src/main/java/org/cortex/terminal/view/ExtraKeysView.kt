@@ -48,6 +48,12 @@ class ExtraKeysView @JvmOverloads constructor(
 
         /** The height of one row of keys, in dp. */
         const val ROW_HEIGHT_DP = 40
+
+        /** The space around the keys, in dp. */
+        const val PADDING_DP = 3
+
+        /** The height of a bar with [rows] rows of keys, in dp. */
+        fun barHeightDp(rows: Int): Int = rows * ROW_HEIGHT_DP + 2 * PADDING_DP
     }
 
     /** [modifier]: CTRL or ALT, whose buttons show when they are on. */
@@ -84,7 +90,7 @@ class ExtraKeysView @JvmOverloads constructor(
     init {
         orientation = VERTICAL
         setBackgroundColor(Chrome.palette.bar)
-        val pad = (3 * resources.displayMetrics.density).toInt()
+        val pad = (PADDING_DP * resources.displayMetrics.density).toInt()
         setPadding(pad, pad, pad, pad)
         setKeys(ExtraKeysLayout.DEFAULT_ROWS)
     }
