@@ -31,12 +31,15 @@ package() {
     printf '\033[36m…\033[0m %s\n' "$name"
     (
         echo "\$ apt-get install -y $packages"
+        # timeout puts the command in a process group of its own, which is in the background of the
+        # terminal: apt-get changes the terminal's settings at its end and is stopped (SIGTTOU) for good.
+        # So: --foreground, and no terminal as input.
         # shellcheck disable=SC2086 # the package list
-        timeout 900 apt-get install -y --no-install-recommends $packages 2>&1 | tail -n 15
+        timeout --foreground 900 apt-get install -y --no-install-recommends $packages < /dev/null 2>&1 | tail -n 15
         s=${PIPESTATUS[0]}
         [ "$s" = 0 ] || { echo "apt-get failed ($s)"; exit 10; }
         echo "\$ $command"
-        out=$(cd "$W" && timeout 300 bash -c "$command" 2>&1)
+        out=$(cd "$W" && timeout --foreground 300 bash -c "$command" < /dev/null 2>&1)
         s=$?
         printf '%s\n' "$out"
         [ "$s" = 0 ] || { echo "exit status $s"; exit 11; }
