@@ -4,6 +4,55 @@ What changed in each version of Cortex Terminal, newest first. The release workf
 of a GitHub release from the section of its version here. Older versions are described on the
 [GitHub releases](https://github.com/ssfuisu/cortex/releases) page.
 
+## 1.26.39 (2026-10-25)
+
+### New
+
+- **Programs written in Go see Ubuntu.** A Go program built without cgo (`gh`, `lazygit`, `fzf`,
+  most single-file tools you download) makes its own system calls, so Cortex's library was never
+  loaded into it: it looked for `/etc/resolv.conf`, `/etc/ssl` and `/bin/sh` in Android's files, and
+  could not start Ubuntu's programs. Cortex now changes such a program's file once, before it
+  starts it, so that it sees Ubuntu's files and starts Ubuntu's programs as everything else does.
+  The file keeps its size and its time; a newer Cortex replaces the change with its own, and
+  `CORTEX_NO_GOSYS=1` takes it out again and adds none (the program then runs as it was built).
+  It works for AArch64 programs built with Go 1.19 or newer (tested up to 1.27); in root mode a
+  changed program works as any other. Root mode is no longer needed for them.
+- **Session tabs.** A strip above the terminal with one tab for each session, named after the
+  directory its shell is in; the one on screen is in the accent color with a close button, and a
+  `+` starts a new session. Settings > Session tabs turns it off.
+- **Seven more color schemes**, thirteen in all: Solarized Dark, Monokai, Rosé Pine, Everforest,
+  GitHub Dark, Ayu Mirage and a pure black one for OLED screens. Settings > Color Scheme shows each
+  as a small piece of terminal in its own colors.
+- **A way back to the end.** While the terminal is scrolled back, a thin thumb at the right edge
+  shows where it is in the history and a round button takes it back to the newest line.
+
+### Improved
+
+- **The interface takes the colors of the color scheme.** The keys, the drawer, the search bar, the
+  tabs, the links and selection handles, the first-start dialog, the settings and the status and
+  navigation bars are made from the scheme's own colors, so choosing Nord changes the keys as much
+  as the text. Text on them is moved only as far as it needs to be to read well, also in schemes
+  with little contrast of their own (Solarized).
+- The keys are flat and rounded, in monospace, and sink a little under the finger; CTRL and ALT
+  light up in the accent while they wait for a key. The drawer has the app's mark, a card for each
+  session with its number and directory (and the ROOT badge) and a filled New session button.
+- The first start's progress is a dialog with the app's mark and a bar with the percentage, in the
+  scheme's colors.
+
+### For developers
+
+- `tests/scripts/test_go_programs.sh` builds a Go program for arm64, a root file system of Ubuntu's
+  own arm64 bash and the cross C library, and runs it under qemu-user: what it sees, what it
+  starts, that the change is made once, replaced by a newer one and undone exactly, and that it
+  does nothing in a chroot. The build runs it with Go 1.19 and 1.23. The emulator test runs the
+  program too (the x86 emulator's ARM translator crashes on static Go programs, also unchanged
+  ones, which the test tells apart by running the program with `CORTEX_NO_GOSYS=1` first).
+- The emulator test checks that a second session starts and takes a picture of the color scheme
+  list. Unit tests cover the tabs, keys, search bar, layouts and dialogs on the JVM, and the
+  contrast of the interface's text in every color scheme.
+- The nightly package compatibility run started `apt-get` through `timeout`, which puts it in the
+  terminal's background where it is stopped (SIGTTOU) at its end; it uses `timeout --foreground`.
+
 ## 1.26.38 (2026-10-24)
 
 ### New

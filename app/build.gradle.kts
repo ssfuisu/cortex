@@ -16,8 +16,8 @@ android {
         // from the app's writable data directory (filesDir). Android 10+ (targetSdk >= 29)
         // enforces SELinux W^X restrictions preventing execution from writable app data storage.
         targetSdk = 28
-        versionCode = 12638
-        versionName = "1.26.38"
+        versionCode = 12639
+        versionName = "1.26.39"
         // UbuntuOnDeviceTest (app/src/androidTest), on Firebase Test Lab
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
