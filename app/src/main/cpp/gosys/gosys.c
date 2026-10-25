@@ -179,6 +179,34 @@ static inline u64 thread_tag(void) {
     return t;
 }
 
+// How many execve calls have not returned (state area, offset 8). One that works never does: it is
+// made by a vfork child, and the slot its path was in stays marked as the goroutine's, which goes on
+// when the child is gone (the same x28, a call of its own). Without this, goroutines that each
+// started a program held a slot each for good, and after the sixty-fourth all the others waited.
+static inline u32 *execs_on_their_way(const struct gosys_hdr *h) {
+    return (u32 *)((char *)h + h->scratch_rel + 8);
+}
+
+static void count_down(u32 *count) {
+    u32 n = __atomic_load_n(count, __ATOMIC_RELAXED);
+    while (n != 0 && !__atomic_compare_exchange_n(count, &n, n - 1, 0, __ATOMIC_RELAXED, __ATOMIC_RELAXED)) {
+    }
+}
+
+// Gives back what this goroutine's vfork child left (see above). Every call looks at one counter
+// for it; the list of slots is only looked through while an execve is on its way.
+static void reclaim_left_slots(const struct gosys_hdr *h) {
+    u32 *count = execs_on_their_way(h);
+    if (__atomic_load_n(count, __ATOMIC_RELAXED) == 0) return;
+    u64 *owner = (u64 *)((char *)h + h->scratch_rel + 64);
+    u64 me = thread_tag() | 1;
+    for (u32 i = 0; i < GOSYS_SLOTS; i++) {
+        if (__atomic_load_n(&owner[i], __ATOMIC_RELAXED) != me) continue;
+        __atomic_store_n(&owner[i], 0, __ATOMIC_RELEASE);
+        count_down(count);
+    }
+}
+
 // A slot for the call this goroutine is making; *held is its number, to give back when the call is
 // done. Each slot has a word of its own that holds who has it (0: nobody), so that taking one is one
 // compare-and-swap, and no other goroutine can ever mistake it for its own.
@@ -187,7 +215,8 @@ static char *take_slot(const struct gosys_hdr *h, u32 *held) {
     u64 *owner = (u64 *)(base + 64);
     u64 me = thread_tag() | 1; // never 0
     u32 mine = NO_SLOT;
-    // Slots this goroutine left behind (a vfork child of it took one, then exec'd) are its own again
+    // A slot of this goroutine that is still taken now (cxgo_entry gives back those of its vfork
+    // children) is its own again
     for (u32 i = 0; i < GOSYS_SLOTS; i++) {
         if (__atomic_load_n(&owner[i], __ATOMIC_RELAXED) != me) continue;
         if (mine == NO_SLOT)
@@ -456,8 +485,14 @@ static i64 handle(const struct gosys_hdr *h, u32 *held, i64 nr, i64 a0, i64 a1, 
     }
     case NR_BIND: case NR_CONNECT:
         return with_sockaddr(h, held, nr, a0, a1, a2);
-    case NR_EXECVE:
-        return with_execve(h, held, a0, a1, a2);
+    case NR_EXECVE: {
+        // Counted while it is on its way: when it works it does not return (see execs_on_their_way)
+        u32 *count = execs_on_their_way(h);
+        __atomic_fetch_add(count, 1, __ATOMIC_RELAXED);
+        i64 r = with_execve(h, held, a0, a1, a2);
+        count_down(count); // it did return: it failed, and cxgo_entry gives its slot back
+        return r;
+    }
     default:
         return sc(nr, a0, a1, a2, a3, a4, a5);
     }
@@ -468,6 +503,7 @@ i64 cxgo_entry(i64 a0, i64 a1, i64 a2, i64 a3, i64 a4, i64 a5, i64 unused, i64 n
     (void)unused;
     const struct gosys_hdr *h = hdr();
     u32 held = NO_SLOT;
+    reclaim_left_slots(h);
     i64 r = handle(h, &held, nr, a0, a1, a2, a3, a4, a5);
     put_slot(h, held);
     return r;

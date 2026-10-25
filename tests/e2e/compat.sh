@@ -40,9 +40,11 @@ cd "$W" || exit 1
 
 # package NAME "APT PACKAGES" EXPECTED COMMAND: installs the packages, runs COMMAND (bash) and
 # records whether it succeeded with EXPECTED in its output, and how long the whole took
+RAN=" "
 package() {
     local name="$1" packages="$2" expected="$3" command="$4" out s started=$SECONDS
     if [ "$ONLY" != "  " ] && [[ "$ONLY" != *" $name "* ]]; then return; fi
+    RAN="$RAN$name "
     printf '\033[36m…\033[0m %s\n' "$name"
     (
         echo "\$ apt-get install -y $packages"
@@ -132,6 +134,13 @@ package postgresql-client "postgresql-client" "psql (PostgreSQL)" 'psql --versio
 # "Could not change user id"), so this one is a known gap outside root mode.
 package postgresql "postgresql" "1" \
     'service postgresql start && sleep 5 && su postgres -s /bin/sh -c "psql -tAc \"select 1\""; s=$?; service postgresql stop >/dev/null 2>&1; exit $s'
+
+# A name in the list that is not one of the table's: a finding of its own, not an empty run
+if [ "$ONLY" != "  " ]; then
+    for wanted in $ONLY; do
+        [[ "$RAN" == *" $wanted "* ]] || echo "FAIL $wanted (0 s): not a package of this run (the names are those of the table)" >> "$RESULTS"
+    done
+fi
 
 passed=$(grep -c '^PASS' "$RESULTS")
 failed=$(grep -c '^FAIL' "$RESULTS")

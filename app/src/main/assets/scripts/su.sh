@@ -79,8 +79,17 @@ su_direct() {
         esac
     done
     shell_args+=("$@")
-    local shell_cmd="${shell_path:-${SHELL:-/bin/bash}}"
     case "$target_user" in root|0) target_user="" ;; esac
+    # As Ubuntu's su: another user's shell is the one that user has, unless -s names one
+    local shell_cmd="$shell_path"
+    if [ -z "$shell_cmd" ]; then
+        if [ -n "$target_user" ]; then
+            shell_cmd="$(getent passwd "$target_user" 2>/dev/null | cut -d: -f7)"
+            [ -n "$shell_cmd" ] || shell_cmd=/bin/sh
+        else
+            shell_cmd="${SHELL:-/bin/bash}"
+        fi
+    fi
     if [ -n "$target_user" ]; then
         if [ "$login" = 1 ]; then
             [ "$have_command" = 1 ] && exec runuser -l "$target_user" -c "$command"

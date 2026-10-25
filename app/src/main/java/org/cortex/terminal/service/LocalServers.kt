@@ -66,13 +66,19 @@ class LocalServers(private val context: Context, private val root: File) {
     private fun scheduleNext(delaySeconds: Long) {
         val running = executor ?: return
         try {
-            running.schedule({
+            // One look is scheduled at a time: a new one replaces it (a port that was just reported
+            // is looked at again in a few seconds, not when the idle look comes)
+            nextLook?.cancel(false)
+            nextLook = running.schedule({
                 safely { poll() }
                 scheduleNext(nextDelaySeconds())
             }, delaySeconds, TimeUnit.SECONDS)
         } catch (_: java.util.concurrent.RejectedExecutionException) {
         }
     }
+
+    @Volatile
+    private var nextLook: java.util.concurrent.ScheduledFuture<*>? = null
 
     private fun nextDelaySeconds(): Long =
         if (pending.isNotEmpty() || shown.isNotEmpty() || SystemClock.elapsedRealtime() >= procRetryAt) POLL_SECONDS
@@ -134,6 +140,8 @@ class LocalServers(private val context: Context, private val root: File) {
         val program = readReport(File(dir, port.toString()))?.second
         addPending(port, program)
         check(port)
+        // Not answering yet: the next look is soon, whatever the idle one was waiting for
+        if (pending.isNotEmpty()) scheduleNext(POLL_SECONDS)
     }
 
     private fun addPending(port: Int, program: String?) {

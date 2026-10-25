@@ -259,8 +259,14 @@ sleep 2
 TEST_COMMAND="CORTEX_E2E_EMULATOR=1 CORTEX_E2E_ARCH=$DPKG_ARCH bash /sdcard/Download/cortex-e2e.sh"
 [ "${E2E_NO_APT:-0}" = 1 ] && TEST_COMMAND="CORTEX_E2E_NO_APT=1 $TEST_COMMAND"
 # Only some of the packages of a compatibility run (a list of names, nothing else gets through)
-if [ -n "${E2E_COMPAT_ONLY:-}" ] && [[ "$E2E_COMPAT_ONLY" =~ ^[A-Za-z0-9_.+,\ -]+$ ]]; then
-    TEST_COMMAND="CORTEX_COMPAT_ONLY='$E2E_COMPAT_ONLY' $TEST_COMMAND"
+if [ -n "${E2E_COMPAT_ONLY:-}" ]; then
+    if [[ "$E2E_COMPAT_ONLY" =~ ^[A-Za-z0-9_.+,\ -]+$ ]]; then
+        TEST_COMMAND="CORTEX_COMPAT_ONLY='$E2E_COMPAT_ONLY' $TEST_COMMAND"
+    else
+        # (not the whole run instead of what was asked for)
+        log "E2E_COMPAT_ONLY has more than package names in it: '$E2E_COMPAT_ONLY'"
+        exit 2
+    fi
 fi
 type_line "$TEST_COMMAND"
 if ! wait_for 90 run_ test -d "$DEVICE_OUT/started"; then

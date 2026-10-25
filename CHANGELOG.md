@@ -28,11 +28,14 @@ of a GitHub release from the section of its version here. Older versions are des
 - **`go run` and `go build` could crash at random** (a segmentation fault in the Go tool): the
   scratch memory that Cortex's change in a Go program uses for the paths it rewrites was shared by
   goroutines that ran at the same time. Each slot now belongs to the goroutine that took it until
-  it is done (the build runs a stress test: 96 goroutines read 200 files 300 times each).
+  it is done (the build runs a stress test: 96 goroutines read 200 files 300 times each). And the
+  slot of a program that was started (by a vfork child, whose execve does not return) is given back
+  when the goroutine goes on; before, a program that started programs from more than 64 goroutines
+  at once could wait for a slot for good.
 - **`sudo` and `su` on a phone without root said "root not found".** `sudo apt install x`, the first
   line of nearly every guide, now runs the command as it is (Cortex's shell is root inside Ubuntu as
-  far as the programs can tell); `sudo -u USER`, `sudo -i`, `su USER`, `su -c CMD` and `su -` work
-  through `runuser` and the shell. On a phone that gives Cortex real root they still ask Android for it.
+  far as the programs can tell); `sudo -u USER`, `sudo -i`, `su USER` (in the shell that user has),
+  `su -c CMD` and `su -` work through `runuser` and the shell. On a phone that gives Cortex real root they still ask Android for it.
 - **After another color scheme was chosen, the old one came back as a block** (#29): close the
   keyboard and the rows the terminal grew into showed the previous scheme's background, in the size
   of the keyboard. The cells of a session keep the colors the scheme had when they were written, and
@@ -61,7 +64,7 @@ of a GitHub release from the section of its version here. Older versions are des
   nothing was listening, and on Android 10 and newer every look asked `/proc/net`, which they
   refuse (each refusal a line in the system log). There it now looks every 15 seconds when there is
   nothing to follow and asks `/proc/net` again only every 10 minutes; the hook's own reports still
-  wake it at once.
+  wake it at once, and a server that does not answer yet is looked at again within 3 seconds.
 - No warning from the compiler or the Android SDK that the code can avoid: the unused function and
   variable, `stopForeground(true)` and `scaledDensity` are replaced.
 
@@ -71,8 +74,9 @@ of a GitHub release from the section of its version here. Older versions are des
   NULL path, SELinux, the shadow file, the translator's descriptors, `CORTEX_NT`, `putenv` +
   `execv`); the build runs it. `tests/scripts/test_go_programs.sh` has a stress test of the Go
   change. `tests/scripts/test_shell_scripts.sh` covers `sudo` and `su` without root.
-- The package compatibility run takes the packages to test (`only`) and the APKs of a dry run
-  (`apk_run`); the nginx test installs the `curl` it needs, and PostgreSQL has a client row (passes)
+- The package compatibility run takes the packages to test (`only`; a name that is not in the table,
+  or a list that is not names, fails the run instead of testing nothing or everything) and the APKs
+  of a dry run (`apk_run`); the nginx test installs the `curl` it needs, and PostgreSQL has a client row (passes)
   next to the server row (a known gap outside root mode: the server refuses to run as root, and an
   app cannot become another user).
 - Known gaps, seen in the x86 emulator only: Go programs and the JVM's compiler crash inside the

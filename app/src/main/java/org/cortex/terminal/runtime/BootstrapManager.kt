@@ -168,6 +168,9 @@ object BootstrapManager {
                 File(root, "var/lib/apt/lists/partial").listFiles()?.forEach { it.delete() }
             }
             ensureMachineId(root)
+            // The system users and groups (a package's scripts need them): before the installation is
+            // marked as current, so that a session that starts at once can install packages
+            ensurePasswd(root, Environment.getHomeDir(context))
             ensureEssentialBinaries(root, Environment.getHomeDir(context), context)
             ensureDynamicLinkerSymlinks(root)
             val versionFile = File(root, ".cortex_version")

@@ -305,8 +305,14 @@ OUT="$(nomode CORTEX_INVOKED_AS=su bash "$SU_SH" root -c 'printf ok' 2>&1)"
 [ "$OUT" = "ok" ] && pass "no root: su root -c runs the command" || fail "no root: su root -c: got '$OUT'"
 OUT="$(nomode CORTEX_INVOKED_AS=su bash "$SU_SH" - postgres 2>&1)"
 [ "$OUT" = "runuser -l postgres" ] && pass "no root: su - USER uses runuser -l" || fail "no root: su - USER: got '$OUT'"
-OUT="$(nomode CORTEX_INVOKED_AS=su bash "$SU_SH" postgres -c 'psql -l' 2>&1)"
-[ "$OUT" = "runuser -u postgres -- $BASH_EXEC -c psql -l" ] && pass "no root: su USER -c CMD uses runuser -u" || fail "no root: su USER -c: got '$OUT'"
+OUT="$(nomode CORTEX_INVOKED_AS=su bash "$SU_SH" -s "$BASH_EXEC" postgres -c 'psql -l' 2>&1)"
+[ "$OUT" = "runuser -u postgres -- $BASH_EXEC -c psql -l" ] && pass "no root: su USER -c CMD uses runuser -u, and the shell of -s" || fail "no root: su USER -c: got '$OUT'"
+# Without -s the shell is the user's own (here nobody's, wherever the system keeps nologin), not the caller's
+NOBODY_SHELL="$(getent passwd nobody | cut -d: -f7)"
+if [ -n "$NOBODY_SHELL" ]; then
+    OUT="$(nomode CORTEX_INVOKED_AS=su bash "$SU_SH" nobody -c true 2>&1)"
+    [ "$OUT" = "runuser -u nobody -- $NOBODY_SHELL -c true" ] && pass "no root: su USER runs the shell USER has" || fail "no root: su USER shell: got '$OUT'"
+fi
 NOROOT_SU="$TEST_TMP/mock_su_no_root"
 printf '#!%s\nexit 1\n' "$BASH_EXEC" > "$NOROOT_SU"
 chmod +x "$NOROOT_SU"

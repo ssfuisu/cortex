@@ -58,8 +58,8 @@ class TerminalBuffer(var rows: Int, var cols: Int, private val maxHistory: Int =
         for (row in screen) row.remapColors(remap)
         alternateScreen?.forEach { it.remapColors(remap) }
         for (row in history) row.remapColors(remap)
-        currentFg = remap.map(currentFg)
-        currentBg = remap.map(currentBg)
+        currentFg = remap.mapFg(currentFg)
+        currentBg = remap.mapBg(currentBg)
     }
 
     fun resize(newRows: Int, newCols: Int) {

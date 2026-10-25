@@ -84,6 +84,30 @@ class TerminalSchemeChangeTest {
     }
 
     @Test
+    fun aColorThatTheOldSchemeUsedForTwoThingsKeepsItsMeaning() {
+        // Gruvbox's background is also its ANSI black, and its foreground its ANSI white
+        TerminalColor.applyTheme("gruvbox")
+        TerminalColor.takeRemap()
+        assertEquals(TerminalColor.DEFAULT_BG, TerminalColor.ANSI_COLORS[0])
+        val emulator = TerminalEmulator(rows = 4, cols = 20)
+        feed(emulator, "\u001b[30mblack text\u001b[0m\r\nplain\r\n\u001b[47mwhite ground\u001b[0m\r\n")
+
+        TerminalColor.applyTheme("nord")
+        assertNotEquals(TerminalColor.DEFAULT_BG, TerminalColor.ANSI_COLORS[0])
+        emulator.remapColors(TerminalColor.takeRemap()!!)
+
+        val black = rowStartingWith(emulator, "black text")
+        assertEquals("black text is still ANSI black, not the color of the background",
+            TerminalColor.ANSI_COLORS[0], black.fgColors[0])
+        assertEquals(TerminalColor.DEFAULT_BG, black.bgColors[0])
+        val plain = rowStartingWith(emulator, "plain")
+        assertEquals(TerminalColor.DEFAULT_FG, plain.fgColors[0])
+        assertEquals(TerminalColor.DEFAULT_BG, plain.bgColors[0])
+        assertEquals("a white background is ANSI white, not the default foreground",
+            TerminalColor.ANSI_COLORS[7], rowStartingWith(emulator, "white ground").bgColors[0])
+    }
+
+    @Test
     fun theSameSchemeChangesNothingAndTheChangeIsTakenOnce() {
         TerminalColor.applyTheme("catppuccin")
         assertNull(TerminalColor.takeRemap())

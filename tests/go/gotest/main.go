@@ -96,7 +96,54 @@ func stress() {
 	fmt.Printf("stress=ok %d reads\n", workers*rounds)
 }
 
+// execstress starts a program from more goroutines at once than the patch has slots for (64). A
+// program started by a vfork child keeps the slot its path was in until the goroutine that made the
+// child makes its next call: when that was not given back, the goroutines after the sixty-fourth
+// waited for a slot for good.
+func execstress() {
+	const workers = 80
+	start := make(chan struct{})
+	done := make(chan string, workers)
+	for w := 0; w < workers; w++ {
+		go func(w int) {
+			<-start
+			out, err := exec.Command("/usr/bin/hello", fmt.Sprint(w)).Output()
+			if ee, ok := err.(*exec.ExitError); ok && ee.ExitCode() == 3 {
+				err = nil // hello exits with 3
+			}
+			if err != nil || !strings.HasPrefix(string(out), "hello argc=2") {
+				done <- fmt.Sprintf("worker %d: %q %v", w, out, err)
+				return
+			}
+			done <- ""
+		}(w)
+	}
+	close(start)
+	var wrong []string
+	timeout := time.After(100 * time.Second)
+	for w := 0; w < workers; w++ {
+		select {
+		case e := <-done:
+			if e != "" {
+				wrong = append(wrong, e)
+			}
+		case <-timeout:
+			fmt.Printf("execstress=HANG after %d of %d programs\n", w, workers)
+			return
+		}
+	}
+	if len(wrong) > 0 {
+		fmt.Printf("execstress=WRONG %v\n", wrong[0])
+		return
+	}
+	fmt.Printf("execstress=ok %d programs\n", workers)
+}
+
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "execstress" {
+		execstress()
+		return
+	}
 	if len(os.Args) > 1 && os.Args[1] == "ubuntu" {
 		ubuntu()
 		return

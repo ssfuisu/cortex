@@ -386,15 +386,31 @@ object TerminalColor {
      * background came back as a block when the keyboard closed and the terminal grew into the rows
      * it had hidden. Only the default and the 16 ANSI colors change with a scheme; the other 240 and
      * the 24-bit ones are the same in all of them.
+     *
+     * A number does not say which of them it was: in Gruvbox the default background is also ANSI
+     * black and the default foreground ANSI white. The colors are therefore tried in the order that
+     * is likely for where the number is: as a foreground the default foreground, then the ANSI ones,
+     * the default background last (text in the color of the background would not be seen); as a
+     * background the default background, then the ANSI ones, the default foreground last. A cell
+     * that is ANSI black on Gruvbox's black background is still seen as the background, and a
+     * 24-bit color that equals one of them is changed with it.
      */
-    class Remap internal constructor(private val from: IntArray, private val to: IntArray) {
-        fun map(color: Int): Int {
-            for (i in from.indices) if (from[i] == color) return to[i]
+    class Remap internal constructor(
+        private val fgFrom: IntArray, private val fgTo: IntArray,
+        private val bgFrom: IntArray, private val bgTo: IntArray
+    ) {
+        fun mapFg(color: Int): Int {
+            for (i in fgFrom.indices) if (fgFrom[i] == color) return fgTo[i]
+            return color
+        }
+
+        fun mapBg(color: Int): Int {
+            for (i in bgFrom.indices) if (bgFrom[i] == color) return bgTo[i]
             return color
         }
     }
 
-    // (the default colors first: where one of them equals an ANSI color, they win)
+    // [0] the default foreground, [1] the default background, [2..17] the ANSI colors
     private fun inUse() = intArrayOf(DEFAULT_FG, DEFAULT_BG, *ANSI_COLORS)
 
     /**
@@ -404,9 +420,17 @@ object TerminalColor {
      */
     fun takeRemap(): Remap? {
         val now = inUse()
-        val changed = now.indices.filter { held[it] != now[it] }
-        val remap = if (changed.isEmpty()) null
-        else Remap(IntArray(changed.size) { held[changed[it]] }, IntArray(changed.size) { now[changed[it]] })
+        if (now.indices.all { held[it] == now[it] }) {
+            held = now
+            return null
+        }
+        // The order of the colors, see Remap
+        val fgOrder = (listOf(0) + (2..17) + listOf(1)).filter { held[it] != now[it] }
+        val bgOrder = (listOf(1) + (2..17) + listOf(0)).filter { held[it] != now[it] }
+        val remap = Remap(
+            IntArray(fgOrder.size) { held[fgOrder[it]] }, IntArray(fgOrder.size) { now[fgOrder[it]] },
+            IntArray(bgOrder.size) { held[bgOrder[it]] }, IntArray(bgOrder.size) { now[bgOrder[it]] }
+        )
         held = now
         return remap
     }

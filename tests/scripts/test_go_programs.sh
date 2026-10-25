@@ -196,6 +196,12 @@ stress_out=$(run_in_root "$work/patched" stress | tail -n 1)
 check "many calls at once each get the file they asked for" bash -c "[[ '$stress_out' == 'stress=ok'* ]]"
 [[ "$stress_out" == 'stress=ok'* ]] || echo "        $stress_out"
 
+# More goroutines than slots start a program at once: the slot of a path that a vfork child passed to
+# a successful execve is given back when its goroutine goes on, so that all of them finish
+exec_out=$(run_in_root "$work/patched" execstress | tail -n 1)
+check "more programs started at once than there are slots all start" bash -c "[[ '$exec_out' == 'execstress=ok'* ]]"
+[[ "$exec_out" == 'execstress=ok'* ]] || echo "        $exec_out"
+
 # CORTEX_NO_GOSYS=1: the program as it was built, and the code comes back with the next start
 CORTEX_NO_GOSYS=1 "$work/gopatch" "$root" "$work/patched" >/dev/null
 check "CORTEX_NO_GOSYS takes the code out again, exactly" test "$(hash_of "$work/patched")" = "$before"

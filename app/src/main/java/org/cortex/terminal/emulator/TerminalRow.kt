@@ -36,23 +36,27 @@ class TerminalRow(val cols: Int) {
 
     /** The colors of the cells under a new scheme (see [TerminalColor.Remap]). */
     fun remapColors(remap: TerminalColor.Remap) {
+        if (cols == 0) return
         // Cells next to each other mostly have the same colors
-        var lastFrom = 0
-        var lastTo = 0
-        var haveLast = false
-        for (colors in arrayOf(fgColors, bgColors)) {
-            for (i in colors.indices) {
-                val c = colors[i]
-                if (haveLast && c == lastFrom) {
-                    colors[i] = lastTo
-                    continue
-                }
-                val mapped = remap.map(c)
+        var lastFrom = fgColors[0]
+        var lastTo = remap.mapFg(lastFrom)
+        for (i in fgColors.indices) {
+            val c = fgColors[i]
+            if (c != lastFrom) {
                 lastFrom = c
-                lastTo = mapped
-                haveLast = true
-                colors[i] = mapped
+                lastTo = remap.mapFg(c)
             }
+            fgColors[i] = lastTo
+        }
+        lastFrom = bgColors[0]
+        lastTo = remap.mapBg(lastFrom)
+        for (i in bgColors.indices) {
+            val c = bgColors[i]
+            if (c != lastFrom) {
+                lastFrom = c
+                lastTo = remap.mapBg(c)
+            }
+            bgColors[i] = lastTo
         }
     }
 
