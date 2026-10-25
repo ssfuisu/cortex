@@ -76,6 +76,11 @@ jobs:
           run-id: ${{ inputs.run-id }}
           github-token: ${{ github.token }}
 
+      # A static Go program for the checks of Go programs (tests/go/gotest); the 64-bit ARM one
+      - name: Build the Go test program
+        if: matrix.abi == 'arm64-v8a'
+        run: CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "-s -w" -o gotest-arm64 ./tests/go/gotest
+
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -103,7 +108,7 @@ jobs:
           disk-size: 8G
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot
           disable-animations: true
-          script: E2E_PAGE_SIZE=${{ matrix.page-size }} E2E_SKIP_WITHOUT_ABI=${{ matrix.skip-without-abi || 0 }} E2E_NO_APT=${{ matrix.no-apt || 0 }} bash tests/e2e/run-emulator-test.sh apks e2e-out ${{ matrix.abi }}
+          script: E2E_GO_PROGRAM=${{ matrix.abi == 'arm64-v8a' && 'gotest-arm64' || '' }} E2E_PAGE_SIZE=${{ matrix.page-size }} E2E_SKIP_WITHOUT_ABI=${{ matrix.skip-without-abi || 0 }} E2E_NO_APT=${{ matrix.no-apt || 0 }} bash tests/e2e/run-emulator-test.sh apks e2e-out ${{ matrix.abi }}
 
       - name: Compare the start-up times with earlier runs
         if: always() && hashFiles('e2e-out/timings.env') != ''

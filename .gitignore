@@ -20,3 +20,4 @@ __pycache__/
 
 *.p12
 *.pfx
+app/src/main/cpp/gosys/gosys_blob.h
