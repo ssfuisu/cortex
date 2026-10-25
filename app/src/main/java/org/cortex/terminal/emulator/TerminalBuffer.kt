@@ -53,6 +53,15 @@ class TerminalBuffer(var rows: Int, var cols: Int, private val maxHistory: Int =
      */
     var reflowOnResize = true
 
+    /** Gives the screen, the other screen, the scrollback and the pen the colors of a new scheme. */
+    fun remapColors(remap: TerminalColor.Remap) {
+        for (row in screen) row.remapColors(remap)
+        alternateScreen?.forEach { it.remapColors(remap) }
+        for (row in history) row.remapColors(remap)
+        currentFg = remap.map(currentFg)
+        currentBg = remap.map(currentBg)
+    }
+
     fun resize(newRows: Int, newCols: Int) {
         if (newRows == rows && newCols == cols) return
         if (newRows <= 0 || newCols <= 0) return

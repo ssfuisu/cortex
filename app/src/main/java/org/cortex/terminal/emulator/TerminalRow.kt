@@ -34,6 +34,28 @@ class TerminalRow(val cols: Int) {
         if (col in l.indices) l[col] = link
     }
 
+    /** The colors of the cells under a new scheme (see [TerminalColor.Remap]). */
+    fun remapColors(remap: TerminalColor.Remap) {
+        // Cells next to each other mostly have the same colors
+        var lastFrom = 0
+        var lastTo = 0
+        var haveLast = false
+        for (colors in arrayOf(fgColors, bgColors)) {
+            for (i in colors.indices) {
+                val c = colors[i]
+                if (haveLast && c == lastFrom) {
+                    colors[i] = lastTo
+                    continue
+                }
+                val mapped = remap.map(c)
+                lastFrom = c
+                lastTo = mapped
+                haveLast = true
+                colors[i] = mapped
+            }
+        }
+    }
+
     fun clear(fg: Int = TerminalColor.DEFAULT_FG, bg: Int = TerminalColor.DEFAULT_BG) {
         // One pass per array: simple fills compile to wide stores, a single loop writing seven
         // arrays does not. Every scrolled line clears a row.

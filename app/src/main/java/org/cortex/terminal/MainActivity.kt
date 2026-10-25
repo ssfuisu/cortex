@@ -482,6 +482,15 @@ class MainActivity : AppCompatActivity() {
 
         val themeKey = prefs.getString("terminal_theme", "catppuccin") ?: "catppuccin"
         org.cortex.terminal.emulator.TerminalColor.applyTheme(themeKey)
+        // The cells of the sessions that were there hold the colors of the scheme they were written
+        // under; without this they bring the old one back wherever the terminal shows them again
+        // (the rows that appear when the keyboard closes)
+        org.cortex.terminal.emulator.TerminalColor.takeRemap()?.let { remap ->
+            if (::sessionManager.isInitialized) {
+                val all = synchronized(sessionManager.sessions) { sessionManager.sessions.toList() }
+                all.forEach { it.emulator.remapColors(remap) }
+            }
+        }
         Chrome.apply(org.cortex.terminal.emulator.TerminalColor.SCHEMES.getValue(org.cortex.terminal.emulator.TerminalColor.currentThemeId))
         terminalView.applyTheme()
         applyChrome()

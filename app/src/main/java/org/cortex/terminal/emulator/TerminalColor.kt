@@ -351,8 +351,13 @@ object TerminalColor {
     val ANSI_COLORS = IntArray(16)
     val COLOR_PALETTE = IntArray(256)
 
+    // The colors of the scheme that the cells of the sessions have been brought to (declared before
+    // the init block: properties and init blocks of an object run in the order they are written)
+    private var held = IntArray(18)
+
     init {
         applyTheme("catppuccin")
+        held = inUse()
     }
 
     fun rebuildPalette() {
@@ -372,6 +377,38 @@ object TerminalColor {
             val gray = 8 + i * 10
             COLOR_PALETTE[idx++] = Color.rgb(gray, gray, gray)
         }
+    }
+
+    /**
+     * What a change of scheme makes of the colors that cells hold. A cell keeps the color the scheme
+     * had when it was written (as a number, not as "the default"), so the screen and the scrollback
+     * of a session that was there before the change would go on showing the old scheme: its
+     * background came back as a block when the keyboard closed and the terminal grew into the rows
+     * it had hidden. Only the default and the 16 ANSI colors change with a scheme; the other 240 and
+     * the 24-bit ones are the same in all of them.
+     */
+    class Remap internal constructor(private val from: IntArray, private val to: IntArray) {
+        fun map(color: Int): Int {
+            for (i in from.indices) if (from[i] == color) return to[i]
+            return color
+        }
+    }
+
+    // (the default colors first: where one of them equals an ANSI color, they win)
+    private fun inUse() = intArrayOf(DEFAULT_FG, DEFAULT_BG, *ANSI_COLORS)
+
+    /**
+     * What to do with the cells of the sessions to bring them to the scheme in use, null when they are
+     * there. Whoever gets it does that at once for all sessions: the next answer starts from here. (The
+     * settings change the scheme in use for themselves, so the sessions are not told by a change.)
+     */
+    fun takeRemap(): Remap? {
+        val now = inUse()
+        val changed = now.indices.filter { held[it] != now[it] }
+        val remap = if (changed.isEmpty()) null
+        else Remap(IntArray(changed.size) { held[changed[it]] }, IntArray(changed.size) { now[changed[it]] })
+        held = now
+        return remap
     }
 
     fun applyTheme(themeId: String) {

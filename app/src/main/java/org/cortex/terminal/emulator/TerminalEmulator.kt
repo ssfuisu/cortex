@@ -185,6 +185,14 @@ class TerminalEmulator(
         onScreenUpdate?.invoke()
     }
 
+    /** What is on the screen and in the scrollback in the colors of a new scheme (see [TerminalColor.Remap]). */
+    fun remapColors(remap: TerminalColor.Remap) {
+        lock.withLock {
+            buffer.remapColors(remap)
+        }
+        onScreenUpdate?.invoke()
+    }
+
     private val utf8ByteBuffer: ByteBuffer = ByteBuffer.allocate(16384)
 
     fun processInput(bytes: ByteArray, offset: Int, length: Int) {

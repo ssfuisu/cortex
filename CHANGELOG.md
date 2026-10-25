@@ -33,6 +33,13 @@ of a GitHub release from the section of its version here. Older versions are des
   line of nearly every guide, now runs the command as it is (Cortex's shell is root inside Ubuntu as
   far as the programs can tell); `sudo -u USER`, `sudo -i`, `su USER`, `su -c CMD` and `su -` work
   through `runuser` and the shell. On a phone that gives Cortex real root they still ask Android for it.
+- **After another color scheme was chosen, the old one came back as a block** (#29): close the
+  keyboard and the rows the terminal grew into showed the previous scheme's background, in the size
+  of the keyboard. The cells of a session keep the colors the scheme had when they were written, and
+  a change of scheme only changed what was drawn next. Cortex now carries the new scheme into the
+  screen, the scrollback and the other screen of every session when it is chosen (the default
+  colors and the 16 ANSI ones; the 256-color and 24-bit colors of programs are the same in every
+  scheme).
 - A program that called `putenv()` or `setenv()` and then `execv()` before it used any file could
   crash in the exec (the hook set its variables only then, and the block the program had passed was
   freed by that). The hook now starts before the program does.
