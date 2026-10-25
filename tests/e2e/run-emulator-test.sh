@@ -319,6 +319,9 @@ sh_ input swipe 2 $((HEIGHT / 2)) $((WIDTH * 2 / 3)) $((HEIGHT / 2)) 300
 sleep 2
 tap_id btnDrawerNewSession || log "no new-session button found"
 sleep 8
+# The sessions are kept in a file, one "session" line each
+pass_or_fail "a second session started" wait_for 30 run_ "test \$(grep -c '^session\$' $DATA/files/sessions) -ge 2"
+shot "12a-two-tabs"
 # A directory for this session, which it is to be in again after the restart
 run_line "mkdir -p ~/restore-test && cd ~/restore-test && clear"
 sh_ input swipe 2 $((HEIGHT / 2)) $((WIDTH * 2 / 3)) $((HEIGHT / 2)) 300
@@ -327,6 +330,18 @@ shot "12-sessions"
 if tap_id btnDrawerSettings; then
     sleep 3
     shot "13-settings"
+    # The color scheme picker (second entry of the first screen), closed again without a choice
+    sh_ input tap $((WIDTH / 2)) $((HEIGHT * 30 / 100))
+    sleep 2
+    shot "13a-theme-picker"
+    sh_ rm -f /sdcard/window.xml
+    sh_ uiautomator dump /sdcard/window.xml >/dev/null
+    if sh_ cat /sdcard/window.xml 2>/dev/null | grep -q 'id/parentPanel'; then
+        sh_ input keyevent 4 # the dialog; without one, back would leave the settings
+        sleep 1
+    else
+        log "the scheme picker did not open"
+    fi
     sh_ input swipe $((WIDTH / 2)) $((HEIGHT * 3 / 4)) $((WIDTH / 2)) $((HEIGHT / 4)) 500
     sleep 2
     shot "14-settings-more"
