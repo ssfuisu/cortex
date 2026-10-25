@@ -5,6 +5,7 @@ import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.Typeface
+import android.graphics.drawable.InsetDrawable
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -64,7 +65,7 @@ object ThemePicker {
             }
         }
 
-        AlertDialog.Builder(context)
+        val dialog = AlertDialog.Builder(context)
             .setTitle(pref.title)
             .setAdapter(adapter) { dialog, which ->
                 val id = ids[which]
@@ -74,7 +75,14 @@ object ThemePicker {
                 (context as? android.app.Activity)?.recreate()
             }
             .setNegativeButton(android.R.string.cancel, null)
-            .show()
+            .create()
+        // The dialog in the interface's colors (the theme's own is a plain gray)
+        val p = Chrome.palette
+        val hairline = density.toInt().coerceAtLeast(1)
+        dialog.window?.setBackgroundDrawable(
+            InsetDrawable(Chrome.rounded(p.bar, 20 * density, p.outline, hairline), (16 * density).toInt())
+        )
+        dialog.show()
     }
 
     /** A scheme as a bit of terminal: its background, a prompt and a command in its text color, and its six colors. */

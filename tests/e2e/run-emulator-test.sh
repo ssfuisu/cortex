@@ -92,6 +92,18 @@ tap_id() {
     sh_ input tap $((($1 + $3) / 2)) $((($2 + $4) / 2))
 }
 
+# Opens the drawer (a swipe from the left edge) and taps the view with this resource id in it. The
+# first swipe after the notification shade is closed is not always taken: up to three tries.
+drawer_tap() {
+    local try
+    for try in 1 2 3; do
+        sh_ input swipe 2 $((HEIGHT / 2)) $((WIDTH * 2 / 3)) $((HEIGHT / 2)) 300
+        sleep 2
+        tap_id "$1" && return 0
+    done
+    return 1
+}
+
 wait_for() { # wait_for SECONDS COMMAND...: retries COMMAND every 5 s until it succeeds
     local deadline=$((SECONDS + $1))
     shift
@@ -315,9 +327,7 @@ shot "11-notifications"
 sh_ cmd statusbar collapse
 sleep 2
 # A second session, then the session list in the drawer
-sh_ input swipe 2 $((HEIGHT / 2)) $((WIDTH * 2 / 3)) $((HEIGHT / 2)) 300
-sleep 2
-tap_id btnDrawerNewSession || log "no new-session button found"
+drawer_tap btnDrawerNewSession || log "no new-session button found"
 sleep 8
 # The sessions are kept in a file, one "session" line each
 pass_or_fail "a second session started" wait_for 30 run_ "test \$(grep -c '^session\$' $DATA/files/sessions) -ge 2"
