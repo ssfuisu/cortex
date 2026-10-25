@@ -152,6 +152,20 @@ static const char *rw_path(const struct gosys_hdr *h, const char *path, char *bu
     return buf;
 }
 
+// Whether the rootfs is where the code was told it is. In root mode the program runs in a chroot of
+// that very rootfs, where the real paths are the Ubuntu ones and the rootfs's own path does not
+// exist: then nothing is mapped and the program works as any other. Looked at once for each process
+// (the scratch memory starts as zero, and a forked child keeps what its parent found).
+static int rewriting(const struct gosys_hdr *h) {
+    volatile u32 *mode = (volatile u32 *)((char *)h + h->scratch_rel + 4);
+    u32 m = *mode;
+    if (m == 0) {
+        m = sc(NR_FACCESSAT, AT_FDCWD, (i64)h->root, 0, 0, 0, 0) == 0 ? 1u : 2u;
+        *mode = m;
+    }
+    return m == 1;
+}
+
 static char *take_slot(const struct gosys_hdr *h) {
     char *base = (char *)h + h->scratch_rel;
     u32 n = __atomic_fetch_add((u32 *)base, 1u, __ATOMIC_RELAXED);
@@ -368,6 +382,20 @@ i64 cxgo_entry(i64 a0, i64 a1, i64 a2, i64 a3, i64 a4, i64 a5, i64 unused, i64 n
     (void)unused;
     const struct gosys_hdr *h = hdr();
     i64 a[6] = { a0, a1, a2, a3, a4, a5 };
+    switch (nr) {
+    case NR_OPENAT: case NR_FACCESSAT: case NR_FACCESSAT2: case NR_FCHMODAT: case NR_FCHMODAT2:
+    case NR_FCHOWNAT: case NR_NEWFSTATAT: case NR_STATX: case NR_READLINKAT: case NR_MKDIRAT:
+    case NR_MKNODAT: case NR_UNLINKAT: case NR_UTIMENSAT: case NR_OPENAT2: case NR_NAME_TO_HANDLE_AT:
+    case NR_INOTIFY_ADD_WATCH: case NR_CHDIR: case NR_CHROOT: case NR_STATFS: case NR_TRUNCATE:
+    case NR_SETXATTR: case NR_LSETXATTR: case NR_GETXATTR: case NR_LGETXATTR: case NR_LISTXATTR:
+    case NR_LLISTXATTR: case NR_REMOVEXATTR: case NR_LREMOVEXATTR: case NR_RENAMEAT: case NR_RENAMEAT2:
+    case NR_LINKAT: case NR_SYMLINKAT: case NR_GETCWD: case NR_BIND: case NR_CONNECT: case NR_EXECVE:
+        // The calls that carry paths: not mapped where the rootfs is not in its own place (above)
+        if (!rewriting(h)) return sc(nr, a0, a1, a2, a3, a4, a5);
+        break;
+    default:
+        return sc(nr, a0, a1, a2, a3, a4, a5);
+    }
     switch (nr) {
     case NR_OPENAT: case NR_FACCESSAT: case NR_FACCESSAT2: case NR_FCHMODAT: case NR_FCHMODAT2:
     case NR_FCHOWNAT: case NR_NEWFSTATAT: case NR_STATX: case NR_READLINKAT: case NR_MKDIRAT:

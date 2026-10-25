@@ -227,6 +227,14 @@ cp "$work/patched" "$work/moved"
 (cd "$root2/home/user" && env -i CORTEX_ROOT="$root2" PATH=/usr/bin:/bin HOME=/home/user timeout 300 "$work/moved" 2>&1) | grep -q '^os-release=PRETTY_NAME="Other root"'
 check "a program moved to another rootfs is patched for it" test "${PIPESTATUS[1]}" = 0
 
+echo "== root mode: a chroot of the rootfs, where the rootfs's own path does not exist"
+cp "$work/patched" "$work/inchroot"
+mv "$root" "$root.away"
+mkdir -p "$work/emptyhome"
+(cd "$work/emptyhome" && env -i CORTEX_ROOT="$root" PATH=/usr/bin:/bin HOME=/tmp timeout 120 "$work/inchroot" 2>&1) > "$work/chroot.out"
+mv "$root.away" "$root"
+check "the program does not map paths there (it sees the host's own)" bash -c "grep -q '^os-release=' '$work/chroot.out' && ! grep -q 'Fake Ubuntu' '$work/chroot.out' && grep -q '^stat-missing=true' '$work/chroot.out'"
+
 echo "== what is left alone"
 before=$(hash_of "$root/usr/bin/hello")
 "$work/gopatch" "$root" "$root/usr/bin/hello" >/dev/null
