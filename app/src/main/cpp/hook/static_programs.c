@@ -222,8 +222,21 @@ static int elf_is_go(int fd, const struct cortex_phdr *ph, int n) {
 #define CORTEX_STATIC_XATTR "user.cortex.seccomp"
 #define CORTEX_STATIC_MAX_CODE (256u * 1024 * 1024)
 
+#ifdef CORTEX_HAVE_GOSYS
+static int prepare_go_program(int fd, const char *path, const struct stat *st);
+static uint32_t go_blob_fingerprint(void);
+#endif
+
+// What was done to a file is recorded with its size and time, with the rootfs (a Go program carries
+// the paths of it) and with the code Go programs are given (go_programs.c): a newer Cortex looks at
+// the programs again.
 static void static_marker(const struct stat *st, char *buf, size_t size) {
-    snprintf(buf, size, "1 %lld %lld.%09ld", (long long)st->st_size, (long long)st->st_mtim.tv_sec, (long)st->st_mtim.tv_nsec);
+    unsigned fingerprint = 0;
+#ifdef CORTEX_HAVE_GOSYS
+    fingerprint = go_blob_fingerprint();
+#endif
+    snprintf(buf, size, "3 %lld %lld.%09ld %08x %s", (long long)st->st_size, (long long)st->st_mtim.tv_sec,
+             (long)st->st_mtim.tv_nsec, fingerprint, g_cortex_root);
 }
 
 // Makes a static program safe to start (see above). Runs before every start of one, so a program
@@ -235,7 +248,7 @@ static int prepare_static_program(const char *path) {
     int fd = open(path, O_RDONLY | O_CLOEXEC);
     if (fd < 0) return -1;
     struct stat st;
-    char marker[96], seen[96];
+    char marker[PATH_MAX + 96], seen[PATH_MAX + 96];
     if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode)) {
         close(fd);
         return -1;
@@ -254,9 +267,18 @@ static int prepare_static_program(const char *path) {
     uint16_t machine = 0;
     int n = read_elf_phdrs(fd, &machine, ph, 64);
     if (n < 0 || (machine != EM_AARCH64 && machine != EM_ARM) || elf_is_go(fd, ph, n)) {
-        if (n >= 0) fsetxattr(fd, CORTEX_STATIC_XATTR, marker, strlen(marker), 0);
+        // A Go program has no C library for the hook to be loaded into: it gets code of its own
+        int go_rc = 0;
+#ifdef CORTEX_HAVE_GOSYS
+        if (n >= 0 && machine == EM_AARCH64 && elf_is_go(fd, ph, n)) go_rc = prepare_go_program(fd, path, &st);
+#endif
+        if (n >= 0 && go_rc >= 0) {
+            struct stat after;
+            if (fstat(fd, &after) == 0) static_marker(&after, marker, sizeof(marker));
+            fsetxattr(fd, CORTEX_STATIC_XATTR, marker, strlen(marker), 0);
+        }
         close(fd);
-        return n < 0 ? -1 : 0;
+        return n < 0 || go_rc < 0 ? -1 : 0;
     }
 
     int total = 0;

@@ -120,7 +120,7 @@ jobs:
         id: cache-hook
         with:
           path: hook-libs
-          key: cortex-hook-${{ hashFiles('app/src/main/cpp/cortex-hook.c', 'app/src/main/cpp/hook/**', 'app/src/main/cpp/root/**', '.github/workflows/build-release.yml') }}
+          key: cortex-hook-${{ hashFiles('app/src/main/cpp/cortex-hook.c', 'app/src/main/cpp/hook/**', 'app/src/main/cpp/gosys/**', 'scripts/build-gosys.sh', 'app/src/main/cpp/root/**', '.github/workflows/build-release.yml') }}
 
       - name: Build Glibc cortex-hook Libraries
         if: steps.cache-hook.outputs.cache-hit != 'true'
@@ -129,6 +129,8 @@ jobs:
           sudo apt-get update -o Acquire::Retries=3 -qq
           sudo apt-get install -y --no-install-recommends gcc-aarch64-linux-gnu gcc-arm-linux-gnueabihf libc6-dev-arm64-cross libc6-dev-armhf-cross dpkg-dev
           mkdir -p hook-libs
+          # The code that is added to static Go programs (gosys/gosys.c), which the 64-bit hook carries
+          scripts/build-gosys.sh
           aarch64-linux-gnu-gcc -std=gnu11 -shared -fPIC -O3 -Wall -Wno-nonnull-compare -Wl,-z,max-page-size=16384 -o hook-libs/libcortex-hook-arm64.so app/src/main/cpp/cortex-hook.c -ldl
           arm-linux-gnueabihf-gcc -std=gnu11 -shared -fPIC -O3 -Wall -Wno-nonnull-compare -Wl,-z,max-page-size=16384 -o hook-libs/libcortex-hook-arm.so app/src/main/cpp/cortex-hook.c -ldl
           # Root mode's helper: a static executable, run as root before any chroot exists
@@ -336,6 +338,19 @@ jobs:
           python3 scripts/build-dev-overlay.py --arch arm64 --keyring app/src/main/assets/ubuntu-archive-keyring.gpg --out app/src/main/assets/devpkgs-arm64.tar.gz
           python3 scripts/build-dev-overlay.py --arch armhf --keyring app/src/main/assets/ubuntu-archive-keyring.gpg --out app/src/main/assets/devpkgs-arm.tar.gz
           ls -lh app/src/main/assets/devpkgs-*
+
+      # Static Go programs (hook/go_programs.c, gosys/): built for AArch64, patched like the hook does
+      # and run with qemu-user on a root file system of Ubuntu's own arm64 packages. It also makes
+      # the added code's header, which the native tests below compile the hook with.
+      - name: Test static Go programs
+        if: github.event_name == 'pull_request' || github.event.inputs.dry_run == 'true'
+        env:
+          CORTEX_REQUIRE_GO_TESTS: 1
+          CORTEX_GO_TEST_VERSIONS: "1.19.13 1.23.12"
+        run: |
+          sudo apt-get update -o Acquire::Retries=3 -qq
+          sudo apt-get install -y --no-install-recommends qemu-user gcc-aarch64-linux-gnu libc6-dev-arm64-cross binutils-aarch64-linux-gnu
+          bash tests/scripts/test_go_programs.sh
 
       - name: Run Native & Shell Script Tests and Verify PR Debug Build
         if: github.event_name == 'pull_request'

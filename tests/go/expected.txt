@@ -1,0 +1,28 @@
+os-release=PRETTY_NAME="Fake Ubuntu 24.04"
+stat-hello=true
+readdir-root=etc=true usr=true proc=false
+stat-missing=true
+proc-status=true
+lookup-hosts=[10.9.8.7]
+write=true
+stat-written=true
+glob=[/tmp/go-wrote]
+rename=true
+remove=true
+mkdirall=true
+symlink=true
+readlink=/etc/os-release
+removeall=true
+chdir=true
+getwd=/etc
+listen-unix=true
+dial-unix=pong
+executable-is-absolute=true
+exec-path=hello argc=3 argv0=/usr/bin/hello [one] [two words] root=set os=PRETTY_NAME="Fake Ubuntu 24.04" exit=3
+exec-lookpath=hello argc=2 argv0=hello [viapath] root=set os=PRETTY_NAME="Fake Ubuntu 24.04" exit=3
+exec-argv0=hello argc=2 argv0=renamed [argv0] root=set os=PRETTY_NAME="Fake Ubuntu 24.04" exit=3
+exec-own-env=hello argc=2 argv0=/usr/bin/hello [ownenv] root=set os=PRETTY_NAME="Fake Ubuntu 24.04" exit=3
+exec-dir=hello argc=1 argv0=/usr/bin/hello root=set os=PRETTY_NAME="Fake Ubuntu 24.04" exit=3
+exec-sh=from-sh exit=4
+exec-missing=true
+exec-host=""

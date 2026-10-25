@@ -16,6 +16,7 @@
 #   E2E_PAGE_SIZE=BYTES    the page size the emulator must have (the 16 KB image)
 #   E2E_SKIP_WITHOUT_ABI=1 an image that cannot run the ABI's apps is a skip, not a failure
 #   E2E_NO_APT=1           the checks that install packages (apt, the SSH server) are left out
+#   E2E_GO_PROGRAM=FILE    the static arm64 Go program of tests/go/gotest, for the checks of Go programs
 #
 # The app's ARM Ubuntu runs on an x86_64 emulator through the image's ARM translation, which must also run ARM programs started from a shell
 # (binfmt_misc). They are started through emu-runner.c, which keeps Cortex's LD_PRELOAD and
@@ -212,6 +213,9 @@ sh_ sh /data/local/tmp/use-emu-runner.sh "$PKG" /data/local/tmp/cortex-emu-runne
 sh_ cat "/proc/sys/fs/binfmt_misc/${BINFMT_NAME}_dyn" | grep -q cortex-emu-runner || die "cortex-emu-runner is not registered"
 sh_ rm -rf "$DEVICE_OUT"
 adb push "$E2E_SCRIPT" /sdcard/Download/cortex-e2e.sh >/dev/null || die "cannot copy the test script"
+if [ -n "${E2E_GO_PROGRAM:-}" ] && [ -f "$E2E_GO_PROGRAM" ]; then
+    adb push "$E2E_GO_PROGRAM" /sdcard/Download/cortex-e2e-gotest >/dev/null || log "cannot copy the Go program"
+fi
 
 adb logcat -c
 adb logcat -v time > "$OUT/logcat.txt" 2>&1 &
