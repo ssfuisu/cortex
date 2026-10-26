@@ -327,6 +327,16 @@ chmod +x "$TSU_DIR/su" "$TSU_DIR/sudo"
 OUT="$("$TSU_DIR/sudo" apt update 2>&1)"
 [ "$OUT" = "as=sudo apt update" ] && pass "tsu.sh passes the name it was started as to su" || fail "tsu.sh name: got '$OUT'"
 
+echo "=== 3a. Kotlin comments hold no comment opener ==="
+# Kotlin comments nest: a "/*" inside one (a path such as ~/dir/* in a comment) opens a second comment
+# that nothing closes, and the file does not compile ("Unclosed comment"; it broke the build twice)
+NESTED="$(grep -rnE '^[[:space:]]*(//|\*).*/\*' "$REPO_ROOT/app/src" --include=*.kt || true)"
+if [ -z "$NESTED" ]; then
+    pass "no Kotlin comment contains a slash-star"
+else
+    fail "a Kotlin comment contains a slash-star, which opens a nested comment: $(printf '%s' "$NESTED" | head -n 3 | tr '\n' ' ')"
+fi
+
 echo "=== 3b. Testing cortex-api and notify-send against a stand-in server ==="
 API_SH="$ASSETS_SCRIPTS/cortex-api.sh"
 API_DIR="$TEST_TMP/cortex api dir"

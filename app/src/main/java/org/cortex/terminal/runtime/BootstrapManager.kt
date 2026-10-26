@@ -80,7 +80,7 @@ object BootstrapManager {
 
     /**
      * Earlier versions made ~/storage -> /sdcard. It is not needed (/sdcard works as it is, the app has
-     * access to all files) and a command that deletes through it (rm -rf ~/storage/*, find -L ...
+     * access to all files) and a command that deletes through it (rm -rf of what is in ~/storage, find -L ...
      * -delete) empties the phone's shared storage, so it is no longer made. An old one is taken away
      * once: the link only, which is a pointer. One that the user makes after that stays.
      */
