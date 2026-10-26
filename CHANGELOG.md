@@ -4,6 +4,22 @@ What changed in each version of Cortex Terminal, newest first. The release workf
 of a GitHub release from the section of its version here. Older versions are described on the
 [GitHub releases](https://github.com/ssfuisu/cortex/releases) page.
 
+## 1.26.41 (2026-10-26)
+
+### Changed
+
+- **No more `~/storage` link to the shared storage.** Versions before made `~/storage -> /sdcard` in
+  the home directory. It was not needed: `/sdcard` works as it is (Cortex has the "all files"
+  access), and a command that deletes *through* the link (`rm -rf ~/storage/*`, `find -L ~ -delete`,
+  a tool or an AI agent that follows links) empties the phone's shared storage. Deleting the link
+  itself, or the home directory, never touched what it points to, and Cortex's own code (the Files
+  app's delete, the backup, the reinstall) never followed it; the link was only a risk waiting for
+  the wrong command. Cortex no longer makes it, and takes an old one that still points to
+  `/sdcard` away once, when it starts after the update (the link only: it is a pointer, nothing in
+  the storage is touched). `ln -s /sdcard ~/storage` makes it again; a link you make is left alone.
+- The reinstall of the base system removes `home/ubuntu` as a link-safe delete: a link inside it is
+  removed, never followed.
+
 ## 1.26.40 (2026-10-25)
 
 ### Fixed

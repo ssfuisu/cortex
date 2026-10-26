@@ -177,11 +177,11 @@ cortex-backup packages         # installs the packages of the restored backup la
 cortex-backup list             # shows existing backups
 ```
 
-Caches (`~/.cache`, `~/.npm/_cacache`) and the `~/storage` link are skipped (`--include-caches` keeps them). Archives that contain anything outside `home/` and `root/` are refused. The installed programs themselves are not part of a backup, but the list of the packages installed with `apt` is, with the apt sources and keys of other vendors (such as NodeSource): `restore` puts the sources back and installs the packages that are missing, after asking (`--no-packages` leaves them out). A package that is gone from the archive does not stop the others.
+Caches (`~/.cache`, `~/.npm/_cacache`) and a `~/storage` link (if you made one) are skipped (`--include-caches` keeps them). Archives that contain anything outside `home/` and `root/` are refused. The installed programs themselves are not part of a backup, but the list of the packages installed with `apt` is, with the apt sources and keys of other vendors (such as NodeSource): `restore` puts the sources back and installs the packages that are missing, after asking (`--no-packages` leaves them out). A package that is gone from the archive does not stop the others.
 
 ## Files App Integration
 
-The Cortex home directory shows up as **Cortex** in Android's *Files* app and in every file picker, so you can open, share, create, rename and delete files without copying them to shared storage first. Only the home directory is exposed (never the Ubuntu system tree), links that point outside it such as `~/storage` stay hidden, and other apps can only reach files you pick yourself. Turn it off under *Settings > Files*.
+The Cortex home directory shows up as **Cortex** in Android's *Files* app and in every file picker, so you can open, share, create, rename and delete files without copying them to shared storage first. Only the home directory is exposed (never the Ubuntu system tree), links that point outside it (such as a `~/storage` you made) stay hidden, and other apps can only reach files you pick yourself. Turn it off under *Settings > Files*.
 
 ## Android Integration (`cortex-api`)
 
@@ -289,6 +289,9 @@ Not yet. Cortex is a terminal; there is no X11 or Wayland server.
 
 **Will every Ubuntu package work?**
 Most command-line tools do. Packages that depend on kernel features Android does not allow for apps (for example systemd services or privileged device access) cannot work. An app cannot become another user, so a server that refuses to run as root cannot run in normal mode: PostgreSQL's packages install (`psql` works against a server elsewhere), but its own cluster is not created and the server not started; use [root mode](#root-mode) for that. MariaDB (`apt install mariadb-server`, then `mariadbd-safe &` and `mariadb`) and redis run in normal mode. On a rooted phone, [root mode](#root-mode) removes the limits that come from running as an app; systemd cannot be the init system in either mode.
+
+**How do I reach the phone's storage (Downloads, photos)?**
+Through `/sdcard`, for example `cd /sdcard/Download` or `cp report.pdf /sdcard/Download/`: it is the phone's shared storage itself (Cortex has the "all files" access of Android; if a path is refused, allow it under Android's app settings). Versions before 1.26.41 also made a link `~/storage` to it, and took it away on update: a command that deletes *through* a link (`rm -rf ~/storage/*`, `find -L ~ -delete`, a tool that follows links) empties the shared storage, and the link only saved typing. Deleting the link itself, or the home directory, never touches what it points to. If you want the shortcut anyway: `ln -s /sdcard ~/storage`; a link you make is left alone.
 
 **Does `sudo` work?**
 Yes. In normal mode Cortex's shell is root as far as Ubuntu's programs can tell, so `sudo apt install x` and the other commands from guides run the command as it is (`sudo -u USER` and `su USER` go through `runuser`). On a rooted phone that gives Cortex root, `sudo` and `su` still ask Android for real root, as before; in [root mode](#root-mode) they work as on a Linux PC.

@@ -158,13 +158,43 @@ class BootstrapManagerFlowTest {
         // The user's startup files come from the image's /etc/skel
         assertTrue(File(home, ".bashrc").readText().startsWith("# the image's .bashrc\n"))
         assertTrue(File(home, ".profile").readText().startsWith("# the image's .profile\n"))
-        assertEquals("/sdcard", linkTarget(File(home, "storage")))
+        // ~/storage -> /sdcard is no longer made (deleting through it empties the shared storage)
+        assertFalse(isLink(File(home, "storage")))
 
         assertEquals("mawk", read("usr/bin/awk"))
         assertTrue(File(root, "usr/bin/which").canExecute())
         for (dir in listOf("var/lib/apt/lists/partial", "var/cache/apt/archives/partial", "tmp", "opt")) {
             assertTrue(dir, File(root, dir).isDirectory)
         }
+    }
+
+    @Test
+    fun initializeFileSystem_takesAwayTheOldStorageLinkOnceAndLeavesALaterOne() {
+        extractedSystem()
+        val link = File(home, "storage")
+        home.mkdirs()
+        Files.createSymbolicLink(link.toPath(), File("/sdcard").toPath())
+
+        BootstrapManager.initializeFileSystem(context)
+
+        assertFalse("the old link to /sdcard is gone", isLink(link))
+        assertFalse("and nothing was made in its place", link.exists())
+
+        // One that the user makes afterwards (ln -s /sdcard ~/storage) is theirs
+        Files.createSymbolicLink(link.toPath(), File("/sdcard").toPath())
+        BootstrapManager.initializeFileSystem(context)
+        assertEquals("/sdcard", linkTarget(link))
+    }
+
+    @Test
+    fun initializeFileSystem_leavesAStorageDirectoryAndOtherLinksAlone() {
+        extractedSystem()
+        val dir = File(home, "storage")
+        File(dir, "mine").also { it.parentFile?.mkdirs(); it.writeText("kept") }
+
+        BootstrapManager.initializeFileSystem(context)
+
+        assertEquals("kept", File(dir, "mine").readText())
     }
 
     @Test

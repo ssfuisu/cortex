@@ -12,7 +12,7 @@ import java.util.zip.GZIPInputStream
 
 object BootstrapManager {
     private const val TAG = "BootstrapManager"
-    const val CURRENT_BOOTSTRAP_VERSION = 12640
+    const val CURRENT_BOOTSTRAP_VERSION = 12641
 
     fun initializeFileSystem(context: Context) {
         val root = Environment.getCortexRoot(context)
@@ -64,12 +64,7 @@ object BootstrapManager {
         ensureReloadScripts(root, home, context)
         updateTimezone(context, root)
 
-        val storageLink = File(home, "storage")
-        if (!storageLink.exists()) {
-            try {
-                android.system.Os.symlink("/sdcard", storageLink.absolutePath)
-            } catch (e: Exception) { Log.w(TAG, "Could not link ${storageLink.path} to /sdcard", e) }
-        }
+        removeOldStorageLink(root, home)
 
         File(root, "var/cache/apt/archives/partial").mkdirs()
         File(root, "var/lib/apt/lists/partial").mkdirs()
@@ -81,6 +76,28 @@ object BootstrapManager {
         }
 
         ensureEssentialBinaries(root, home, context)
+    }
+
+    /**
+     * Earlier versions made ~/storage -> /sdcard. It is not needed (/sdcard works as it is, the app has
+     * access to all files) and a command that deletes through it (rm -rf ~/storage/*, find -L ...
+     * -delete) empties the phone's shared storage, so it is no longer made. An old one is taken away
+     * once: the link only, which is a pointer. One that the user makes after that stays.
+     */
+    private fun removeOldStorageLink(root: File, home: File) {
+        val marker = File(root, "var/lib/cortex/storage-link-removed")
+        if (marker.exists()) return
+        try {
+            val link = File(home, "storage")
+            if (ElfLinkerPatcher.isSymlink(link) && android.system.Os.readlink(link.absolutePath) == "/sdcard") {
+                android.system.Os.remove(link.absolutePath)
+                Log.i(TAG, "Removed the old link ${link.path} -> /sdcard")
+            }
+            marker.parentFile?.mkdirs()
+            FileInstaller.install(marker, "1", 384) // 0600
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not remove the old storage link", e)
+        }
     }
 
     /** chmod that never throws: a failure is logged and the file keeps its mode. */
@@ -282,7 +299,8 @@ object BootstrapManager {
             // /root, and /home, which is the user's home here (the image's home/ubuntu is not used)
             File(root, "root").mkdirs()
             File(root, "home").mkdirs()
-            File(root, "home/ubuntu").deleteRecursively()
+            // (a link in it is removed as a link, never followed)
+            org.cortex.terminal.documents.DocumentPaths.deleteTree(File(root, "home/ubuntu"))
 
             ensureUbuntuSources(root)
 
