@@ -4,6 +4,34 @@ What changed in each version of Cortex Terminal, newest first. The release workf
 of a GitHub release from the section of its version here. Older versions are described on the
 [GitHub releases](https://github.com/ssfuisu/cortex/releases) page.
 
+## 1.26.42 (2026-10-26)
+
+### Changed
+
+- **A new app icon** (#30): three cards, the front one with a prompt, in the design that
+  [hasanelfalakiy](https://github.com/hasanelfalakiy) suggested. Thank you! It is an adaptive icon
+  drawn as vectors (sharp at any size and in any shape the launcher cuts it to) and has a monochrome
+  layer, so Android 13's themed icons show it in the colors of the wallpaper.
+
+### Fixed
+
+- **Holding backspace deleted one character** (#32). The terminal keeps no text of its own (what is
+  typed goes to the program at once), and a keyboard that sees nothing before the cursor deletes
+  once for a held backspace and stops (Gboard). The keyboard is now shown one space before its
+  cursor, and the space again after each delete, so a held backspace keeps deleting, one character
+  of the command line each time.
+- **Copy and paste** (#32): the bar with *Copy*, *Paste* and *Select all* that comes up after a long
+  press was placed as if the terminal began at the top of the window, so it was over the tabs or,
+  on the first rows, under the status bar where it could not be tapped. It now goes above the
+  selection, or under it when there is no room, always over the terminal; it is in the colors of
+  the scheme and in the language of the phone. Editors that use a clipboard program find one:
+  `termux-clipboard-set` and `termux-clipboard-get` (the names Neovim's and Helix's clipboard look
+  for) use Android's clipboard through `cortex-api`, so `"+y` and `"+p` work. Copying with OSC 52
+  (tmux, Neovim's `osc52`) worked before and still does.
+- **The update download was a card on a gray card** (#33). Dialogs (the update, the download, exit,
+  storage access, root mode, the color schemes) are now one rounded card in the colors of the
+  interface, with the progress bar and buttons in its accent.
+
 ## 1.26.41 (2026-10-26)
 
 ### Changed

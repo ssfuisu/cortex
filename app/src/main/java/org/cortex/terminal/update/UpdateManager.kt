@@ -12,9 +12,13 @@ import android.view.LayoutInflater
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
+import android.content.res.ColorStateList
 import androidx.appcompat.app.AlertDialog
 import androidx.core.content.FileProvider
 import org.cortex.terminal.R
+import org.cortex.terminal.view.Chrome
+import org.cortex.terminal.view.ChromeDialog
+import org.cortex.terminal.view.showInChrome
 import org.json.JSONObject
 import android.content.pm.PackageManager
 import android.content.pm.SigningInfo
@@ -261,7 +265,7 @@ object UpdateManager {
                 }
             }
             .setNegativeButton(R.string.later, null)
-            .show()
+            .showInChrome()
     }
 
     fun showUpToDateDialog(activity: Activity, latestVersionTag: String?) {
@@ -278,7 +282,7 @@ object UpdateManager {
             .setTitle(R.string.check_for_updates)
             .setMessage(activity.getString(R.string.update_up_to_date_message, currentVer, latestVer))
             .setPositiveButton(R.string.ok, null)
-            .show()
+            .showInChrome()
     }
 
     private fun cleanReleaseNotes(body: String): String {
@@ -350,6 +354,14 @@ object UpdateManager {
         val progressBar = dialogView.findViewById<ProgressBar>(R.id.downloadProgressBar)
         val percentText = dialogView.findViewById<TextView>(R.id.downloadPercentText)
 
+        // The dialog is the card: its text and bar in the interface's colors
+        val p = Chrome.palette
+        statusText.setTextColor(p.text)
+        percentText.setTextColor(p.textDim)
+        progressBar.progressTintList = ColorStateList.valueOf(p.accent)
+        progressBar.progressBackgroundTintList = ColorStateList.valueOf(p.raisedHigh)
+        progressBar.indeterminateTintList = ColorStateList.valueOf(p.accent)
+
         statusText.text = activity.getString(R.string.update_connecting)
         progressBar.isIndeterminate = true
 
@@ -368,7 +380,7 @@ object UpdateManager {
             }
             .create()
 
-        downloadDialog.show()
+        ChromeDialog.style(downloadDialog).show()
 
         kotlin.concurrent.thread(name = "Cortex-ApkDownloader") {
             var inputStream: InputStream? = null
@@ -522,7 +534,7 @@ object UpdateManager {
                                 downloadAndInstall(activity, info)
                             }
                             .setNegativeButton(R.string.cancel, null)
-                            .show()
+                            .showInChrome()
                     }
                 }
             } finally {
@@ -685,7 +697,7 @@ object UpdateManager {
                 .setTitle(R.string.update_verification_failed_title)
                 .setMessage(R.string.update_verification_failed_message)
                 .setPositiveButton(R.string.ok, null)
-                .show()
+                .showInChrome()
             return
         }
 
@@ -705,7 +717,7 @@ object UpdateManager {
                         try { apkFile.delete() } catch (_: Exception) {}
                         cleanUpdatesForce(activity)
                     }
-                    .show()
+                    .showInChrome()
                 return
             }
         }

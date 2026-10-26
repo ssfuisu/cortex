@@ -5,7 +5,6 @@ import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.Typeface
-import android.graphics.drawable.InsetDrawable
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -16,6 +15,7 @@ import androidx.appcompat.app.AlertDialog
 import androidx.preference.ListPreference
 import org.cortex.terminal.emulator.TerminalColor
 import org.cortex.terminal.view.Chrome
+import org.cortex.terminal.view.ChromeDialog
 
 /**
  * The list of color schemes in the settings: each is shown as a small piece of terminal in its own
@@ -44,7 +44,7 @@ object ThemePicker {
                 header.addView(TextView(context).apply {
                     text = names[position]
                     textSize = 15f
-                    setTextColor(if (selected) accent else 0xFFE6E6E6.toInt())
+                    setTextColor(if (selected) accent else Chrome.palette.text)
                     typeface = if (selected) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
                 }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
                 if (selected) {
@@ -76,13 +76,7 @@ object ThemePicker {
             }
             .setNegativeButton(android.R.string.cancel, null)
             .create()
-        // The dialog in the interface's colors (the theme's own is a plain gray)
-        val p = Chrome.palette
-        val hairline = density.toInt().coerceAtLeast(1)
-        dialog.window?.setBackgroundDrawable(
-            InsetDrawable(Chrome.rounded(p.bar, 20 * density, p.outline, hairline), (16 * density).toInt())
-        )
-        dialog.show()
+        ChromeDialog.style(dialog).show()
     }
 
     /** A scheme as a bit of terminal: its background, a prompt and a command in its text color, and its six colors. */

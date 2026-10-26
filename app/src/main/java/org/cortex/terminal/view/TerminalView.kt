@@ -27,6 +27,8 @@ import android.view.inputmethod.BaseInputConnection
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
 import android.view.inputmethod.InputMethodManager
+import android.view.inputmethod.SurroundingText
+import androidx.annotation.RequiresApi
 import androidx.core.view.inputmethod.EditorInfoCompat
 import androidx.core.view.inputmethod.InputConnectionCompat
 import androidx.core.view.inputmethod.InputContentInfoCompat
@@ -1164,56 +1166,55 @@ class TerminalView @JvmOverloads constructor(
         if (!isSelecting || !isAttachedToWindow) return
         hideActionPopup()
 
+        val p = Chrome.palette
+        val density = resources.displayMetrics.density
+        val hairline = density.toInt().coerceAtLeast(1)
         val layout = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
-            setBackgroundColor(Color.parseColor("#181825"))
-            val pad = (6 * resources.displayMetrics.density).toInt()
+            val pad = (4 * density).toInt()
             setPadding(pad, pad, pad, pad)
-            elevation = 16f * resources.displayMetrics.density
+            background = Chrome.rounded(p.raised, 14 * density, p.outline, hairline)
+            elevation = 8f * density
         }
 
-        val createButton = { text: String, onClick: () -> Unit ->
+        // The system's own words for these, in the language of the interface
+        val createButton = { label: Int, onClick: () -> Unit ->
             TextView(context).apply {
-                this.text = text
-                setTextColor(Color.WHITE)
-                textSize = 13f
-                isAllCaps = true
+                setText(label)
+                setTextColor(p.text)
+                textSize = 14f
                 typeface = Typeface.DEFAULT_BOLD
-                val hPad = (14 * resources.displayMetrics.density).toInt()
-                val vPad = (10 * resources.displayMetrics.density).toInt()
+                val hPad = (14 * density).toInt()
+                val vPad = (10 * density).toInt()
                 setPadding(hPad, vPad, hPad, vPad)
-                setBackgroundResource(android.R.drawable.list_selector_background)
+                background = Chrome.ripple(Chrome.rounded(p.raised, 10 * density), Chrome.withAlpha(p.accent, 70), 10 * density)
                 setOnClickListener { onClick() }
             }
         }
 
-        val btnCopy = createButton("Copy") {
-            copySelectionToClipboard()
-        }
-
-        val btnPaste = createButton("Paste") {
-            pasteFromClipboard()
-        }
-
-        val btnSelectAll = createButton("Select All") {
-            selectAllText()
-        }
-
-        layout.addView(btnCopy)
-        layout.addView(btnPaste)
-        layout.addView(btnSelectAll)
+        layout.addView(createButton(android.R.string.copy) { copySelectionToClipboard() })
+        layout.addView(createButton(android.R.string.paste) { pasteFromClipboard() })
+        layout.addView(createButton(android.R.string.selectAll) { selectAllText() })
 
         val popup = PopupWindow(layout, ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, false).apply {
             isOutsideTouchable = false
         }
         actionPopup = popup
 
+        layout.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED)
+        val origin = IntArray(2)
+        getLocationInWindow(origin)
         val norm = getNormalizedSelection()
-        val startScreenR = (norm[0] + scrollOffset).coerceIn(0, rows - 1)
-        val popupX = (norm[1] * charWidth).toInt().coerceIn(20, max(20, width - 260))
-        val popupY = ((startScreenR * charHeight) - 56 * resources.displayMetrics.density).toInt().coerceAtLeast(10)
-
-        popup.showAtLocation(this, Gravity.NO_GRAVITY, popupX, popupY)
+        val pos = actionPopupPosition(
+            viewLeft = origin[0], viewTop = origin[1], viewWidth = width, viewHeight = height,
+            popupWidth = layout.measuredWidth, popupHeight = layout.measuredHeight,
+            selectionLeft = (norm[1] * charWidth).toInt(),
+            selectionTop = ((norm[0] + scrollOffset).coerceIn(0, rows - 1) * charHeight).toInt(),
+            selectionBottom = ((norm[2] + scrollOffset + 1).coerceIn(1, rows) * charHeight).toInt(),
+            gap = (8 * density).toInt(),
+            handles = (13 * density * 2.6f).toInt()
+        )
+        popup.showAtLocation(this, Gravity.NO_GRAVITY, pos[0], pos[1])
     }
 
     fun hideActionPopup() {
@@ -1567,9 +1568,59 @@ class TerminalView @JvmOverloads constructor(
             "image/*"
         )
         EditorInfoCompat.setContentMimeTypes(outAttrs, mimeTypes)
+        // The keyboard is shown a line of its own (IME_LINE) with the cursor at its end
+        outAttrs.initialSelStart = IME_LINE.length
+        outAttrs.initialSelEnd = IME_LINE.length
 
         val baseConnection = object : BaseInputConnection(this, false) {
             private var composingLength = 0
+            private var batchDepth = 0
+            private var linePending = false
+
+            override fun getTextBeforeCursor(n: Int, flags: Int): CharSequence = IME_LINE.takeLast(n.coerceAtLeast(0))
+
+            override fun getTextAfterCursor(n: Int, flags: Int): CharSequence = ""
+
+            override fun getSelectedText(flags: Int): CharSequence? = null
+
+            @RequiresApi(Build.VERSION_CODES.S)
+            override fun getSurroundingText(beforeLength: Int, afterLength: Int, flags: Int): SurroundingText {
+                val before = IME_LINE.takeLast(beforeLength.coerceAtLeast(0))
+                return SurroundingText(before, before.length, before.length, IME_LINE.length - before.length)
+            }
+
+            override fun beginBatchEdit(): Boolean {
+                batchDepth++
+                return true
+            }
+
+            override fun endBatchEdit(): Boolean {
+                if (batchDepth > 0) batchDepth--
+                if (batchDepth == 0 && linePending) {
+                    linePending = false
+                    reportLine()
+                }
+                return batchDepth > 0
+            }
+
+            /**
+             * After the keyboard deleted, its line is IME_LINE again: told so (once its batch of edits is
+             * over), it has something to delete for the next repeat of a held backspace. Not while it
+             * composes a word, whose place it keeps itself.
+             */
+            private fun lineIsBack() {
+                if (batchDepth > 0) {
+                    linePending = true
+                } else {
+                    reportLine()
+                }
+            }
+
+            private fun reportLine() {
+                if (composingLength != 0) return
+                val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager ?: return
+                imm.updateSelection(this@TerminalView, IME_LINE.length, IME_LINE.length, -1, -1)
+            }
 
             override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
                 clearSelection()
@@ -1633,8 +1684,12 @@ class TerminalView @JvmOverloads constructor(
                         sendKeySequence(KeyEvent.KEYCODE_DEL)
                     }
                 }
+                lineIsBack()
                 return true
             }
+
+            override fun deleteSurroundingTextInCodePoints(beforeLength: Int, afterLength: Int): Boolean =
+                deleteSurroundingText(beforeLength, afterLength)
 
             override fun performEditorAction(actionCode: Int): Boolean {
                 clearSelection()
@@ -1645,7 +1700,9 @@ class TerminalView @JvmOverloads constructor(
             override fun sendKeyEvent(event: KeyEvent): Boolean {
                 if (event.action == KeyEvent.ACTION_DOWN) {
                     clearSelection()
-                    return onKeyDown(event.keyCode, event)
+                    val handled = onKeyDown(event.keyCode, event)
+                    if (event.keyCode == KeyEvent.KEYCODE_DEL || event.keyCode == KeyEvent.KEYCODE_FORWARD_DEL) lineIsBack()
+                    return handled
                 }
                 return true
             }
@@ -1797,6 +1854,14 @@ class TerminalView @JvmOverloads constructor(
     }
 }
 
+/**
+ * The line the keyboard is shown: one space, with the cursor after it. The terminal keeps no text of
+ * its own (what is typed goes to the program at once), and a keyboard that sees nothing before the
+ * cursor deletes once for a held backspace and then stops (Gboard). With the space there, each repeat
+ * is one backspace for the program, and after it the line is the space again.
+ */
+private const val IME_LINE = " "
+
 /** The text sizes two fingers can set, in sp. */
 internal const val MIN_PINCH_TEXT_SP = 6f
 internal const val MAX_PINCH_TEXT_SP = 36f
@@ -1804,3 +1869,21 @@ internal const val MAX_PINCH_TEXT_SP = 36f
 /** The text size for a pinch that started at [startSp] and has scaled by [scale]: whole sp. */
 internal fun pinchTextSize(startSp: Float, scale: Float): Float =
     Math.round(startSp * scale).toFloat().coerceIn(MIN_PINCH_TEXT_SP, MAX_PINCH_TEXT_SP)
+
+/**
+ * Where the Copy / Paste / Select all bar goes, in the window's coordinates (which is what
+ * PopupWindow.showAtLocation takes; the terminal is not at the top of the window, the tabs and the
+ * status bar are above it). Above the selection when that fits in the terminal, else under it below
+ * its handles; never outside the terminal, so never under the tabs, the status bar or the keys.
+ */
+internal fun actionPopupPosition(
+    viewLeft: Int, viewTop: Int, viewWidth: Int, viewHeight: Int,
+    popupWidth: Int, popupHeight: Int,
+    selectionLeft: Int, selectionTop: Int, selectionBottom: Int,
+    gap: Int, handles: Int
+): IntArray {
+    val above = selectionTop - gap - popupHeight
+    val y = if (above >= 0) above else (selectionBottom + handles).coerceAtMost(viewHeight - popupHeight)
+    val x = selectionLeft.coerceAtMost(viewWidth - popupWidth)
+    return intArrayOf(viewLeft + x.coerceAtLeast(0), viewTop + y.coerceAtLeast(0))
+}

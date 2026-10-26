@@ -41,6 +41,7 @@ import org.cortex.terminal.view.ExtraKeysView
 import org.cortex.terminal.view.SessionTabsView
 import org.cortex.terminal.view.TerminalSearchBar
 import org.cortex.terminal.view.TerminalView
+import org.cortex.terminal.view.showInChrome
 
 class MainActivity : AppCompatActivity() {
 
@@ -384,7 +385,7 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
                 .setNegativeButton(R.string.no, null)
-                .show()
+                .showInChrome()
         }
     }
 
@@ -830,7 +831,7 @@ class MainActivity : AppCompatActivity() {
                         }
                     }
                     .setNegativeButton(R.string.no, null)
-                    .show()
+                    .showInChrome()
             }
         })
     }
@@ -857,7 +858,7 @@ class MainActivity : AppCompatActivity() {
                         }
                     }
                     .setNegativeButton(R.string.later, null)
-                    .show()
+                    .showInChrome()
             }
         } else {
             val permissions = arrayOf(

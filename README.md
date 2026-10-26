@@ -162,6 +162,7 @@ Programs talk to the Android side through standard terminal escape sequences, so
 - **Cursor shape (DECSCUSR):** programs can switch between a block, underline or bar cursor, steady or blinking, such as neovim's bar cursor in insert mode.
 - **Focus events (mode 1004):** `tmux` (`set -g focus-events on`), vim and neovim are told when Cortex goes to the background or another session is shown, which `autoread` and similar features use.
 - **Synchronized output (mode 2026):** programs that announce their frames, such as neovim 0.10 and newer, are only shown complete frames, so full-screen redraws no longer flicker.
+- **Copy and paste:** long-press the terminal to select a word (drag the handles to change the selection), then *Copy*, *Paste* or *Select all* in the bar above it (under it on the first rows). Holding the keyboard's backspace keeps deleting, as in any text field.
 - **Rewrapping:** when the phone is turned or the font size changes, long lines in the scrollback and on the screen are rewrapped for the new width instead of staying broken or cut off.
 - **Text size with two fingers:** spreading or pinching them on the terminal changes the text size (6 to 36), which Cortex keeps.
 - **Sessions that come back:** when Android ends Cortex (to free memory, or for an update of the app), its sessions are there again at the next start: as many as there were, the one that was shown, each in its folder and with the end of its output, dimmed. The programs that ran in them have stopped and start anew. Leaving Cortex with *Exit* closes them for good; *Settings > Sessions* turns it off.
@@ -209,7 +210,7 @@ cortex-api --help
   <img src="docs/screenshots/cortex-notification.jpg" width="60%" alt="A notification sent with notify-send from the terminal, shown by Android" />
 </p>
 
-`notify-send` shows its notifications on Android through it, and `xdg-open` (with `open`, `termux-open` and the browser names) opens links and files in Android apps. The app listens on `127.0.0.1` while it runs; the port and a secret token are in `/run/cortex-api`, which only Cortex itself and root can read, so other apps cannot use it. Android lets an app open other apps only while it is on screen, and from Android 10 on also read the clipboard only then, so those commands report an error while Cortex is in the background.
+`notify-send` shows its notifications on Android through it, and `xdg-open` (with `open`, `termux-open` and the browser names) opens links and files in Android apps. `termux-clipboard-set` and `termux-clipboard-get` are the clipboard by the names editors look for, so Neovim's `"+y` and `"+p` (and Helix's `space y` and `space p`) use Android's clipboard. The app listens on `127.0.0.1` while it runs; the port and a secret token are in `/run/cortex-api`, which only Cortex itself and root can read, so other apps cannot use it. Android lets an app open other apps only while it is on screen, and from Android 10 on also read the clipboard only then, so those commands report an error while Cortex is in the background.
 
 ## Remote Access
 
@@ -331,6 +332,10 @@ Have feedback, questions, or ideas for new features? We'd love to hear from you:
 
 - **GitHub Issues**: Open a bug report or feature request on [GitHub Issues](https://github.com/ssfuisu/cortex/issues).
 - **Telegram**: Chat directly with the developer on Telegram: [@ratzgn](https://t.me/ratzgn).
+
+## Thanks
+
+The app icon is the design of [hasanelfalakiy](https://github.com/hasanelfalakiy), who suggested it in [#30](https://github.com/ssfuisu/cortex/issues/30). Thank you!
 
 ---
 

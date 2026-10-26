@@ -188,6 +188,8 @@ expect api-battery '"percentage"' cortex-api battery
 check api-notification cortex-api notification -i e2e -t "Cortex e2e notification" -c "A notification from the terminal"
 check notify-send notify-send "Cortex e2e notify-send" "A notification from notify-send"
 expect api-clipboard e2e-clip bash -c 'echo e2e-clip | cortex-api clipboard-set && cortex-api clipboard-get'
+# The names editors look for (Neovim's "+y and "+p)
+expect editor-clipboard e2e-yank bash -c 'printf e2e-yank | termux-clipboard-set && termux-clipboard-get'
 check api-toast cortex-api toast "Hello from Ubuntu"
 expect api-wakelock on bash -c 'cortex-api wakelock on >/dev/null && cortex-api wakelock status; s=$?; cortex-api wakelock off >/dev/null; exit $s'
 expect api-bad-command "unknown command" bash -c 'cortex-api no-such-command; [ $? = 1 ]'

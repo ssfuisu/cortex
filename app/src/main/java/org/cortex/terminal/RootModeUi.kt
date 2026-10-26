@@ -15,6 +15,7 @@ import androidx.appcompat.content.res.AppCompatResources
 import androidx.core.content.ContextCompat
 import org.cortex.terminal.runtime.RootMode
 import org.cortex.terminal.service.CortexService
+import org.cortex.terminal.view.showInChrome
 import kotlin.concurrent.thread
 
 /**
@@ -67,7 +68,7 @@ object RootModeUi {
             .setPositiveButton(R.string.root_exit_confirm) { _, _ -> leave(activity, onDone) }
             .setNegativeButton(android.R.string.cancel) { _, _ -> onDone(true) }
             .setOnCancelListener { onDone(true) }
-            .show()
+            .showInChrome()
     }
 
     private fun leave(activity: Activity, onDone: (Boolean) -> Unit) {

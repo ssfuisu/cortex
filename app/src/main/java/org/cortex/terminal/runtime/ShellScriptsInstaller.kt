@@ -283,12 +283,17 @@ object ShellScriptsInstaller {
         }
     }
 
-    /** Installs cortex-api (Android features for the shell), notify-send and cortex-sshd, which use it. */
+    /**
+     * Installs cortex-api (Android features for the shell) and what uses it: notify-send, cortex-sshd and
+     * the clipboard commands that editors look for (termux-clipboard-get/-set, one script by two names).
+     */
     private fun ensureApiTools(localBin: File, context: Context?) {
         val tools = listOf(
             "cortex-api" to "cortex-api.sh",
             "notify-send" to "notify-send.sh",
-            "cortex-sshd" to "cortex-sshd.sh"
+            "cortex-sshd" to "cortex-sshd.sh",
+            "termux-clipboard-get" to "termux-clipboard.sh",
+            "termux-clipboard-set" to "termux-clipboard.sh"
         )
         for ((name, asset) in tools) {
             try {

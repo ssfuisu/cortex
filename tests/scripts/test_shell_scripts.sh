@@ -27,7 +27,7 @@ cleanup() {
 trap cleanup EXIT
 
 echo "=== 0. Checking LF line endings and syntax ==="
-for script_name in reload.sh service.sh systemctl.sh su.sh cortex-shell.sh cortex-backup.sh cortex-api.sh notify-send.sh apt-autoupdate.sh cortex-sshd.sh; do
+for script_name in reload.sh service.sh systemctl.sh su.sh cortex-shell.sh cortex-backup.sh cortex-api.sh notify-send.sh apt-autoupdate.sh cortex-sshd.sh termux-clipboard.sh; do
     script_path="$ASSETS_SCRIPTS/$script_name"
     if LC_ALL=C grep -q $'\r' "$script_path"; then
         fail "$script_name contains CRLF line endings"
@@ -402,6 +402,17 @@ CORTEX_API_CONF="$API_CONF" PATH="$API_DIR/bin:$PATH" bash "$ASSETS_SCRIPTS/noti
 [ "$?" = 0 ] && [ "$(last args)" = '["-t", "Derleme bitti", "-c", "0 hata"]' ] && pass "notify-send shows SUMMARY and BODY through cortex-api" || fail "notify-send: $(last args)"
 CORTEX_API_CONF="$API_CONF" PATH="$API_DIR/bin:$PATH" bash "$ASSETS_SCRIPTS/notify-send.sh" </dev/null 2>/dev/null
 [ "$?" = 1 ] && pass "notify-send without a summary fails" || fail "notify-send without a summary did not fail"
+for name in termux-clipboard-get termux-clipboard-set; do
+    cp "$ASSETS_SCRIPTS/termux-clipboard.sh" "$API_DIR/bin/$name" && chmod +x "$API_DIR/bin/$name"
+done
+CORTEX_API_CONF="$API_CONF" PATH="$API_DIR/bin:$PATH" termux-clipboard-set "kopyalandı" </dev/null >/dev/null
+[ "$(last command)" = '"clipboard-set"' ] && [ "$(last args)" = '["kopyalandı"]' ] \
+    && pass "termux-clipboard-set TEXT sets the clipboard through cortex-api" || fail "termux-clipboard-set: $(last command) $(last args)"
+printf 'yank\n' | CORTEX_API_CONF="$API_CONF" PATH="$API_DIR/bin:$PATH" termux-clipboard-set >/dev/null
+[ "$(last stdin)" = '"yank\n"' ] && pass "termux-clipboard-set takes stdin (what an editor pipes)" || fail "termux-clipboard-set stdin: $(last stdin)"
+OUT="$(CORTEX_API_CONF="$API_CONF" PATH="$API_DIR/bin:$PATH" termux-clipboard-get </dev/null)"
+[ "$OUT" = "ok clipboard-get" ] && [ "$(last command)" = '"clipboard-get"' ] \
+    && pass "termux-clipboard-get prints the clipboard through cortex-api" || fail "termux-clipboard-get: '$OUT' $(last command)"
 kill "$API_PID" 2>/dev/null; wait "$API_PID" 2>/dev/null
 
 echo "=== 3c. Testing apt-autoupdate.sh (apt and apt-get without package lists) ==="

@@ -1,9 +1,12 @@
 package org.cortex.terminal.view
 
 import android.app.Activity
+import android.content.DialogInterface
+import android.os.Looper
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.view.inputmethod.EditorInfo
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -15,6 +18,7 @@ import org.cortex.terminal.databinding.ActivityMainBinding
 import org.cortex.terminal.databinding.ItemSessionBinding
 import org.cortex.terminal.emulator.TerminalColor
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -22,6 +26,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowDialog
 
@@ -165,5 +170,51 @@ class ChromeViewsTest {
         val dialog = ShadowDialog.getLatestDialog() as AlertDialog
         assertEquals(TerminalColor.SCHEMES.size, dialog.listView.adapter.count)
         assertNotNull(dialog.listView.adapter.getView(3, null, dialog.listView))
+    }
+
+    @Test
+    fun aDialogIsInTheInterfacesColors() {
+        val dialog = AlertDialog.Builder(activity)
+            .setTitle("Title")
+            .setMessage("Message")
+            .setPositiveButton("OK", null)
+            .setNegativeButton("Cancel", null)
+            .showInChrome()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertTrue(dialog.isShowing)
+        val p = Chrome.palette
+        assertEquals(p.textDim, dialog.findViewById<TextView>(android.R.id.message)!!.currentTextColor)
+        assertEquals(p.text, dialog.findViewById<TextView>(androidx.appcompat.R.id.alertTitle)!!.currentTextColor)
+        assertEquals(p.accent, dialog.getButton(DialogInterface.BUTTON_POSITIVE).currentTextColor)
+        assertEquals(p.accent, dialog.getButton(DialogInterface.BUTTON_NEGATIVE).currentTextColor)
+        dialog.dismiss()
+    }
+
+    @Test
+    fun theUpdateDownloadViewHasNoCardOfItsOwn() {
+        // The dialog is the card (#33): the view in it has no background of its own
+        val view = LayoutInflater.from(activity).inflate(R.layout.dialog_update_download, null)
+        assertEquals(null, view.background)
+        assertNotNull(view.findViewById<View>(R.id.downloadProgressBar))
+    }
+
+    @Test
+    fun theKeyboardSeesALineWithSomethingToDelete() {
+        // A held backspace repeats only while the keyboard sees text before the cursor (#32)
+        val view = TerminalView(activity)
+        val info = EditorInfo()
+        val ic = view.onCreateInputConnection(info)
+        assertEquals(1, info.initialSelStart)
+        assertEquals(1, info.initialSelEnd)
+        assertEquals(" ", ic.getTextBeforeCursor(100, 0).toString())
+        assertEquals("", ic.getTextAfterCursor(100, 0).toString())
+        // Deleting it (nothing to send to without a session) leaves it there for the next repeat
+        assertTrue(ic.beginBatchEdit())
+        assertTrue(ic.deleteSurroundingText(1, 0))
+        assertFalse(ic.endBatchEdit())
+        assertEquals(" ", ic.getTextBeforeCursor(1, 0).toString())
+        val around = ic.getSurroundingText(10, 10, 0)!!
+        assertEquals(" ", around.text.toString())
+        assertEquals(1, around.selectionStart)
     }
 }
