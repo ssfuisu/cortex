@@ -187,7 +187,7 @@ class BootstrapManagerFlowTest {
     }
 
     @Test
-    fun initializeFileSystem_leavesAStorageDirectoryAndOtherLinksAlone() {
+    fun initializeFileSystem_leavesAStorageDirectoryAlone() {
         extractedSystem()
         val dir = File(home, "storage")
         File(dir, "mine").also { it.parentFile?.mkdirs(); it.writeText("kept") }
@@ -195,6 +195,19 @@ class BootstrapManagerFlowTest {
         BootstrapManager.initializeFileSystem(context)
 
         assertEquals("kept", File(dir, "mine").readText())
+    }
+
+    @Test
+    fun initializeFileSystem_leavesAStorageLinkToAnotherPlaceAlone() {
+        extractedSystem()
+        val link = File(home, "storage")
+        home.mkdirs()
+        // Only the old link to exactly /sdcard is taken away; this one points elsewhere
+        Files.createSymbolicLink(link.toPath(), File("/sdcard/Download").toPath())
+
+        BootstrapManager.initializeFileSystem(context)
+
+        assertEquals("/sdcard/Download", linkTarget(link))
     }
 
     @Test
