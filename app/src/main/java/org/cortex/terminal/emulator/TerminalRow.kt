@@ -55,8 +55,15 @@ class TerminalRow(val cols: Int) {
      * leaves its other half, which is blanked (a half of a wide character shows as a stray glyph).
      */
     private fun breakWideAround(from: Int, to: Int) {
-        if (from > 0 && isTail(from)) chars[from - 1] = ' '
-        if (to < cols && isTail(to)) chars[to] = ' '
+        if (from > 0 && isTail(from)) blankCell(from - 1)
+        if (to < cols && isTail(to)) blankCell(to)
+    }
+
+    /** The cell shows nothing: the space of a half that was left, without the link and the style it had. */
+    private fun blankCell(i: Int) {
+        chars[i] = ' '
+        styles[i] = 0
+        setLink(i, null)
     }
 
     /** Blanks the halves of wide characters that are left without the other half (after cells moved). */
@@ -71,7 +78,7 @@ class TerminalRow(val cols: Int) {
             if (ch == WIDE_TAIL || Character.isSurrogate(ch) ||
                 (ch.code >= CharWidth.FIRST_NOT_NARROW && CharWidth.of(ch) == 2)
             ) {
-                chars[i] = ' '
+                blankCell(i)
             }
             i++
         }
@@ -236,6 +243,8 @@ class TerminalRow(val cols: Int) {
             links = copy
         }
         isWrapped = other.isWrapped
+        // A row that is narrower cuts a wide character at its edge in two: nothing of it is left
+        if (cols > 0 && other.cols > cols && other.isWideHead(cols - 1)) blankCell(cols - 1)
     }
 
     fun deleteChars(startCol: Int, count: Int, fg: Int = TerminalColor.DEFAULT_FG, bg: Int = TerminalColor.DEFAULT_BG) {

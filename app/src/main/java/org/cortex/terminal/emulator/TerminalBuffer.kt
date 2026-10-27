@@ -429,9 +429,11 @@ class TerminalBuffer(var rows: Int, var cols: Int, private val maxHistory: Int =
             isWrapPending = false
         }
         if (cursorCol >= cols - 1) {
-            // One cell is left: it stays empty and the character goes to the next line
+            // One cell is left: it stays empty, without a link, and the character goes to the next
+            // line. The empty cell is marked as the padding it is (the mark of the second half of a wide
+            // character, which has nothing before it), so that it is not copied as a space.
             val r = cursorRow.coerceIn(0, rows - 1)
-            screen[r].setChar(cursorCol, ' ', currentFg, currentBg, currentStyle, currentLink)
+            screen[r].setChar(cursorCol, TerminalRow.WIDE_TAIL, currentFg, currentBg, 0)
             screen[r].isWrapped = true
             newLine()
             cursorCol = 0

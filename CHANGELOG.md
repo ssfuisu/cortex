@@ -30,6 +30,11 @@ of a GitHub release from the section of its version here. Older versions are des
     Chinese word, Japanese kana) has the word on the line while it composes; the text it commits now
     replaces it instead of being added after it.
   The tables are made by `tests/scripts/gen_char_width.py`.
+  Limits: the few characters of the supplementary planes that are one cell wide (the mathematical
+  letters, say) are held in two, so a line with one has the cursor a cell ahead of the program; and
+  when the terminal is rewrapped (turned, resized) exactly between the two cells of a wide character,
+  the character is cut at the row's edge (the text is right, the glyph is clipped, or for an emoji
+  not drawn there). Combining accents take a cell of their own, as before.
 
 ## 1.26.42 (2026-10-26)
 

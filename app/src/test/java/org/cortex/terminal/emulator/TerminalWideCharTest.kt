@@ -105,6 +105,57 @@ class TerminalWideCharTest {
     }
 
     @Test
+    fun theEmptyCellAtTheEndOfALineIsNotCopiedAsASpace() {
+        val e = TerminalEmulator(rows = 3, cols = 5)
+        e.feed("abcd中")
+        assertEquals("abcd中", e.buffer.transcript(10))
+        assertEquals("abcd中", e.buffer.getSelectedText(0, 0, 1, 1))
+        // ... and a space that was typed there is
+        val f = TerminalEmulator(rows = 3, cols = 5)
+        f.feed("abc 中")
+        assertEquals("abc 中", f.buffer.transcript(10))
+    }
+
+    @Test
+    fun theEmptyCellAtTheEndOfALineHasNoLinkAndNoUnderline() {
+        val e = TerminalEmulator(rows = 3, cols = 5)
+        e.feed("$esc[4m$esc]8;;https://example.com$esc\\abcd中$esc]8;;$esc\\$esc[0m")
+        assertEquals(null, e.row(0).linkAt(4))
+        assertEquals(0, e.row(0).styles[4].toInt() and 2)
+        assertEquals("https://example.com", e.row(1).linkAt(0))
+        assertEquals("https://example.com", e.row(0).linkAt(3))
+    }
+
+    @Test
+    fun aHalfThatIsBlankedLosesItsLinkAndStyle() {
+        val e = TerminalEmulator(rows = 3, cols = 10)
+        e.feed("$esc[4m$esc]8;;https://example.com$esc\\中$esc]8;;$esc\\$esc[0m\ra")
+        // "a" is over the first half; the second half is blank, not a link and not underlined
+        assertEquals("a", e.row().getText())
+        assertEquals(null, e.row().linkAt(1))
+        assertEquals(0, e.row().styles[1].toInt())
+    }
+
+    @Test
+    fun aNarrowerRowDoesNotKeepAHalfOfACharacterItCutsOff() {
+        val src = TerminalRow(6)
+        src.setWide(4, '中', TerminalRow.WIDE_TAIL, TerminalColor.DEFAULT_FG, TerminalColor.DEFAULT_BG, 0, null)
+        val dst = TerminalRow(5)
+        dst.copyFrom(src)
+        assertEquals(' ', dst.chars[4])
+        assertFalse(dst.isWideHead(4))
+        val emoji = TerminalRow(6)
+        emoji.setWide(4, '\uD83D', '\uDE00', TerminalColor.DEFAULT_FG, TerminalColor.DEFAULT_BG, 0, null)
+        val cut = TerminalRow(5)
+        cut.copyFrom(emoji)
+        assertEquals("no lone half of an emoji", "", cut.getText())
+        // A character that fits stays
+        val fits = TerminalRow(6)
+        fits.copyFrom(src)
+        assertTrue(fits.isWideHead(4))
+    }
+
+    @Test
     fun aWideCharacterAtTheEndOfALineWaitsForTheWrap() {
         val e = TerminalEmulator(rows = 3, cols = 4)
         e.feed("ab中")
