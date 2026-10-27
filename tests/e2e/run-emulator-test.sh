@@ -370,9 +370,11 @@ if tap_id btnDrawerSettings; then
     shot "15-settings-root-mode"
     # The white scheme (second entry of the picker): the settings, the terminal and the drawer in it.
     # It stays chosen for the rest of the run, which shows that it is kept over a restart too.
-    sh_ input swipe $((WIDTH / 2)) $((HEIGHT / 4)) $((WIDTH / 2)) $((HEIGHT * 3 / 4)) 500
-    sh_ input swipe $((WIDTH / 2)) $((HEIGHT / 4)) $((WIDTH / 2)) $((HEIGHT * 3 / 4)) 500
-    sleep 1
+    # Back to the top of the list: two swipes did not always reach it (the list is several screens long)
+    for _ in 1 2 3 4 5 6; do
+        sh_ input swipe $((WIDTH / 2)) $((HEIGHT / 4)) $((WIDTH / 2)) $((HEIGHT * 3 / 4)) 300
+    done
+    sleep 2
     sh_ input tap $((WIDTH / 2)) $((HEIGHT * 30 / 100))
     sleep 2
     sh_ rm -f /sdcard/window.xml
