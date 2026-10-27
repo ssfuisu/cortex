@@ -19,7 +19,7 @@ Cortex is a free and open-source terminal app and a native alternative to Termux
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/cortex-sessions.jpg" width="31%" alt="The drawer of Cortex Terminal: one card for each session with its directory, and the New session button" />
+  <img src="docs/screenshots/cortex-sessions.jpg" width="31%" alt="The drawer of Cortex Terminal: one card for each session, and the New session button" />
   <img src="docs/screenshots/cortex-themes.jpg" width="31%" alt="The color scheme picker: every scheme shown as a bit of terminal in its own colors" />
 </p>
 
