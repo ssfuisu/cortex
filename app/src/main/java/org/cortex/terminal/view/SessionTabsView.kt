@@ -123,7 +123,8 @@ class SessionTabsView @JvmOverloads constructor(
             )
             isClickable = true
             isFocusable = true
-            contentDescription = tab.title
+            // The ROOT badge is seen, so it is said as well
+            contentDescription = if (tab.isRoot) "${tab.title}, ${context.getString(R.string.session_root_badge)}" else tab.title
             setOnClickListener {
                 if (index != active) it.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                 onSelect?.invoke(index)

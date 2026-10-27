@@ -67,9 +67,9 @@ class ChromeViewsTest {
         // The number and nothing else (no directory); the one on screen (2) also has ROOT and the close button
         assertEquals(listOf("1"), texts(tabRows(tabs).getChildAt(0)))
         assertEquals(listOf("2", "ROOT", "✕"), texts(tabRows(tabs).getChildAt(1)))
-        // The words stay for a screen reader
+        // The words stay for a screen reader, and so does the root badge
         assertEquals("Session 1", tabRows(tabs).getChildAt(0).contentDescription)
-        assertEquals("Session 2", tabRows(tabs).getChildAt(1).contentDescription)
+        assertEquals("Session 2, ROOT", tabRows(tabs).getChildAt(1).contentDescription)
     }
 
     @Test

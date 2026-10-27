@@ -207,7 +207,12 @@ static int is_proc_fd_link(const char *path) {
         if (*p != '/') return 0;
         p++;
     }
-    return strncmp(p, "fd/", 3) == 0;
+    // fd/N and nothing after it: a path beneath the link goes through it to somewhere else
+    if (strncmp(p, "fd/", 3) != 0) return 0;
+    p += 3;
+    if (*p < '0' || *p > '9') return 0;
+    while (*p >= '0' && *p <= '9') p++;
+    return *p == '\0';
 }
 
 static ssize_t postprocess_readlink(const char *linkpath, char *buf, ssize_t ret, size_t bufsiz) {

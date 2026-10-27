@@ -773,7 +773,8 @@ class TerminalView @JvmOverloads constructor(
                             // Draw inverse char on cursor
                             val char = if (col in 0 until row.chars.size) row.chars[col] else ' '
                             if (char != ' ' && char != TerminalRow.WIDE_TAIL) {
-                                textPaint.color = TerminalColor.DEFAULT_BG
+                                // Not bold or underlined as the last cell drawn was
+                                setTextPaint(TerminalColor.DEFAULT_BG, bold = false, underline = false)
                                 if (char == TerminalRow.ASTRAL) {
                                     drawAstral(canvas, row.astralAt(col), cursorX, cursorY, cursorY + charBaseline, TerminalColor.DEFAULT_BG)
                                 } else if (wide) {

@@ -1728,6 +1728,9 @@ static void test_readlink_of_fd_links(void) {
     ASSERT_TRUE(is_proc_fd_link("/proc/4242/fd/0"), "/proc/PID/fd/N is an fd link");
     ASSERT_TRUE(!is_proc_fd_link("/proc/self/exe"), "exe is not an fd link");
     ASSERT_TRUE(!is_proc_fd_link("/proc/self/cwd"), "cwd is not an fd link");
+    ASSERT_TRUE(!is_proc_fd_link("/proc/self/fd/3/link"), "a path beneath an fd entry is not an fd link");
+    ASSERT_TRUE(!is_proc_fd_link("/proc/self/fd/x"), "the name of a descriptor is a number");
+    ASSERT_TRUE(!is_proc_fd_link("/proc/self/fd/"), "the directory itself is not a link");
     ASSERT_TRUE(!is_proc_fd_link("/proc/self/fdinfo/3"), "fdinfo is not an fd link");
     ASSERT_TRUE(!is_proc_fd_link("/proc/net/fd/3"), "only a PID or self is a process");
     ASSERT_TRUE(!is_proc_fd_link("/usr/proc/self/fd/3"), "only /proc");

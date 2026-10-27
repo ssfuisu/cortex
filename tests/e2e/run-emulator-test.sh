@@ -356,10 +356,13 @@ sys.stdout.buffer.write(("\n".join(rows) + "\n").encode("utf-8"))
 PYEOF
 then
     sh_ mkdir -p "$DEVICE_OUT"
-    adb push "$OUT/sextants.txt" "$DEVICE_OUT/sextants.txt" >/dev/null &&
+    if adb push "$OUT/sextants.txt" "$DEVICE_OUT/sextants.txt" >/dev/null; then
         run_line "clear; cat $DEVICE_OUT/sextants.txt" 3
-    shot "11a-sextants"
-    run_line "clear" 2
+        shot "11a-sextants"
+        run_line "clear" 2
+    else
+        log "the sextants file was not pushed"
+    fi
 else
     log "no python3 for the sextants file"
 fi
