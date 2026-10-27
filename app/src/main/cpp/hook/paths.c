@@ -189,11 +189,32 @@ static void normalize_path(char *path) {
     *dst = '\0';
 }
 
+// /proc/self/fd/N, /proc/thread-self/fd/N and /proc/PID/fd/N: the real path of an open file. A program
+// that finds a path this way (Bun and Zig programs do: their realpath() is an open and a readlink of
+// this) goes on with system calls of its own, which the hook does not see, so a path inside the rootfs
+// has to keep its real beginning there: "/home" for $CORTEX_ROOT/home is a path that does not exist
+// for them ("ENOENT, realpath '/home'" in Kilo). It is what getcwd() answers, too.
+static int is_proc_fd_link(const char *path) {
+    if (!path || strncmp(path, "/proc/", 6) != 0) return 0;
+    const char *p = path + 6;
+    if (strncmp(p, "self/", 5) == 0) {
+        p += 5;
+    } else if (strncmp(p, "thread-self/", 12) == 0) {
+        p += 12;
+    } else {
+        if (*p < '0' || *p > '9') return 0;
+        while (*p >= '0' && *p <= '9') p++;
+        if (*p != '/') return 0;
+        p++;
+    }
+    return strncmp(p, "fd/", 3) == 0;
+}
+
 static ssize_t postprocess_readlink(const char *linkpath, char *buf, ssize_t ret, size_t bufsiz) {
     if (ret <= 0) return ret;
 
     // 1. Strip g_cortex_root if target starts with it
-    if (g_cortex_root_len > 0) {
+    if (g_cortex_root_len > 0 && !is_proc_fd_link(linkpath)) {
         size_t rlen = g_cortex_root_len;
         if ((size_t)ret >= rlen && memcmp(buf, g_cortex_root, rlen) == 0 &&
             ((size_t)ret == rlen || buf[rlen] == '/')) {

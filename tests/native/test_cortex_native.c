@@ -1713,6 +1713,45 @@ static void test_readlink_result_may_change(void) {
     g_cortex_root_len = saved_len;
 }
 
+/* The real path of an open file keeps the rootfs in front of it: Bun and Zig programs find a path with
+   readlink("/proc/self/fd/N") and go on with system calls of their own, which the hook does not map */
+static void test_readlink_of_fd_links(void) {
+    char saved[PATH_MAX];
+    size_t saved_len = g_cortex_root_len;
+    memcpy(saved, g_cortex_root, sizeof(saved));
+    const char *root = "/data/user/0/org.cortex.terminal/files/cortex";
+    snprintf(g_cortex_root, sizeof(g_cortex_root), "%s", root);
+    g_cortex_root_len = strlen(g_cortex_root);
+
+    ASSERT_TRUE(is_proc_fd_link("/proc/self/fd/3"), "/proc/self/fd/N is an fd link");
+    ASSERT_TRUE(is_proc_fd_link("/proc/thread-self/fd/12"), "/proc/thread-self/fd/N is an fd link");
+    ASSERT_TRUE(is_proc_fd_link("/proc/4242/fd/0"), "/proc/PID/fd/N is an fd link");
+    ASSERT_TRUE(!is_proc_fd_link("/proc/self/exe"), "exe is not an fd link");
+    ASSERT_TRUE(!is_proc_fd_link("/proc/self/cwd"), "cwd is not an fd link");
+    ASSERT_TRUE(!is_proc_fd_link("/proc/self/fdinfo/3"), "fdinfo is not an fd link");
+    ASSERT_TRUE(!is_proc_fd_link("/proc/net/fd/3"), "only a PID or self is a process");
+    ASSERT_TRUE(!is_proc_fd_link("/usr/proc/self/fd/3"), "only /proc");
+    ASSERT_TRUE(!is_proc_fd_link(NULL), "no path");
+    ASSERT_TRUE(!is_proc_fd_link("/proc/"), "a short path");
+
+    char target[PATH_MAX];
+    snprintf(target, sizeof(target), "%s/home", root);
+    ssize_t len = (ssize_t)strlen(target);
+    ssize_t out = postprocess_readlink("/proc/self/fd/7", target, len, sizeof(target));
+    ASSERT_EQ(out, len, "an fd link keeps the length of the real path");
+    ASSERT_TRUE(memcmp(target, root, strlen(root)) == 0, "an fd link keeps the real path");
+
+    /* every other link is still shown as the Ubuntu path */
+    snprintf(target, sizeof(target), "%s/home", root);
+    len = (ssize_t)strlen(target);
+    out = postprocess_readlink("/usr/lib/x", target, len, sizeof(target));
+    ASSERT_EQ(out, 5, "another link has the rootfs taken off");
+    ASSERT_TRUE(memcmp(target, "/home", 5) == 0, "another link is the Ubuntu path");
+
+    memcpy(g_cortex_root, saved, sizeof(saved));
+    g_cortex_root_len = saved_len;
+}
+
 static void test_path_helpers(void) {
     /* cortex_append truncates exactly like snprintf */
     const char *pieces[] = { "", "a", "abc", "0123456789" };
@@ -2050,6 +2089,7 @@ int main(void) {
     test_rewrite_path_matches_reference();
     test_path_helpers();
     test_readlink_result_may_change();
+    test_readlink_of_fd_links();
     test_spawn_in_pty();
     test_exec_probe();
     test_exec_argv();
