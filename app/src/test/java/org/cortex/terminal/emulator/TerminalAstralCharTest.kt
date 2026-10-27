@@ -94,7 +94,9 @@ class TerminalAstralCharTest {
         val row = e.row()
         assertEquals(1, (row.styles[0].toInt() and 1))
         assertEquals(0, (row.styles[1].toInt() and 1))
-        assertTrue(row.fgColors[0] != row.fgColors[1])
+        // (Not "different from each other": in these tests android.graphics.Color gives 0 for every color)
+        assertEquals(TerminalColor.ANSI_COLORS[1], row.fgColors[0])
+        assertEquals(TerminalColor.DEFAULT_FG, row.fgColors[1])
     }
 
     @Test
