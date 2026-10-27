@@ -301,6 +301,10 @@ class TerminalView @JvmOverloads constructor(
     /** The widths of the wide characters drawn so far (the key is the character's chars), for [drawWide]. */
     private val wideWidths = HashMap<Int, Float>()
 
+    /** The parts of the sextants, which are rectangles (no smoothing: they must meet without a seam). */
+    private val blockPaint = Paint().apply { style = Paint.Style.FILL }
+    private val astralChars = CharArray(2)
+
     var charWidth = 0f
         private set
     var charHeight = 0f
@@ -770,7 +774,9 @@ class TerminalView @JvmOverloads constructor(
                             val char = if (col in 0 until row.chars.size) row.chars[col] else ' '
                             if (char != ' ' && char != TerminalRow.WIDE_TAIL) {
                                 textPaint.color = TerminalColor.DEFAULT_BG
-                                if (wide) {
+                                if (char == TerminalRow.ASTRAL) {
+                                    drawAstral(canvas, row.astralAt(col), cursorX, cursorY, cursorY + charBaseline, TerminalColor.DEFAULT_BG)
+                                } else if (wide) {
                                     drawWide(canvas, row.chars, col, cursorY + charBaseline)
                                 } else if (!Character.isSurrogate(char)) {
                                     canvas.drawText(row.chars, col, 1, cursorX, cursorY + charBaseline, textPaint)
@@ -911,6 +917,11 @@ class TerminalView @JvmOverloads constructor(
             val bold = (row.styles[c].toInt() and 1) != 0
             val underline = cellUnderlined(row, c, selected)
             setTextPaint(color, bold, underline)
+            if (ch == TerminalRow.ASTRAL) {
+                drawAstral(canvas, row.astralAt(c), c * charWidth, y, baseline, color)
+                c++
+                continue
+            }
             if (row.hasWide && row.isWideHead(c)) {
                 drawWide(canvas, chars, c, baseline)
                 c += 2
@@ -941,6 +952,46 @@ class TerminalView @JvmOverloads constructor(
             }
             canvas.drawText(chars, c, last - c + 1, c * charWidth, baseline, textPaint)
             c = last + 1
+        }
+    }
+
+    /**
+     * A character of the supplementary planes that takes one cell, at [x] of the row that starts at [y]:
+     * a sextant is drawn from rectangles, any other from the fonts (squeezed into the cell when its glyph
+     * is wider, as an icon of some fonts is).
+     */
+    private fun drawAstral(canvas: Canvas, cp: Int, x: Float, y: Float, baseline: Float, color: Int) {
+        if (Sextants.isSextant(cp)) {
+            val mask = Sextants.mask(cp)
+            blockPaint.color = color
+            val x1 = Math.round(x + charWidth / 2f).toFloat()
+            val x2 = x + charWidth
+            val y1 = Math.round(y + charHeight / 3f).toFloat()
+            val y2 = Math.round(y + charHeight * 2f / 3f).toFloat()
+            val y3 = y + charHeight
+            for (bit in 0..5) {
+                if ((mask and (1 shl bit)) == 0) continue
+                val left = if (bit % 2 == 0) x else x1
+                val right = if (bit % 2 == 0) x1 else x2
+                val top = when (bit / 2) { 0 -> y; 1 -> y1; else -> y2 }
+                val bottom = when (bit / 2) { 0 -> y1; 1 -> y2; else -> y3 }
+                canvas.drawRect(left, top, right, bottom, blockPaint)
+            }
+            return
+        }
+        textPaint.color = color
+        val count = Character.toChars(cp, astralChars, 0)
+        val width = wideWidths[cp] ?: textPaint.measureText(astralChars, 0, count).also {
+            if (wideWidths.size >= 4096) wideWidths.clear()
+            wideWidths[cp] = it
+        }
+        if (width > charWidth + 0.5f) {
+            canvas.save()
+            canvas.scale(charWidth / width, 1f, x, baseline)
+            canvas.drawText(astralChars, 0, count, x, baseline, textPaint)
+            canvas.restore()
+        } else {
+            canvas.drawText(astralChars, 0, count, x, baseline, textPaint)
         }
     }
 

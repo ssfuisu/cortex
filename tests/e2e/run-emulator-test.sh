@@ -336,6 +336,33 @@ sleep 3
 shot "11-notifications"
 sh_ cmd statusbar collapse
 sleep 2
+# Characters of the supplementary planes that take one cell, in the columns a program counts them in:
+# the sextants (Kilo draws its logo with them, and the fonts of many phones lack them: the terminal
+# draws them itself), icons of the Nerd Fonts' Material set and a mathematical letter. Each row ends
+# with a bar at the same column.
+if python3 - > "$OUT/sextants.txt" <<'PYEOF'
+import sys
+all_sextants = "".join(chr(c) for c in range(0x1FB00, 0x1FB3C))
+kilo = chr(0x2588) + "".join(chr(c) for c in (0x1FB3A, 0x1FB0F, 0x1FB01, 0x1FB2C)) + chr(0x2588)
+rows = [
+    "sextants 60:",
+    all_sextants[:30] + "|",
+    all_sextants[30:] + "|",
+    "kilo:  " + kilo + "|",
+    "icons: " + chr(0xF0001) + chr(0xF0002) + chr(0x1D400) + "|",
+    "ruler: 123456|",
+]
+sys.stdout.buffer.write(("\n".join(rows) + "\n").encode("utf-8"))
+PYEOF
+then
+    sh_ mkdir -p "$DEVICE_OUT"
+    adb push "$OUT/sextants.txt" "$DEVICE_OUT/sextants.txt" >/dev/null &&
+        run_line "clear; cat $DEVICE_OUT/sextants.txt" 3
+    shot "11a-sextants"
+    run_line "clear" 2
+else
+    log "no python3 for the sextants file"
+fi
 # A second session, then the session list in the drawer
 drawer_tap btnDrawerNewSession || log "no new-session button found"
 sleep 8

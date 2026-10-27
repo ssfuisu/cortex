@@ -8,6 +8,14 @@ class TerminalRow(val cols: Int) {
          * of an emoji (a pair of surrogates in UTF-16) hold the two halves instead.
          */
         const val WIDE_TAIL = '\u0000'
+
+        /**
+         * The cell of a character of the supplementary planes that takes one cell (the sextants and the
+         * other blocks of the old computers, the icons of the Nerd Fonts' Material set, mathematical
+         * letters). A cell holds one UTF-16 character, so it holds this one, and the character itself is
+         * kept next to it (see [astralAt]). A noncharacter, which no program prints.
+         */
+        const val ASTRAL = '\uFFFF'
     }
 
     val chars = CharArray(cols) { ' ' }
@@ -108,6 +116,33 @@ class TerminalRow(val cols: Int) {
         if (col in l.indices) l[col] = link
     }
 
+    /**
+     * The code points of the cells that hold [ASTRAL], by column. Allocated lazily like [links]: only the
+     * rows that have such a character pay for it. What it says of a cell that does not hold [ASTRAL] is
+     * left over from before, and means nothing.
+     */
+    private var astral: IntArray? = null
+
+    /** The code point of the character in the cell [col] when it holds [ASTRAL]; U+FFFD when it is not known. */
+    fun astralAt(col: Int): Int {
+        val a = astral
+        val cp = if (a != null && col in a.indices) a[col] else 0
+        return if (cp in 0x10000..0x10FFFF) cp else 0xFFFD
+    }
+
+    /** A character of the supplementary planes that takes one cell, into the cell [col]. */
+    fun setAstral(col: Int, cp: Int, fg: Int, bg: Int, style: Byte = 0, link: String? = null) {
+        if (col !in 0 until cols) return
+        setChar(col, ASTRAL, fg, bg, style, link)
+        hasWide = true // the code that looks for what is not one character of one cell looks at this row
+        var a = astral
+        if (a == null) {
+            a = IntArray(cols)
+            astral = a
+        }
+        a[col] = cp
+    }
+
     /** The colors of the cells under a new scheme (see [TerminalColor.Remap]). */
     fun remapColors(remap: TerminalColor.Remap) {
         if (cols == 0) return
@@ -146,6 +181,7 @@ class TerminalRow(val cols: Int) {
         isUrlLink.fill(false)
         hasUrlFlags = false
         links = null
+        astral = null
         isWrapped = false
         hasWide = false
     }
@@ -242,6 +278,14 @@ class TerminalRow(val cols: Int) {
             System.arraycopy(otherLinks, 0, copy, 0, minOf(cols, otherLinks.size))
             links = copy
         }
+        val otherAstral = other.astral
+        if (otherAstral == null) {
+            astral = null
+        } else {
+            val copy = IntArray(cols)
+            System.arraycopy(otherAstral, 0, copy, 0, minOf(cols, otherAstral.size))
+            astral = copy
+        }
         isWrapped = other.isWrapped
         // A row that is narrower cuts a wide character at its edge in two: nothing of it is left
         if (cols > 0 && other.cols > cols && other.isWideHead(cols - 1)) blankCell(cols - 1)
@@ -257,6 +301,7 @@ class TerminalRow(val cols: Int) {
             System.arraycopy(bgColors, startCol + clampedCount, bgColors, startCol, shiftCount)
             System.arraycopy(styles, startCol + clampedCount, styles, startCol, shiftCount)
             links?.let { System.arraycopy(it, startCol + clampedCount, it, startCol, shiftCount) }
+            astral?.let { System.arraycopy(it, startCol + clampedCount, it, startCol, shiftCount) }
         }
         val blankStart = cols - clampedCount
         for (i in blankStart until cols) {
@@ -279,6 +324,7 @@ class TerminalRow(val cols: Int) {
             System.arraycopy(bgColors, startCol, bgColors, startCol + clampedCount, shiftCount)
             System.arraycopy(styles, startCol, styles, startCol + clampedCount, shiftCount)
             links?.let { System.arraycopy(it, startCol, it, startCol + clampedCount, shiftCount) }
+            astral?.let { System.arraycopy(it, startCol, it, startCol + clampedCount, shiftCount) }
         }
         for (i in startCol until minOf(cols, startCol + clampedCount)) {
             chars[i] = ' '
@@ -300,7 +346,8 @@ class TerminalRow(val cols: Int) {
             return
         }
         for (i in start until end) {
-            if (chars[i] != WIDE_TAIL) sb.append(chars[i])
+            val ch = chars[i]
+            if (ch == ASTRAL) sb.appendCodePoint(astralAt(i)) else if (ch != WIDE_TAIL) sb.append(ch)
         }
     }
 
@@ -324,10 +371,14 @@ class TerminalRow(val cols: Int) {
         if (!hasWide) return null
         var lastNonSpace = cols - 1
         while (lastNonSpace >= 0 && chars[lastNonSpace] == ' ') lastNonSpace--
-        val out = IntArray(lastNonSpace + 1)
+        // A character of the supplementary planes is two characters of the text, in one cell
+        val out = IntArray((lastNonSpace + 1) * 2)
         var n = 0
         for (i in 0..lastNonSpace) {
-            if (chars[i] != WIDE_TAIL) out[n++] = i
+            val ch = chars[i]
+            if (ch == WIDE_TAIL) continue
+            out[n++] = i
+            if (ch == ASTRAL) out[n++] = i
         }
         return out.copyOf(n)
     }

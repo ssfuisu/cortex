@@ -27,6 +27,22 @@ of a GitHub release from the section of its version here. Older versions are des
   a light scheme. The back arrow of the settings is in the scheme's color too (it was white on the
   light bar).
 
+### Fixed
+
+- **Kilo (and other programs made with Bun) failed with "ENOENT: no such file or directory, realpath
+  '/home'".** Bun finds the path of a directory with `readlink("/proc/self/fd/N")` and then goes on
+  with system calls of its own, which the hook cannot see. The hook took the rootfs off that path, so
+  the directory was `/home`, a path that does not exist for such calls. The link now gives the real
+  path, as `getcwd()` does.
+- **Characters of the supplementary planes that take one cell took two** (the block sextants that
+  Kilo draws its logo with, the Material icons of the Nerd Fonts, mathematical letters). Each one
+  pushed the rest of the line a cell to the right, so the logo of Kilo was out of shape. They take
+  one cell now, as `wcwidth()` says for the programs; emoji, which are two cells wide, are as they
+  were.
+- **The sextants showed as boxes on phones whose fonts lack them.** The terminal draws them itself,
+  from rectangles, so they are right on every phone and the parts of neighbouring cells meet without
+  a gap.
+
 ## 1.26.43 (2026-10-27)
 
 ### Fixed

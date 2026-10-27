@@ -230,7 +230,12 @@ class TerminalBuffer(var rows: Int, var cols: Int, private val maxHistory: Int =
                         srcCol = 0
                     }
                     val from = src[srcRow]
-                    row.setChar(c, from.chars[srcCol], from.fgColors[srcCol], from.bgColors[srcCol], from.styles[srcCol], from.linkAt(srcCol))
+                    val ch = from.chars[srcCol]
+                    if (ch == TerminalRow.ASTRAL) {
+                        row.setAstral(c, from.astralAt(srcCol), from.fgColors[srcCol], from.bgColors[srcCol], from.styles[srcCol], from.linkAt(srcCol))
+                    } else {
+                        row.setChar(c, ch, from.fgColors[srcCol], from.bgColors[srcCol], from.styles[srcCol], from.linkAt(srcCol))
+                    }
                     c++
                     srcCol++
                     copied++
@@ -393,11 +398,20 @@ class TerminalBuffer(var rows: Int, var cols: Int, private val maxHistory: Int =
      */
     private fun writeOther(src: CharArray, start: Int, end: Int): Int {
         val c = src[start]
+        if (c == TerminalRow.ASTRAL) {
+            // The mark of a character of one cell that is held next to it (a noncharacter, so no program means it)
+            writeNarrow(charArrayOf('\uFFFD'), 0, 1)
+            return start + 1
+        }
         if (Character.isSurrogate(c)) {
             if (Character.isHighSurrogate(c) && start + 1 < end && Character.isLowSurrogate(src[start + 1])) {
-                // One character of the supplementary planes: two cells, whether the character is a wide
-                // one (an emoji) or not (it has to be held in two cells either way)
-                if (CharWidth.of(Character.toCodePoint(c, src[start + 1])) > 0) writeWide(c, src[start + 1])
+                // One character of the supplementary planes: two cells when it is a wide one (an emoji),
+                // else one (the sextants, the icons of the Nerd Fonts), as wcwidth() says for the programs
+                val cp = Character.toCodePoint(c, src[start + 1])
+                when (CharWidth.of(cp)) {
+                    2 -> writeWide(c, src[start + 1])
+                    1 -> writeAstral(cp)
+                }
                 return start + 2
             }
             // Half of a pair: nothing a program can have meant
@@ -412,9 +426,28 @@ class TerminalBuffer(var rows: Int, var cols: Int, private val maxHistory: Int =
             }
         }
         var j = start + 1
-        while (j < end && !Character.isSurrogate(src[j]) && CharWidth.of(src[j]) == 1) j++
+        while (j < end && !Character.isSurrogate(src[j]) && src[j] != TerminalRow.ASTRAL && CharWidth.of(src[j]) == 1) j++
         writeNarrow(src, start, j)
         return j
+    }
+
+    /** A character of the supplementary planes that takes one cell, at the cursor (see [TerminalRow.ASTRAL]). */
+    private fun writeAstral(cp: Int) {
+        if (isWrapPending) {
+            if (cursorRow in 0 until rows) {
+                screen[cursorRow].isWrapped = true
+            }
+            newLine()
+            cursorCol = 0
+            isWrapPending = false
+        }
+        val r = cursorRow.coerceIn(0, rows - 1)
+        screen[r].setAstral(cursorCol, cp, currentFg, currentBg, currentStyle, currentLink)
+        if (cursorCol >= cols - 1) {
+            isWrapPending = true
+        } else {
+            cursorCol++
+        }
     }
 
     /** A character of two cells at the cursor: [head] in the first and [tail] in the second. */
