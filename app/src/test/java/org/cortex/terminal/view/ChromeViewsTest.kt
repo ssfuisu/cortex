@@ -64,10 +64,12 @@ class ChromeViewsTest {
         val tabs = SessionTabsView(activity)
         tabs.update(listOf(SessionTabsView.Tab("Session 1", false), SessionTabsView.Tab("Session 2", true)), 1)
         assertEquals(2, tabRows(tabs).childCount)
-        val shown = texts(tabs)
-        // The number and nothing else (no directory); ROOT on the root session
-        assertTrue(shown.toString(), shown.containsAll(listOf("1", "2", "ROOT")))
-        assertFalse(shown.toString(), shown.any { it.contains("Session") || it.contains("~") })
+        // The number and nothing else (no directory); the one on screen (2) also has ROOT and the close button
+        assertEquals(listOf("1"), texts(tabRows(tabs).getChildAt(0)))
+        assertEquals(listOf("2", "ROOT", "✕"), texts(tabRows(tabs).getChildAt(1)))
+        // The words stay for a screen reader
+        assertEquals("Session 1", tabRows(tabs).getChildAt(0).contentDescription)
+        assertEquals("Session 2", tabRows(tabs).getChildAt(1).contentDescription)
     }
 
     @Test
