@@ -298,6 +298,9 @@ class TerminalView @JvmOverloads constructor(
     private var actionPopup: PopupWindow? = null
     private val pinHandlePath = Path()
 
+    /** The widths of the wide characters drawn so far (the key is the character's chars), for [drawWide]. */
+    private val wideWidths = HashMap<Int, Float>()
+
     var charWidth = 0f
         private set
     var charHeight = 0f
@@ -660,6 +663,7 @@ class TerminalView @JvmOverloads constructor(
 
     private fun measureCharDimensions() {
         textPaint.getTextBounds("X", 0, 1, textBounds)
+        wideWidths.clear()
         charWidth = textPaint.measureText("M")
         isFixedPitch = kotlin.math.abs(textPaint.measureText("i") - charWidth) < 0.01f &&
             kotlin.math.abs(textPaint.measureText("W") - charWidth) < 0.01f &&
@@ -749,22 +753,31 @@ class TerminalView @JvmOverloads constructor(
                 val cRow = buffer.cursorRow
                 val cCol = buffer.cursorCol
                 if (cRow in 0 until rows && cCol in 0 until cols && cRow in 0 until buffer.screen.size) {
-                    val cursorX = cCol * charWidth
+                    val row = buffer.screen[cRow]
+                    // On the second half of a wide character the cursor is on the character; over a wide
+                    // character it covers both cells
+                    val col = if (row.hasWide && row.isTail(cCol)) cCol - 1 else cCol
+                    val wide = row.hasWide && row.isWideHead(col)
+                    val cursorX = col * charWidth
                     val cursorY = cRow * charHeight
+                    val cursorWidth = if (wide) 2 * charWidth else charWidth
                     when (emulator.cursorShape) {
                         TerminalEmulator.CursorShape.BLOCK -> {
-                            canvas.drawRect(cursorX, cursorY, cursorX + charWidth, cursorY + charHeight, cursorPaint)
+                            canvas.drawRect(cursorX, cursorY, cursorX + cursorWidth, cursorY + charHeight, cursorPaint)
 
                             // Draw inverse char on cursor
-                            val row = buffer.screen[cRow]
-                            val char = if (cCol in 0 until row.chars.size) row.chars[cCol] else ' '
-                            if (char != ' ') {
+                            val char = if (col in 0 until row.chars.size) row.chars[col] else ' '
+                            if (char != ' ' && char != TerminalRow.WIDE_TAIL) {
                                 textPaint.color = TerminalColor.DEFAULT_BG
-                                canvas.drawText(row.chars, cCol, 1, cursorX, cursorY + charBaseline, textPaint)
+                                if (wide) {
+                                    drawWide(canvas, row.chars, col, cursorY + charBaseline)
+                                } else if (!Character.isSurrogate(char)) {
+                                    canvas.drawText(row.chars, col, 1, cursorX, cursorY + charBaseline, textPaint)
+                                }
                             }
                         }
                         TerminalEmulator.CursorShape.UNDERLINE -> canvas.drawRect(
-                            cursorX, cursorY + charHeight - cursorThickness, cursorX + charWidth, cursorY + charHeight, cursorPaint
+                            cursorX, cursorY + charHeight - cursorThickness, cursorX + cursorWidth, cursorY + charHeight, cursorPaint
                         )
                         TerminalEmulator.CursorShape.BAR -> canvas.drawRect(
                             cursorX, cursorY, cursorX + cursorThickness, cursorY + charHeight, cursorPaint
@@ -885,10 +898,23 @@ class TerminalView @JvmOverloads constructor(
                 c++
                 continue
             }
+            if (row.hasWide &&
+                (ch == TerminalRow.WIDE_TAIL || Character.isLowSurrogate(ch) ||
+                    (Character.isHighSurrogate(ch) && !row.isWideHead(c)))
+            ) {
+                // The second cell of a wide character is drawn with the first; half of an emoji alone is not drawn
+                c++
+                continue
+            }
             val color = cellForeground(row, c, selected)
             val bold = (row.styles[c].toInt() and 1) != 0
             val underline = cellUnderlined(row, c, selected)
             setTextPaint(color, bold, underline)
+            if (row.hasWide && row.isWideHead(c)) {
+                drawWide(canvas, chars, c, baseline)
+                c += 2
+                continue
+            }
             if (!isFixedPitch || ch.code !in 0x21..0x7e) {
                 canvas.drawText(chars, c, 1, c * charWidth, baseline, textPaint)
                 c++
@@ -914,6 +940,30 @@ class TerminalView @JvmOverloads constructor(
             }
             canvas.drawText(chars, c, last - c + 1, c * charWidth, baseline, textPaint)
             c = last + 1
+        }
+    }
+
+    /**
+     * A wide character, or an emoji, from the cell [c]: over two cells, from the left of the first. A
+     * glyph that is wider than the two cells (an emoji of some fonts) is squeezed into them instead of
+     * covering the next character.
+     */
+    private fun drawWide(canvas: Canvas, chars: CharArray, c: Int, baseline: Float) {
+        val count = if (Character.isHighSurrogate(chars[c])) 2 else 1
+        val key = if (count == 2) (chars[c].code shl 16) or chars[c + 1].code else chars[c].code
+        val room = 2 * charWidth
+        val width = wideWidths[key] ?: textPaint.measureText(chars, c, count).also {
+            if (wideWidths.size >= 4096) wideWidths.clear()
+            wideWidths[key] = it
+        }
+        val x = c * charWidth
+        if (width > room + 0.5f) {
+            canvas.save()
+            canvas.scale(room / width, 1f, x, baseline)
+            canvas.drawText(chars, c, count, x, baseline, textPaint)
+            canvas.restore()
+        } else {
+            canvas.drawText(chars, c, count, x, baseline, textPaint)
         }
     }
 
@@ -1130,7 +1180,10 @@ class TerminalView @JvmOverloads constructor(
             val row = buffer.rowForIndex(bufferRow)
 
             if (row != null && col in 0 until row.cols) {
-                val isWordChar = { c: Char -> c.isLetterOrDigit() || c == '_' || c == '-' || c == '/' || c == '.' }
+                val isWordChar = { c: Char ->
+                    c.isLetterOrDigit() || c == '_' || c == '-' || c == '/' || c == '.' ||
+                        c == TerminalRow.WIDE_TAIL || Character.isSurrogate(c)
+                }
                 val clickedChar = row.chars[col]
 
                 if (isWordChar(clickedChar)) {
@@ -1147,6 +1200,11 @@ class TerminalView @JvmOverloads constructor(
                     while (endC < row.cols - 1 && row.chars[endC + 1] != ' ') {
                         endC++
                     }
+                }
+                // Both cells of a wide character, whichever of them was pressed
+                if (row.hasWide) {
+                    if (row.isTail(startC)) startC--
+                    if (row.isWideHead(endC)) endC++
                 }
             }
         }
@@ -1622,8 +1680,28 @@ class TerminalView @JvmOverloads constructor(
                 imm.updateSelection(this@TerminalView, IME_LINE.length, IME_LINE.length, -1, -1)
             }
 
+            /** Types [str], an emoji (a pair of chars) as one character and a line break as Enter. */
+            private fun sendCharacters(str: String) {
+                var i = 0
+                while (i < str.length) {
+                    val c = str[i]
+                    if (Character.isHighSurrogate(c) && i + 1 < str.length && Character.isLowSurrogate(str[i + 1])) {
+                        sendText(str.substring(i, i + 2))
+                        i += 2
+                        continue
+                    }
+                    if (c == '\n' || c == '\r') sendKeySequence(KeyEvent.KEYCODE_ENTER) else sendChar(c)
+                    i++
+                }
+            }
+
             override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
                 clearSelection()
+                // What the keyboard was composing (the pinyin of a Chinese word, the kana of a Japanese
+                // one) is on the line already: the text it commits replaces it
+                for (i in 0 until composingLength) {
+                    sendKeySequence(KeyEvent.KEYCODE_DEL)
+                }
                 composingLength = 0
                 if (!text.isNullOrEmpty()) {
                     if (text == "\n" || text == "\r" || text == "\r\n") {
@@ -1643,14 +1721,7 @@ class TerminalView @JvmOverloads constructor(
                         return true
                     }
                     val str = if (text.length > 1) sanitizePastedText(text.toString()) else text.toString()
-                    for (i in 0 until str.length) {
-                        val c = str[i]
-                        if (c == '\n' || c == '\r') {
-                            sendKeySequence(KeyEvent.KEYCODE_ENTER)
-                        } else {
-                            sendChar(c)
-                        }
-                    }
+                    sendCharacters(str)
                 }
                 return true
             }
@@ -1661,10 +1732,9 @@ class TerminalView @JvmOverloads constructor(
                 for (i in 0 until composingLength) {
                     sendKeySequence(KeyEvent.KEYCODE_DEL)
                 }
-                for (ch in str) {
-                    sendChar(ch)
-                }
-                composingLength = str.length
+                sendCharacters(str)
+                // The line editor deletes a character (an emoji is one) for each backspace
+                composingLength = str.codePointCount(0, str.length)
                 return true
             }
 

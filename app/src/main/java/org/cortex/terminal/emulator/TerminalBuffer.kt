@@ -301,6 +301,15 @@ class TerminalBuffer(var rows: Int, var cols: Int, private val maxHistory: Int =
     }
 
     fun writeChar(c: Char) {
+        if (c.code >= CharWidth.FIRST_NOT_NARROW) {
+            writeRun(charArrayOf(c), 0, 1)
+        } else {
+            writeCell(c)
+        }
+    }
+
+    /** One character that takes one cell, at the cursor. */
+    private fun writeCell(c: Char) {
         if (isWrapPending) {
             if (cursorRow in 0 until rows) {
                 screen[cursorRow].isWrapped = true
@@ -320,9 +329,25 @@ class TerminalBuffer(var rows: Int, var cols: Int, private val maxHistory: Int =
 
     /**
      * Writes the printable characters [src] from [start] until [end] as [writeChar] would one by one,
-     * a line's worth at a time: ordinary output is mostly such runs.
+     * a line's worth at a time: ordinary output is mostly such runs. A character that is not one cell
+     * wide (Chinese, an emoji, an invisible one) is written by [writeOther].
      */
     fun writeRun(src: CharArray, start: Int, end: Int) {
+        var i = start
+        while (i < end) {
+            var j = i
+            while (j < end && src[j].code < CharWidth.FIRST_NOT_NARROW) j++
+            if (j > i) {
+                writeNarrow(src, i, j)
+                i = j
+            } else {
+                i = writeOther(src, i, end)
+            }
+        }
+    }
+
+    /** The characters of [src] from [start] until [end], which take one cell each. */
+    private fun writeNarrow(src: CharArray, start: Int, end: Int) {
         var i = start
         while (i < end) {
             if (isWrapPending) {
@@ -335,7 +360,7 @@ class TerminalBuffer(var rows: Int, var cols: Int, private val maxHistory: Int =
             }
             val space = cols - cursorCol
             if (space <= 1) {
-                writeChar(src[i++])
+                writeCell(src[i++])
                 continue
             }
             val n = minOf(end - i, space)
@@ -348,6 +373,66 @@ class TerminalBuffer(var rows: Int, var cols: Int, private val maxHistory: Int =
             } else {
                 cursorCol += n
             }
+        }
+    }
+
+    /**
+     * Writes what starts at [start] in [src], a character that may not be one cell wide, and returns
+     * where the next one starts: a wide one takes two cells, an invisible one none, an emoji (two
+     * UTF-16 characters) two, and the characters of one cell that follow go together.
+     */
+    private fun writeOther(src: CharArray, start: Int, end: Int): Int {
+        val c = src[start]
+        if (Character.isSurrogate(c)) {
+            if (Character.isHighSurrogate(c) && start + 1 < end && Character.isLowSurrogate(src[start + 1])) {
+                // One character of the supplementary planes: two cells, whether the character is a wide
+                // one (an emoji) or not (it has to be held in two cells either way)
+                if (CharWidth.of(Character.toCodePoint(c, src[start + 1])) > 0) writeWide(c, src[start + 1])
+                return start + 2
+            }
+            // Half of a pair: nothing a program can have meant
+            writeNarrow(charArrayOf('\uFFFD'), 0, 1)
+            return start + 1
+        }
+        when (CharWidth.of(c)) {
+            0 -> return start + 1
+            2 -> {
+                writeWide(c, TerminalRow.WIDE_TAIL)
+                return start + 1
+            }
+        }
+        var j = start + 1
+        while (j < end && !Character.isSurrogate(src[j]) && CharWidth.of(src[j]) == 1) j++
+        writeNarrow(src, start, j)
+        return j
+    }
+
+    /** A character of two cells at the cursor: [head] in the first and [tail] in the second. */
+    private fun writeWide(head: Char, tail: Char) {
+        if (cols < 2) return
+        if (isWrapPending) {
+            if (cursorRow in 0 until rows) {
+                screen[cursorRow].isWrapped = true
+            }
+            newLine()
+            cursorCol = 0
+            isWrapPending = false
+        }
+        if (cursorCol >= cols - 1) {
+            // One cell is left: it stays empty and the character goes to the next line
+            val r = cursorRow.coerceIn(0, rows - 1)
+            screen[r].setChar(cursorCol, ' ', currentFg, currentBg, currentStyle, currentLink)
+            screen[r].isWrapped = true
+            newLine()
+            cursorCol = 0
+        }
+        val r = cursorRow.coerceIn(0, rows - 1)
+        screen[r].setWide(cursorCol, head, tail, currentFg, currentBg, currentStyle, currentLink)
+        if (cursorCol + 2 >= cols) {
+            cursorCol = cols - 1
+            isWrapPending = true
+        } else {
+            cursorCol += 2
         }
     }
 
@@ -606,7 +691,7 @@ class TerminalBuffer(var rows: Int, var cols: Int, private val maxHistory: Int =
         val line = StringBuilder()
         fun add(row: TerminalRow) {
             if (row.isWrapped) {
-                line.append(row.chars, 0, row.cols)
+                row.appendText(line, 0, row.cols)
             } else {
                 line.append(row.getText())
                 lines.add(line.toString())
@@ -635,21 +720,19 @@ class TerminalBuffer(var rows: Int, var cols: Int, private val maxHistory: Int =
                 screen[r]
             } else null) ?: continue
 
-            val cStart = if (r == startRow) startCol.coerceIn(0, cols - 1) else 0
+            var cStart = if (r == startRow) startCol.coerceIn(0, cols - 1) else 0
             val cEnd = if (r == endRow) endCol.coerceIn(0, cols - 1) else cols - 1
+            // Starting on the second half of a wide character takes the character
+            if (row.hasWide && row.isTail(cStart)) cStart--
 
             if (row.isWrapped) {
-                for (c in cStart..cEnd) {
-                    sb.append(row.chars[c])
-                }
+                row.appendText(sb, cStart, cEnd + 1)
             } else {
                 var lastChar = cEnd
                 while (lastChar >= cStart && row.chars[lastChar] == ' ') {
                     lastChar--
                 }
-                for (c in cStart..lastChar) {
-                    sb.append(row.chars[c])
-                }
+                row.appendText(sb, cStart, lastChar + 1)
                 if (r != endRow) {
                     sb.append("\n")
                 }

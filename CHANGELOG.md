@@ -4,6 +4,33 @@ What changed in each version of Cortex Terminal, newest first. The release workf
 of a GitHub release from the section of its version here. Older versions are described on the
 [GitHub releases](https://github.com/ssfuisu/cortex/releases) page.
 
+## 1.26.43 (2026-10-27)
+
+### Fixed
+
+- **Chinese (and Japanese, Korean and emoji) overlapped in the terminal.** The terminal gave every
+  character one cell, but these characters are two cells wide: their glyphs were drawn over the next
+  character, and programs, which count them as two (bash, `ls`, `vim`, `tmux` use `wcwidth()`), put
+  the cursor and the rest of their lines two cells on from where Cortex had them, so the text of a
+  line, the cursor and the edits of the line editor (a deleted character, a redrawn prompt) were off
+  by one cell for each character. Now:
+  - A wide character takes two cells (the first holds it, drawn over both) and the cursor moves two;
+    at the end of a line, when one cell is left, it goes to the next line as in `xterm`.
+  - What Unicode's East Asian Width table (15.1) gives wide or fullwidth is wide: Chinese, Japanese
+    and Korean text, the CJK punctuation, the fullwidth forms and the emoji (`wcwidth()` of the
+    Ubuntu image says the same). Box-drawing and the other characters of one cell are as before,
+    and the invisible ones (zero-width space and joiner, variation selectors) take no cell.
+  - Writing, erasing, deleting or inserting over half of a wide character blanks the other half, so
+    no half is left; the cursor over one covers both cells, and a long press selects the whole
+    character.
+  - Copying, the transcript, the search and the links count a wide character once and mark the right
+    cells; the text is the same when the line is rewrapped.
+  - Typing: the keyboard's text was sent per UTF-16 character, so an emoji typed arrived as two
+    question marks; it is sent whole now. A keyboard that composes a word first (the pinyin of a
+    Chinese word, Japanese kana) has the word on the line while it composes; the text it commits now
+    replaces it instead of being added after it.
+  The tables are made by `tests/scripts/gen_char_width.py`.
+
 ## 1.26.42 (2026-10-26)
 
 ### Changed
