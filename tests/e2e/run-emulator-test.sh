@@ -367,17 +367,22 @@ else
     log "no python3 for the sextants file"
 fi
 # neofetch, for the README's first picture (the same screen in each release). Where packages can be
-# installed (not on the 16 KB image), and not a reason to fail: the picture is all it is for.
+# installed (not on the 16 KB image), and not a reason to fail: the picture is all it is for. The small
+# Ubuntu logo and a few lines fit the width of a phone (the big logo and the long lines wrap over each
+# other); the kernel line is long, the CPU and the uptime of an emulator mean nothing. An alias, so that
+# the screen shows the plain command.
+neofetch_running() { sh_ ps -A -o ARGS 2>/dev/null | grep -q '[n]eofetch'; }
+neofetch_done() { ! neofetch_running; }
 if [ "${E2E_NO_APT:-0}" != 1 ]; then
-    sh_ rm -f "$DEVICE_OUT/neofetch-installed" "$DEVICE_OUT/neofetch.done"
+    sh_ rm -f "$DEVICE_OUT/neofetch-installed"
     run_line "apt-get install -y --no-install-recommends neofetch >/dev/null 2>&1; echo done > $DEVICE_OUT/neofetch-installed" 1
     if wait_for 300 run_ test -s "$DEVICE_OUT/neofetch-installed"; then
-        run_line "clear" 2
-        run_line "neofetch; echo done > $DEVICE_OUT/neofetch.done" 1
-        wait_for 240 run_ test -s "$DEVICE_OUT/neofetch.done" || log "neofetch did not finish"
+        run_line "alias neofetch='neofetch --ascii_distro ubuntu_small --disable kernel uptime cpu'; clear" 2
+        run_line "neofetch" 5
+        wait_for 240 neofetch_done || log "neofetch did not finish"
         sleep 3
         shot "readme-neofetch"
-        run_line "clear" 2
+        run_line "unalias neofetch; clear" 2
     else
         log "neofetch was not installed"
     fi
