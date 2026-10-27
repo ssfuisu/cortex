@@ -342,7 +342,11 @@ sleep 8
 # The sessions are kept in a file, one "session" line each
 pass_or_fail "a second session started" wait_for 30 run_ "test \$(grep -c '^session\$' $DATA/files/sessions) -ge 2"
 shot "12a-two-tabs"
-# A directory for this session, which it is to be in again after the restart
+# A directory for this session, which it is to be in again after the restart. The terminal is
+# tapped first: after the drawer closes, the focus is not always in it yet (slow emulators), and the
+# Enter of the line then pressed the first tab and switched to session 1.
+tap_center "$WIDTH" "$HEIGHT"
+sleep 1
 run_line "mkdir -p ~/restore-test && cd ~/restore-test && clear"
 sh_ input swipe 2 $((HEIGHT / 2)) $((WIDTH * 2 / 3)) $((HEIGHT / 2)) 300
 sleep 2
