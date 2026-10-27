@@ -369,15 +369,15 @@ fi
 # neofetch, for the README's first picture (the same screen in each release). Where packages can be
 # installed (not on the 16 KB image), and not a reason to fail: the picture is all it is for. The small
 # Ubuntu logo and a few lines fit the width of a phone (the big logo and the long lines wrap over each
-# other); the kernel line is long, the CPU and the uptime of an emulator mean nothing. An alias, so that
-# the screen shows the plain command.
+# other); the kernel line is long, the CPU, the uptime, the model and the architecture of an emulator mean
+# nothing here (it is an x86_64 phone to neofetch). An alias, so that the screen shows the plain command.
 neofetch_running() { sh_ ps -A -o ARGS 2>/dev/null | grep -q '[n]eofetch'; }
 neofetch_done() { ! neofetch_running; }
 if [ "${E2E_NO_APT:-0}" != 1 ]; then
     sh_ rm -f "$DEVICE_OUT/neofetch-installed"
     run_line "apt-get install -y --no-install-recommends neofetch >/dev/null 2>&1; echo done > $DEVICE_OUT/neofetch-installed" 1
     if wait_for 300 run_ test -s "$DEVICE_OUT/neofetch-installed"; then
-        run_line "alias neofetch='neofetch --ascii_distro ubuntu_small --disable kernel uptime cpu'; clear" 2
+        run_line "alias neofetch='neofetch --ascii_distro ubuntu_small --os_arch off --disable model kernel uptime cpu'; clear" 2
         run_line "neofetch" 5
         wait_for 240 neofetch_done || log "neofetch did not finish"
         sleep 3
