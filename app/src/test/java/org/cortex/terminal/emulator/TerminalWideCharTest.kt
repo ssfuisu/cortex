@@ -187,6 +187,17 @@ class TerminalWideCharTest {
     }
 
     @Test
+    fun copiedTextTakesAnEmojiWhicheverHalfTheSelectionEndsOn() {
+        val e = TerminalEmulator(rows = 3, cols = 10)
+        e.feed("a😀b")
+        assertEquals("ends on the first half", "😀", e.buffer.getSelectedText(0, 1, 0, 1))
+        assertEquals("ends on the second half", "😀", e.buffer.getSelectedText(0, 1, 0, 2))
+        assertEquals("starts on the second half", "😀", e.buffer.getSelectedText(0, 2, 0, 2))
+        assertEquals("a😀", e.buffer.getSelectedText(0, 0, 0, 1))
+        assertEquals("😀b", e.buffer.getSelectedText(0, 2, 0, 3))
+    }
+
+    @Test
     fun copiedTextOfAWrappedLineIsTheLine() {
         val e = TerminalEmulator(rows = 3, cols = 6)
         e.feed("你好世界")

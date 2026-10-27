@@ -731,9 +731,13 @@ class TerminalBuffer(var rows: Int, var cols: Int, private val maxHistory: Int =
             } else null) ?: continue
 
             var cStart = if (r == startRow) startCol.coerceIn(0, cols - 1) else 0
-            val cEnd = if (r == endRow) endCol.coerceIn(0, cols - 1) else cols - 1
-            // Starting on the second half of a wide character takes the character
-            if (row.hasWide && row.isTail(cStart)) cStart--
+            var cEnd = if (r == endRow) endCol.coerceIn(0, cols - 1) else cols - 1
+            // Starting on the second half of a wide character takes the character, and so does ending
+            // on its first half (an emoji has its second half in the next cell)
+            if (row.hasWide) {
+                if (row.isTail(cStart)) cStart--
+                if (row.isWideHead(cEnd)) cEnd++
+            }
 
             if (row.isWrapped) {
                 row.appendText(sb, cStart, cEnd + 1)
