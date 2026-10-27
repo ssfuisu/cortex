@@ -655,6 +655,7 @@ class TerminalView @JvmOverloads constructor(
         cursorPaint.color = TerminalColor.CURSOR_COLOR
         // Links, selection handles and search hits are in the accent of the scheme
         selectionHandlePaint.color = Chrome.palette.accent
+        selectionBgPaint.color = selectionBackground(Chrome.palette.dark, TerminalColor.DEFAULT_BG, Chrome.palette.accent)
         linkUnderlinePaint.color = Chrome.palette.accent
         searchMatchPaint.color = Chrome.mix(TerminalColor.DEFAULT_BG, TerminalColor.DEFAULT_FG, 0.25f)
         searchCurrentPaint.color = TerminalColor.ANSI_COLORS[3]
@@ -1931,6 +1932,13 @@ class TerminalView @JvmOverloads constructor(
  * is one backspace for the program, and after it the line is the space again.
  */
 private const val IME_LINE = " "
+
+/**
+ * The color behind selected text (which is drawn in black): white on the dark schemes, as it was, and
+ * the accent faintly on the light ones, where white would not show on the background.
+ */
+internal fun selectionBackground(dark: Boolean, background: Int, accent: Int): Int =
+    if (dark) Chrome.WHITE else Chrome.mix(background, accent, 0.35f)
 
 /** The text sizes two fingers can set, in sp. */
 internal const val MIN_PINCH_TEXT_SP = 6f

@@ -26,12 +26,7 @@ class BootstrapDialog(activity: Activity) {
         val p = Chrome.palette
         val density = activity.resources.displayMetrics.density
         view.background = Chrome.rounded(p.bar, 24 * density, p.outline, density.toInt().coerceAtLeast(1))
-        view.findViewById<TextView>(R.id.bootstrapMark).apply {
-            background = Chrome.rounded(p.accent, 14 * density)
-            setTextColor(p.onAccent)
-        }
         view.findViewById<TextView>(R.id.bootstrapTitle).setTextColor(p.text)
-        view.findViewById<TextView>(R.id.bootstrapSubtitle).setTextColor(p.textFaint)
         view.findViewById<TextView>(R.id.bootstrapMessage).setTextColor(p.textDim)
         percent.setTextColor(p.textDim)
         bar.progressTintList = ColorStateList.valueOf(p.accent)

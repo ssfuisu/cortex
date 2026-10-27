@@ -22,8 +22,6 @@
     <string name="clipboard_set_by_program">A terminal program copied text to the clipboard</string>
 
     <!-- Sessions drawer -->
-    <string name="drawer_mark" translatable="false">&gt;_</string>
-    <string name="drawer_subtitle" translatable="false">Ubuntu 24.04 LTS</string>
     <string name="drawer_sessions">Sessions</string>
     <string name="drawer_keyboard">Keyboard</string>
     <string name="drawer_new_session">+ New session</string>

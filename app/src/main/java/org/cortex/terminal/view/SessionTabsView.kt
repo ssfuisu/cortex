@@ -2,7 +2,6 @@ package org.cortex.terminal.view
 
 import android.content.Context
 import android.graphics.Typeface
-import android.text.TextUtils
 import android.util.AttributeSet
 import android.util.TypedValue
 import android.view.Gravity
@@ -24,6 +23,7 @@ class SessionTabsView @JvmOverloads constructor(
     defStyleAttr: Int = 0
 ) : LinearLayout(context, attrs, defStyleAttr) {
 
+    /** [title] is what a screen reader says ("Session 2"); the tab itself shows the number. */
     class Tab(val title: String, val isRoot: Boolean)
 
     var onSelect: ((Int) -> Unit)? = null
@@ -129,14 +129,8 @@ class SessionTabsView @JvmOverloads constructor(
                 onSelect?.invoke(index)
             }
         }
-        row.addView(text((index + 1).toString(), 11f, if (isActive) p.accent else p.textFaint, true))
-        val title = text(tab.title, 13f, if (isActive) p.text else p.textDim, isActive).apply {
-            maxWidth = dp(150)
-            maxLines = 1
-            ellipsize = TextUtils.TruncateAt.MIDDLE
-            setPadding(dp(7), 0, 0, 0)
-        }
-        row.addView(title)
+        // The number of the session, and nothing else
+        row.addView(text((index + 1).toString(), 14f, if (isActive) p.accent else p.textDim, true))
         if (tab.isRoot) {
             row.addView(text(context.getString(R.string.session_root_badge), 9f, p.danger, true).apply {
                 setPadding(dp(6), 0, 0, 0)

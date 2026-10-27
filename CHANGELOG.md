@@ -4,6 +4,28 @@ What changed in each version of Cortex Terminal, newest first. The release workf
 of a GitHub release from the section of its version here. Older versions are described on the
 [GitHub releases](https://github.com/ssfuisu/cortex/releases) page.
 
+## 1.26.44 (2026-10-27)
+
+### Added
+
+- **A white color scheme** ("Light", in *Settings > Color Scheme*): dark text on white, with the colors
+  of GitHub's light terminal, which all can be read on white (the 16 colors are checked by a test).
+  It is for the whole app, like the other schemes: the tabs, the keys, the drawer, the settings, the
+  dialogs and the system bars (with dark icons) follow it. Selected text is shown on a light blue
+  instead of white, which would not show on white.
+
+### Changed
+
+- **A cleaner drawer and tabs.** A session in the drawer is just *Session N* (and ROOT, for a root
+  session), with the close button: the number in a box and the directory under it are gone. The
+  header of the drawer is the name of the app and the two buttons: the `>_` mark and the line
+  *Ubuntu 24.04 LTS* are gone (also from the first-start window). The tabs above the terminal show
+  the number of the session, not its directory, so they no longer change as you `cd` (and the
+  directories are no longer looked up every few seconds for them).
+- The settings list and its choice dialogs (font, font size, language...) are in the colors of the
+  scheme: the texts, the headings and the switches were of one fixed color, and could not be read on
+  a light scheme.
+
 ## 1.26.43 (2026-10-27)
 
 ### Fixed

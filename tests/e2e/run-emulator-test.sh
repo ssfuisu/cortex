@@ -368,6 +368,35 @@ if tap_id btnDrawerSettings; then
     sh_ input swipe $((WIDTH / 2)) $((HEIGHT * 3 / 4)) $((WIDTH / 2)) $((HEIGHT / 4)) 500
     sleep 2
     shot "15-settings-root-mode"
+    # The white scheme (second entry of the picker): the settings, the terminal and the drawer in it.
+    # It stays chosen for the rest of the run, which shows that it is kept over a restart too.
+    sh_ input swipe $((WIDTH / 2)) $((HEIGHT / 4)) $((WIDTH / 2)) $((HEIGHT * 3 / 4)) 500
+    sh_ input swipe $((WIDTH / 2)) $((HEIGHT / 4)) $((WIDTH / 2)) $((HEIGHT * 3 / 4)) 500
+    sleep 1
+    sh_ input tap $((WIDTH / 2)) $((HEIGHT * 30 / 100))
+    sleep 2
+    sh_ rm -f /sdcard/window.xml
+    sh_ uiautomator dump /sdcard/window.xml >/dev/null
+    if sh_ cat /sdcard/window.xml 2>/dev/null | grep -q 'id/parentPanel'; then
+        sh_ input tap $((WIDTH / 2)) $((HEIGHT * 30 / 100))
+        sleep 4
+        shot "15a-settings-light"
+        sh_ input swipe $((WIDTH / 2)) $((HEIGHT * 3 / 4)) $((WIDTH / 2)) $((HEIGHT / 4)) 500
+        sleep 2
+        shot "15b-settings-light-more"
+        sh_ input keyevent 4 # out of the settings, to the terminal
+        sleep 3
+        shot "15c-terminal-light"
+        sh_ input swipe 2 $((HEIGHT / 2)) $((WIDTH * 2 / 3)) $((HEIGHT / 2)) 300
+        sleep 2
+        shot "15d-drawer-light"
+        # Back in the settings, where the next step (the restart) expects to be: its first Back leaves
+        # them, and in the terminal it would close the session
+        drawer_tap btnDrawerSettings || log "no settings button found in the drawer"
+        sleep 3
+    else
+        log "the scheme picker did not open for the white scheme"
+    fi
 else
     log "no settings button found"
 fi

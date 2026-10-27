@@ -33,6 +33,7 @@
 
     <string-array name="terminal_theme_entries">
         <item>@string/theme_catppuccin_default</item>
+        <item>Light</item>
         <item>Tokyo Night</item>
         <item>Dracula</item>
         <item>Gruvbox Dark</item>
@@ -49,6 +50,7 @@
 
     <string-array name="terminal_theme_values" translatable="false">
         <item>catppuccin</item>
+        <item>light</item>
         <item>tokyo_night</item>
         <item>dracula</item>
         <item>gruvbox</item>

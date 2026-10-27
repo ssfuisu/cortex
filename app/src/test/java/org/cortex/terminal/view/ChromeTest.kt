@@ -82,6 +82,32 @@ class ChromeTest {
     }
 
     @Test
+    fun theLightSchemeIsWhiteAndItsInterfaceIsALightOne() {
+        val scheme = TerminalColor.SCHEMES.getValue("light")
+        assertEquals(Chrome.WHITE, scheme.bg)
+        val p = Chrome.from(scheme)
+        assertTrue("a light scheme", !p.dark)
+        assertTrue("the bars are a little darker than the terminal", Chrome.luminance(p.bar) < Chrome.luminance(p.bg))
+        assertTrue("dark text on it", Chrome.contrast(p.text, p.bg) >= 7f)
+        assertTrue("the terminal's own text too", Chrome.contrast(scheme.fg, scheme.bg) >= 7f)
+        // Every one of the 16 colors can be seen on the white, as the program that prints it meant
+        for (i in 0 until 16) {
+            assertTrue("ANSI color $i on white", Chrome.contrast(scheme.ansi[i], scheme.bg) >= 3f)
+        }
+    }
+
+    @Test
+    fun selectedTextCanBeSeenOnEveryScheme() {
+        // Selected text is drawn in black, on white (dark schemes) or on the accent faintly (light ones)
+        for (scheme in TerminalColor.SCHEMES.values) {
+            val p = Chrome.from(scheme)
+            val behind = selectionBackground(p.dark, scheme.bg, p.accent)
+            assertTrue("${scheme.displayName}: black on the selection", Chrome.contrast(Chrome.BLACK, behind) >= 7f)
+            assertTrue("${scheme.displayName}: the selection against the background", Chrome.contrast(behind, scheme.bg) >= 1.2f)
+        }
+    }
+
+    @Test
     fun everySchemeIsListedInTheSettings() {
         // res/values/arrays.xml has one entry and one value for each scheme (this test reads the file)
         val candidates = listOf(

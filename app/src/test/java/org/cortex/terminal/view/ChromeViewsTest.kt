@@ -62,10 +62,12 @@ class ChromeViewsTest {
     @Test
     fun theTabsShowOneTabForEachSessionAndMarkRootOnes() {
         val tabs = SessionTabsView(activity)
-        tabs.update(listOf(SessionTabsView.Tab("~", false), SessionTabsView.Tab("src", true)), 1)
+        tabs.update(listOf(SessionTabsView.Tab("Session 1", false), SessionTabsView.Tab("Session 2", true)), 1)
         assertEquals(2, tabRows(tabs).childCount)
         val shown = texts(tabs)
-        assertTrue(shown.toString(), shown.containsAll(listOf("1", "~", "2", "src", "ROOT")))
+        // The number and nothing else (no directory); ROOT on the root session
+        assertTrue(shown.toString(), shown.containsAll(listOf("1", "2", "ROOT")))
+        assertFalse(shown.toString(), shown.any { it.contains("Session") || it.contains("~") })
     }
 
     @Test
@@ -132,9 +134,10 @@ class ChromeViewsTest {
     @Test
     fun aSessionCardInflates() {
         val binding = ItemSessionBinding.inflate(LayoutInflater.from(activity))
-        assertNotNull(binding.sessionIndexBadge)
-        assertNotNull(binding.sessionPathText)
+        // The name of the session and the button that closes it; no number box and no directory
+        assertNotNull(binding.sessionLabelText)
         assertNotNull(binding.btnSessionClose)
+        assertNotNull(binding.sessionRootBadge)
     }
 
     @Test

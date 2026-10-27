@@ -4,36 +4,22 @@
     android:id="@+id/sessionItemRoot"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:minHeight="62dp"
+    android:minHeight="56dp"
     android:orientation="horizontal"
     android:gravity="center_vertical"
     android:layout_marginStart="12dp"
     android:layout_marginEnd="12dp"
     android:layout_marginTop="3dp"
     android:layout_marginBottom="3dp"
-    android:paddingStart="12dp"
+    android:paddingStart="16dp"
     android:paddingEnd="6dp"
     android:paddingTop="8dp"
     android:paddingBottom="8dp">
-
-    <!-- The session's number -->
-    <TextView
-        android:id="@+id/sessionIndexBadge"
-        android:layout_width="34dp"
-        android:layout_height="34dp"
-        android:gravity="center"
-        android:includeFontPadding="false"
-        android:textColor="@color/cortex_primary"
-        android:textSize="14sp"
-        android:textStyle="bold"
-        android:typeface="monospace"
-        tools:text="1" />
 
     <LinearLayout
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_weight="1"
-        android:layout_marginStart="12dp"
         android:orientation="vertical">
 
         <LinearLayout
@@ -71,21 +57,6 @@
                 android:visibility="gone"
                 tools:visibility="visible" />
         </LinearLayout>
-
-        <!-- The directory the shell is in -->
-        <TextView
-            android:id="@+id/sessionPathText"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
-            android:ellipsize="middle"
-            android:maxLines="1"
-            android:textColor="@color/cortex_text_muted"
-            android:textSize="11sp"
-            android:typeface="monospace"
-            android:visibility="gone"
-            tools:text="~/project"
-            tools:visibility="visible" />
     </LinearLayout>
 
     <TextView

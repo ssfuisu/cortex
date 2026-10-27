@@ -39,6 +39,33 @@ object TerminalColor {
                 Color.rgb(0xa6, 0xad, 0xc8)  // 15: Bright White
             )
         ),
+        // White, in the colors of GitHub's light terminal: dark text on white, saturated colors that
+        // read on it (the "white" of the 16 is a gray, as it must be to be seen)
+        "light" to ColorScheme(
+            id = "light",
+            displayName = "Light",
+            fg = Color.rgb(0x1f, 0x23, 0x28),
+            bg = Color.rgb(0xff, 0xff, 0xff),
+            cursor = Color.rgb(0x09, 0x69, 0xda),
+            ansi = intArrayOf(
+                Color.rgb(0x24, 0x29, 0x2f), // 0: Black
+                Color.rgb(0xcf, 0x22, 0x2e), // 1: Red
+                Color.rgb(0x11, 0x63, 0x29), // 2: Green
+                Color.rgb(0x9a, 0x67, 0x00), // 3: Yellow
+                Color.rgb(0x09, 0x69, 0xda), // 4: Blue
+                Color.rgb(0x82, 0x50, 0xdf), // 5: Magenta
+                Color.rgb(0x1b, 0x7c, 0x83), // 6: Cyan
+                Color.rgb(0x6e, 0x77, 0x81), // 7: White
+                Color.rgb(0x57, 0x60, 0x6a), // 8: Bright Black
+                Color.rgb(0xa4, 0x0e, 0x26), // 9: Bright Red
+                Color.rgb(0x1a, 0x7f, 0x37), // 10: Bright Green
+                Color.rgb(0xbf, 0x87, 0x00), // 11: Bright Yellow
+                Color.rgb(0x09, 0x69, 0xda), // 12: Bright Blue
+                Color.rgb(0x82, 0x50, 0xdf), // 13: Bright Magenta
+                Color.rgb(0x31, 0x92, 0xaa), // 14: Bright Cyan
+                Color.rgb(0x84, 0x8d, 0x97)  // 15: Bright White
+            )
+        ),
         "tokyo_night" to ColorScheme(
             id = "tokyo_night",
             displayName = "Tokyo Night",

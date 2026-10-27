@@ -30,7 +30,6 @@ import org.cortex.terminal.runtime.BootstrapManager
 import org.cortex.terminal.runtime.Environment
 import org.cortex.terminal.service.CortexService
 import org.cortex.terminal.session.SessionAdapter
-import org.cortex.terminal.session.SessionLabels
 import org.cortex.terminal.session.SessionManager
 import org.cortex.terminal.session.TerminalSession
 import org.cortex.terminal.update.UpdateManager
@@ -389,26 +388,18 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** Shows the sessions as tabs: each named by the directory its shell is in. */
+    /** Shows the sessions as tabs: the number of each, and ROOT for those that run as root. */
     private fun refreshTabs() {
         if (!::sessionManager.isInitialized) return
         val tabs: List<SessionTabsView.Tab>
         val active: Int
         synchronized(sessionManager.sessions) {
             tabs = sessionManager.sessions.mapIndexed { i, s ->
-                SessionTabsView.Tab(SessionLabels.where(this, s)?.tab ?: getString(R.string.session_label, i + 1), s.isRoot)
+                SessionTabsView.Tab(getString(R.string.session_label, i + 1), s.isRoot)
             }
             active = sessionManager.currentSessionIndex
         }
         binding.sessionTabs.update(tabs, active)
-    }
-
-    // The tabs are named after the directories, which change as the shells move about
-    private val tabsRefresher = object : Runnable {
-        override fun run() {
-            refreshTabs()
-            binding.sessionTabs.postDelayed(this, 2500L)
-        }
     }
 
     override fun onResume() {
@@ -442,8 +433,7 @@ class MainActivity : AppCompatActivity() {
         }
         terminalView.requestLayout()
         terminalView.postInvalidate()
-        binding.sessionTabs.removeCallbacks(tabsRefresher)
-        binding.sessionTabs.post(tabsRefresher)
+        refreshTabs()
     }
 
     override fun onStop() {
@@ -454,7 +444,6 @@ class MainActivity : AppCompatActivity() {
 
     override fun onPause() {
         super.onPause()
-        binding.sessionTabs.removeCallbacks(tabsRefresher)
         terminalView.clearSelection()
         extraKeysConfig.stopWatching()
         terminalView.removeCallbacks(applyExtraKeysRunnable)
@@ -544,10 +533,7 @@ class MainActivity : AppCompatActivity() {
             cornerRadii = floatArrayOf(0f, 0f, corner, corner, corner, corner, 0f, 0f)
             setStroke(hairline, p.outline)
         }
-        binding.drawerMark.background = Chrome.rounded(p.accent, 13 * density)
-        binding.drawerMark.setTextColor(p.onAccent)
         binding.drawerTitle.setTextColor(p.text)
-        binding.drawerSubtitle.setTextColor(p.textFaint)
         binding.drawerDivider.setBackgroundColor(p.outline)
         binding.drawerSessionsLabel.setTextColor(p.textFaint)
         fun roundButton() = Chrome.ripple(

@@ -32,11 +32,6 @@ class SessionAdapter(
         val session = synchronized(sessionManager.sessions) { sessionManager.sessions.getOrNull(position) }
         binding.sessionRootBadge.visibility = if (session?.isRoot == true) View.VISIBLE else View.GONE
 
-        // Where its shell is now (not known for a root session)
-        val where = session?.let { SessionLabels.where(context, it) }
-        binding.sessionPathText.text = where?.path.orEmpty()
-        binding.sessionPathText.visibility = if (where != null) View.VISIBLE else View.GONE
-
         // The session on screen has the accent around it; the others sit flat on the drawer
         val radius = 14 * density
         binding.sessionItemRoot.background = Chrome.ripple(
@@ -46,13 +41,8 @@ class SessionAdapter(
             radius
         )
         binding.sessionLabelText.setTextColor(p.text)
-        binding.sessionPathText.setTextColor(p.textDim)
         binding.sessionRootBadge.setTextColor(p.danger)
         binding.sessionRootBadge.background = Chrome.rounded(p.dangerSoft, 6 * density, p.danger, density.toInt().coerceAtLeast(1))
-
-        binding.sessionIndexBadge.text = (position + 1).toString()
-        binding.sessionIndexBadge.setTextColor(if (isActive) p.onAccent else p.accent)
-        binding.sessionIndexBadge.background = Chrome.rounded(if (isActive) p.accent else p.accentSoft, 10 * density)
 
         binding.btnSessionClose.visibility = View.VISIBLE
         binding.btnSessionClose.setTextColor(p.textDim)
