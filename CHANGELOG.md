@@ -24,7 +24,8 @@ of a GitHub release from the section of its version here. Older versions are des
   directories are no longer looked up every few seconds for them).
 - The settings list and its choice dialogs (font, font size, language...) are in the colors of the
   scheme: the texts, the headings and the switches were of one fixed color, and could not be read on
-  a light scheme.
+  a light scheme. The back arrow of the settings is in the scheme's color too (it was white on the
+  light bar).
 
 ## 1.26.43 (2026-10-27)
 

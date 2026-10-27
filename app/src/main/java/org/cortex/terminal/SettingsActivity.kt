@@ -42,6 +42,10 @@ class SettingsActivity : AppCompatActivity() {
         supportActionBar?.title = android.text.SpannableString(getString(R.string.settings_title)).apply {
             setSpan(android.text.style.ForegroundColorSpan(p.text), 0, length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
         }
+        // The back arrow is the theme's own, white: on the light scheme it could not be seen
+        androidx.appcompat.content.res.AppCompatResources.getDrawable(this, R.drawable.ic_arrow_back)?.let {
+            supportActionBar?.setHomeAsUpIndicator(it.mutate().apply { setTint(p.text) })
+        }
         window.statusBarColor = p.bar
         window.navigationBarColor = p.bar
         val controller = androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
