@@ -300,8 +300,14 @@ class TerminalBuffer(var rows: Int, var cols: Int, private val maxHistory: Int =
         }
     }
 
+    /**
+     * Whether the characters that are two cells wide take two. Off, every character takes one cell, as
+     * before wide characters were supported: the recorded states of the scrolling test come from then.
+     */
+    var wideCharacters = true
+
     fun writeChar(c: Char) {
-        if (c.code >= CharWidth.FIRST_NOT_NARROW) {
+        if (wideCharacters && c.code >= CharWidth.FIRST_NOT_NARROW) {
             writeRun(charArrayOf(c), 0, 1)
         } else {
             writeCell(c)
@@ -333,6 +339,10 @@ class TerminalBuffer(var rows: Int, var cols: Int, private val maxHistory: Int =
      * wide (Chinese, an emoji, an invisible one) is written by [writeOther].
      */
     fun writeRun(src: CharArray, start: Int, end: Int) {
+        if (!wideCharacters) {
+            writeNarrow(src, start, end)
+            return
+        }
         var i = start
         while (i < end) {
             var j = i

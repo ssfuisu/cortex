@@ -27,14 +27,27 @@ class TerminalRow(val cols: Int) {
     fun isTail(col: Int): Boolean {
         if (col <= 0 || col >= cols) return false
         val ch = chars[col]
-        return ch == WIDE_TAIL || (Character.isLowSurrogate(ch) && Character.isHighSurrogate(chars[col - 1]))
+        return if (ch == WIDE_TAIL) {
+            isWideHead(col - 1)
+        } else {
+            Character.isLowSurrogate(ch) && Character.isHighSurrogate(chars[col - 1])
+        }
     }
 
-    /** Whether the cell at [col] is the first of the two cells of a wide character. */
+    /**
+     * Whether the cell at [col] is the first of the two cells of a wide character: a wide character
+     * followed by [WIDE_TAIL], or the first half of an emoji followed by the second. (A character of
+     * one cell is not, whatever follows it: a half left behind when cells moved is not a character.)
+     */
     fun isWideHead(col: Int): Boolean {
         if (col < 0 || col + 1 >= cols) return false
+        val ch = chars[col]
         val next = chars[col + 1]
-        return next == WIDE_TAIL || (Character.isLowSurrogate(next) && Character.isHighSurrogate(chars[col]))
+        return if (next == WIDE_TAIL) {
+            ch.code >= CharWidth.FIRST_NOT_NARROW && !Character.isSurrogate(ch) && CharWidth.of(ch) == 2
+        } else {
+            Character.isHighSurrogate(ch) && Character.isLowSurrogate(next)
+        }
     }
 
     /**

@@ -25,6 +25,8 @@ class TerminalScrollEquivalenceTest {
         val emu = TerminalEmulator(rows = rows, cols = cols)
         // The recorded states come from before width changes rewrapped the lines.
         emu.buffer.reflowOnResize = false
+        // ... and before the Japanese word below took two cells for each character
+        emu.buffer.wideCharacters = false
         val words = listOf("alpha", "beta", "gamma", "Türkçe", "şğüöçı", "日本", "x", "cortex", "  ", "0123456789", "~", "ünï")
 
         fun feed(text: String) {
