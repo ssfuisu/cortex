@@ -1356,6 +1356,8 @@ class TerminalView @JvmOverloads constructor(
     }
 
     fun copySelectionToClipboard(): Boolean {
+        // Without a selection there is nothing to copy (the numbers are those of the last one)
+        if (!isSelecting) return false
         val norm = getNormalizedSelection()
         val text = session?.emulator?.buffer?.getSelectedText(norm[0], norm[1], norm[2], norm[3]) ?: ""
         if (text.isNotEmpty()) {
@@ -1503,6 +1505,7 @@ class TerminalView @JvmOverloads constructor(
 
     fun selectAllText() {
         val histSize = session?.emulator?.buffer?.history?.size ?: 0
+        isSelecting = true // from the keyboard's Select all as well, not only from the bar of a selection
         selectStartRow = -histSize
         selectStartCol = 0
         selectEndRow = rows - 1
@@ -1511,6 +1514,39 @@ class TerminalView @JvmOverloads constructor(
         post {
             showActionPopup()
         }
+    }
+
+    /** The text of the selection, for a keyboard that copies it itself; null without one. */
+    private fun selectedTerminalText(): String? {
+        if (!isSelecting) return null
+        val norm = getNormalizedSelection()
+        return session?.emulator?.buffer?.getSelectedText(norm[0], norm[1], norm[2], norm[3])?.takeIf { it.isNotEmpty() }
+    }
+
+    /**
+     * What delete does to a selection (#32). The text on the screen is the programs', so what can be
+     * taken away is what is being typed: with the cursor in the selection (all of it selected, say), the
+     * command line is cleared, with End and then the kill of the line that shells and the tty know
+     * (Ctrl+E, Ctrl+U). Not in a full-screen program, where those keys mean other things (in nano
+     * Ctrl+U pastes). The selection is gone after it either way; true when the line was cleared.
+     */
+    private fun deleteSelection(): Boolean {
+        if (!isSelecting) return false
+        val emulator = session?.emulator
+        var clear = false
+        if (emulator != null) {
+            emulator.lock.withLock {
+                val buffer = emulator.buffer
+                clear = !buffer.isAlternate &&
+                    selectionHoldsCell(getNormalizedSelection(), buffer.cursorRow, buffer.cursorCol)
+            }
+        }
+        clearSelection()
+        if (clear) {
+            scrollOffset = 0
+            session?.write(CLEAR_LINE)
+        }
+        return clear
     }
 
     /**
@@ -1692,7 +1728,21 @@ class TerminalView @JvmOverloads constructor(
 
             override fun getTextAfterCursor(n: Int, flags: Int): CharSequence = ""
 
-            override fun getSelectedText(flags: Int): CharSequence? = null
+            override fun getSelectedText(flags: Int): CharSequence? = selectedTerminalText()
+
+            /** The keyboard's own Select all, Copy, Cut and Paste buttons (the system's names for them). */
+            override fun performContextMenuAction(id: Int): Boolean = when (id) {
+                android.R.id.selectAll -> {
+                    selectAllText()
+                    true
+                }
+                android.R.id.copy, android.R.id.cut -> copySelectionToClipboard()
+                android.R.id.paste, android.R.id.pasteAsPlainText -> {
+                    pasteFromClipboard()
+                    true
+                }
+                else -> super.performContextMenuAction(id)
+            }
 
             @RequiresApi(Build.VERSION_CODES.S)
             override fun getSurroundingText(beforeLength: Int, afterLength: Int, flags: Int): SurroundingText {
@@ -1749,6 +1799,11 @@ class TerminalView @JvmOverloads constructor(
             }
 
             override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
+                // Nothing committed over a selection is how a keyboard deletes it
+                if (text.isNullOrEmpty() && composingLength == 0 && deleteSelection()) {
+                    lineIsBack()
+                    return true
+                }
                 clearSelection()
                 // What the keyboard was composing (the pinyin of a Chinese word, the kana of a Japanese
                 // one) is on the line already: the text it commits replaces it
@@ -1799,7 +1854,10 @@ class TerminalView @JvmOverloads constructor(
             }
 
             override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
-                clearSelection()
+                if (deleteSelection()) {
+                    lineIsBack()
+                    return true
+                }
                 if (beforeLength == 0 && afterLength == 0) {
                     sendKeySequence(KeyEvent.KEYCODE_DEL)
                 } else {
@@ -1822,7 +1880,6 @@ class TerminalView @JvmOverloads constructor(
 
             override fun sendKeyEvent(event: KeyEvent): Boolean {
                 if (event.action == KeyEvent.ACTION_DOWN) {
-                    clearSelection()
                     val handled = onKeyDown(event.keyCode, event)
                     if (event.keyCode == KeyEvent.KEYCODE_DEL || event.keyCode == KeyEvent.KEYCODE_FORWARD_DEL) lineIsBack()
                     return handled
@@ -1934,6 +1991,18 @@ class TerminalView @JvmOverloads constructor(
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        // The keys of a keyboard's clipboard buttons, and delete over a selection
+        when (keyCode) {
+            KeyEvent.KEYCODE_PASTE -> {
+                pasteFromClipboard()
+                return true
+            }
+            KeyEvent.KEYCODE_COPY, KeyEvent.KEYCODE_CUT -> {
+                copySelectionToClipboard()
+                return true
+            }
+            KeyEvent.KEYCODE_DEL, KeyEvent.KEYCODE_FORWARD_DEL -> if (deleteSelection()) return true
+        }
         clearSelection()
         scrollOffset = 0
         if (sendKeySequence(keyCode)) {
@@ -1991,6 +2060,17 @@ private const val IME_LINE = " "
  */
 internal fun selectionBackground(dark: Boolean, background: Int, accent: Int): Int =
     if (dark) Chrome.WHITE else Chrome.mix(background, accent, 0.35f)
+
+/** What clears the command line: End, then the kill of the line (the tty's and readline's Ctrl+U). */
+private const val CLEAR_LINE = "\u0005\u0015"
+
+/**
+ * Whether the cell ([row], [col]) is in the selection [norm]: its first row and column, then its last
+ * ones, in this order (the buffer's rows: those of the scrollback are negative).
+ */
+internal fun selectionHoldsCell(norm: IntArray, row: Int, col: Int): Boolean =
+    (row > norm[0] || (row == norm[0] && col >= norm[1])) &&
+        (row < norm[2] || (row == norm[2] && col <= norm[3]))
 
 /** The text sizes two fingers can set, in sp. */
 internal const val MIN_PINCH_TEXT_SP = 6f

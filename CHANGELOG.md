@@ -4,6 +4,20 @@ What changed in each version of Cortex Terminal, newest first. The release workf
 of a GitHub release from the section of its version here. Older versions are described on the
 [GitHub releases](https://github.com/ssfuisu/cortex/releases) page.
 
+## 1.26.45 (2026-10-28)
+
+### Fixed
+
+- **The Select all, Copy, Cut and Paste buttons of a keyboard did nothing (#32).** A keyboard asks the
+  app for them as the system's editing actions (or sends the Copy, Cut and Paste keys), and the
+  terminal answered none of them: only its own bar, shown after a long press, worked. They now select
+  all the text of the terminal, copy the selection, and paste, and the terminal tells a keyboard that
+  copies by itself what is selected.
+- **Delete over a selection** only took the selection away and deleted a single character (#32). With
+  the cursor in the selection (all of it selected, say), delete now clears the command line you are
+  typing. The text above it belongs to the programs and stays. Not in a full-screen program (vim,
+  nano), where the keys that clear the line mean other things.
+
 ## 1.26.44 (2026-10-27)
 
 ### Added

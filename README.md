@@ -334,10 +334,6 @@ Have feedback, questions, or ideas for new features? We'd love to hear from you:
 - **GitHub Issues**: Open a bug report or feature request on [GitHub Issues](https://github.com/ssfuisu/cortex/issues).
 - **Telegram**: Chat directly with the developer on Telegram: [@ratzgn](https://t.me/ratzgn).
 
-## Thanks
-
-The app icon is the design of [hasanelfalakiy](https://github.com/hasanelfalakiy), who suggested it in [#30](https://github.com/ssfuisu/cortex/issues/30). Thank you!
-
 ---
 
 ## License

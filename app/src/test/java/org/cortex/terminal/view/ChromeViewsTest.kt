@@ -3,6 +3,7 @@ package org.cortex.terminal.view
 import android.app.Activity
 import android.content.DialogInterface
 import android.os.Looper
+import android.view.KeyEvent
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -221,5 +222,64 @@ class ChromeViewsTest {
         val around = ic.getSurroundingText(10, 10, 0)!!
         assertEquals(" ", around.text.toString())
         assertEquals(1, around.selectionStart)
+    }
+
+    @Test
+    fun theKeyboardsOwnSelectAllCopyAndPasteButtonsAreAnswered() {
+        // WM Keyboard's buttons did nothing (#32): they come as the system's context menu actions
+        val view = TerminalView(activity)
+        val ic = view.onCreateInputConnection(EditorInfo())
+        assertFalse("nothing to copy without a selection", ic.performContextMenuAction(android.R.id.copy))
+        assertFalse(view.isSelecting)
+        assertTrue(ic.performContextMenuAction(android.R.id.selectAll))
+        assertTrue("Select all selects", view.isSelecting)
+        assertTrue(ic.performContextMenuAction(android.R.id.paste))
+        assertTrue(ic.performContextMenuAction(android.R.id.pasteAsPlainText))
+        assertFalse("another action is not ours", ic.performContextMenuAction(android.R.id.startSelectingText))
+    }
+
+    @Test
+    fun theClipboardKeysCopyAndPaste() {
+        val view = TerminalView(activity)
+        view.selectAllText()
+        assertTrue(view.isSelecting)
+        assertTrue(view.onKeyDown(KeyEvent.KEYCODE_COPY, KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_COPY)))
+        assertFalse("copy leaves the selection (nothing on screen to copy without a session)", view.isSelecting)
+        assertTrue(view.onKeyDown(KeyEvent.KEYCODE_PASTE, KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_PASTE)))
+    }
+
+    @Test
+    fun deleteOverASelectionTakesTheSelectionAway() {
+        val view = TerminalView(activity)
+        val ic = view.onCreateInputConnection(EditorInfo())
+        view.selectAllText()
+        assertTrue(ic.deleteSurroundingText(1, 0))
+        assertFalse(view.isSelecting)
+        view.selectAllText()
+        assertTrue(ic.commitText("", 1))
+        assertFalse(view.isSelecting)
+        view.selectAllText()
+        // (Without a session there is nothing to send the key to: what it returns is not the point)
+        ic.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DEL))
+        assertFalse(view.isSelecting)
+    }
+
+    @Test
+    fun theCursorIsInASelectionOnItsRowsAndBetweenItsEnds() {
+        // From row 2, column 5 to row 4, column 3 (rows of the scrollback are negative)
+        val norm = intArrayOf(2, 5, 4, 3)
+        assertTrue(selectionHoldsCell(norm, 3, 0))
+        assertTrue(selectionHoldsCell(norm, 3, 79))
+        assertTrue(selectionHoldsCell(norm, 2, 5))
+        assertFalse(selectionHoldsCell(norm, 2, 4))
+        assertTrue(selectionHoldsCell(norm, 4, 3))
+        assertFalse(selectionHoldsCell(norm, 4, 4))
+        assertFalse(selectionHoldsCell(norm, 1, 40))
+        assertFalse(selectionHoldsCell(norm, 5, 0))
+        // All of it, as Select all does: from the first row of the scrollback to the last of the screen
+        assertTrue(selectionHoldsCell(intArrayOf(-300, 0, 23, 79), 12, 6))
+        // One cell
+        assertTrue(selectionHoldsCell(intArrayOf(7, 2, 7, 2), 7, 2))
+        assertFalse(selectionHoldsCell(intArrayOf(7, 2, 7, 2), 7, 3))
     }
 }
