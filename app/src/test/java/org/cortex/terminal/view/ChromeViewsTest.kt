@@ -236,6 +236,10 @@ class ChromeViewsTest {
         assertTrue(ic.performContextMenuAction(android.R.id.paste))
         assertTrue(ic.performContextMenuAction(android.R.id.pasteAsPlainText))
         assertFalse("another action is not ours", ic.performContextMenuAction(android.R.id.startSelectingText))
+        // Cut is a copy and then what delete does: the selection is gone (nothing on screen to copy without a session)
+        view.selectAllText()
+        assertFalse(ic.performContextMenuAction(android.R.id.cut))
+        assertFalse(view.isSelecting)
     }
 
     @Test
@@ -246,6 +250,9 @@ class ChromeViewsTest {
         assertTrue(view.onKeyDown(KeyEvent.KEYCODE_COPY, KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_COPY)))
         assertFalse("copy leaves the selection (nothing on screen to copy without a session)", view.isSelecting)
         assertTrue(view.onKeyDown(KeyEvent.KEYCODE_PASTE, KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_PASTE)))
+        view.selectAllText()
+        assertTrue(view.onKeyDown(KeyEvent.KEYCODE_CUT, KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_CUT)))
+        assertFalse(view.isSelecting)
     }
 
     @Test

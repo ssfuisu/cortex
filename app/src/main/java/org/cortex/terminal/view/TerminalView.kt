@@ -66,6 +66,8 @@ class TerminalView @JvmOverloads constructor(
             value?.onRedraw = { postInvalidate() }
             value?.emulator?.onScreenUpdate = onEmulatorScreenUpdate
             if (previous !== value) {
+                // The selection is the old session's: delete over it would act on the new one's line
+                clearSelection()
                 previous?.setFocused(false)
                 value?.setFocused(hasWindowFocus())
                 cursorBlinkOn = true
@@ -1358,20 +1360,28 @@ class TerminalView @JvmOverloads constructor(
     fun copySelectionToClipboard(): Boolean {
         // Without a selection there is nothing to copy (the numbers are those of the last one)
         if (!isSelecting) return false
-        val norm = getNormalizedSelection()
-        val text = session?.emulator?.buffer?.getSelectedText(norm[0], norm[1], norm[2], norm[3]) ?: ""
-        if (text.isNotEmpty()) {
-            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-            clipboard.setPrimaryClip(ClipData.newPlainText("Cortex", text))
-            Toast.makeText(context, R.string.copied_to_clipboard, Toast.LENGTH_SHORT).show()
-            clearSelection()
-            return true
-        }
+        val text = selectedTerminalText()
+        if (text != null) putOnClipboard(text)
         clearSelection()
-        return false
+        return text != null
     }
 
-    fun pasteFromClipboard() {
+    /** Cut: copied, then what delete does to the selection (the command line, when the cursor is in it). */
+    private fun cutSelectionToClipboard(): Boolean {
+        val text = selectedTerminalText()
+        if (text != null) putOnClipboard(text)
+        deleteSelection()
+        return text != null
+    }
+
+    private fun putOnClipboard(text: String) {
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        clipboard.setPrimaryClip(ClipData.newPlainText("Cortex", text))
+        Toast.makeText(context, R.string.copied_to_clipboard, Toast.LENGTH_SHORT).show()
+    }
+
+    /** [plainTextOnly]: the clip's text, not the image it may also hold (the keyboard's Paste as plain text). */
+    fun pasteFromClipboard(plainTextOnly: Boolean = false) {
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return
         val clip = clipboard.primaryClip ?: return
         if (clip.itemCount == 0) return
@@ -1388,7 +1398,8 @@ class TerminalView @JvmOverloads constructor(
                 p.endsWith(".webp", true) || p.endsWith(".gif", true)
             } == true)
 
-        if (uri != null && hasImageMime) {
+        val preferText = plainTextOnly && !item.text.isNullOrEmpty()
+        if (!preferText && uri != null && hasImageMime) {
             val savedPath = saveImageFromUri(uri, mimeType)
             if (savedPath != null) {
                 session?.write(savedPath)
@@ -1736,9 +1747,14 @@ class TerminalView @JvmOverloads constructor(
                     selectAllText()
                     true
                 }
-                android.R.id.copy, android.R.id.cut -> copySelectionToClipboard()
-                android.R.id.paste, android.R.id.pasteAsPlainText -> {
+                android.R.id.copy -> copySelectionToClipboard()
+                android.R.id.cut -> cutSelectionToClipboard()
+                android.R.id.paste -> {
                     pasteFromClipboard()
+                    true
+                }
+                android.R.id.pasteAsPlainText -> {
+                    pasteFromClipboard(plainTextOnly = true)
                     true
                 }
                 else -> super.performContextMenuAction(id)
@@ -1855,6 +1871,7 @@ class TerminalView @JvmOverloads constructor(
 
             override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
                 if (deleteSelection()) {
+                    composingLength = 0 // the line it was composed on is gone
                     lineIsBack()
                     return true
                 }
@@ -1997,8 +2014,12 @@ class TerminalView @JvmOverloads constructor(
                 pasteFromClipboard()
                 return true
             }
-            KeyEvent.KEYCODE_COPY, KeyEvent.KEYCODE_CUT -> {
+            KeyEvent.KEYCODE_COPY -> {
                 copySelectionToClipboard()
+                return true
+            }
+            KeyEvent.KEYCODE_CUT -> {
+                cutSelectionToClipboard()
                 return true
             }
             KeyEvent.KEYCODE_DEL, KeyEvent.KEYCODE_FORWARD_DEL -> if (deleteSelection()) return true
