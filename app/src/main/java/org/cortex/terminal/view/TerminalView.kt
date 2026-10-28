@@ -1531,7 +1531,12 @@ class TerminalView @JvmOverloads constructor(
     private fun selectedTerminalText(): String? {
         if (!isSelecting) return null
         val norm = getNormalizedSelection()
-        return session?.emulator?.buffer?.getSelectedText(norm[0], norm[1], norm[2], norm[3])?.takeIf { it.isNotEmpty() }
+        val emulator = session?.emulator ?: return null
+        // Under the lock: output on the PTY thread moves the rows of the screen and the scrollback
+        val text = emulator.lock.withLock {
+            emulator.buffer.getSelectedText(norm[0], norm[1], norm[2], norm[3])
+        }
+        return text.takeIf { it.isNotEmpty() }
     }
 
     /**
