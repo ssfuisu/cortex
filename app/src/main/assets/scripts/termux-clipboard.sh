@@ -5,37 +5,12 @@
 #
 # Programs call these as they start and wait for them (micro does before it draws anything), so a
 # call that Cortex does not answer must end: it gets CORTEX_API_TIMEOUT seconds (2), then fails, and
-# for the next ten seconds the calls fail at once instead of each waiting as long (#43).
-name=${0##*/}
-wait=${CORTEX_API_TIMEOUT:-2}
-down=${TMPDIR:-/tmp}/.cortex-clipboard-down
-
-if [ -s "$down" ]; then
-    since=$(cat "$down" 2>/dev/null)
-    case $since in '' | *[!0-9]*) since=0 ;; esac
-    age=$(($(date +%s) - since))
-    # (A note from the future, written before the clock was set back, is an old one)
-    if [ "$age" -ge 0 ] && [ "$age" -lt 10 ]; then
-        echo "$name: Cortex did not answer a moment ago (the app has to be on screen)" >&2
-        exit 1
-    fi
-fi
-
-case $name in
-    termux-clipboard-get) set -- clipboard-get ;;
-    *) set -- clipboard-set "$@" ;;
+# for the next ten seconds the calls fail at once instead of each waiting as long (#43). cortex-api
+# keeps the time; this script only starts it (with exec: no process of its own to wait for it).
+CORTEX_API_DEADLINE=${CORTEX_API_TIMEOUT:-2}
+CORTEX_API_DOWN=${TMPDIR:-/tmp}/.cortex-clipboard-down
+export CORTEX_API_DEADLINE CORTEX_API_DOWN
+case "${0##*/}" in
+    termux-clipboard-get) exec cortex-api clipboard-get ;;
+    *) exec cortex-api clipboard-set "$@" ;;
 esac
-
-if command -v timeout >/dev/null 2>&1; then
-    # --foreground: the program stays in the terminal's foreground group (it is not stopped by SIGTTIN)
-    timeout --foreground -k 1 "$wait" cortex-api "$@"
-else
-    cortex-api "$@"
-fi
-status=$?
-if [ "$status" = 124 ] || [ "$status" = 137 ]; then
-    date +%s > "$down" 2>/dev/null
-    echo "$name: Cortex did not answer in $wait seconds (the app has to be on screen)" >&2
-    status=1
-fi
-exit "$status"

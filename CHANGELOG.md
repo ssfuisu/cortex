@@ -43,6 +43,11 @@ of a GitHub release from the section of its version here. Older versions are des
 
 - `tests/scripts/test_go_programs.sh` builds the test program for `GOOS=android` too and checks that
   bash and `posix_spawn()` start it so that it sees Ubuntu's files and starts Ubuntu's programs.
+- `cortex-api` gives up after `CORTEX_API_DEADLINE` seconds (and notes the failure in the file
+  `CORTEX_API_DOWN` names, for the ten seconds in which calls fail at once). It is done in bash itself
+  (`read -t`): the clipboard commands start `cortex-api` with `exec`, as before, and no process waits for
+  another. A first version ran `timeout` from the shell; on the API 35 emulator that process hung after
+  `vfork`, so the deadline moved into `cortex-api`.
 - `tests/scripts/test_shell_scripts.sh` has the clipboard commands talk to a stand-in app that does not
   answer; `tests/scripts/test_hook_qemu.sh` checks the mode of new directories.
 

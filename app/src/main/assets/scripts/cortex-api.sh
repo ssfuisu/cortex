@@ -118,6 +118,24 @@ esac
 read -r port token < "$CONF" || die "cannot read $CONF"
 case "$port" in ''|*[!0-9]*) die "$CONF is damaged: restart the Cortex app" ;; esac
 
+# CORTEX_API_DEADLINE (seconds): give up when the app has not answered by then, instead of waiting for
+# as long as the app takes (up to its ten seconds). CORTEX_API_DOWN names a file that notes the time of
+# such a failure; for ten seconds after it, calls fail at once. termux-clipboard-get and -set use both:
+# micro asks for the clipboard before it draws anything (#43). In bash itself, without another process.
+deadline="${CORTEX_API_DEADLINE:-}"
+down="${CORTEX_API_DOWN:-}"
+case "$deadline" in ''|*[!0-9]*) deadline="" ;; esac
+if [ -n "$down" ] && [ -s "$down" ]; then
+    since=0
+    read -r since < "$down" 2>/dev/null
+    case "$since" in ''|*[!0-9]*) since=0 ;; esac
+    age=$(( $(printf '%(%s)T' -1) - since ))
+    # (A note from the future, written before the clock was set back, is an old one)
+    if [ "$age" -ge 0 ] && [ "$age" -lt 10 ]; then
+        die "Cortex did not answer a moment ago (the app has to be on screen)"
+    fi
+fi
+
 # Writes the byte length of the UTF-8 text (the app reads exactly that many bytes), a newline and
 # the text. No subshell: the app gives the whole request 10 seconds once connected.
 send_block() {
@@ -141,7 +159,17 @@ send_block() {
     fi
 } >&"$api"
 
-IFS= read -r status <&"$api" || die "no answer from Cortex"
+if [ -n "$deadline" ]; then
+    IFS= read -r -t "$deadline" status <&"$api"
+else
+    IFS= read -r status <&"$api"
+fi
+read_status=$?
+if [ "$read_status" -gt 128 ]; then
+    [ -n "$down" ] && printf '%(%s)T\n' -1 > "$down" 2>/dev/null
+    die "Cortex did not answer in $deadline seconds (the app has to be on screen)"
+fi
+[ "$read_status" = 0 ] || die "no answer from Cortex"
 if [ "$status" = 0 ]; then
     cat <&"$api"
 else
