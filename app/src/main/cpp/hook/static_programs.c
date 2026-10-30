@@ -247,7 +247,10 @@ static void static_marker(const struct stat *st, char *buf, size_t size) {
 // one fstat and one getxattr; without extended attributes it is scanned again each time. Returns the
 // number of patched calls, 0 when there was nothing to do, -1 when the file could not be handled
 // (it is then started as it is).
-static int prepare_static_program(const char *path) {
+// go_only: leave the file alone unless it is an AArch64 Go program. That is for a program that asks for
+// Android's linker (GOOS=android): it is started like the dynamic ones, but it makes its own system
+// calls, so it gets the code of the static Go programs (#42).
+static int prepare_static_program_ex(const char *path, int go_only) {
     int fd = open(path, O_RDONLY | O_CLOEXEC);
     if (fd < 0) return -1;
     struct stat st;
@@ -269,6 +272,10 @@ static int prepare_static_program(const char *path) {
     struct cortex_phdr ph[64];
     uint16_t machine = 0;
     int n = read_elf_phdrs(fd, &machine, ph, 64);
+    if (go_only && !(n >= 0 && machine == EM_AARCH64 && elf_is_go(fd, ph, n))) {
+        close(fd);
+        return 0;
+    }
     if (n < 0 || (machine != EM_AARCH64 && machine != EM_ARM) || elf_is_go(fd, ph, n)) {
         // A Go program has no C library for the hook to be loaded into: it gets code of its own
         int go_rc = 0;
@@ -334,3 +341,5 @@ static int prepare_static_program(const char *path) {
     close(fd);
     return total;
 }
+
+static int prepare_static_program(const char *path) { return prepare_static_program_ex(path, 0); }

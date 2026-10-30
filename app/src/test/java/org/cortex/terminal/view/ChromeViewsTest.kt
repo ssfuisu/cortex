@@ -256,6 +256,39 @@ class ChromeViewsTest {
     }
 
     @Test
+    fun aHardwareKeyboardsClipboardShortcutsAreAnswered() {
+        val V = KeyEvent.KEYCODE_V
+        val C = KeyEvent.KEYCODE_C
+        val INS = KeyEvent.KEYCODE_INSERT
+        // Paste: Ctrl+Shift+V, Ctrl+Alt+V (Termux's), Shift+Insert
+        assertEquals(ClipboardShortcut.PASTE, clipboardShortcut(V, ctrl = true, shift = true, alt = false))
+        assertEquals(ClipboardShortcut.PASTE, clipboardShortcut(V, ctrl = true, shift = false, alt = true))
+        assertEquals(ClipboardShortcut.PASTE, clipboardShortcut(INS, ctrl = false, shift = true, alt = false))
+        // Copy: Ctrl+Shift+C, Ctrl+Insert
+        assertEquals(ClipboardShortcut.COPY, clipboardShortcut(C, ctrl = true, shift = true, alt = false))
+        assertEquals(ClipboardShortcut.COPY, clipboardShortcut(INS, ctrl = true, shift = false, alt = false))
+        // Not shortcuts: Ctrl+V and Ctrl+C alone are the program's, and so are plain V and Insert
+        assertEquals(null, clipboardShortcut(V, ctrl = true, shift = false, alt = false))
+        assertEquals(null, clipboardShortcut(C, ctrl = true, shift = false, alt = false))
+        assertEquals(null, clipboardShortcut(V, ctrl = false, shift = false, alt = false))
+        assertEquals(null, clipboardShortcut(V, ctrl = false, shift = true, alt = false))
+        assertEquals(null, clipboardShortcut(INS, ctrl = false, shift = false, alt = false))
+        assertEquals(null, clipboardShortcut(KeyEvent.KEYCODE_A, ctrl = true, shift = true, alt = false))
+
+        // In the view: the shortcut is taken, and copy only when there is a selection
+        val view = TerminalView(activity)
+        val ctrlShift = KeyEvent.META_CTRL_ON or KeyEvent.META_SHIFT_ON
+        fun key(code: Int, meta: Int) = KeyEvent(0L, 0L, KeyEvent.ACTION_DOWN, code, 0, meta)
+        assertTrue(view.onKeyDown(V, key(V, ctrlShift)))
+        view.selectAllText()
+        assertTrue(view.onKeyDown(C, key(C, ctrlShift)))
+        assertFalse("Ctrl+Shift+C copies the selection and leaves it", view.isSelecting)
+        view.selectAllText()
+        assertTrue(view.onKeyDown(INS, key(INS, KeyEvent.META_CTRL_ON)))
+        assertFalse("Ctrl+Insert copies the selection and leaves it", view.isSelecting)
+    }
+
+    @Test
     fun deleteOverASelectionTakesTheSelectionAway() {
         val view = TerminalView(activity)
         val ic = view.onCreateInputConnection(EditorInfo())

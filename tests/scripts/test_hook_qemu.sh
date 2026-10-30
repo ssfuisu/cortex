@@ -192,6 +192,40 @@ EOC
 out=$(run "$work/plain_child")
 check "other descriptors are closed as asked" bash -c "[[ '$out' == *'after close(): closed' ]]"
 
+# dpkg makes each new directory with mode 0 and sets its mode a moment later. The hook hides a failing
+# chmod (the app owns few of the files it is asked to change), so when that one failed the directory
+# stayed at 0 and nothing could be put in it: "Permission denied" in /usr/share/applications and the
+# other directories an installation made (#44). The app is root for the program, and root can enter
+# every directory, so a new directory always keeps its owner's rights.
+prog mkdir_zero <<'EOC'
+#define _GNU_SOURCE
+#include <fcntl.h>
+#include <stdio.h>
+#include <sys/stat.h>
+int main(int argc, char **argv) {
+    struct stat st;
+    char inside[256];
+    if (mkdir(argv[1], 0) != 0) { perror("mkdir"); return 1; }
+    stat(argv[1], &st);
+    printf("mkdir %o", st.st_mode & 07777);
+    if (mkdirat(AT_FDCWD, argv[2], 0) != 0) { perror("mkdirat"); return 1; }
+    stat(argv[2], &st);
+    printf(" mkdirat %o", st.st_mode & 07777);
+    if (mkdir(argv[3], 0555) != 0) { perror("mkdir"); return 1; }
+    stat(argv[3], &st);
+    printf(" readonly %o", st.st_mode & 07777);
+    snprintf(inside, sizeof(inside), "%s/inside", argv[1]);
+    int fd = open(inside, O_CREAT | O_WRONLY, 0644);
+    printf(" inside %s\n", fd >= 0 ? "made" : "denied");
+    return 0;
+}
+EOC
+mkdir -p "$work/mkdir-test"
+out=$(cd "$work/mkdir-test" && run "$work/mkdir_zero" zero-dir zero-at ro-dir)
+check "a directory made with mode 0 keeps its owner's rights, a read-only one stays readable and enterable" \
+  test "$out" = "mkdir 700 mkdirat 700 readonly 755 inside made"
+[ "$out" = "mkdir 700 mkdirat 700 readonly 755 inside made" ] || echo "        got: $out"
+
 echo
 echo "$passed passed, $failed failed"
 [ "$failed" = 0 ]

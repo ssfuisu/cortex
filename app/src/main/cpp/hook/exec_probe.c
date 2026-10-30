@@ -248,6 +248,43 @@ static int elf_interp_in_buffer(const unsigned char *ehdr, ssize_t n) {
     return 0;
 }
 
+// Whether the interpreter of a 64-bit ELF is Android's own linker (/system/bin/linker64). A Go
+// program built with GOOS=android is a PIE that asks for it, so it has a PT_INTERP and looks like a
+// dynamic program, but it has no C library and makes its own system calls like every Go program
+// (#42). `h` holds the `n` first bytes of the file; the program headers usually are among them.
+static int elf_interp_is_android(int fd, const unsigned char *h, ssize_t n) {
+    if (n < 64 || h[4] != 2) return 0;
+    uint64_t phoff = 0;
+    uint16_t phentsize = 0, phnum = 0;
+    memcpy(&phoff, h + 32, sizeof(phoff));
+    memcpy(&phentsize, h + 54, sizeof(phentsize));
+    memcpy(&phnum, h + 56, sizeof(phnum));
+    if (phoff == 0 || phoff > (1ULL << 40) || phentsize < 56 || phentsize > 4096 || phnum == 0) return 0;
+    for (int i = 0; i < phnum && i < 128; i++) {
+        unsigned char e[56];
+        uint64_t off = phoff + (uint64_t)i * phentsize;
+        if (off + sizeof(e) <= (uint64_t)n) {
+            memcpy(e, h + off, sizeof(e));
+        } else if (pread(fd, e, sizeof(e), (off_t)off) != (ssize_t)sizeof(e)) {
+            return 0;
+        }
+        uint32_t p_type = 0;
+        memcpy(&p_type, e, sizeof(p_type));
+        if (p_type != 3 /* PT_INTERP */) continue;
+        uint64_t p_offset = 0, p_filesz = 0;
+        memcpy(&p_offset, e + 8, sizeof(p_offset));
+        memcpy(&p_filesz, e + 32, sizeof(p_filesz));
+        char interp[48];
+        size_t want = p_filesz < sizeof(interp) - 1 ? (size_t)p_filesz : sizeof(interp) - 1;
+        if (want == 0 || p_offset > (1ULL << 40)) return 0;
+        ssize_t got = pread(fd, interp, want, (off_t)p_offset);
+        if (got <= 0) return 0;
+        interp[got] = '\0';
+        return strncmp(interp, "/system/bin/linker", 18) == 0;
+    }
+    return 0;
+}
+
 // The kernel follows at most four nested "#!" interpreters, then fails with ELOOP.
 #define CORTEX_MAX_SHEBANG_DEPTH 4
 
@@ -258,6 +295,7 @@ struct exec_probe {
     ssize_t n;          // bytes read; -1 when the file could not be opened
     int is_elf;
     int is_dynamic;     // ELF with PT_INTERP: has to be started through ld.so
+    int android_interp; // AArch64 ELF whose PT_INTERP is Android's linker (a Go program for GOOS=android)
     uint16_t e_machine;
     mode_t mode;        // st_mode, filled in for dynamic ELF files only
 };
@@ -267,6 +305,7 @@ static void probe_exec_file(const char *path, struct exec_probe *p) {
     p->n = -1;
     p->is_elf = 0;
     p->is_dynamic = 0;
+    p->android_interp = 0;
     p->e_machine = 0;
     p->mode = 0;
     if (!path || path[0] == '\0') return;
@@ -282,6 +321,7 @@ static void probe_exec_file(const char *path, struct exec_probe *p) {
         int dynamic = elf_interp_in_buffer(h, n);
         if (dynamic < 0) dynamic = check_elf_dynamic(fd, h, n);
         p->is_dynamic = dynamic;
+        if (dynamic && p->e_machine == 183 /* EM_AARCH64 */) p->android_interp = elf_interp_is_android(fd, h, n);
         struct stat st;
         if (dynamic && fstat(fd, &st) == 0) p->mode = st.st_mode;
     }

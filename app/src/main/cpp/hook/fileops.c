@@ -147,13 +147,20 @@ int rmdir(const char *pathname) {
     return orig_rmdir(target);
 }
 
+// The app is root for the programs it runs, and root enters and writes every directory whatever its
+// mode; the app does not. dpkg makes each new directory with mode 0 and sets the mode a moment later,
+// and a chmod that fails is reported as done (see chmod), which left directories nobody could put a
+// file in: "Permission denied" in /usr/share/applications and others (#44). So a directory always
+// keeps its owner's read, write and search rights.
+#define NEW_DIR_OWNER_RIGHTS S_IRWXU
+
 // Hook mkdir
 int mkdir(const char *pathname, mode_t mode) {
     static int (*orig_mkdir)(const char *, mode_t) = NULL;
     if (!orig_mkdir) orig_mkdir = (int (*)(const char *, mode_t))dlsym(RTLD_NEXT, "mkdir");
     char buf[PATH_MAX];
     const char *target = rewrite_path(pathname, buf, sizeof(buf));
-    return orig_mkdir(target, mode);
+    return orig_mkdir(target, mode | NEW_DIR_OWNER_RIGHTS);
 }
 
 // Hook mkdirat
@@ -162,7 +169,7 @@ int mkdirat(int dirfd, const char *pathname, mode_t mode) {
     if (!orig_mkdirat) orig_mkdirat = (int (*)(int, const char *, mode_t))dlsym(RTLD_NEXT, "mkdirat");
     char buf[PATH_MAX];
     const char *target = (pathname && pathname[0] == '/') ? rewrite_path(pathname, buf, sizeof(buf)) : pathname;
-    return orig_mkdirat(dirfd, target, mode);
+    return orig_mkdirat(dirfd, target, mode | NEW_DIR_OWNER_RIGHTS);
 }
 
 static void ensure_dir_exists(const char *path) {

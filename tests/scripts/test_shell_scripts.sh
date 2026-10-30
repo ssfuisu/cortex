@@ -413,6 +413,32 @@ printf 'yank\n' | CORTEX_API_CONF="$API_CONF" PATH="$API_DIR/bin:$PATH" termux-c
 OUT="$(CORTEX_API_CONF="$API_CONF" PATH="$API_DIR/bin:$PATH" termux-clipboard-get </dev/null)"
 [ "$OUT" = "ok clipboard-get" ] && [ "$(last command)" = '"clipboard-get"' ] \
     && pass "termux-clipboard-get prints the clipboard through cortex-api" || fail "termux-clipboard-get: '$OUT' $(last command)"
+
+# An app that does not answer must not leave the program that asked (micro waits for the clipboard
+# before it draws anything, #43) waiting: the call ends after CORTEX_API_TIMEOUT, and the calls that
+# follow fail at once for a few seconds
+mkdir -p "$API_DIR/tmp"
+clip() { CORTEX_API_CONF="$API_CONF" PATH="$API_DIR/bin:$PATH" TMPDIR="$API_DIR/tmp" CORTEX_API_TIMEOUT=1 "$@"; }
+: > "$API_CONF.hang"
+START=$(date +%s.%N)
+ERR="$(clip termux-clipboard-get 2>&1 >/dev/null </dev/null)"; STATUS=$?
+TOOK=$(python3 -I -c 'import sys; print(round(float(sys.argv[2]) - float(sys.argv[1]), 1))' "$START" "$(date +%s.%N)")
+[ "$STATUS" = 1 ] && echo "$ERR" | grep -q "did not answer in 1 seconds" && python3 -I -c 'import sys; sys.exit(0 if float(sys.argv[1]) < 4 else 1)' "$TOOK" \
+    && pass "termux-clipboard-get gives up when Cortex does not answer ($TOOK s)" || fail "termux-clipboard-get against a silent app: status $STATUS after $TOOK s: '$ERR'"
+START=$(date +%s.%N)
+ERR="$(clip termux-clipboard-get 2>&1 >/dev/null </dev/null)"; STATUS=$?
+TOOK=$(python3 -I -c 'import sys; print(round(float(sys.argv[2]) - float(sys.argv[1]), 1))' "$START" "$(date +%s.%N)")
+[ "$STATUS" = 1 ] && echo "$ERR" | grep -q "a moment ago" && python3 -I -c 'import sys; sys.exit(0 if float(sys.argv[1]) < 0.9 else 1)' "$TOOK" \
+    && pass "the next call fails at once ($TOOK s)" || fail "the call after a timeout: status $STATUS after $TOOK s: '$ERR'"
+ERR="$(printf 'x' | clip termux-clipboard-set 2>&1 >/dev/null)"; STATUS=$?
+[ "$STATUS" = 1 ] && echo "$ERR" | grep -q "a moment ago" && pass "termux-clipboard-set fails at once as well" || fail "termux-clipboard-set after a timeout: status $STATUS '$ERR'"
+echo $(($(date +%s) - 100)) > "$API_DIR/tmp/.cortex-clipboard-down"
+rm -f "$API_CONF.hang"
+OUT="$(clip termux-clipboard-get </dev/null)"; STATUS=$?
+[ "$STATUS" = 0 ] && [ "$OUT" = "ok clipboard-get" ] && pass "an old failure is forgotten: the clipboard works again" || fail "after the failure was old: status $STATUS '$OUT'"
+echo "garbage" > "$API_DIR/tmp/.cortex-clipboard-down"
+OUT="$(clip termux-clipboard-get </dev/null)"; STATUS=$?
+[ "$STATUS" = 0 ] && [ "$OUT" = "ok clipboard-get" ] && pass "a damaged note of a failure is ignored" || fail "damaged note: status $STATUS '$OUT'"
 kill "$API_PID" 2>/dev/null; wait "$API_PID" 2>/dev/null
 
 echo "=== 3c. Testing apt-autoupdate.sh (apt and apt-get without package lists) ==="

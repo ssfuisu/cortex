@@ -4,6 +4,48 @@ What changed in each version of Cortex Terminal, newest first. The release workf
 of a GitHub release from the section of its version here. Older versions are described on the
 [GitHub releases](https://github.com/ssfuisu/cortex/releases) page.
 
+## 1.26.46 (2026-10-30)
+
+### Added
+
+- **Copy and paste shortcuts of a hardware keyboard (#41).** Ctrl+Shift+V, Ctrl+Alt+V (Termux's) and
+  Shift+Insert paste; Ctrl+Shift+C and Ctrl+Insert copy the selection. Without a selection, Ctrl+Shift+C
+  is still the Ctrl+C that interrupts a program. Ctrl+V alone stays with the program (the shell's quoted
+  insert, vim's block selection).
+
+### Fixed
+
+- **A Go program built for Android could not start other programs (#42).** `GOOS=android go build`
+  makes a position-independent file that asks for Android's own linker, so Cortex took it for a
+  dynamic program and started it through Ubuntu's loader without the change it gives Go programs. It
+  made its own system calls with Android's paths, and `gh repo clone` failed with "fork/exec ...git: no
+  such file or directory" (the kernel looked for git's interpreter in Android's files). Such a program
+  now gets the change as any Go program does, from `execve()` and from `posix_spawn()`.
+- **micro hung at start-up (#43).** micro asks for the clipboard before it draws anything and waits for
+  the answer; when Cortex did not answer, it waited for as long as the call took (up to the ten seconds
+  the app gives a request), more than once. `termux-clipboard-get` and `termux-clipboard-set` now give
+  up after two seconds (`CORTEX_API_TIMEOUT`), the calls that follow fail at once for ten seconds, and
+  the app itself stops waiting for the clipboard after three.
+- **"Permission denied" in directories that `dpkg` had made (#44).** `dpkg` makes a directory with
+  mode 0 and sets the mode a moment later; when that change did not take (the library reports a
+  `chmod` that fails as done), the directory stayed at 0 and no file could be put in it. A new directory
+  now keeps its owner's read, write and search rights, as it would for the root that programs see. Directories
+  left at mode 0 by an earlier version are repaired with
+  `find /usr /var /etc /opt -xdev -type d ! -perm -u=rwx -exec chmod u+rwx {} \;`.
+
+### Documentation
+
+- The README says what `pip install` answers with `externally-managed-environment` (Ubuntu's own rule,
+  PEP 668) and how to install Python packages, and that `ss` and `/proc/net/tcp` are closed to apps by
+  Android.
+
+### For developers
+
+- `tests/scripts/test_go_programs.sh` builds the test program for `GOOS=android` too and checks that
+  bash and `posix_spawn()` start it so that it sees Ubuntu's files and starts Ubuntu's programs.
+- `tests/scripts/test_shell_scripts.sh` has the clipboard commands talk to a stand-in app that does not
+  answer; `tests/scripts/test_hook_qemu.sh` checks the mode of new directories.
+
 ## 1.26.45 (2026-10-28)
 
 ### Fixed
