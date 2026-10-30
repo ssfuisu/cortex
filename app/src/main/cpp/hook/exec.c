@@ -219,6 +219,9 @@ static int cortex_execve(const char *filename, char *const argv[], char *const e
         struct exec_probe probe;
         const char *elf_target = select_exec_target(target, resolved_target, sizeof(resolved_target), &probe);
         if (probe.is_elf && !probe.is_dynamic) static_elf = elf_target;
+        // A Go program built for Android asks for Android's linker, so it is started like the dynamic
+        // ones, but it makes its own system calls: it gets the code of the static Go programs (#42)
+        if (probe.is_dynamic && probe.android_interp) prepare_static_program_ex(elf_target, 1);
 
         // 1. Transparently route dynamically linked glibc ELF binaries through ld.so
         // Note: Statically linked binaries (PT_INTERP absent, e.g. Meta Muse Code) must execute directly!
@@ -618,6 +621,7 @@ static int cortex_posix_spawn(pid_t *pid, const char *path,
         probe.n = -1;
         probe.is_elf = 0;
         probe.is_dynamic = 0;
+        probe.android_interp = 0;
         probe.e_machine = 0;
         probe.mode = 0;
     }
@@ -633,6 +637,7 @@ static int cortex_posix_spawn(pid_t *pid, const char *path,
     int ret = -1;
     if (has_ld_so && strcmp(elf_target, ld_so) != 0) {
         ensure_exec_bit(elf_target, probe.mode);
+        if (probe.android_interp) prepare_static_program_ex(elf_target, 1); // a Go program built for Android (#42)
 
         char hook_buf[PATH_MAX];
         const char *hook_so = cortex_hook_library(hook_buf, sizeof(hook_buf));

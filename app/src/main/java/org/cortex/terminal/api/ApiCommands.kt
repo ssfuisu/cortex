@@ -94,11 +94,17 @@ object ApiCommands {
         if (Looper.myLooper() == Looper.getMainLooper()) return block()
         val result = AtomicReference<Result<T>>()
         val latch = CountDownLatch(1)
-        main.post {
+        val task = Runnable {
             result.set(runCatching(block))
             latch.countDown()
         }
-        if (!latch.await(timeoutSeconds, TimeUnit.SECONDS)) throw IllegalStateException("timed out")
+        main.post(task)
+        if (!latch.await(timeoutSeconds, TimeUnit.SECONDS)) {
+            // The caller is told it failed, so a block that has not started must not run later (a
+            // clipboard that changes after "clipboard-set failed")
+            main.removeCallbacks(task)
+            throw IllegalStateException("timed out")
+        }
         return result.get().getOrThrow()
     }
 
@@ -244,8 +250,13 @@ object ApiCommands {
     private fun clipboard(context: Context): ClipboardManager =
         context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
 
+    // Programs ask for the clipboard as they start (micro waits for it before it draws), and the shim
+    // they call gives up after two seconds (termux-clipboard.sh), so a clipboard that does not answer
+    // does not hold one of the four workers for the ten seconds of any other call.
+    private const val CLIPBOARD_WAIT_SECONDS = 3L
+
     private fun clipboardGet(context: Context): ApiResult {
-        val text = onMain {
+        val text = onMain(CLIPBOARD_WAIT_SECONDS) {
             val clip = clipboard(context).primaryClip
             if (clip == null || clip.itemCount == 0) null else clip.getItemAt(0).coerceToText(context)?.toString()
         }
@@ -257,7 +268,7 @@ object ApiCommands {
 
     private fun clipboardSet(context: Context, req: ApiRequest): ApiResult {
         val text = text(req, ApiArgs.parse(req.args))
-        onMain { clipboard(context).setPrimaryClip(ClipData.newPlainText("Cortex", text)) }
+        onMain(CLIPBOARD_WAIT_SECONDS) { clipboard(context).setPrimaryClip(ClipData.newPlainText("Cortex", text)) }
         return ok()
     }
 

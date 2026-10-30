@@ -88,6 +88,12 @@ build_go() { # output, then the toolchain ("" for the installed one) and extra g
   (cd "$here/tests/go/gotest" && GOTOOLCHAIN=${tc:+go$tc} GOFLAGS=-mod=mod CGO_ENABLED=0 GOOS=linux GOARCH=arm64 \
     go build -trimpath "$@" -o "$out" .)
 }
+build_go_for() { # GOOS, output, then the toolchain and extra go build flags
+  local os=$1 out=$2 tc=$3
+  shift 3
+  (cd "$here/tests/go/gotest" && GOTOOLCHAIN=${tc:+go$tc} GOFLAGS=-mod=mod CGO_ENABLED=0 GOOS=$os GOARCH=arm64 \
+    go build -trimpath "$@" -o "$out" .)
+}
 build_go "$work/gotest" "" -ldflags "-s -w" || { echo "the Go program did not build"; exit 1; }
 build_go "$work/gotest-symbols" "" || { echo "the Go program did not build"; exit 1; }
 
@@ -226,6 +232,53 @@ check "the hook patched the file" test "$(hash_of "$root/usr/bin/gotest")" != "$
 once=$(hash_of "$root/usr/bin/gotest")
 via_hook "/usr/bin/gotest" >/dev/null
 check "starting it again does not change it" test "$(hash_of "$root/usr/bin/gotest")" = "$once"
+
+echo "== a Go program built for Android (GOOS=android)"
+# Its file is a PIE that asks for Android's own linker (/system/bin/linker64), so it looks like a
+# dynamic program to the kernel and to the hook, though it has no C library and makes its own system
+# calls as every Go program does. It has to get the code like the static ones (#42: `gh` built this
+# way could not start `git`: the kernel looked for git's interpreter in Android's files).
+if ! go tool dist list 2>/dev/null | grep -qx android/arm64; then
+  echo "  skip  GOOS=android (this Go toolchain has no android/arm64)"
+elif build_go_for android "$work/gotest-android" "" -ldflags "-s -w" 2>"$work/android-build.err"; then
+  check "the program asks for Android's linker, and is a PIE" bash -c "readelf -lh '$work/gotest-android' | grep -q 'interpreter: /system/bin/linker64' && readelf -h '$work/gotest-android' | grep -q 'Type:.*DYN'"
+  cp "$work/gotest-android" "$root/usr/bin/gotest-android"
+  before=$(hash_of "$root/usr/bin/gotest-android")
+  via_hook "/usr/bin/gotest-android" | same_as_expected > "$work/diff.out" 2>&1
+  check "bash starts it and it sees the file system and starts its programs" test ! -s "$work/diff.out"
+  [ -s "$work/diff.out" ] && sed 's/^/        /' "$work/diff.out" | head -30
+  check "the hook patched the file" test "$(hash_of "$root/usr/bin/gotest-android")" != "$before"
+  once=$(hash_of "$root/usr/bin/gotest-android")
+  via_hook "/usr/bin/gotest-android" >/dev/null
+  check "starting it again does not change it" test "$(hash_of "$root/usr/bin/gotest-android")" = "$once"
+  CORTEX_NO_GOSYS=1 "$work/gopatch" "$root" "$root/usr/bin/gotest-android" >/dev/null
+  check "CORTEX_NO_GOSYS takes the code out again, exactly" test "$(hash_of "$root/usr/bin/gotest-android")" = "$before"
+  # posix_spawn() is the other way a program starts another (system(), popen(), Python's subprocess)
+  cat > "$work/spawner.c" <<'EOF'
+#include <spawn.h>
+#include <stdio.h>
+#include <sys/wait.h>
+extern char **environ;
+int main(int argc, char **argv) {
+    pid_t pid;
+    int rc = posix_spawn(&pid, argv[1], NULL, NULL, argv + 1, environ);
+    if (rc) { printf("spawn failed: %d\n", rc); return 1; }
+    int st = 0;
+    waitpid(pid, &st, 0);
+    return WIFEXITED(st) ? WEXITSTATUS(st) : 1;
+}
+EOF
+  aarch64-linux-gnu-gcc -O2 -o "$root/usr/bin/spawner" "$work/spawner.c"
+  cp "$work/gotest-android" "$root/usr/bin/gotest-android2"
+  before=$(hash_of "$root/usr/bin/gotest-android2")
+  via_hook "/usr/bin/spawner /usr/bin/gotest-android2" | same_as_expected > "$work/diff.out" 2>&1
+  check "posix_spawn starts it and it sees the file system and starts its programs" test ! -s "$work/diff.out"
+  [ -s "$work/diff.out" ] && sed 's/^/        /' "$work/diff.out" | head -30
+  check "and the hook patched the file" test "$(hash_of "$root/usr/bin/gotest-android2")" != "$before"
+else
+  bad "the test program builds for GOOS=android"
+  sed 's/^/        /' "$work/android-build.err" | head -10
+fi
 
 echo "== a newer Cortex replaces the code of an older one"
 cp "$work/gotest" "$work/upgraded"

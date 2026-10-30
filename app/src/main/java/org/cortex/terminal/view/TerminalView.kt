@@ -2013,6 +2013,20 @@ class TerminalView @JvmOverloads constructor(
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        // The shortcuts of a hardware keyboard (#41). Paste is always taken: the terminal would send
+        // the program the control character of Ctrl+V. Copy only with a selection: without one, the
+        // keys go on as they did. A held key repeats: it is done once, and the repeats are taken too.
+        when (clipboardShortcut(keyCode, event.isCtrlPressed, event.isShiftPressed, event.isAltPressed)) {
+            ClipboardShortcut.PASTE -> {
+                if (event.repeatCount == 0) pasteFromClipboard()
+                return true
+            }
+            ClipboardShortcut.COPY -> if (isSelecting || event.repeatCount > 0) {
+                if (event.repeatCount == 0) copySelectionToClipboard()
+                return true
+            }
+            null -> {}
+        }
         // The keys of a keyboard's clipboard buttons, and delete over a selection
         when (keyCode) {
             KeyEvent.KEYCODE_PASTE -> {
@@ -2089,6 +2103,21 @@ internal fun selectionBackground(dark: Boolean, background: Int, accent: Int): I
 
 /** What clears the command line: End, then the kill of the line (the tty's and readline's Ctrl+U). */
 private const val CLEAR_LINE = "\u0005\u0015"
+
+internal enum class ClipboardShortcut { PASTE, COPY }
+
+/**
+ * The clipboard shortcuts of a hardware keyboard, those of other terminal emulators: Ctrl+Shift+V,
+ * Ctrl+Alt+V (Termux's) and Shift+Insert paste; Ctrl+Shift+C and Ctrl+Insert copy. Ctrl+V alone is
+ * not one: it is the program's (the shell's quoted insert, the block selection of vim).
+ */
+internal fun clipboardShortcut(keyCode: Int, ctrl: Boolean, shift: Boolean, alt: Boolean): ClipboardShortcut? = when {
+    keyCode == KeyEvent.KEYCODE_V && ctrl && (shift || alt) -> ClipboardShortcut.PASTE
+    keyCode == KeyEvent.KEYCODE_INSERT && shift && !ctrl && !alt -> ClipboardShortcut.PASTE
+    keyCode == KeyEvent.KEYCODE_C && ctrl && shift && !alt -> ClipboardShortcut.COPY
+    keyCode == KeyEvent.KEYCODE_INSERT && ctrl && !shift && !alt -> ClipboardShortcut.COPY
+    else -> null
+}
 
 /**
  * Whether the cell ([row], [col]) is in the selection [norm]: its first row and column, then its last
