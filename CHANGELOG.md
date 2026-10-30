@@ -9,9 +9,9 @@ of a GitHub release from the section of its version here. Older versions are des
 ### Added
 
 - **Copy and paste shortcuts of a hardware keyboard (#41).** Ctrl+Shift+V, Ctrl+Alt+V (Termux's) and
-  Shift+Insert paste; Ctrl+Shift+C and Ctrl+Insert copy the selection. Without a selection, Ctrl+Shift+C
-  is still the Ctrl+C that interrupts a program. Ctrl+V alone stays with the program (the shell's quoted
-  insert, vim's block selection).
+  Shift+Insert paste; Ctrl+Shift+C and Ctrl+Insert copy the selection (without a selection they are not
+  taken: the program gets the keys as before). A held key pastes once. Ctrl+V alone stays with the
+  program (the shell's quoted insert, vim's block selection).
 
 ### Fixed
 

@@ -13,7 +13,9 @@ down=${TMPDIR:-/tmp}/.cortex-clipboard-down
 if [ -s "$down" ]; then
     since=$(cat "$down" 2>/dev/null)
     case $since in '' | *[!0-9]*) since=0 ;; esac
-    if [ $(($(date +%s) - since)) -lt 10 ]; then
+    age=$(($(date +%s) - since))
+    # (A note from the future, written before the clock was set back, is an old one)
+    if [ "$age" -ge 0 ] && [ "$age" -lt 10 ]; then
         echo "$name: Cortex did not answer a moment ago (the app has to be on screen)" >&2
         exit 1
     fi

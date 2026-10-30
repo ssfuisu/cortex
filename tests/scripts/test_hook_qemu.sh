@@ -7,6 +7,7 @@
 # Needs aarch64-linux-gnu-gcc (with its libraries in /usr/aarch64-linux-gnu) and qemu-aarch64. Without
 # them the test says so and passes, unless CORTEX_REQUIRE_QEMU_TESTS=1.
 set -u
+umask 022 # the modes the tests expect are those of the usual umask
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 skip() {
   echo "skip: $1"

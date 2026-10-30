@@ -238,7 +238,9 @@ echo "== a Go program built for Android (GOOS=android)"
 # dynamic program to the kernel and to the hook, though it has no C library and makes its own system
 # calls as every Go program does. It has to get the code like the static ones (#42: `gh` built this
 # way could not start `git`: the kernel looked for git's interpreter in Android's files).
-if build_go_for android "$work/gotest-android" "" -ldflags "-s -w" 2>/dev/null; then
+if ! go tool dist list 2>/dev/null | grep -qx android/arm64; then
+  echo "  skip  GOOS=android (this Go toolchain has no android/arm64)"
+elif build_go_for android "$work/gotest-android" "" -ldflags "-s -w" 2>"$work/android-build.err"; then
   check "the program asks for Android's linker, and is a PIE" bash -c "readelf -lh '$work/gotest-android' | grep -q 'interpreter: /system/bin/linker64' && readelf -h '$work/gotest-android' | grep -q 'Type:.*DYN'"
   cp "$work/gotest-android" "$root/usr/bin/gotest-android"
   before=$(hash_of "$root/usr/bin/gotest-android")
@@ -274,7 +276,8 @@ EOF
   [ -s "$work/diff.out" ] && sed 's/^/        /' "$work/diff.out" | head -30
   check "and the hook patched the file" test "$(hash_of "$root/usr/bin/gotest-android2")" != "$before"
 else
-  echo "  skip  GOOS=android (toolchain cannot build it)"
+  bad "the test program builds for GOOS=android"
+  sed 's/^/        /' "$work/android-build.err" | head -10
 fi
 
 echo "== a newer Cortex replaces the code of an older one"

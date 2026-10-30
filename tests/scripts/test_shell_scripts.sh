@@ -436,6 +436,9 @@ echo $(($(date +%s) - 100)) > "$API_DIR/tmp/.cortex-clipboard-down"
 rm -f "$API_CONF.hang"
 OUT="$(clip termux-clipboard-get </dev/null)"; STATUS=$?
 [ "$STATUS" = 0 ] && [ "$OUT" = "ok clipboard-get" ] && pass "an old failure is forgotten: the clipboard works again" || fail "after the failure was old: status $STATUS '$OUT'"
+echo $(($(date +%s) + 3600)) > "$API_DIR/tmp/.cortex-clipboard-down"
+OUT="$(clip termux-clipboard-get </dev/null)"; STATUS=$?
+[ "$STATUS" = 0 ] && [ "$OUT" = "ok clipboard-get" ] && pass "a note of a failure from the future (the clock was set back) is ignored" || fail "future note: status $STATUS '$OUT'"
 echo "garbage" > "$API_DIR/tmp/.cortex-clipboard-down"
 OUT="$(clip termux-clipboard-get </dev/null)"; STATUS=$?
 [ "$STATUS" = 0 ] && [ "$OUT" = "ok clipboard-get" ] && pass "a damaged note of a failure is ignored" || fail "damaged note: status $STATUS '$OUT'"

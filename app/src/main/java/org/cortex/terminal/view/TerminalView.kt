@@ -2015,14 +2015,14 @@ class TerminalView @JvmOverloads constructor(
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         // The shortcuts of a hardware keyboard (#41). Paste is always taken: the terminal would send
         // the program the control character of Ctrl+V. Copy only with a selection: without one, the
-        // keys are the program's (Ctrl+Shift+C reaches it as the Ctrl+C that interrupts).
+        // keys go on as they did. A held key repeats: it is done once, and the repeats are taken too.
         when (clipboardShortcut(keyCode, event.isCtrlPressed, event.isShiftPressed, event.isAltPressed)) {
             ClipboardShortcut.PASTE -> {
-                pasteFromClipboard()
+                if (event.repeatCount == 0) pasteFromClipboard()
                 return true
             }
-            ClipboardShortcut.COPY -> if (isSelecting) {
-                copySelectionToClipboard()
+            ClipboardShortcut.COPY -> if (isSelecting || event.repeatCount > 0) {
+                if (event.repeatCount == 0) copySelectionToClipboard()
                 return true
             }
             null -> {}

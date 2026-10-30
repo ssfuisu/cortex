@@ -94,11 +94,17 @@ object ApiCommands {
         if (Looper.myLooper() == Looper.getMainLooper()) return block()
         val result = AtomicReference<Result<T>>()
         val latch = CountDownLatch(1)
-        main.post {
+        val task = Runnable {
             result.set(runCatching(block))
             latch.countDown()
         }
-        if (!latch.await(timeoutSeconds, TimeUnit.SECONDS)) throw IllegalStateException("timed out")
+        main.post(task)
+        if (!latch.await(timeoutSeconds, TimeUnit.SECONDS)) {
+            // The caller is told it failed, so a block that has not started must not run later (a
+            // clipboard that changes after "clipboard-set failed")
+            main.removeCallbacks(task)
+            throw IllegalStateException("timed out")
+        }
         return result.get().getOrThrow()
     }
 

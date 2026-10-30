@@ -286,6 +286,12 @@ class ChromeViewsTest {
         view.selectAllText()
         assertTrue(view.onKeyDown(INS, key(INS, KeyEvent.META_CTRL_ON)))
         assertFalse("Ctrl+Insert copies the selection and leaves it", view.isSelecting)
+        // A held key repeats: the repeats are taken, and do not copy or paste again
+        val repeat = KeyEvent(0L, 0L, KeyEvent.ACTION_DOWN, V, 1, ctrlShift)
+        assertTrue(view.onKeyDown(V, repeat))
+        view.selectAllText()
+        assertTrue(view.onKeyDown(C, KeyEvent(0L, 0L, KeyEvent.ACTION_DOWN, C, 1, ctrlShift)))
+        assertTrue("a repeat of the copy key does not copy", view.isSelecting)
     }
 
     @Test
