@@ -116,7 +116,11 @@ int unlink(const char *pathname) {
     ino_t hl_ino = 0;
     int hardlinked = lookup_emulated_hardlink_at(AT_FDCWD, target, &hl_dev, &hl_ino);
     int ret = orig_unlink(target);
-    if (ret != 0 && refused_in_repaired_dir(AT_FDCWD, target)) ret = orig_unlink(target);
+    if (ret != 0 && refused_in_repaired_dir(AT_FDCWD, target)) {
+        // The name could not be looked up while its directory was closed
+        hardlinked = lookup_emulated_hardlink_at(AT_FDCWD, target, &hl_dev, &hl_ino);
+        ret = orig_unlink(target);
+    }
     if (ret == 0 && hardlinked) unregister_emulated_hardlink(hl_dev, hl_ino);
     return ret;
 }
@@ -135,7 +139,10 @@ int unlinkat(int dirfd, const char *pathname, int flags) {
         hardlinked = lookup_emulated_hardlink_at(dirfd, target, &hl_dev, &hl_ino);
     }
     int ret = orig_unlinkat ? orig_unlinkat(dirfd, target, flags) : -1;
-    if (ret != 0 && orig_unlinkat && refused_in_repaired_dir(dirfd, target)) ret = orig_unlinkat(dirfd, target, flags);
+    if (ret != 0 && orig_unlinkat && refused_in_repaired_dir(dirfd, target)) {
+        hardlinked = target ? lookup_emulated_hardlink_at(dirfd, target, &hl_dev, &hl_ino) : 0;
+        ret = orig_unlinkat(dirfd, target, flags);
+    }
     if (ret == 0 && hardlinked) unregister_emulated_hardlink(hl_dev, hl_ino);
     return ret;
 }
@@ -222,9 +229,14 @@ int rename(const char *oldpath, const char *newpath) {
     int ret = orig_rename(target_old, target_new);
     if (ret != 0 && errno == EACCES) {
         // Both directories: the old name is taken out of one, the new put in the other
+        int refused = errno;
         int fixed_old = refused_in_repaired_dir(AT_FDCWD, target_old);
+        errno = refused;
         int fixed_new = refused_in_repaired_dir(AT_FDCWD, target_new);
-        if (fixed_old || fixed_new) ret = orig_rename(target_old, target_new);
+        if (fixed_old || fixed_new) {
+            hardlinked = lookup_emulated_hardlink_at(AT_FDCWD, target_new, &hl_dev, &hl_ino);
+            ret = orig_rename(target_old, target_new);
+        }
     }
     if (ret == 0 && hardlinked) unregister_emulated_hardlink(hl_dev, hl_ino);
     return ret;
@@ -243,9 +255,14 @@ int renameat(int olddirfd, const char *oldpath, int newdirfd, const char *newpat
     int hardlinked = lookup_emulated_hardlink_at(newdirfd, target_new, &hl_dev, &hl_ino);
     int ret = orig_renameat(olddirfd, target_old, newdirfd, target_new);
     if (ret != 0 && errno == EACCES) {
+        int refused = errno;
         int fixed_old = refused_in_repaired_dir(olddirfd, target_old);
+        errno = refused;
         int fixed_new = refused_in_repaired_dir(newdirfd, target_new);
-        if (fixed_old || fixed_new) ret = orig_renameat(olddirfd, target_old, newdirfd, target_new);
+        if (fixed_old || fixed_new) {
+            hardlinked = lookup_emulated_hardlink_at(newdirfd, target_new, &hl_dev, &hl_ino);
+            ret = orig_renameat(olddirfd, target_old, newdirfd, target_new);
+        }
     }
     if (ret == 0 && hardlinked) unregister_emulated_hardlink(hl_dev, hl_ino);
     return ret;
@@ -268,9 +285,14 @@ int renameat2(int olddirfd, const char *oldpath, int newdirfd, const char *newpa
     int hardlinked = !(flags & RENAME_EXCHANGE) && lookup_emulated_hardlink_at(newdirfd, target_new, &hl_dev, &hl_ino);
     int ret = orig_renameat2(olddirfd, target_old, newdirfd, target_new, flags);
     if (ret != 0 && errno == EACCES) {
+        int refused = errno;
         int fixed_old = refused_in_repaired_dir(olddirfd, target_old);
+        errno = refused;
         int fixed_new = refused_in_repaired_dir(newdirfd, target_new);
-        if (fixed_old || fixed_new) ret = orig_renameat2(olddirfd, target_old, newdirfd, target_new, flags);
+        if (fixed_old || fixed_new) {
+            hardlinked = !(flags & RENAME_EXCHANGE) && lookup_emulated_hardlink_at(newdirfd, target_new, &hl_dev, &hl_ino);
+            ret = orig_renameat2(olddirfd, target_old, newdirfd, target_new, flags);
+        }
     }
     if (ret == 0 && hardlinked) unregister_emulated_hardlink(hl_dev, hl_ino);
     return ret;
