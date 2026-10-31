@@ -4,6 +4,25 @@ What changed in each version of Cortex Terminal, newest first. The release workf
 of a GitHub release from the section of its version here. Older versions are described on the
 [GitHub releases](https://github.com/ssfuisu/cortex/releases) page.
 
+## 1.26.47 (2026-10-31)
+
+### Fixed
+
+- **A directory that has lost its owner's rights is repaired when a name is refused in it (#44).**
+  1.26.46 stopped `dpkg` from leaving new directories unusable (it makes a directory with mode 0 and
+  sets the mode a moment later), but the directories that an earlier version had left at mode 0 stayed
+  so, and `apt` still failed with "Permission denied" in them. When a call that makes or removes a name
+  (`open` with `O_CREAT`, `mkdir`, `symlink`, `link`, `rename`, `unlink`, `rmdir`) is refused in a
+  directory that is the app's own, Cortex's library now gives the directory its owner's read, write and
+  search rights and makes the call once more, as root would not have been refused. It also serves a
+  read-only directory that a package made. The repair by hand in the notes of 1.26.46 is no longer needed.
+
+### For developers
+
+- `tests/scripts/test_hook_qemu.sh` runs a program as the user `nobody` (the kernel never refuses root)
+  in directories at mode 0 and checks that each of the six calls works and that only the owner's
+  rights are added.
+
 ## 1.26.46 (2026-10-30)
 
 ### Added

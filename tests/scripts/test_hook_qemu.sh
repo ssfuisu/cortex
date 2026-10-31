@@ -227,6 +227,66 @@ check "a directory made with mode 0 keeps its owner's rights, a read-only one st
   test "$out" = "mkdir 700 mkdirat 700 readonly 755 inside made"
 [ "$out" = "mkdir 700 mkdirat 700 readonly 755 inside made" ] || echo "        got: $out"
 
+# Directories that an earlier version left at mode 0 (dpkg makes a directory with mode 0 and sets the
+# mode after; see above), or that a package made read-only, refuse every name, though the app is root
+# for the program and root would not be refused. When a call that makes or removes a name is refused in
+# a directory of the app's own that has lost its owner's rights, the rights are given back and the call
+# made once more (#44). Run as another user than root (root is never refused by the kernel).
+# (as root, or with passwordless sudo, as on the runners of GitHub: becoming another user needs one of them)
+priv=""
+[ "$(id -u)" = 0 ] || { sudo -n true >/dev/null 2>&1 && priv="sudo -n"; }
+if { [ "$(id -u)" = 0 ] || [ -n "$priv" ]; } && command -v setpriv >/dev/null 2>&1 && id nobody >/dev/null 2>&1; then
+  prog repair <<'EOC'
+#define _GNU_SOURCE
+#include <errno.h>
+#include <fcntl.h>
+#include <stdio.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <unistd.h>
+int main(int argc, char **argv) {
+    char p[512];
+    snprintf(p, sizeof(p), "%s/file", argv[1]);
+    int fd = open(p, O_CREAT | O_WRONLY, 0644);
+    printf("open %s;", fd >= 0 ? "ok" : strerror(errno));
+    if (fd >= 0) close(fd);
+    snprintf(p, sizeof(p), "%s/sub", argv[2]);
+    printf(" mkdir %s;", mkdir(p, 0755) == 0 ? "ok" : strerror(errno));
+    snprintf(p, sizeof(p), "%s/link", argv[3]);
+    printf(" symlink %s;", symlink("target", p) == 0 ? "ok" : strerror(errno));
+    snprintf(p, sizeof(p), "%s/moved", argv[4]);
+    printf(" rename %s;", rename(argv[5], p) == 0 ? "ok" : strerror(errno));
+    snprintf(p, sizeof(p), "%s/f", argv[6]);
+    printf(" unlink %s;", unlink(p) == 0 ? "ok" : strerror(errno));
+    snprintf(p, sizeof(p), "%s/sub", argv[7]);
+    printf(" rmdir %s\n", rmdir(p) == 0 ? "ok" : strerror(errno));
+    return 0;
+}
+EOC
+  chmod 755 "$work"
+  chmod -R a+rX "$work/root" "$work/hook.so" "$work/repair" 2>/dev/null
+  # In the rootfs's /tmp (the program names them /tmp/nb/..., as Ubuntu's programs do)
+  nb="$work/root/tmp/nb"
+  $priv install -d -o nobody -g nogroup -m 755 "$nb"
+  as_nobody() { $priv setpriv --reuid=65534 --regid=65534 --clear-groups "$@"; }
+  for d in d1 d2 d3 d4; do as_nobody mkdir -m 000 "$nb/$d"; done
+  as_nobody touch "$nb/src4"
+  as_nobody mkdir "$nb/d5" && as_nobody touch "$nb/d5/f" && as_nobody chmod 000 "$nb/d5"
+  as_nobody mkdir "$nb/d6" && as_nobody mkdir "$nb/d6/sub" && as_nobody chmod 000 "$nb/d6"
+  out=$(cd "$nb" && as_nobody env -i CORTEX_ROOT="$work/root" HOME=/tmp timeout 60 qemu-aarch64 "$cross/ld-linux-aarch64.so.1" \
+    --preload "$work/hook.so" --library-path "$cross" "$work/repair" /tmp/nb/d1 /tmp/nb/d2 /tmp/nb/d3 /tmp/nb/d4 /tmp/nb/src4 /tmp/nb/d5 /tmp/nb/d6 2>&1 | grep -v "cannot be preloaded")
+  expected="open ok; mkdir ok; symlink ok; rename ok; unlink ok; rmdir ok"
+  check "a directory without its owner's rights is given them when a name is refused in it" test "$out" = "$expected"
+  [ "$out" = "$expected" ] || echo "        got: $out"
+  modes=$(for d in d1 d2 d3 d4 d5 d6; do stat -c %a "$nb/$d"; done | tr '\n' ' ')
+  check "and it keeps no other change than the owner's rights (modes: $modes)" test "$modes" = "700 700 700 700 700 700 "
+  $priv rm -rf "$nb" # owned by nobody: the cleanup at the end could not remove it
+elif [ "${CORTEX_REQUIRE_QEMU_TESTS:-0}" = 1 ]; then
+  bad "the repair of directories needs root or passwordless sudo, setpriv and the user nobody (required by CORTEX_REQUIRE_QEMU_TESTS=1)"
+else
+  echo "  skip  the repair of directories (needs root or passwordless sudo, setpriv and the user nobody)"
+fi
+
 echo
 echo "$passed passed, $failed failed"
 [ "$failed" = 0 ]
