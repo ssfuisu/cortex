@@ -116,6 +116,7 @@ int unlink(const char *pathname) {
     ino_t hl_ino = 0;
     int hardlinked = lookup_emulated_hardlink_at(AT_FDCWD, target, &hl_dev, &hl_ino);
     int ret = orig_unlink(target);
+    if (ret != 0 && refused_in_repaired_dir(AT_FDCWD, target)) ret = orig_unlink(target);
     if (ret == 0 && hardlinked) unregister_emulated_hardlink(hl_dev, hl_ino);
     return ret;
 }
@@ -134,6 +135,7 @@ int unlinkat(int dirfd, const char *pathname, int flags) {
         hardlinked = lookup_emulated_hardlink_at(dirfd, target, &hl_dev, &hl_ino);
     }
     int ret = orig_unlinkat ? orig_unlinkat(dirfd, target, flags) : -1;
+    if (ret != 0 && orig_unlinkat && refused_in_repaired_dir(dirfd, target)) ret = orig_unlinkat(dirfd, target, flags);
     if (ret == 0 && hardlinked) unregister_emulated_hardlink(hl_dev, hl_ino);
     return ret;
 }
@@ -144,7 +146,9 @@ int rmdir(const char *pathname) {
     if (!orig_rmdir) orig_rmdir = (int (*)(const char *))dlsym(RTLD_NEXT, "rmdir");
     char buf[PATH_MAX];
     const char *target = rewrite_path(pathname, buf, sizeof(buf));
-    return orig_rmdir(target);
+    int ret = orig_rmdir(target);
+    if (ret != 0 && refused_in_repaired_dir(AT_FDCWD, target)) ret = orig_rmdir(target);
+    return ret;
 }
 
 // The app is root for the programs it runs, and root enters and writes every directory whatever its
@@ -160,7 +164,9 @@ int mkdir(const char *pathname, mode_t mode) {
     if (!orig_mkdir) orig_mkdir = (int (*)(const char *, mode_t))dlsym(RTLD_NEXT, "mkdir");
     char buf[PATH_MAX];
     const char *target = rewrite_path(pathname, buf, sizeof(buf));
-    return orig_mkdir(target, mode | NEW_DIR_OWNER_RIGHTS);
+    int ret = orig_mkdir(target, mode | NEW_DIR_OWNER_RIGHTS);
+    if (ret != 0 && refused_in_repaired_dir(AT_FDCWD, target)) ret = orig_mkdir(target, mode | NEW_DIR_OWNER_RIGHTS);
+    return ret;
 }
 
 // Hook mkdirat
@@ -169,7 +175,9 @@ int mkdirat(int dirfd, const char *pathname, mode_t mode) {
     if (!orig_mkdirat) orig_mkdirat = (int (*)(int, const char *, mode_t))dlsym(RTLD_NEXT, "mkdirat");
     char buf[PATH_MAX];
     const char *target = (pathname && pathname[0] == '/') ? rewrite_path(pathname, buf, sizeof(buf)) : pathname;
-    return orig_mkdirat(dirfd, target, mode | NEW_DIR_OWNER_RIGHTS);
+    int ret = orig_mkdirat(dirfd, target, mode | NEW_DIR_OWNER_RIGHTS);
+    if (ret != 0 && refused_in_repaired_dir(dirfd, target)) ret = orig_mkdirat(dirfd, target, mode | NEW_DIR_OWNER_RIGHTS);
+    return ret;
 }
 
 static void ensure_dir_exists(const char *path) {
@@ -212,6 +220,12 @@ int rename(const char *oldpath, const char *newpath) {
     ino_t hl_ino = 0;
     int hardlinked = lookup_emulated_hardlink_at(AT_FDCWD, target_new, &hl_dev, &hl_ino);
     int ret = orig_rename(target_old, target_new);
+    if (ret != 0 && errno == EACCES) {
+        // Both directories: the old name is taken out of one, the new put in the other
+        int fixed_old = refused_in_repaired_dir(AT_FDCWD, target_old);
+        int fixed_new = refused_in_repaired_dir(AT_FDCWD, target_new);
+        if (fixed_old || fixed_new) ret = orig_rename(target_old, target_new);
+    }
     if (ret == 0 && hardlinked) unregister_emulated_hardlink(hl_dev, hl_ino);
     return ret;
 }
@@ -228,6 +242,11 @@ int renameat(int olddirfd, const char *oldpath, int newdirfd, const char *newpat
     ino_t hl_ino = 0;
     int hardlinked = lookup_emulated_hardlink_at(newdirfd, target_new, &hl_dev, &hl_ino);
     int ret = orig_renameat(olddirfd, target_old, newdirfd, target_new);
+    if (ret != 0 && errno == EACCES) {
+        int fixed_old = refused_in_repaired_dir(olddirfd, target_old);
+        int fixed_new = refused_in_repaired_dir(newdirfd, target_new);
+        if (fixed_old || fixed_new) ret = orig_renameat(olddirfd, target_old, newdirfd, target_new);
+    }
     if (ret == 0 && hardlinked) unregister_emulated_hardlink(hl_dev, hl_ino);
     return ret;
 }
@@ -248,6 +267,11 @@ int renameat2(int olddirfd, const char *oldpath, int newdirfd, const char *newpa
     // RENAME_EXCHANGE keeps both files, so nothing is replaced.
     int hardlinked = !(flags & RENAME_EXCHANGE) && lookup_emulated_hardlink_at(newdirfd, target_new, &hl_dev, &hl_ino);
     int ret = orig_renameat2(olddirfd, target_old, newdirfd, target_new, flags);
+    if (ret != 0 && errno == EACCES) {
+        int fixed_old = refused_in_repaired_dir(olddirfd, target_old);
+        int fixed_new = refused_in_repaired_dir(newdirfd, target_new);
+        if (fixed_old || fixed_new) ret = orig_renameat2(olddirfd, target_old, newdirfd, target_new, flags);
+    }
     if (ret == 0 && hardlinked) unregister_emulated_hardlink(hl_dev, hl_ino);
     return ret;
 }
@@ -401,7 +425,9 @@ int symlink(const char *target, const char *linkpath) {
     char pbuf[PATH_MAX], tbuf[PATH_MAX];
     const char *newlink = rewrite_path(linkpath, pbuf, sizeof(pbuf));
     const char *newtarget = (target && target[0] == '/') ? rewrite_path(target, tbuf, sizeof(tbuf)) : target;
-    return orig_symlink ? orig_symlink(newtarget, newlink) : -1;
+    int ret = orig_symlink ? orig_symlink(newtarget, newlink) : -1;
+    if (ret != 0 && orig_symlink && refused_in_repaired_dir(AT_FDCWD, newlink)) ret = orig_symlink(newtarget, newlink);
+    return ret;
 }
 
 // Hook symlinkat
@@ -411,7 +437,9 @@ int symlinkat(const char *target, int newdirfd, const char *linkpath) {
     char pbuf[PATH_MAX], tbuf[PATH_MAX];
     const char *newlink = (linkpath && linkpath[0] == '/') ? rewrite_path(linkpath, pbuf, sizeof(pbuf)) : linkpath;
     const char *newtarget = (target && target[0] == '/') ? rewrite_path(target, tbuf, sizeof(tbuf)) : target;
-    return orig_symlinkat ? orig_symlinkat(newtarget, newdirfd, newlink) : -1;
+    int ret = orig_symlinkat ? orig_symlinkat(newtarget, newdirfd, newlink) : -1;
+    if (ret != 0 && orig_symlinkat && refused_in_repaired_dir(newdirfd, newlink)) ret = orig_symlinkat(newtarget, newdirfd, newlink);
+    return ret;
 }
 
 // Hook linkat
@@ -422,6 +450,7 @@ int linkat(int olddirfd, const char *oldpath, int newdirfd, const char *newpath,
     const char *rold = (oldpath && oldpath[0] == '/') ? rewrite_path(oldpath, obuf, sizeof(obuf)) : oldpath;
     const char *rnew = (newpath && newpath[0] == '/') ? rewrite_path(newpath, nbuf, sizeof(nbuf)) : newpath;
     int ret = orig_linkat ? orig_linkat(olddirfd, rold, newdirfd, rnew, flags) : -1;
+    if (ret != 0 && orig_linkat && refused_in_repaired_dir(newdirfd, rnew)) ret = orig_linkat(olddirfd, rold, newdirfd, rnew, flags);
     if (ret != 0 && (errno == EXDEV || errno == EPERM || errno == EACCES || errno == ENOTSUP || errno == ENOSYS)) {
         ret = cortex_emulate_hardlinkat(olddirfd, rold, newdirfd, rnew);
     }

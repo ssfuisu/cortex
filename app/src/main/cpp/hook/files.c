@@ -17,6 +17,47 @@ static inline int open_needs_mode(int flags) {
 #endif
 }
 
+// The app is root for the programs it runs, and root puts names in every directory and takes them out
+// whatever the mode of the directory; the app does not. A directory that is the app's own can have lost
+// its owner's rights: an earlier version left the directories dpkg makes (with mode 0) at mode 0 when the
+// chmod that follows did not take effect, and a package can ship a read-only one (#44). When a call that
+// makes or removes a name is refused in such a directory, the directory is given its owner's rights and the
+// call is made once more. Returns 1 when the directory was repaired (the call can be made again).
+static int give_dir_owner_rights(int dirfd, const char *name) {
+    static int (*orig_fchmodat)(int, const char *, mode_t, int) = NULL;
+    if (!name || !*name) return 0;
+    char parent[PATH_MAX];
+    size_t len = strlen(name);
+    if (len >= sizeof(parent)) return 0;
+    memcpy(parent, name, len + 1);
+    while (len > 1 && parent[len - 1] == '/') parent[--len] = '\0';
+    char *slash = strrchr(parent, '/');
+    if (!slash) {
+        strcpy(parent, ".");
+    } else if (slash == parent) {
+        parent[1] = '\0';
+    } else {
+        *slash = '\0';
+    }
+    struct stat st;
+    if (real_fstatat(dirfd, parent, &st, 0) != 0 || !S_ISDIR(st.st_mode)) return 0;
+    if (__atomic_load_n(&g_app_uid, __ATOMIC_RELAXED) == (uid_t)-1) load_app_ids();
+    if (st.st_uid != __atomic_load_n(&g_app_uid, __ATOMIC_RELAXED)) return 0;
+    if ((st.st_mode & 0700) == 0700) return 0;
+    if (!orig_fchmodat) orig_fchmodat = (int (*)(int, const char *, mode_t, int))dlsym(RTLD_NEXT, "fchmodat");
+    return orig_fchmodat && orig_fchmodat(dirfd, parent, (st.st_mode | 0700) & 07777, 0) == 0;
+}
+
+// For the calls that were refused (EACCES): whether the directory of `name` was repaired, so that the call
+// can be made again. errno stays what the call left when it was not.
+static int refused_in_repaired_dir(int dirfd, const char *name) {
+    if (errno != EACCES) return 0;
+    int saved = errno;
+    int fixed = give_dir_owner_rights(dirfd, name);
+    if (!fixed) errno = saved;
+    return fixed;
+}
+
 // Hook dlopen and dlmopen
 void *dlopen(const char *filename, int flags) {
     static void *(*orig_dlopen)(const char *, int) = NULL;
@@ -58,7 +99,9 @@ int open(const char *pathname, int flags, ...) {
         va_start(args, flags);
         mode_t mode = va_arg(args, mode_t);
         va_end(args);
-        return orig_open(target, flags, mode);
+        int fd = orig_open(target, flags, mode);
+        if (fd < 0 && (flags & O_CREAT) && refused_in_repaired_dir(AT_FDCWD, target)) fd = orig_open(target, flags, mode);
+        return fd;
     }
     return orig_open(target, flags);
 }
@@ -83,7 +126,9 @@ int openat(int dirfd, const char *pathname, int flags, ...) {
         va_start(args, flags);
         mode_t mode = va_arg(args, mode_t);
         va_end(args);
-        return orig_openat(dirfd, target, flags, mode);
+        int fd = orig_openat(dirfd, target, flags, mode);
+        if (fd < 0 && (flags & O_CREAT) && refused_in_repaired_dir(dirfd, target)) fd = orig_openat(dirfd, target, flags, mode);
+        return fd;
     }
     return orig_openat(dirfd, target, flags);
 }
