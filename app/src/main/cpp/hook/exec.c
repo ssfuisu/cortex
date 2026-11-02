@@ -744,15 +744,26 @@ extern char **environ;
 static pid_t start_shell(const char *command, int child_fd, int target_fd, const sigset_t *mask,
                          const struct sigaction *intr, const struct sigaction *quit, int close_popen_streams);
 
+// While system() waits, SIGINT and SIGQUIT are ignored; with several threads in system() at once, the
+// first one in saves the dispositions and the last one out puts them back (as glibc does)
+static pthread_mutex_t g_system_lock = PTHREAD_MUTEX_INITIALIZER;
+static int g_system_waiting;
+static struct sigaction g_system_intr, g_system_quit;
+
 // system(3) as POSIX describes it: SIGINT and SIGQUIT ignored and SIGCHLD blocked while it waits
 int system(const char *command) {
-    if (!command) return 1; // a shell is there
-    struct sigaction ignore, intr, quit;
-    memset(&ignore, 0, sizeof(ignore));
-    ignore.sa_handler = SIG_IGN;
-    sigemptyset(&ignore.sa_mask);
-    sigaction(SIGINT, &ignore, &intr);
-    sigaction(SIGQUIT, &ignore, &quit);
+    if (!command) return access("/bin/sh", X_OK) == 0; // whether there is a shell (Ubuntu's)
+    pthread_mutex_lock(&g_system_lock);
+    if (g_system_waiting++ == 0) {
+        struct sigaction ignore;
+        memset(&ignore, 0, sizeof(ignore));
+        ignore.sa_handler = SIG_IGN;
+        sigemptyset(&ignore.sa_mask);
+        sigaction(SIGINT, &ignore, &g_system_intr);
+        sigaction(SIGQUIT, &ignore, &g_system_quit);
+    }
+    struct sigaction intr = g_system_intr, quit = g_system_quit;
+    pthread_mutex_unlock(&g_system_lock);
     sigset_t block, old;
     sigemptyset(&block);
     sigaddset(&block, SIGCHLD);
@@ -769,8 +780,12 @@ int system(const char *command) {
         }
     }
     int saved = errno;
-    sigaction(SIGINT, &intr, NULL);
-    sigaction(SIGQUIT, &quit, NULL);
+    pthread_mutex_lock(&g_system_lock);
+    if (--g_system_waiting == 0) {
+        sigaction(SIGINT, &g_system_intr, NULL);
+        sigaction(SIGQUIT, &g_system_quit, NULL);
+    }
+    pthread_mutex_unlock(&g_system_lock);
     sigprocmask(SIG_SETMASK, &old, NULL);
     errno = saved;
     return status;
@@ -841,11 +856,13 @@ FILE *popen(const char *command, const char *type) {
     }
     if (!fp) {
         close(parent_end);
-        if (pid > 0) {
-            while (waitpid(pid, NULL, 0) < 0 && errno == EINTR) {}
-        }
         pthread_mutex_unlock(&g_popen_lock);
         free(entry);
+        if (pid > 0) {
+            // A shell nobody will read or write: it is not left to run (or waited for while it does)
+            kill(pid, SIGKILL);
+            while (waitpid(pid, NULL, 0) < 0 && errno == EINTR) {}
+        }
         errno = saved;
         return NULL;
     }
@@ -867,6 +884,9 @@ int pclose(FILE *stream) {
             break;
         }
     }
+    // Closed before the lock is let go: a popen() in between would fork a shell that keeps this pipe open,
+    // and the shell of this stream would wait for its end of it
+    if (found) fclose(stream);
     pthread_mutex_unlock(&g_popen_lock);
     if (!found) {
         // Not one of ours: glibc's own
@@ -880,7 +900,6 @@ int pclose(FILE *stream) {
     }
     pid_t pid = found->pid;
     free(found);
-    fclose(stream);
     int status = -1;
     pid_t r;
     do {
