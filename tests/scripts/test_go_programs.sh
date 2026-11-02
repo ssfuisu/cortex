@@ -310,6 +310,43 @@ mkdir -p "$work/emptyhome"
 mv "$root.away" "$root"
 check "the program does not map paths there (it sees the host's own)" bash -c "grep -q '^os-release=' '$work/chroot.out' && ! grep -q 'Fake Ubuntu' '$work/chroot.out' && grep -q '^stat-missing=true' '$work/chroot.out'"
 
+echo "== a C program's system() and popen() (#49)"
+# glibc's system() and popen() start /bin/sh from inside the C library, where the hook's execve() does
+# not see it: the kernel started the machine's /bin/sh (Android's), which then failed to link against
+# Ubuntu's libraries ("CANNOT LINK EXECUTABLE sh: libc.so has bad ELF magic"). Here the machine's sh
+# is the host's: the command ran there and saw the host's files instead of the rootfs's.
+cat > "$work/shell.c" <<'EOF'
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/wait.h>
+int main(void) {
+    int st = system("read l < /etc/os-release; echo \"system: $l\"; exit 3");
+    printf("system status: %d\n", WIFEXITED(st) ? WEXITSTATUS(st) : -1);
+    fflush(stdout);
+    FILE *r = popen("read l < /etc/os-release; echo \"$l\"", "r");
+    char line[256] = "";
+    if (r && fgets(line, sizeof(line), r)) line[strcspn(line, "\n")] = 0;
+    int rs = r ? pclose(r) : -1;
+    printf("popen r: %s status %d\n", line, rs);
+    FILE *w = popen("read x; [ \"$x\" = hi ] && exit 0 || exit 5", "w");
+    if (w) fputs("hi\n", w);
+    int ws = w ? pclose(w) : -1;
+    printf("popen w status: %d\n", WIFEXITED(ws) ? WEXITSTATUS(ws) : -1);
+    printf("system(NULL): %d\n", system(NULL));
+    return 0;
+}
+EOF
+aarch64-linux-gnu-gcc -O2 -o "$root/usr/bin/shelltest" "$work/shell.c"
+expected_shell='system: PRETTY_NAME="Fake Ubuntu 24.04"
+system status: 3
+popen r: PRETTY_NAME="Fake Ubuntu 24.04" status 0
+popen w status: 0
+system(NULL): 1'
+shell_out=$(via_hook "/usr/bin/shelltest")
+check "system() and popen() run Ubuntu's shell, which sees the rootfs" test "$shell_out" = "$expected_shell"
+[ "$shell_out" = "$expected_shell" ] || printf '%s\n' "$shell_out" | sed 's/^/        /'
+
 echo "== what is left alone"
 before=$(hash_of "$root/usr/bin/hello")
 "$work/gopatch" "$root" "$root/usr/bin/hello" >/dev/null

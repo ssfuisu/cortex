@@ -295,6 +295,23 @@ class ChromeViewsTest {
     }
 
     @Test
+    fun aHardwareKeyboardsModifiersAreKeptForTheTerminal() {
+        // #47: the character of Ctrl+C is looked up without Ctrl (Android has none for it), then Ctrl is
+        // added as the terminal does; the left Alt is Meta, the right one (AltGr) types characters
+        val ctrl = KeyEvent.META_CTRL_ON or KeyEvent.META_CTRL_LEFT_ON
+        val shift = KeyEvent.META_SHIFT_ON or KeyEvent.META_SHIFT_LEFT_ON
+        val leftAlt = KeyEvent.META_ALT_ON or KeyEvent.META_ALT_LEFT_ON
+        val rightAlt = KeyEvent.META_ALT_ON or KeyEvent.META_ALT_RIGHT_ON
+        assertEquals(0, charMetaState(ctrl))
+        assertEquals(shift, charMetaState(ctrl or shift))
+        assertEquals(0, charMetaState(leftAlt))
+        assertEquals("AltGr stays for the character", rightAlt, charMetaState(rightAlt))
+        assertTrue(isMetaAlt(leftAlt))
+        assertFalse(isMetaAlt(rightAlt))
+        assertFalse(isMetaAlt(0))
+    }
+
+    @Test
     fun deleteOverASelectionTakesTheSelectionAway() {
         val view = TerminalView(activity)
         val ic = view.onCreateInputConnection(EditorInfo())

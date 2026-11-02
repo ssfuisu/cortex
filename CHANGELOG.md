@@ -4,10 +4,21 @@ What changed in each version of Cortex Terminal, newest first. The release workf
 of a GitHub release from the section of its version here. Older versions are described on the
 [GitHub releases](https://github.com/ssfuisu/cortex/releases) page.
 
-## 1.26.47 (2026-10-31)
+## 1.26.47 (2026-11-02)
 
 ### Fixed
 
+- **Ctrl, Alt and Shift of a hardware keyboard (#47).** The terminal only looked at its own CTRL and ALT
+  keys, so a hardware keyboard's Ctrl+C sent nothing, Ctrl+Left was a plain Left and Shift+Left could not
+  select in an editor. They now count like the on-screen keys: Ctrl+letter sends the control character,
+  the arrows, Home, End, Page Up and Down, Insert, Delete and F1 to F12 get xterm's modifier (Ctrl+Left is
+  `ESC [1;5D`, Shift+Left `ESC [1;2D`), Shift+Tab is the back tab and the left Alt puts ESC in front of a
+  key (Alt+B, Alt+F). The right Alt (AltGr) still types the characters it types on the layout, such as @.
+- **`system()` and `popen()` of C programs (#49).** glibc starts their shell from inside the C library,
+  where Cortex's library did not see it, so the kernel ran Android's own `/bin/sh`, which failed with
+  `CANNOT LINK EXECUTABLE "sh": ...libc.so has bad ELF magic`. Python's `os.system()` and everything else
+  that uses them failed. Cortex's library now has its own `system()`, `popen()` and `pclose()`, which start
+  Ubuntu's `/bin/sh` as `execve()` does.
 - **A directory that has lost its owner's rights is repaired when a name is refused in it (#44).**
   1.26.46 stopped `dpkg` from leaving new directories unusable (it makes a directory with mode 0 and
   sets the mode a moment later), but the directories that an earlier version had left at mode 0 stayed
@@ -22,6 +33,8 @@ of a GitHub release from the section of its version here. Older versions are des
 - `tests/scripts/test_hook_qemu.sh` runs a program as the user `nobody` (the kernel never refuses root)
   in directories at mode 0 and checks that each of the six calls works and that only the owner's
   rights are added.
+- `tests/scripts/test_go_programs.sh` runs a C program's `system()` and `popen()` (reading and writing)
+  under the library and checks that Ubuntu's shell runs them and sees the rootfs, with their exit status.
 
 ## 1.26.46 (2026-10-30)
 

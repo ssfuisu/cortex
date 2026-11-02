@@ -43,8 +43,22 @@ class KeyMapperTest {
         assertEquals(26, ctrlZ[0].toInt())
     }
 
-    private fun seq(keyCode: Int, ctrl: Boolean = false, alt: Boolean = false) =
-        KeyMapper.getEscapeSequence(keyCode, isCtrl = ctrl, isAlt = alt)?.let { String(it, Charsets.UTF_8) }
+    private fun seq(keyCode: Int, ctrl: Boolean = false, alt: Boolean = false, shift: Boolean = false) =
+        KeyMapper.getEscapeSequence(keyCode, isCtrl = ctrl, isAlt = alt, isShift = shift)?.let { String(it, Charsets.UTF_8) }
+
+    @Test
+    fun shiftWithCursorKeysAsXtermSendsThem() {
+        // #47: the Shift of a hardware keyboard, alone and with Ctrl and Alt
+        assertEquals("\u001b[1;2D", seq(android.view.KeyEvent.KEYCODE_DPAD_LEFT, shift = true))
+        assertEquals("\u001b[1;2C", seq(android.view.KeyEvent.KEYCODE_DPAD_RIGHT, shift = true))
+        assertEquals("\u001b[1;6D", seq(android.view.KeyEvent.KEYCODE_DPAD_LEFT, ctrl = true, shift = true))
+        assertEquals("\u001b[1;4A", seq(android.view.KeyEvent.KEYCODE_DPAD_UP, alt = true, shift = true))
+        assertEquals("\u001b[1;8B", seq(android.view.KeyEvent.KEYCODE_DPAD_DOWN, ctrl = true, alt = true, shift = true))
+        assertEquals("\u001b[1;2H", seq(android.view.KeyEvent.KEYCODE_MOVE_HOME, shift = true))
+        assertEquals("Shift+Tab is the back tab", "\u001b[Z", seq(android.view.KeyEvent.KEYCODE_TAB, shift = true))
+        assertEquals("Shift does not change Enter", "\r", seq(android.view.KeyEvent.KEYCODE_ENTER, shift = true))
+        assertEquals("without Shift, as before", "\u001b[D", seq(android.view.KeyEvent.KEYCODE_DPAD_LEFT))
+    }
 
     @Test
     fun functionKeysAsXtermSendsThem() {

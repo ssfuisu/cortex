@@ -733,4 +733,160 @@ int posix_spawnp(pid_t *pid, const char *file,
     return ENOENT;
 }
 
+// ---- system(), popen() and pclose() ---------------------------------------------------------
+// glibc starts the shell of system() and popen() from inside the C library (its own posix_spawn and
+// execve), where the hook's execve() is not called: the kernel ran the machine's /bin/sh, which on
+// Android is the system's own shell, and that one failed to link against Ubuntu's libraries
+// ("CANNOT LINK EXECUTABLE sh: ...libc.so has bad ELF magic", #49). They start Ubuntu's /bin/sh here.
+
+extern char **environ;
+
+static pid_t start_shell(const char *command, int child_fd, int target_fd, const sigset_t *mask,
+                         const struct sigaction *intr, const struct sigaction *quit, int close_popen_streams);
+
+// system(3) as POSIX describes it: SIGINT and SIGQUIT ignored and SIGCHLD blocked while it waits
+int system(const char *command) {
+    if (!command) return 1; // a shell is there
+    struct sigaction ignore, intr, quit;
+    memset(&ignore, 0, sizeof(ignore));
+    ignore.sa_handler = SIG_IGN;
+    sigemptyset(&ignore.sa_mask);
+    sigaction(SIGINT, &ignore, &intr);
+    sigaction(SIGQUIT, &ignore, &quit);
+    sigset_t block, old;
+    sigemptyset(&block);
+    sigaddset(&block, SIGCHLD);
+    sigprocmask(SIG_BLOCK, &block, &old);
+
+    int status = -1;
+    pid_t pid = start_shell(command, -1, -1, &old, &intr, &quit, 0);
+    if (pid > 0) {
+        while (waitpid(pid, &status, 0) < 0) {
+            if (errno != EINTR) {
+                status = -1;
+                break;
+            }
+        }
+    }
+    int saved = errno;
+    sigaction(SIGINT, &intr, NULL);
+    sigaction(SIGQUIT, &quit, NULL);
+    sigprocmask(SIG_SETMASK, &old, NULL);
+    errno = saved;
+    return status;
+}
+
+// The streams popen() made, with their shells: pclose() waits for the one of its stream
+struct cortex_popen {
+    FILE *fp;
+    pid_t pid;
+    struct cortex_popen *next;
+};
+static struct cortex_popen *g_popen_streams;
+static pthread_mutex_t g_popen_lock = PTHREAD_MUTEX_INITIALIZER;
+
+static pid_t start_shell(const char *command, int child_fd, int target_fd, const sigset_t *mask,
+                         const struct sigaction *intr, const struct sigaction *quit, int close_popen_streams) {
+    pid_t pid = fork();
+    if (pid != 0) return pid;
+    if (intr) sigaction(SIGINT, intr, NULL);
+    if (quit) sigaction(SIGQUIT, quit, NULL);
+    if (mask) sigprocmask(SIG_SETMASK, mask, NULL);
+    if (child_fd >= 0) {
+        if (child_fd == target_fd) {
+            fcntl(target_fd, F_SETFD, 0);
+        } else if (dup2(child_fd, target_fd) < 0) {
+            _exit(127);
+        }
+    }
+    // POSIX: the streams of earlier popen() calls are not open in the new shell
+    if (close_popen_streams) {
+        for (struct cortex_popen *p = g_popen_streams; p; p = p->next) {
+            int fd = fileno(p->fp);
+            if (fd >= 0 && fd != target_fd) close(fd);
+        }
+    }
+    char *const argv[] = { (char *)"sh", (char *)"-c", (char *)command, NULL };
+    cortex_execve("/bin/sh", argv, environ, 0);
+    _exit(127);
+}
+
+FILE *popen(const char *command, const char *type) {
+    if (!command || !type || (type[0] != 'r' && type[0] != 'w')) {
+        errno = EINVAL;
+        return NULL;
+    }
+    int reading = type[0] == 'r';
+    int keep_on_exec = strchr(type, 'e') == NULL;
+    int fds[2];
+    if (pipe2(fds, O_CLOEXEC) != 0) return NULL;
+    int parent_end = reading ? fds[0] : fds[1];
+    int child_end = reading ? fds[1] : fds[0];
+    struct cortex_popen *entry = (struct cortex_popen *)malloc(sizeof(*entry));
+    if (!entry) {
+        close(fds[0]);
+        close(fds[1]);
+        errno = ENOMEM;
+        return NULL;
+    }
+    pthread_mutex_lock(&g_popen_lock);
+    pid_t pid = start_shell(command, child_end, reading ? STDOUT_FILENO : STDIN_FILENO, NULL, NULL, NULL, 1);
+    int saved = errno;
+    close(child_end);
+    FILE *fp = NULL;
+    if (pid > 0) {
+        if (keep_on_exec) fcntl(parent_end, F_SETFD, 0);
+        fp = fdopen(parent_end, reading ? "r" : "w");
+        saved = errno;
+    }
+    if (!fp) {
+        close(parent_end);
+        if (pid > 0) {
+            while (waitpid(pid, NULL, 0) < 0 && errno == EINTR) {}
+        }
+        pthread_mutex_unlock(&g_popen_lock);
+        free(entry);
+        errno = saved;
+        return NULL;
+    }
+    entry->fp = fp;
+    entry->pid = pid;
+    entry->next = g_popen_streams;
+    g_popen_streams = entry;
+    pthread_mutex_unlock(&g_popen_lock);
+    return fp;
+}
+
+int pclose(FILE *stream) {
+    struct cortex_popen *found = NULL;
+    pthread_mutex_lock(&g_popen_lock);
+    for (struct cortex_popen **p = &g_popen_streams; *p; p = &(*p)->next) {
+        if ((*p)->fp == stream) {
+            found = *p;
+            *p = found->next;
+            break;
+        }
+    }
+    pthread_mutex_unlock(&g_popen_lock);
+    if (!found) {
+        // Not one of ours: glibc's own
+        static int (*orig_pclose)(FILE *) = NULL;
+        if (!orig_pclose) orig_pclose = (int (*)(FILE *))dlsym(RTLD_NEXT, "pclose");
+        if (!orig_pclose) {
+            errno = ECHILD;
+            return -1;
+        }
+        return orig_pclose(stream);
+    }
+    pid_t pid = found->pid;
+    free(found);
+    fclose(stream);
+    int status = -1;
+    pid_t r;
+    do {
+        r = waitpid(pid, &status, 0);
+    } while (r < 0 && errno == EINTR);
+    return r < 0 ? -1 : status;
+}
+
 #endif /* !CORTEX_HOST_TEST */

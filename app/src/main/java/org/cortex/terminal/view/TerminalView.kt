@@ -1958,7 +1958,7 @@ class TerminalView @JvmOverloads constructor(
         return InputConnectionCompat.createWrapper(baseConnection, outAttrs, callback)
     }
 
-    fun sendChar(ch: Char) {
+    fun sendChar(ch: Char, ctrl: Boolean = isCtrlPressed, alt: Boolean = isAltPressed) {
         val sess = session ?: return
         if (!sess.isRunning) {
             if (ch == '\n' || ch == '\r') {
@@ -1969,7 +1969,7 @@ class TerminalView @JvmOverloads constructor(
         clearSelection()
         scrollOffset = 0
         val targetChar = if (ch == '\n') '\r' else ch
-        val bytes = KeyMapper.getCharBytes(targetChar, isCtrlPressed, isAltPressed)
+        val bytes = KeyMapper.getCharBytes(targetChar, ctrl, alt)
         sess.write(bytes)
         restartCursorBlink()
         isCtrlPressed = false
@@ -1988,7 +1988,7 @@ class TerminalView @JvmOverloads constructor(
         isAltPressed = false
     }
 
-    fun sendKeySequence(keyCode: Int): Boolean {
+    fun sendKeySequence(keyCode: Int, ctrl: Boolean = isCtrlPressed, alt: Boolean = isAltPressed, shift: Boolean = false): Boolean {
         val sess = session ?: return false
         if (!sess.isRunning) {
             if (keyCode == KeyEvent.KEYCODE_ENTER) {
@@ -2000,7 +2000,7 @@ class TerminalView @JvmOverloads constructor(
         clearSelection()
         scrollOffset = 0
         val isAppCursor = sess.emulator.isApplicationCursorKeys
-        val bytes = KeyMapper.getEscapeSequence(keyCode, isCtrlPressed, isAltPressed, isAppCursor)
+        val bytes = KeyMapper.getEscapeSequence(keyCode, ctrl, alt, isAppCursor, shift)
         return if (bytes != null) {
             sess.write(bytes)
             restartCursorBlink()
@@ -2045,13 +2045,20 @@ class TerminalView @JvmOverloads constructor(
         }
         clearSelection()
         scrollOffset = 0
-        if (sendKeySequence(keyCode)) {
+        // A hardware keyboard's Ctrl, Alt and Shift count as the on-screen CTRL and ALT do (#47): they were
+        // left out, so Ctrl+C sent nothing and Ctrl+Left a plain Left. The left Alt is Meta (ESC in front);
+        // the right one is AltGr, which types characters such as @ on many layouts.
+        val ctrl = isCtrlPressed || event.isCtrlPressed
+        val alt = isAltPressed || isMetaAlt(event.metaState)
+        if (sendKeySequence(keyCode, ctrl, alt, event.isShiftPressed)) {
             return true
         }
 
-        val unicode = event.getUnicodeChar(event.metaState)
+        // The character of the key with Shift and AltGr but without Ctrl and Meta, for which Android has
+        // none; Ctrl and Alt are then added as the terminal does (Ctrl+C is 0x03)
+        val unicode = event.getUnicodeChar(charMetaState(event.metaState))
         if (unicode > 0) {
-            sendChar(unicode.toChar())
+            sendChar(unicode.toChar(), ctrl, alt)
             return true
         }
 
@@ -2105,6 +2112,17 @@ internal fun selectionBackground(dark: Boolean, background: Int, accent: Int): I
 private const val CLEAR_LINE = "\u0005\u0015"
 
 internal enum class ClipboardShortcut { PASTE, COPY }
+
+/** Whether a hardware keyboard's Alt is the left one alone: Meta, which puts ESC in front of a key. */
+internal fun isMetaAlt(metaState: Int): Boolean =
+    (metaState and KeyEvent.META_ALT_LEFT_ON) != 0 && (metaState and KeyEvent.META_ALT_RIGHT_ON) == 0
+
+/** The meta state a hardware key's character is looked up with: Shift and AltGr stay, Ctrl and Meta go. */
+internal fun charMetaState(metaState: Int): Int {
+    var m = metaState and KeyEvent.META_CTRL_MASK.inv()
+    if (isMetaAlt(m)) m = m and KeyEvent.META_ALT_MASK.inv()
+    return m
+}
 
 /**
  * The clipboard shortcuts of a hardware keyboard, those of other terminal emulators: Ctrl+Shift+V,

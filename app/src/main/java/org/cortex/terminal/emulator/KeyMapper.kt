@@ -3,9 +3,23 @@ package org.cortex.terminal.emulator
 import android.view.KeyEvent
 
 object KeyMapper {
-    fun getEscapeSequence(keyCode: Int, isCtrl: Boolean, isAlt: Boolean, isAppCursor: Boolean = false): ByteArray? {
-        // With Ctrl, xterm's form with a modifier (Ctrl+Left is CSI 1;5D, which readline takes as a word)
-        if (isCtrl) modifiedSequence(keyCode, if (isAlt) 7 else 5)?.let { return it.toByteArray(Charsets.UTF_8) }
+    fun getEscapeSequence(
+        keyCode: Int,
+        isCtrl: Boolean,
+        isAlt: Boolean,
+        isAppCursor: Boolean = false,
+        isShift: Boolean = false
+    ): ByteArray? {
+        // Shift+Tab is the back tab
+        if (isShift && !isCtrl && keyCode == KeyEvent.KEYCODE_TAB) {
+            return ((if (isAlt) "\u001b" else "") + "\u001b[Z").toByteArray(Charsets.UTF_8)
+        }
+        // With Ctrl or Shift, xterm's form with a modifier, 1 + Shift + 2 for Alt + 4 for Ctrl (Ctrl+Left is
+        // CSI 1;5D, which readline takes as a word; Shift+Left is CSI 1;2D, which editors select with)
+        if (isCtrl || isShift) {
+            val modifier = 1 + (if (isShift) 1 else 0) + (if (isAlt) 2 else 0) + (if (isCtrl) 4 else 0)
+            modifiedSequence(keyCode, modifier)?.let { return it.toByteArray(Charsets.UTF_8) }
+        }
         val baseSeq = when (keyCode) {
             KeyEvent.KEYCODE_DPAD_UP -> if (isAppCursor) "\u001bOA" else "\u001b[A"
             KeyEvent.KEYCODE_DPAD_DOWN -> if (isAppCursor) "\u001bOB" else "\u001b[B"
