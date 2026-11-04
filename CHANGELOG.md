@@ -4,7 +4,7 @@ What changed in each version of Cortex Terminal, newest first. The release workf
 of a GitHub release from the section of its version here. Older versions are described on the
 [GitHub releases](https://github.com/ssfuisu/cortex/releases) page.
 
-## Unreleased
+## 1.26.48 (2026-11-04)
 
 ### Faster
 
