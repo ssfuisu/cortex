@@ -1755,6 +1755,107 @@ static void test_readlink_of_fd_links(void) {
     g_cortex_root_len = saved_len;
 }
 
+/* postprocess_readlink() before it skipped the normalization of relative links without
+   "alternatives": the reference for the test below */
+static ssize_t reference_postprocess_readlink(const char *linkpath, char *buf, ssize_t ret, size_t bufsiz) {
+    if (ret <= 0) return ret;
+    if (g_cortex_root_len > 0 && !is_proc_fd_link(linkpath)) {
+        size_t rlen = g_cortex_root_len;
+        if ((size_t)ret >= rlen && memcmp(buf, g_cortex_root, rlen) == 0 && ((size_t)ret == rlen || buf[rlen] == '/')) {
+            size_t new_len = ret - rlen;
+            if (new_len == 0) {
+                buf[0] = '/';
+                return 1;
+            }
+            memmove(buf, buf + rlen, new_len);
+            return (ssize_t)new_len;
+        }
+    }
+    if (linkpath && linkpath[0] == '/' && (size_t)ret < PATH_MAX) {
+        char link_copy[PATH_MAX];
+        memcpy(link_copy, buf, ret);
+        link_copy[ret] = '\0';
+        if (strncmp(link_copy, "..", 2) == 0) {
+            char parent[PATH_MAX];
+            snprintf(parent, sizeof(parent), "%s", linkpath);
+            char *last_slash = strrchr(parent, '/');
+            if (last_slash) {
+                if (last_slash == parent) *(last_slash + 1) = '\0';
+                else *last_slash = '\0';
+            }
+            char combined[PATH_MAX * 2];
+            snprintf(combined, sizeof(combined), "%s/%s", parent, link_copy);
+            normalize_path(combined);
+            if (strncmp(combined, "/etc/alternatives", 17) == 0 || strncmp(linkpath, "/etc/alternatives", 17) == 0) {
+                size_t clen = strlen(combined);
+                if (clen <= bufsiz) {
+                    memcpy(buf, combined, clen);
+                    return (ssize_t)clen;
+                }
+            }
+        }
+    }
+    return ret;
+}
+
+/* The shortcut for relative links without "alternatives" gives what the full normalization gave */
+static void test_postprocess_readlink_matches_reference(void) {
+    char saved[PATH_MAX];
+    size_t saved_len = g_cortex_root_len;
+    memcpy(saved, g_cortex_root, sizeof(saved));
+    const char *roots[] = { "", "/data/user/0/org.cortex.terminal/files/cortex" };
+    const char *links[] = { "/usr/bin/awk", "/usr/lib/x86_64-linux-gnu/libz.so", "/etc/alternatives/awk", "/etc/foo/x",
+                            "/etc/x", "/usr/../etc/alternatives/vi", "/etc/alternativesX/y", "/a/alternatives/b",
+                            "/", "/x", "rel/link", "/usr/share/doc/libc6", "/proc/self/fd/3" };
+    const char *targets[] = { "../lib/x", "..", "../", "../..", "../../..", "../alternatives", "../alternatives/vi",
+                              "../../etc/alternatives/awk", "../etc/alternatives", "../alternativesX/y", "../a/../alternatives/z",
+                              "../../usr/bin/mawk", "../share/doc/libc-bin", "..foo", "../../../../../../etc/alternatives/x",
+                              "mawk", "/etc/alternatives/awk", ".", "./x", "../.alternatives" };
+    int mismatches = 0;
+    for (size_t r = 0; r < sizeof(roots) / sizeof(roots[0]); r++) {
+        cortex_set_root(roots[r], strlen(roots[r]));
+        for (size_t l = 0; l < sizeof(links) / sizeof(links[0]); l++) {
+            for (size_t t = 0; t < sizeof(targets) / sizeof(targets[0]); t++) {
+                char got[PATH_MAX], want[PATH_MAX];
+                size_t len = strlen(targets[t]);
+                memcpy(got, targets[t], len + 1);
+                memcpy(want, targets[t], len + 1);
+                for (size_t bufsiz = 8; bufsiz <= sizeof(got); bufsiz = bufsiz < 64 ? bufsiz * 2 : sizeof(got)) {
+                    memcpy(got, targets[t], len + 1);
+                    memcpy(want, targets[t], len + 1);
+                    ssize_t g = postprocess_readlink(links[l], got, (ssize_t)len, bufsiz);
+                    ssize_t w = reference_postprocess_readlink(links[l], want, (ssize_t)len, bufsiz);
+                    if (g != w || (g > 0 && memcmp(got, want, (size_t)g) != 0)) {
+                        if (mismatches++ < 5) fprintf(stderr, "postprocess_readlink(%s -> %s, %zu): %zd, reference %zd\n", links[l], targets[t], bufsiz, g, w);
+                    }
+                    if (bufsiz == sizeof(got)) break;
+                }
+            }
+        }
+    }
+    ASSERT_EQ(mismatches, 0, "postprocess_readlink gives what it gave before the shortcut");
+    memcpy(g_cortex_root, saved, sizeof(saved));
+    g_cortex_root_len = saved_len;
+}
+
+/* cortex_copy_cstr leaves the same string as strncpy and a NUL in the last byte, without the zeros */
+static void test_copy_cstr(void) {
+    const char *srcs[] = { "", "a", "abcdef", "0123456789abcdef" };
+    for (size_t s = 0; s < sizeof(srcs) / sizeof(srcs[0]); s++) {
+        for (size_t size = 1; size <= 20; size++) {
+            char got[24], want[24];
+            memset(got, 'Z', sizeof(got));
+            memset(want, 'Z', sizeof(want));
+            size_t n = cortex_copy_cstr(got, size, srcs[s]);
+            strncpy(want, srcs[s], size - 1);
+            want[size - 1] = '\0';
+            ASSERT_STR_EQ(got, want, "cortex_copy_cstr copies like strncpy");
+            ASSERT_EQ((long long)n, (long long)strlen(want), "cortex_copy_cstr returns the length copied");
+            ASSERT_TRUE(n + 1 >= size || got[n + 1] == 'Z', "cortex_copy_cstr writes nothing past the string");
+        }
+    }
+}
+
 static void test_path_helpers(void) {
     /* cortex_append truncates exactly like snprintf */
     const char *pieces[] = { "", "a", "abc", "0123456789" };
@@ -2093,6 +2194,8 @@ int main(void) {
     test_path_helpers();
     test_readlink_result_may_change();
     test_readlink_of_fd_links();
+    test_postprocess_readlink_matches_reference();
+    test_copy_cstr();
     test_spawn_in_pty();
     test_exec_probe();
     test_exec_argv();

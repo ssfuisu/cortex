@@ -30,6 +30,18 @@ static size_t cortex_append(char *out, size_t outsz, size_t used, const char *s,
     return used + len;
 }
 
+// Copies the string src into out[0..outsz), truncated and NUL-terminated as strncpy() followed by
+// out[outsz - 1] = '\0' leaves it, but writes only the bytes of the string: strncpy() fills the rest
+// of a PATH_MAX buffer with zeros, 4 KB of writes for a path of 30 characters, and in a child that a
+// shell has just forked every page written is a copy-on-write fault.
+static size_t cortex_copy_cstr(char *out, size_t outsz, const char *src) {
+    if (outsz == 0) return 0;
+    size_t len = strnlen(src, outsz - 1);
+    memcpy(out, src, len);
+    out[len] = '\0';
+    return len;
+}
+
 static inline int is_path_prefix(const char *path, const char *prefix, size_t prefix_len) {
     if (strncmp(path, prefix, prefix_len) != 0) return 0;
     return path[prefix_len] == '/' || path[prefix_len] == '\0';
@@ -234,8 +246,13 @@ static ssize_t postprocess_readlink(const char *linkpath, char *buf, ssize_t ret
         }
     }
 
-    // 2. Normalize relative alternatives links
-    if (linkpath && linkpath[0] == '/' && (size_t)ret < PATH_MAX) {
+    // 2. Normalize relative alternatives links. The result can only start with /etc/alternatives
+    // (or the link be in it) when "alternatives" is in the target or in the link's own path: the
+    // normalized path is made of their components. Most relative links have neither (the ones of
+    // /usr/lib and /usr/share/doc), and these skip the copies and the normalization, which were a
+    // tenth of what "cp -a" of a tree of them cost.
+    if (linkpath && linkpath[0] == '/' && (size_t)ret < PATH_MAX && ret >= 2 && buf[0] == '.' && buf[1] == '.' &&
+        (memmem(buf, (size_t)ret, "alternatives", 12) != NULL || strstr(linkpath, "alternatives") != NULL)) {
         char link_copy[PATH_MAX];
         memcpy(link_copy, buf, ret);
         link_copy[ret] = '\0';

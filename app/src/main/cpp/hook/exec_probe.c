@@ -39,8 +39,7 @@ static int find_dynamic_linker_for_machine(const char *cortex_root, uint16_t e_m
 
     if (s_cached_ld_so[0] != '\0' && strcmp(s_cached_ld_root, cortex_root) == 0 &&
         e_machine != 0 && e_machine == s_cached_e_machine) {
-        strncpy(out_ld_so, s_cached_ld_so, max_len - 1);
-        out_ld_so[max_len - 1] = '\0';
+        cortex_copy_cstr(out_ld_so, max_len, s_cached_ld_so);
         return 1;
     }
 
@@ -108,10 +107,8 @@ static int find_dynamic_linker_for_machine(const char *cortex_root, uint16_t e_m
             snprintf(out_ld_so, max_len, "%s%s", cortex_root, primary[i]);
             if (access(out_ld_so, F_OK) == 0) {
                 if (e_machine != 0) {
-                    strncpy(s_cached_ld_so, out_ld_so, sizeof(s_cached_ld_so) - 1);
-                    s_cached_ld_so[sizeof(s_cached_ld_so) - 1] = '\0';
-                    strncpy(s_cached_ld_root, cortex_root, sizeof(s_cached_ld_root) - 1);
-                    s_cached_ld_root[sizeof(s_cached_ld_root) - 1] = '\0';
+                    cortex_copy_cstr(s_cached_ld_so, sizeof(s_cached_ld_so), out_ld_so);
+                    cortex_copy_cstr(s_cached_ld_root, sizeof(s_cached_ld_root), cortex_root);
                     s_cached_e_machine = e_machine;
                 }
                 return 1;
@@ -123,10 +120,8 @@ static int find_dynamic_linker_for_machine(const char *cortex_root, uint16_t e_m
             snprintf(out_ld_so, max_len, "%s%s", cortex_root, secondary[i]);
             if (access(out_ld_so, F_OK) == 0) {
                 if (e_machine != 0) {
-                    strncpy(s_cached_ld_so, out_ld_so, sizeof(s_cached_ld_so) - 1);
-                    s_cached_ld_so[sizeof(s_cached_ld_so) - 1] = '\0';
-                    strncpy(s_cached_ld_root, cortex_root, sizeof(s_cached_ld_root) - 1);
-                    s_cached_ld_root[sizeof(s_cached_ld_root) - 1] = '\0';
+                    cortex_copy_cstr(s_cached_ld_so, sizeof(s_cached_ld_so), out_ld_so);
+                    cortex_copy_cstr(s_cached_ld_root, sizeof(s_cached_ld_root), cortex_root);
                     s_cached_e_machine = e_machine;
                 }
                 return 1;
@@ -300,6 +295,22 @@ struct exec_probe {
     mode_t mode;        // st_mode, filled in for dynamic ELF files only
 };
 
+// fstat() without the hook's stat emulation: the probe wants the mode bits only, and the
+// emulation would map the hard link table and look up the app's ids in a child that is about to
+// exec (new pages there, each a copy-on-write fault). Resolved by prepare_exec_in_parent() when the
+// process forks, so that its children find it set.
+static int (*g_probe_fstat)(int, struct stat *) = NULL;
+
+static int probe_fstat(int fd, struct stat *st) {
+    int (*f)(int, struct stat *) = __atomic_load_n(&g_probe_fstat, __ATOMIC_RELAXED);
+    if (!f) {
+        f = (int (*)(int, struct stat *))dlsym(RTLD_NEXT, "fstat");
+        if (!f) return fstat(fd, st);
+        __atomic_store_n(&g_probe_fstat, f, __ATOMIC_RELAXED);
+    }
+    return f(fd, st);
+}
+
 static void probe_exec_file(const char *path, struct exec_probe *p) {
     p->hdr[0] = '\0';
     p->n = -1;
@@ -323,7 +334,7 @@ static void probe_exec_file(const char *path, struct exec_probe *p) {
         p->is_dynamic = dynamic;
         if (dynamic && p->e_machine == 183 /* EM_AARCH64 */) p->android_interp = elf_interp_is_android(fd, h, n);
         struct stat st;
-        if (dynamic && fstat(fd, &st) == 0) p->mode = st.st_mode;
+        if (dynamic && probe_fstat(fd, &st) == 0) p->mode = st.st_mode;
     }
     close(fd);
 }

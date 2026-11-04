@@ -4,6 +4,27 @@ What changed in each version of Cortex Terminal, newest first. The release workf
 of a GitHub release from the section of its version here. Older versions are described on the
 [GitHub releases](https://github.com/ssfuisu/cortex/releases) page.
 
+## Unreleased
+
+### Faster
+
+- **Programs a shell starts.** A shell (and make, dpkg, perl) starts a program with `fork()` and then
+  `execve()` in the child, where every page written is a copy of the parent's. Cortex's exec code found
+  what it needs (glibc's functions behind its own, the rootfs' ld.so, its own path, the hard link table,
+  the app's ids) in each child again and copied whole 4 KB buffers there, about 40 page faults before
+  the program even started. The first `fork()` of a process now finds these in the parent, a process
+  that keeps forking also rehearses an exec once, and the exec code writes only the bytes it needs:
+  a loop of 300 `/bin/true` in bash takes 13% fewer page faults and 8% less CPU time than before
+  (measured in a test rootfs; the loss against the same programs without Cortex fell from 84% more page
+  faults to 59%, and from 23% more CPU time to 13%).
+- **Relative symbolic links.** `readlink()` and `lstat()` no longer normalize a relative link in
+  case it leads into `/etc/alternatives` when neither the link nor its target has "alternatives" in it:
+  `cp -a` of `/usr/share/doc` runs 8% fewer instructions, `ls -la /usr/bin` 2% fewer.
+
+### For developers
+
+- `tests/bench/run-micro.sh` has `fork_true`, a program started the way a shell starts it.
+
 ## 1.26.47 (2026-11-02)
 
 ### Fixed

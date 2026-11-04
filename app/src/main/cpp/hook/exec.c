@@ -6,10 +6,12 @@
 
 #ifndef CORTEX_HOST_TEST
 
+// Runs before every exec, mostly in a child a shell has just forked: the copies write only the
+// string (cortex_copy_cstr), not the whole PATH_MAX buffer, since each page written there is a
+// copy-on-write fault.
 static void resolve_symlinks(const char *path, char *out, size_t out_size, int depth) {
     if (!path || !out || out_size == 0) return;
-    strncpy(out, path, out_size - 1);
-    out[out_size - 1] = '\0';
+    cortex_copy_cstr(out, out_size, path);
     if (depth > 8) return;
 
     char link_target[PATH_MAX];
@@ -21,19 +23,18 @@ static void resolve_symlinks(const char *path, char *out, size_t out_size, int d
     if (link_target[0] == '/') {
         char rw_buf[PATH_MAX];
         const char *rewritten = rewrite_path(link_target, rw_buf, sizeof(rw_buf));
-        strncpy(next_path, rewritten, sizeof(next_path) - 1);
-        next_path[sizeof(next_path) - 1] = '\0';
+        cortex_copy_cstr(next_path, sizeof(next_path), rewritten);
     } else {
-        char dir_buf[PATH_MAX];
-        strncpy(dir_buf, path, sizeof(dir_buf) - 1);
-        dir_buf[sizeof(dir_buf) - 1] = '\0';
-        char *slash = strrchr(dir_buf, '/');
+        const char *slash = strrchr(path, '/');
         if (slash) {
-            *slash = '\0';
-            snprintf(next_path, sizeof(next_path), "%s/%s", dir_buf, link_target);
+            size_t dir_len = (size_t)(slash - path);
+            if (dir_len > sizeof(next_path) - 1) dir_len = sizeof(next_path) - 1;
+            memcpy(next_path, path, dir_len);
+            next_path[dir_len] = '\0';
+            size_t n = cortex_append(next_path, sizeof(next_path), dir_len, "/", 1);
+            cortex_append(next_path, sizeof(next_path), n, link_target, (size_t)len);
         } else {
-            strncpy(next_path, link_target, sizeof(next_path) - 1);
-            next_path[sizeof(next_path) - 1] = '\0';
+            cortex_copy_cstr(next_path, sizeof(next_path), link_target);
         }
     }
     resolve_symlinks(next_path, out, out_size, depth + 1);
@@ -60,32 +61,33 @@ static void build_ld_library_path(char *const envp[], char *out_buf, size_t out_
         caller_ld = getenv("LD_LIBRARY_PATH");
     }
 
-    // No "= {0}": zero-filling these buffers touched 8 KB of fresh stack in every forked child.
-    char rewritten_caller[PATH_MAX * 2];
-    rewritten_caller[0] = '\0';
-    if (caller_ld && caller_ld[0] != '\0') {
-        char copy[PATH_MAX * 2];
-        strncpy(copy, caller_ld, sizeof(copy) - 1);
-        copy[sizeof(copy) - 1] = '\0';
-        size_t used = 0;
-        char *saveptr = NULL;
-        char *tok = strtok_r(copy, ":", &saveptr);
-        while (tok) {
-            if (tok[0] != '\0') {
-                char rw_buf[PATH_MAX];
-                const char *rw = (tok[0] == '/') ? rewrite_path(tok, rw_buf, sizeof(rw_buf)) : tok;
-                int n = snprintf(rewritten_caller + used, sizeof(rewritten_caller) - used,
-                                 "%s%s", (used > 0 ? ":" : ""), rw);
-                if (n > 0 && used + (size_t)n < sizeof(rewritten_caller)) {
-                    used += (size_t)n;
-                }
+    // The caller's directories (those inside the rootfs rewritten), then the rootfs ones it lacks,
+    // written straight into out_buf: this runs in nearly every child a shell forks, where two 8 KB
+    // copies of the list on the stack were pages more to copy before the exec.
+    size_t cap = out_size < PATH_MAX * 2 ? out_size : PATH_MAX * 2; // the caller's part, as before
+    size_t used = 0;
+    for (const char *p = caller_ld; p && *p;) {
+        const char *end = strchr(p, ':');
+        size_t len = end ? (size_t)(end - p) : strlen(p);
+        if (len > 0 && len < PATH_MAX) {
+            char tok[PATH_MAX];
+            memcpy(tok, p, len);
+            tok[len] = '\0';
+            char rw_buf[PATH_MAX];
+            const char *rw = (tok[0] == '/') ? rewrite_path(tok, rw_buf, sizeof(rw_buf)) : tok;
+            size_t rw_len = strlen(rw);
+            size_t need = (used > 0 ? 1 : 0) + rw_len;
+            if (used + need < cap) {
+                if (used > 0) out_buf[used++] = ':';
+                memcpy(out_buf + used, rw, rw_len);
+                used += rw_len;
+                out_buf[used] = '\0';
             }
-            tok = strtok_r(NULL, ":", &saveptr);
         }
+        if (!end) break;
+        p = end + 1;
     }
-
-    size_t used = cortex_append(out_buf, out_size, 0, rewritten_caller, strlen(rewritten_caller));
-    append_rootfs_lib_dirs_missing_from(out_buf, out_size, used, used > 0, rewritten_caller);
+    append_rootfs_lib_dirs_missing_from(out_buf, out_size, used, used > 0, out_buf);
 }
 
 // The file whose header decides how to start `target`: the symlink-resolved ELF (so ld.so and
@@ -102,13 +104,22 @@ static const char *select_exec_target(const char *target, char *resolved, size_t
 // The library children get with --preload: the one this process runs from, so that a program
 // always starts with the same build as its parent, else the first of usr/lib and lib that exists;
 // NULL if neither does.
+// The path dladdr() finds is kept (it does not change): set once, read by every later exec, and
+// set before a fork by prepare_exec_in_parent() so that the children only read it.
+static char g_hook_library[PATH_MAX];
+static int g_hook_library_known = 0;
+
 static const char *cortex_hook_library(char *buf, size_t bufsz) {
     static const char usr_lib[] = "/usr/lib/libcortex-hook.so";
     static const char lib[] = "/lib/libcortex-hook.so";
+    if (__atomic_load_n(&g_hook_library_known, __ATOMIC_ACQUIRE)) return g_hook_library;
     Dl_info info;
     if (dladdr((void *)cortex_hook_library, &info) && info.dli_fname && info.dli_fname[0] == '/' &&
-        strlen(info.dli_fname) < bufsz) {
-        return strcpy(buf, info.dli_fname);  // loaded from there, so it exists
+        strlen(info.dli_fname) < sizeof(g_hook_library)) {
+        // loaded from there, so it exists
+        cortex_copy_cstr(g_hook_library, sizeof(g_hook_library), info.dli_fname);
+        __atomic_store_n(&g_hook_library_known, 1, __ATOMIC_RELEASE);
+        return g_hook_library;
     }
     size_t n = cortex_append(buf, bufsz, 0, g_cortex_root, g_cortex_root_len);
     cortex_append(buf, bufsz, n, usr_lib, sizeof(usr_lib) - 1);
@@ -143,9 +154,43 @@ static const char *exec_prog_name(const char *target) {
 // Hook execve
 typedef int (*orig_execve_f_type)(const char *filename, char *const argv[], char *const envp[]);
 
+// glibc's execve(), looked up once (also by prepare_exec_in_parent() before a fork)
+static orig_execve_f_type g_orig_execve = NULL;
+
+static orig_execve_f_type real_execve(void) {
+    orig_execve_f_type f = __atomic_load_n(&g_orig_execve, __ATOMIC_RELAXED);
+    if (!f) {
+        f = (orig_execve_f_type)dlsym(RTLD_NEXT, "execve");
+        __atomic_store_n(&g_orig_execve, f, __ATOMIC_RELAXED);
+    }
+    return f;
+}
+
+// prepare_exec_in_parent() rehearses an exec in the parent: everything up to the execve() itself,
+// which this then skips. Only in the thread that rehearses: another thread's exec at that moment
+// is a real one.
+static int g_exec_rehearsal = 0;
+static pthread_t g_exec_rehearsal_thread;
+
+static int in_exec_rehearsal(void) {
+    return __atomic_load_n(&g_exec_rehearsal, __ATOMIC_ACQUIRE) &&
+           pthread_equal(pthread_self(), g_exec_rehearsal_thread);
+}
+
+static int run_execve(orig_execve_f_type f, const char *path, char *const argv[], char *const envp[]) {
+    if (in_exec_rehearsal()) {
+        errno = 0;
+        return 0;
+    }
+    return f(path, argv, envp);
+}
+
 static int cortex_execve(const char *filename, char *const argv[], char *const envp[], int depth) {
-    static orig_execve_f_type orig_execve = NULL;
-    if (!orig_execve) orig_execve = (orig_execve_f_type)dlsym(RTLD_NEXT, "execve");
+    orig_execve_f_type orig_execve = real_execve();
+    if (!orig_execve) {
+        errno = ENOSYS;
+        return -1;
+    }
 
     // Scripts get the path exactly as the caller wrote it ("./x.sh" stays "./x.sh" in $0),
     // like the kernel would pass it; routing below uses the absolute form.
@@ -231,8 +276,7 @@ static int cortex_execve(const char *filename, char *const argv[], char *const e
             if (find_dynamic_linker_for_machine(g_cortex_root, probe.e_machine, ld_so, sizeof(ld_so)) && strcmp(elf_target, ld_so) != 0) {
                 ensure_exec_bit(elf_target, probe.mode);
 
-                strncpy(g_real_exe, elf_target, sizeof(g_real_exe) - 1);
-                g_real_exe[sizeof(g_real_exe) - 1] = '\0';
+                if (!in_exec_rehearsal()) cortex_copy_cstr(g_real_exe, sizeof(g_real_exe), elf_target);
 
                 char hook_buf[PATH_MAX];
                 const char *hook_so = cortex_hook_library(hook_buf, sizeof(hook_buf));
@@ -244,10 +288,10 @@ static int cortex_execve(const char *filename, char *const argv[], char *const e
                     return -1;
                 }
                 char **new_env = ensure_hook_in_envp(envp, elf_target);
-                int ret = orig_execve(ld_so, new_argv, new_env);
+                int ret = run_execve(orig_execve, ld_so, new_argv, new_env);
                 if (errno == EACCES && chmod(ld_so, 0755) == 0) {
                     // ld.so without its exec bit (an unusual restore): fix it once and retry
-                    ret = orig_execve(ld_so, new_argv, new_env);
+                    ret = run_execve(orig_execve, ld_so, new_argv, new_env);
                 }
                 int saved_errno = errno;
                 free(new_argv);
@@ -273,7 +317,7 @@ static int cortex_execve(const char *filename, char *const argv[], char *const e
             int ret;
             if (is_host_interpreter(rewritten_interp)) {
                 char **sys_env = clean_env_for_system(envp);
-                ret = orig_execve(rewritten_interp, new_argv, sys_env);
+                ret = run_execve(orig_execve, rewritten_interp, new_argv, sys_env);
                 int saved_errno = errno;
                 free_modified_env(sys_env, envp);
                 errno = saved_errno;
@@ -293,7 +337,7 @@ static int cortex_execve(const char *filename, char *const argv[], char *const e
     } else {
         // Any binary outside CORTEX_ROOT is an Android host binary (e.g. /system/bin/su, /sbin/su, /data/adb/...)
         char **sys_env = clean_env_for_system(envp);
-        int ret = orig_execve(target, argv, sys_env);
+        int ret = run_execve(orig_execve, target, argv, sys_env);
         int saved_errno = errno;
         free_modified_env(sys_env, envp);
         errno = saved_errno;
@@ -302,7 +346,7 @@ static int cortex_execve(const char *filename, char *const argv[], char *const e
 
     if (static_elf) prepare_static_program(static_elf);
     char **cortex_env = prepare_cortex_env(envp, target);
-    int ret = orig_execve(target, argv, cortex_env);
+    int ret = run_execve(orig_execve, target, argv, cortex_env);
     int saved_errno = errno;
     free_modified_env(cortex_env, envp);
     errno = saved_errno;
@@ -311,6 +355,95 @@ static int cortex_execve(const char *filename, char *const argv[], char *const e
 
 int execve(const char *filename, char *const argv[], char *const envp[]) {
     return cortex_execve(filename, argv, envp, 0);
+}
+
+// ---- fork() ---------------------------------------------------------------------------------
+// A shell (and make, dpkg, perl, ...) starts a program with fork() and then execve() in the child.
+// What the exec code above needs for the first time in a process (glibc's execve, fstat and readlink
+// behind the hooks, the rootfs' ld.so, the path of this library) it found in the child, where every
+// page it writes is a copy of the parent's: some 40 copy-on-write faults before each program even
+// started, where a shell's child without the hook has fewer than ten. Now the parent finds them at
+// its first fork(), and the children inherit them and only read them. At its eighth fork() the
+// parent also rehearses an exec (everything but the execve() itself), which binds the calls the
+// exec code makes and touches the code it runs. That costs about as much as it saves in four
+// children, so only a process that keeps forking (a shell running a loop or a long script, make,
+// dpkg) does it; one that forks a few times (sh -c with a pipe) does not pay for it.
+#define CORTEX_FORKS_BEFORE_REHEARSAL 8
+static int g_exec_prepared = 0;   // 1 after the first fork(), 2 after the rehearsal
+static pthread_mutex_t g_exec_prepare_lock = PTHREAD_MUTEX_INITIALIZER;
+
+static void rehearse_exec(void) {
+    static const char rehearsal_target[] = "/usr/bin/true";
+    char target_buf[PATH_MAX];
+    const char *target = rewrite_path(rehearsal_target, target_buf, sizeof(target_buf));
+    struct exec_probe probe;
+    // A dynamic program only: it takes the one way through cortex_execve() that ends in run_execve()
+    probe_exec_file(target, &probe);
+    if (!probe.is_elf || !probe.is_dynamic) return;
+    extern char **environ;
+    char *rehearsal_argv[] = { (char *)"true", NULL };
+    g_exec_rehearsal_thread = pthread_self();
+    __atomic_store_n(&g_exec_rehearsal, 1, __ATOMIC_RELEASE);
+    cortex_execve(rehearsal_target, rehearsal_argv, environ, 0);
+    __atomic_store_n(&g_exec_rehearsal, 0, __ATOMIC_RELEASE);
+}
+
+static void prepare_exec_in_parent(int level) {
+    // One thread prepares (two rehearsing at once would take each other for the other's thread)
+    pthread_mutex_lock(&g_exec_prepare_lock);
+    int done = __atomic_load_n(&g_exec_prepared, __ATOMIC_ACQUIRE);
+    if (done >= level) {
+        pthread_mutex_unlock(&g_exec_prepare_lock);
+        return;
+    }
+    int saved_errno = errno;
+    init_cortex_hook();
+    real_execve();
+    if (g_cortex_root[0] != '\0') {
+        if (done < 1) {
+            char ld_so[PATH_MAX];
+#if defined(__aarch64__)
+            uint16_t machine = 183;
+#elif defined(__arm__)
+            uint16_t machine = 40;
+#elif defined(__x86_64__)
+            uint16_t machine = 62;
+#else
+            uint16_t machine = 0;
+#endif
+            if (machine && find_dynamic_linker_for_machine(g_cortex_root, machine, ld_so, sizeof(ld_so))) {
+                // readlink(), open(), read() and close() behind the hooks, as the probe calls them
+                char resolved[PATH_MAX];
+                struct exec_probe probe;
+                resolve_symlinks(ld_so, resolved, sizeof(resolved), 0);
+                probe_exec_file(ld_so, &probe);
+            }
+            char hook_buf[PATH_MAX];
+            cortex_hook_library(hook_buf, sizeof(hook_buf));
+            struct stat st;
+            probe_fstat(-1, &st); // looks fstat() up; -1 only fails with EBADF
+        }
+        if (level >= 2) rehearse_exec();
+    }
+    __atomic_store_n(&g_exec_prepared, level, __ATOMIC_RELEASE);
+    pthread_mutex_unlock(&g_exec_prepare_lock);
+    errno = saved_errno;
+}
+
+pid_t fork(void) {
+    static pid_t (*orig_fork)(void) = NULL;
+    if (!orig_fork) orig_fork = (pid_t (*)(void))dlsym(RTLD_NEXT, "fork");
+    if (!orig_fork) {
+        errno = ENOSYS;
+        return -1;
+    }
+    int done = __atomic_load_n(&g_exec_prepared, __ATOMIC_ACQUIRE);
+    if (done < 2) {
+        static int forks = 0;
+        int n = __atomic_add_fetch(&forks, 1, __ATOMIC_RELAXED);
+        if (n == 1 || n >= CORTEX_FORKS_BEFORE_REHEARSAL) prepare_exec_in_parent(n >= CORTEX_FORKS_BEFORE_REHEARSAL ? 2 : 1);
+    }
+    return orig_fork();
 }
 
 extern char **environ;
