@@ -31,7 +31,7 @@ static void init_cortex_hook(void) {
     }
     const char *curr_real_exe = getenv("CORTEX_REAL_EXE");
     if (curr_real_exe && curr_real_exe[0] != '\0') {
-        strncpy(g_real_exe, curr_real_exe, sizeof(g_real_exe) - 1);
+        cortex_copy_cstr(g_real_exe, sizeof(g_real_exe), curr_real_exe);
     }
     if (g_cortex_root[0] != '\0') {
         const char *curr_tzdir = getenv("TZDIR");

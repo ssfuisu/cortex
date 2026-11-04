@@ -110,7 +110,7 @@ declare -a failed
 # kernel here, Android programs refuse the library path of Ubuntu's libraries, and Android's seccomp
 # filter kills glibc's realpath().
 needs_hook() {
-    case "$1" in realpath | spawn_true | spawn_script | spawn_host) return 0 ;; esac
+    case "$1" in realpath | spawn_true | fork_true | spawn_script | spawn_host) return 0 ;; esac
     return 1
 }
 
@@ -161,7 +161,7 @@ for t in $tests; do
         continue
     fi
     n="$(awk -v s="$pilot" 'BEGIN { per = s / 200; if (per < 1e-9) per = 1e-9; n = int(0.2 / per); if (n < 20) n = 20; if (n > 5000000) n = 5000000; print n }')"
-    case "$t" in spawn_*) if [ "$n" -gt 300 ]; then n=300; fi ;; esac
+    case "$t" in spawn_* | fork_*) if [ "$n" -gt 300 ]; then n=300; fi ;; esac
 
     # a configuration that fails (for example an old hook that cannot start scripts) is reported, not fatal
     for ((i = 0; i < ncfg; i++)); do : >"$WORK/s.$i"; failed[i]=0; done

@@ -221,6 +221,24 @@ static void t_spawn_true(long n, const char *root) {
     spawn_wait(p, argv, n);
 }
 
+/* the way a shell starts "true": fork(), then execve() in the child (the hook's exec code runs there) */
+static void t_fork_true(long n, const char *root) {
+    char p[PATH_MAX]; path_of(p, root, "/usr/bin/true");
+    char *argv[] = { "true", NULL };
+    for (long i = 0; i < n; i++) {
+        pid_t pid = fork();
+        if (pid < 0) die("fork", p);
+        if (pid == 0) { execv(p, argv); _exit(127); }
+        int status = 0;
+        if (waitpid(pid, &status, 0) != pid) die("waitpid", p);
+        if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+            fprintf(stderr, "micro: child of '%s' did not exit cleanly (status 0x%x)\n", p, status);
+            exit(2);
+        }
+        sink++;
+    }
+}
+
 /* the floor: ld.so started by hand, so the hook only has to load into the child (if it is in LD_PRELOAD) */
 static void t_spawn_ldso(long n, const char *root) {
     const char *real = getenv("CORTEX_ROOT");
@@ -261,7 +279,7 @@ static const struct { const char *name; test_fn fn; } TESTS[] = {
     { "access", t_access }, { "open", t_open }, { "openat_rel", t_openat_rel }, { "fopen", t_fopen },
     { "readlink", t_readlink }, { "readdir", t_readdir }, { "realpath", t_realpath }, { "getcwd", t_getcwd },
     { "write_null", t_write_null }, { "dup_close", t_dup_close }, { "sigprocmask", t_sigprocmask },
-    { "spawn_ldso", t_spawn_ldso }, { "spawn_true", t_spawn_true }, { "spawn_script", t_spawn_script },
+    { "spawn_ldso", t_spawn_ldso }, { "spawn_true", t_spawn_true }, { "fork_true", t_fork_true }, { "spawn_script", t_spawn_script },
     { "spawn_host", t_spawn_host },
 };
 
