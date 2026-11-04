@@ -389,8 +389,10 @@ static void rehearse_exec(void) {
 }
 
 static void prepare_exec_in_parent(int level) {
-    // One thread prepares (two rehearsing at once would take each other for the other's thread)
-    pthread_mutex_lock(&g_exec_prepare_lock);
+    // One thread prepares (two rehearsing at once would take each other for the other's thread).
+    // Not waiting for the lock: a signal handler that forks while its thread is preparing would wait
+    // for itself; a busy lock leaves the preparation to a later fork().
+    if (pthread_mutex_trylock(&g_exec_prepare_lock) != 0) return;
     int done = __atomic_load_n(&g_exec_prepared, __ATOMIC_ACQUIRE);
     if (done >= level) {
         pthread_mutex_unlock(&g_exec_prepare_lock);
@@ -443,7 +445,11 @@ pid_t fork(void) {
         int n = __atomic_add_fetch(&forks, 1, __ATOMIC_RELAXED);
         if (n == 1 || n >= CORTEX_FORKS_BEFORE_REHEARSAL) prepare_exec_in_parent(n >= CORTEX_FORKS_BEFORE_REHEARSAL ? 2 : 1);
     }
-    return orig_fork();
+    pid_t pid = orig_fork();
+    // A child forked from a signal handler that interrupted a rehearsal is not rehearsing: its
+    // execve() is a real one (only read in the usual case, so no page is copied for it)
+    if (pid == 0 && __atomic_load_n(&g_exec_rehearsal, __ATOMIC_RELAXED)) __atomic_store_n(&g_exec_rehearsal, 0, __ATOMIC_RELAXED);
+    return pid;
 }
 
 extern char **environ;

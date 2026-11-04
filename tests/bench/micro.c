@@ -229,8 +229,9 @@ static void t_fork_true(long n, const char *root) {
         pid_t pid = fork();
         if (pid < 0) die("fork", p);
         if (pid == 0) { execv(p, argv); _exit(127); }
-        int status;
-        if (waitpid(pid, &status, 0) != pid || !WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+        int status = 0;
+        if (waitpid(pid, &status, 0) != pid) die("waitpid", p);
+        if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
             fprintf(stderr, "micro: child of '%s' did not exit cleanly (status 0x%x)\n", p, status);
             exit(2);
         }
