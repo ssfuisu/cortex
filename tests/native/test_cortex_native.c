@@ -1691,6 +1691,71 @@ static void test_spawn_in_pty(void) {
     ASSERT_TRUE(strstr(out, "SIGPIPE=0000000000000000") != NULL, "no signal is ignored in the shell");
 }
 
+/* A program's DT_RUNPATH (Ubuntu's adb: /usr/lib/<arch>/android) reaches ld.so mapped into the rootfs:
+   ld.so opens those directories itself, without the hook, and found libbase.so.0 nowhere */
+static void test_runpath_reaches_ld_so(void) {
+    char dir[PATH_MAX], src[PATH_MAX], runpath_exe[PATH_MAX], rpath_exe[PATH_MAX], plain_exe[PATH_MAX], cmd[PATH_MAX * 4];
+    snprintf(dir, sizeof(dir), "%s/cortex_runpath_XXXXXX", get_test_tmp_dir());
+    ASSERT_TRUE(mkdtemp(dir) != NULL, "temporary directory");
+    snprintf(src, sizeof(src), "%s/p.c", dir);
+    FILE *f = fopen(src, "w");
+    ASSERT_TRUE(f != NULL, "source file");
+    fputs("int main(void) { return 0; }\n", f);
+    fclose(f);
+    snprintf(runpath_exe, sizeof(runpath_exe), "%s/runpath", dir);
+    snprintf(rpath_exe, sizeof(rpath_exe), "%s/rpath", dir);
+    snprintf(plain_exe, sizeof(plain_exe), "%s/plain", dir);
+    snprintf(cmd, sizeof(cmd),
+             "cc -o '%s' '%s' -Wl,--enable-new-dtags,-rpath,/usr/lib/aarch64-linux-gnu/android:'$ORIGIN/../lib':/system/lib64 && "
+             "cc -o '%s' '%s' -Wl,--disable-new-dtags,-rpath,/usr/lib/private && cc -o '%s' '%s'",
+             runpath_exe, src, rpath_exe, src, plain_exe, src);
+    if (system(cmd) != 0) {
+        printf("  skip: no C compiler to build programs with a RUNPATH\n");
+        return;
+    }
+
+    struct exec_probe probe;
+    probe_exec_file(runpath_exe, &probe);
+    ASSERT_TRUE(probe.is_dynamic, "the program is dynamic");
+    ASSERT_STR_EQ(probe.runpath, "/usr/lib/aarch64-linux-gnu/android:$ORIGIN/../lib:/system/lib64", "DT_RUNPATH is read");
+    probe_exec_file(rpath_exe, &probe);
+    ASSERT_STR_EQ(probe.runpath, "/usr/lib/private", "DT_RPATH is read when there is no DT_RUNPATH");
+    probe_exec_file(plain_exe, &probe);
+    ASSERT_STR_EQ(probe.runpath, "", "a program without either has none");
+
+    char saved[PATH_MAX];
+    size_t saved_len = g_cortex_root_len;
+    memcpy(saved, g_cortex_root, sizeof(saved));
+    snprintf(g_cortex_root, sizeof(g_cortex_root), "%s", "/data/user/0/org.cortex.terminal/files/cortex");
+    g_cortex_root_len = strlen(g_cortex_root);
+    const char *r = g_cortex_root;
+    char want[PATH_MAX * 2], lib_path[PATH_MAX * 6];
+    char ld_env[PATH_MAX];
+    snprintf(ld_env, sizeof(ld_env), "LD_LIBRARY_PATH=%s/usr/lib/aarch64-linux-gnu", r);
+    char *env[] = { ld_env, NULL };
+
+    build_ld_library_path(env, "/usr/lib/aarch64-linux-gnu/android:$ORIGIN/../lib:/system/lib64", lib_path, sizeof(lib_path));
+    snprintf(want, sizeof(want), "%s/usr/lib/aarch64-linux-gnu:%s/usr/lib/aarch64-linux-gnu/android:%s/lib/aarch64-linux-gnu:", r, r, r);
+    ASSERT_TRUE(strncmp(lib_path, want, strlen(want)) == 0,
+                "the RUNPATH directory follows the caller's list, mapped into the rootfs, before the rootfs defaults");
+    ASSERT_TRUE(strstr(lib_path, "$ORIGIN") == NULL, "$ORIGIN is left to ld.so");
+    ASSERT_TRUE(strstr(lib_path, ":/system/lib64") == NULL, "a directory outside the rootfs is not added");
+
+    build_ld_library_path(env, "/usr/lib/aarch64-linux-gnu", lib_path, sizeof(lib_path));
+    snprintf(want, sizeof(want), "%s/usr/lib/aarch64-linux-gnu:", r);
+    ASSERT_TRUE(strncmp(lib_path, want, strlen(want)) == 0 && strstr(lib_path + strlen(want), "/usr/lib/aarch64-linux-gnu:") == NULL,
+                "a directory the list holds already is not added twice");
+
+    char plain_path[PATH_MAX * 6];
+    build_ld_library_path(env, NULL, plain_path, sizeof(plain_path));
+    build_ld_library_path(env, "", lib_path, sizeof(lib_path));
+    ASSERT_STR_EQ(lib_path, plain_path, "without a RUNPATH the list is as before");
+
+    memcpy(g_cortex_root, saved, sizeof(saved));
+    g_cortex_root_len = saved_len;
+    unlink(runpath_exe); unlink(rpath_exe); unlink(plain_exe); unlink(src); rmdir(dir);
+}
+
 /* lstat() of a link reads it again only when the hook rewrites what readlink() returns */
 static void test_readlink_result_may_change(void) {
     char saved[PATH_MAX];
@@ -2207,6 +2272,7 @@ int main(void) {
     test_app_files_owned_by_root();
     test_listening_port_report();
     test_dns_helpers();
+    test_runpath_reaches_ld_so();
     test_static_syscall_patching();
     test_absolutize_exec_path();
     test_rewrite_path_matches_reference();

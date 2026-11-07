@@ -4,6 +4,19 @@ What changed in each version of Cortex Terminal, newest first. The release workf
 of a GitHub release from the section of its version here. Older versions are described on the
 [GitHub releases](https://github.com/ssfuisu/cortex/releases) page.
 
+## 1.26.50 (2026-11-07)
+
+### Fixed
+
+- **Programs that keep their libraries in a folder of their own (`adb`, `fastboot`).** Ubuntu's
+  `adb` stopped with "libbase.so.0: cannot open shared object file" although the library was
+  installed: like `fastboot`, it finds libbase, liblog, libcutils, libziparchive and its own
+  libssl/libcrypto in `/usr/lib/aarch64-linux-gnu/android` through the RUNPATH written in the
+  program. The loader opens that folder by itself, and looked for it in Android's own files instead
+  of Ubuntu's. Cortex now reads a program's RUNPATH (or RPATH) when it starts it and hands the
+  loader those folders inside Ubuntu, so `sudo apt install adb` and then `adb devices` work, and so
+  do other programs built the same way. Nothing to reinstall: the programs work after the update.
+
 ## 1.26.49 (2026-11-07)
 
 ### Fixed

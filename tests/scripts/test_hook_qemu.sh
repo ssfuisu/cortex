@@ -337,6 +337,50 @@ check "a server on a port it chose is reported to the app" test "$chosen" -gt 0 
 check "servers on ports the kernel picked are not (reported: $reported)" test "$reported" = "$chosen "
 [ "$reported" = "$chosen " ] || echo "        ports: picked $picked, chosen $chosen, unbound $unbound"
 
+# A program that finds its libraries through its RUNPATH (Ubuntu's adb: /usr/lib/<arch>/android)
+# or its RPATH. ld.so opens those directories itself, without the hook, so they have to reach it
+# mapped into the rootfs; before, adb stopped with "libbase.so.0: cannot open shared object file".
+for kind in runpath rpath; do
+  case $kind in
+    runpath) libdir=/usr/lib/aarch64-linux-gnu/android; dtags=--enable-new-dtags ;;
+    rpath) libdir=/usr/lib/private-$kind; dtags=--disable-new-dtags ;;
+  esac
+  mkdir -p "$work/root$libdir" "$work/root/usr/bin"
+  echo 'int priv_answer(void) { return 42; }' | aarch64-linux-gnu-gcc -shared -fPIC -w -Wl,-soname,libpriv_$kind.so.0 \
+    -o "$work/root$libdir/libpriv_$kind.so.0" -x c - || { echo "libpriv_$kind did not build"; exit 1; }
+  printf '#include <stdio.h>\nint priv_answer(void);\nint main(void) { printf("answer %%d\\n", priv_answer()); return 0; }\n' |
+    aarch64-linux-gnu-gcc -O2 -w -o "$work/root/usr/bin/use_$kind" -x c - -x none "$work/root$libdir/libpriv_$kind.so.0" \
+      -Wl,$dtags,-rpath,$libdir || { echo "use_$kind did not build"; exit 1; }
+done
+prog start_private <<'EOC'
+#include <spawn.h>
+#include <stdio.h>
+#include <sys/wait.h>
+#include <unistd.h>
+extern char **environ;
+int main(int argc, char **argv) {
+    char *args[] = { argv[1], NULL };
+    if (argc > 2) { // posix_spawn(), as Python's subprocess and many others start programs
+        pid_t pid;
+        if (posix_spawn(&pid, argv[1], NULL, NULL, args, environ) != 0) return 4;
+        int status = 0;
+        waitpid(pid, &status, 0);
+        return WIFEXITED(status) ? WEXITSTATUS(status) : 5;
+    }
+    execv(argv[1], args);
+    perror("execv");
+    return 3;
+}
+EOC
+for kind in runpath rpath; do
+  out=$(run "$work/start_private" /usr/bin/use_$kind)
+  check "a program finds its libraries through its ${kind^^} (execve)" test "$out" = "answer 42"
+  [ "$out" = "answer 42" ] || echo "        got: $out"
+done
+out=$(run "$work/start_private" /usr/bin/use_runpath spawn)
+check "a program finds its libraries through its RUNPATH (posix_spawn)" test "$out" = "answer 42"
+[ "$out" = "answer 42" ] || echo "        got: $out"
+
 echo
 echo "$passed passed, $failed failed"
 [ "$failed" = 0 ]
