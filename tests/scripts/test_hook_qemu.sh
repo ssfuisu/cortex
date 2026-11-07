@@ -287,6 +287,50 @@ else
   echo "  skip  the repair of directories (needs root or passwordless sudo, setpriv and the user nobody)"
 fi
 
+# The app connects to each server the hook reports, to see whether it serves web pages. Gradle's
+# daemon and other programs that talk to each other over TCP let the kernel pick their port and
+# accept one connection, which the app's took: they read EOF (#51). Only a port the program chose,
+# below the kernel's own range, is reported.
+prog listeners <<'EOC'
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/socket.h>
+#include <unistd.h>
+static int serve(int port) {
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    struct sockaddr_in sin;
+    memset(&sin, 0, sizeof(sin));
+    sin.sin_family = AF_INET;
+    sin.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    sin.sin_port = htons(port);
+    if (bind(fd, (struct sockaddr *)&sin, sizeof(sin)) != 0 || listen(fd, 4) != 0) return -1;
+    socklen_t len = sizeof(sin);
+    getsockname(fd, (struct sockaddr *)&sin, &len);
+    return ntohs(sin.sin_port);
+}
+int main(int argc, char **argv) {
+    int picked = serve(0);
+    int chosen = serve(atoi(argv[1]));
+    int unbound = socket(AF_INET, SOCK_STREAM, 0);
+    listen(unbound, 4); // the kernel binds it to a port of its own
+    struct sockaddr_in sin;
+    socklen_t len = sizeof(sin);
+    getsockname(unbound, (struct sockaddr *)&sin, &len);
+    printf("%d %d %d\n", picked, chosen, ntohs(sin.sin_port));
+    return 0;
+}
+EOC
+mkdir -p "$work/root/run/cortex/listening"
+chosen_port=$((20000 + $$ % 5000))
+read -r picked chosen unbound <<<"$(run "$work/listeners" "$chosen_port")"
+reported=$(ls "$work/root/run/cortex/listening" | sort -n | tr '\n' ' ')
+check "a server on a port it chose is reported to the app" test -e "$work/root/run/cortex/listening/$chosen_port"
+check "servers on ports the kernel picked are not (reported: $reported)" test "$reported" = "$chosen_port "
+[ "$reported" = "$chosen_port " ] || echo "        ports: picked $picked, chosen $chosen, unbound $unbound"
+
 echo
 echo "$passed passed, $failed failed"
 [ "$failed" = 0 ]

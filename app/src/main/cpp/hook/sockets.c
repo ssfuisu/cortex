@@ -32,7 +32,46 @@ static void report_listening_port(const char *root, size_t root_len, int port, c
     syscall(SYS_close, out);
 }
 
+// The first port of the kernel's range for ports it picks itself, from the text of
+// /proc/sys/net/ipv4/ip_local_port_range ("32768\t60999"); 32768, Linux's default, when there is none.
+static int ephemeral_port_low(const char *range) {
+    if (!range) return 32768;
+    while (*range == ' ' || *range == '\t') range++;
+    int low = 0, digits = 0;
+    while (*range >= '0' && *range <= '9' && digits < 6) low = low * 10 + (*range++ - '0'), digits++;
+    return (digits > 0 && low > 0 && low <= 65535) ? low : 32768;
+}
+
+// Whether listen() tells the app about a server on `port`, which it then connects to and sends an
+// HTTP request (LocalServers). Only for a port the program chose (`chosen`) below the kernel's own
+// range: a server whose port the kernel picked, or one in that range, is how programs talk to
+// each other (Gradle's daemon, the Kotlin daemon, a JVM's debugger, test runners). Such a server
+// often accepts one connection, so the app's own took the place of the program it waited for:
+// that one read EOF ("Did not receive connection preamble" from Gradle, #51). Web servers people
+// open (npm run dev, vite, python3 -m http.server, jupyter) are on ports such as 3000, 5173, 8000.
+static int listening_port_is_reported(int chosen, int port, int ephemeral_low) {
+    return chosen && port > 0 && port < ephemeral_low;
+}
+
 #ifndef CORTEX_HOST_TEST
+
+// The kernel's range, read once (raw system calls: nothing of this library runs again)
+static int kernel_ephemeral_port_low(void) {
+    static int low = 0;
+    int v = __atomic_load_n(&low, __ATOMIC_RELAXED);
+    if (v) return v;
+    char text[64];
+    ssize_t n = -1;
+    int fd = (int)syscall(SYS_openat, AT_FDCWD, "/proc/sys/net/ipv4/ip_local_port_range", O_RDONLY | O_CLOEXEC);
+    if (fd >= 0) {
+        n = syscall(SYS_read, fd, text, sizeof(text) - 1);
+        syscall(SYS_close, fd);
+    }
+    if (n > 0) text[n] = '\0';
+    v = ephemeral_port_low(n > 0 ? text : NULL);
+    __atomic_store_n(&low, v, __ATOMIC_RELAXED);
+    return v;
+}
 
 int listen(int sockfd, int backlog) {
     static int (*orig_listen)(int, int) = NULL;
@@ -44,8 +83,8 @@ int listen(int sockfd, int backlog) {
     int ret = orig_listen(sockfd, backlog);
     if (ret == 0) {
         int saved_errno = errno;
-        int port = listening_tcp_port(sockfd);
-        if (port > 0) {
+        int port = is_chosen_port_fd(sockfd) ? listening_tcp_port(sockfd) : 0;
+        if (listening_port_is_reported(port > 0, port, kernel_ephemeral_port_low())) {
             init_cortex_hook();
             extern char *program_invocation_short_name;
             report_listening_port(g_cortex_root, g_cortex_root_len, port, program_invocation_short_name);
@@ -69,7 +108,18 @@ int bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen) {
             return orig_bind ? orig_bind(sockfd, (struct sockaddr *)&mod_sun, sizeof(mod_sun)) : -1;
         }
     }
-    return orig_bind ? orig_bind(sockfd, addr, addrlen) : -1;
+    int ret = orig_bind ? orig_bind(sockfd, addr, addrlen) : -1;
+    if (ret == 0 && addr) {
+        int saved_errno = errno;
+        int chosen = 0;
+        if (addr->sa_family == AF_INET && addrlen >= (socklen_t)sizeof(struct sockaddr_in))
+            chosen = ((const struct sockaddr_in *)addr)->sin_port != 0;
+        else if (addr->sa_family == AF_INET6 && addrlen >= (socklen_t)sizeof(struct sockaddr_in6))
+            chosen = ((const struct sockaddr_in6 *)addr)->sin6_port != 0;
+        set_chosen_port_fd(sockfd, chosen);
+        errno = saved_errno;
+    }
+    return ret;
 }
 
 int connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen) {
