@@ -235,7 +235,7 @@ static int cortex_execve(const char *filename, char *const argv[], char *const e
                 char hook_buf[PATH_MAX];
                 const char *hook_so = cortex_hook_library(hook_buf, sizeof(hook_buf));
                 char ld_lib_path[PATH_MAX * 6];
-                build_ld_library_path(envp, probe.runpath, ld_lib_path, sizeof(ld_lib_path));
+                build_ld_library_path(envp, probe.runpath, probe.runpath_is_rpath, elf_target, ld_lib_path, sizeof(ld_lib_path));
                 char **new_argv = build_ldso_argv(ld_so, hook_so, ld_lib_path, elf_target, exec_prog_name(target), argv);
                 if (!new_argv) {
                     errno = ENOMEM;
@@ -718,6 +718,7 @@ static int cortex_posix_spawn(pid_t *pid, const char *path,
         probe.e_machine = 0;
         probe.mode = 0;
         probe.runpath[0] = '\0';
+        probe.runpath_is_rpath = 0;
     }
 
     char ld_so[PATH_MAX];
@@ -736,7 +737,7 @@ static int cortex_posix_spawn(pid_t *pid, const char *path,
         char hook_buf[PATH_MAX];
         const char *hook_so = cortex_hook_library(hook_buf, sizeof(hook_buf));
         char ld_lib_path[PATH_MAX * 6];
-        build_ld_library_path(orig_ep, probe.runpath, ld_lib_path, sizeof(ld_lib_path));
+        build_ld_library_path(orig_ep, probe.runpath, probe.runpath_is_rpath, elf_target, ld_lib_path, sizeof(ld_lib_path));
         char **new_argv = build_ldso_argv(ld_so, hook_so, ld_lib_path, elf_target, prog_name, argv);
         if (new_argv) {
             if (orig_posix_spawn) {
