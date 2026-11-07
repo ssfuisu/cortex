@@ -174,6 +174,12 @@ h2{font-size:clamp(1.7rem,3.6vw,2.5rem);line-height:1.15;margin:0 0 12px;letter-
 .node small{display:block;color:var(--muted);font-weight:500;font-size:.82rem}
 .node .ico{width:30px;height:30px;border-radius:9px;display:grid;place-items:center;font-size:1rem;flex:none;background:color-mix(in srgb,var(--accent) 18%,transparent)}
 .node.slow .ico{background:color-mix(in srgb,var(--pink) 20%,transparent)}
+.ico svg{width:55%;height:55%;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.node .ico{color:var(--accent)}
+.node.slow .ico{color:var(--pink)}
+.feat .ico{color:var(--text)}
+.star{display:none;width:14px;height:14px;fill:currentColor}
+.has-stars .star{display:inline-block}
 .wire{position:relative;height:18px;margin:-2px 0 -2px 28px;border-left:2px dashed var(--line)}
 .packet{position:absolute;left:-6px;width:10px;height:10px;border-radius:50%;background:var(--ok);box-shadow:0 0 12px var(--ok);opacity:0}
 .lane.good .packet{animation:fall 1.6s linear infinite}
@@ -263,6 +269,7 @@ footer a:hover{color:var(--accent)}
 </style>
 </head>
 <body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false"><defs><symbol id="i-keyboard" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></symbol><symbol id="i-layers" viewBox="0 0 24 24"><path d="M12 3 2 8l10 5 10-5z"/><path d="M2 13l10 5 10-5"/></symbol><symbol id="i-cpu" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/><rect x="10" y="10" width="4" height="4"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/></symbol><symbol id="i-loop" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/></symbol><symbol id="i-pen" viewBox="0 0 24 24"><path d="M17 3l4 4L8 20H4v-4z"/><path d="M14 6l4 4"/></symbol><symbol id="i-box" viewBox="0 0 24 24"><path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/></symbol><symbol id="i-zap" viewBox="0 0 24 24"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></symbol><symbol id="i-code" viewBox="0 0 24 24"><path d="M16 18l6-6-6-6M8 6l-6 6 6 6"/></symbol><symbol id="i-phone" viewBox="0 0 24 24"><rect x="6" y="2" width="12" height="20" rx="2.5"/><path d="M11 18h2"/></symbol><symbol id="i-file" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 17l2-2-2-2M13 17h3"/></symbol><symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></symbol><symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a2 2 0 0 0 3.4 0"/></symbol><symbol id="i-server" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="8" rx="2"/><rect x="3" y="13" width="18" height="8" rx="2"/><path d="M7 7h.01M7 17h.01"/></symbol><symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/></symbol><symbol id="i-lock" viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></symbol><symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14 14 0 0 1 0 18 14 14 0 0 1 0-18"/></symbol><symbol id="i-star" viewBox="0 0 24 24"><path d="M12 3l2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.3 6.4 20.2l1.1-6.2L3 9.6l6.2-.9z"/></symbol></defs></svg>
 <a class="skip" href="#main">Skip to content</a>
 
 <nav class="nav" id="nav" aria-label="Main">
@@ -278,7 +285,7 @@ footer a:hover{color:var(--accent)}
     </ul>
     <a class="gh" href="https://github.com/ssfuisu/cortex" aria-label="Cortex on GitHub">
       <svg viewBox="0 0 16 16" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
-      <span id="stars">GitHub</span>
+      <svg class="star" aria-hidden="true"><use href="#i-star"/></svg><span id="stars">GitHub</span>
     </a>
   </div>
 </nav>
@@ -333,11 +340,11 @@ footer a:hover{color:var(--accent)}
         <h3>Cortex</h3>
         <p class="note">A program calls the kernel directly. Paths are rewritten in the same process, in user space.</p>
         <div class="stack">
-          <div class="node"><span class="ico">⌨️</span><div>Your program<small>bash, gcc, python3, node…</small></div></div>
+          <div class="node"><span class="ico"><svg aria-hidden="true"><use href="#i-keyboard"/></svg></span><div>Your program<small>bash, gcc, python3, node…</small></div></div>
           <div class="wire"><i class="packet"></i></div>
-          <div class="node"><span class="ico">🧩</span><div>glibc 2.39 + Cortex's library<small>maps /usr, /etc into the app's storage</small></div></div>
+          <div class="node"><span class="ico"><svg aria-hidden="true"><use href="#i-layers"/></svg></span><div>glibc 2.39 + Cortex's library<small>maps /usr, /etc into the app's storage</small></div></div>
           <div class="wire"><i class="packet"></i></div>
-          <div class="node"><span class="ico">🐧</span><div>Android's Linux kernel<small>at full speed, on the phone's CPU</small></div></div>
+          <div class="node"><span class="ico"><svg aria-hidden="true"><use href="#i-cpu"/></svg></span><div>Android's Linux kernel<small>at full speed, on the phone's CPU</small></div></div>
         </div>
         <div class="speed"><span>Overhead</span><span class="bar"><i></i></span><span>a few %</span></div>
       </div>
@@ -345,13 +352,13 @@ footer a:hover{color:var(--accent)}
         <h3>PRoot</h3>
         <p class="note">Every system call stops the program and is handled by a second process, then resumed.</p>
         <div class="stack">
-          <div class="node slow"><span class="ico">⌨️</span><div>Your program<small>stopped at each system call</small></div></div>
+          <div class="node slow"><span class="ico"><svg aria-hidden="true"><use href="#i-keyboard"/></svg></span><div>Your program<small>stopped at each system call</small></div></div>
           <div class="wire"><i class="packet"></i></div>
-          <div class="node slow"><span class="ico">🔁</span><div>ptrace stop<small>a context switch to PRoot and back</small></div></div>
+          <div class="node slow"><span class="ico"><svg aria-hidden="true"><use href="#i-loop"/></svg></span><div>ptrace stop<small>a context switch to PRoot and back</small></div></div>
           <div class="wire"><i class="packet"></i></div>
-          <div class="node slow"><span class="ico">🛠️</span><div>PRoot rewrites the call<small>in another process</small></div></div>
+          <div class="node slow"><span class="ico"><svg aria-hidden="true"><use href="#i-pen"/></svg></span><div>PRoot rewrites the call<small>in another process</small></div></div>
           <div class="wire"><i class="packet"></i></div>
-          <div class="node slow"><span class="ico">🐧</span><div>Android's Linux kernel<small>after the round trip</small></div></div>
+          <div class="node slow"><span class="ico"><svg aria-hidden="true"><use href="#i-cpu"/></svg></span><div>Android's Linux kernel<small>after the round trip</small></div></div>
         </div>
         <div class="speed"><span>Overhead</span><span class="bar"><i></i></span><span>every call</span></div>
       </div>
@@ -365,18 +372,18 @@ footer a:hover{color:var(--accent)}
       <p class="sub">A real Ubuntu userland and a terminal made for a phone.</p>
     </div>
     <div class="features">
-      <div class="feat reveal"><div class="ico">🐧</div><h3>Genuine Ubuntu 24.04 LTS</h3><p>Ubuntu's own <code>.deb</code> packages with glibc 2.39, installed with <code>apt</code> from the official archive.</p></div>
-      <div class="feat reveal"><div class="ico">⚡</div><h3>Direct execution</h3><p>Programs run on the Android kernel itself. A small preloaded library maps <code>/usr</code>, <code>/etc</code> and friends into the app's private storage.</p></div>
-      <div class="feat reveal"><div class="ico">🛠️</div><h3>Built for developers</h3><p>gcc, git, Python, Java 17, Node.js (apt or nvm) and more. Changed <code>~/.bashrc</code> files are picked up at the next prompt.</p></div>
-      <div class="feat reveal"><div class="ico">📱</div><h3>Made for a phone</h3><p>Session tabs and drawer, a key toolbar of your own, fourteen color schemes that theme the whole screen, search, clickable links and image paste.</p></div>
-      <div class="feat reveal"><div class="ico">🐹</div><h3>Go programs just work</h3><p>Single-file Go tools (<code>gh</code>, <code>lazygit</code>, <code>fzf</code>…) see Ubuntu's files and start Ubuntu's programs, with no root.</p></div>
-      <div class="feat reveal"><div class="ico">🔗</div><h3>Terminal integration</h3><p>Clipboard from tmux/vim (OSC 52), notifications when long commands finish, OSC 8 hyperlinks, bracketed paste, cursor shapes and synchronized output.</p></div>
-      <div class="feat reveal"><div class="ico">🤖</div><h3>Android from the shell</h3><p><code>cortex-api</code> shows notifications, uses the clipboard, opens links and files in Android apps, shares, reads the battery and speaks.</p></div>
-      <div class="feat reveal"><div class="ico">🌐</div><h3>SSH and local servers</h3><p><code>cortex-sshd</code> to use Cortex from a computer, and a notification that opens <code>npm run dev</code> or <code>python3 -m http.server</code> in the browser.</p></div>
-      <div class="feat reveal"><div class="ico">💾</div><h3>Your files, safe</h3><p><code>cortex-backup</code> for backup and restore, sessions that come back after Android ends the app, and your home folder in Android's Files app.</p></div>
-      <div class="feat reveal"><div class="ico">⌨️</div><h3>Hardware keyboards</h3><p>Ctrl, Alt and Shift work as in a desktop terminal: Ctrl+C, word jumps with Ctrl+arrows, selection with Shift, Meta on the left Alt, copy and paste shortcuts.</p></div>
-      <div class="feat reveal"><div class="ico">🔐</div><h3>Root mode, if you want it</h3><p>On a rooted phone, sessions can run as real root in a chroot of the same Ubuntu: <code>mount</code>, real <code>chown</code> and ports below 1024.</p></div>
-      <div class="feat reveal"><div class="ico">🌍</div><h3>50 languages</h3><p>The app follows your system language, from Arabic to Vietnamese, and lets you pick another one in Settings.</p></div>
+      <div class="feat reveal"><div class="ico"><svg aria-hidden="true"><use href="#i-box"/></svg></div><h3>Genuine Ubuntu 24.04 LTS</h3><p>Ubuntu's own <code>.deb</code> packages with glibc 2.39, installed with <code>apt</code> from the official archive.</p></div>
+      <div class="feat reveal"><div class="ico"><svg aria-hidden="true"><use href="#i-zap"/></svg></div><h3>Direct execution</h3><p>Programs run on the Android kernel itself. A small preloaded library maps <code>/usr</code>, <code>/etc</code> and friends into the app's private storage.</p></div>
+      <div class="feat reveal"><div class="ico"><svg aria-hidden="true"><use href="#i-code"/></svg></div><h3>Built for developers</h3><p>gcc, git, Python, Java 17, Node.js (apt or nvm) and more. Changed <code>~/.bashrc</code> files are picked up at the next prompt.</p></div>
+      <div class="feat reveal"><div class="ico"><svg aria-hidden="true"><use href="#i-phone"/></svg></div><h3>Made for a phone</h3><p>Session tabs and drawer, a key toolbar of your own, fourteen color schemes that theme the whole screen, search, clickable links and image paste.</p></div>
+      <div class="feat reveal"><div class="ico"><svg aria-hidden="true"><use href="#i-file"/></svg></div><h3>Go programs just work</h3><p>Single-file Go tools (<code>gh</code>, <code>lazygit</code>, <code>fzf</code>…) see Ubuntu's files and start Ubuntu's programs, with no root.</p></div>
+      <div class="feat reveal"><div class="ico"><svg aria-hidden="true"><use href="#i-link"/></svg></div><h3>Terminal integration</h3><p>Clipboard from tmux/vim (OSC 52), notifications when long commands finish, OSC 8 hyperlinks, bracketed paste, cursor shapes and synchronized output.</p></div>
+      <div class="feat reveal"><div class="ico"><svg aria-hidden="true"><use href="#i-bell"/></svg></div><h3>Android from the shell</h3><p><code>cortex-api</code> shows notifications, uses the clipboard, opens links and files in Android apps, shares, reads the battery and speaks.</p></div>
+      <div class="feat reveal"><div class="ico"><svg aria-hidden="true"><use href="#i-server"/></svg></div><h3>SSH and local servers</h3><p><code>cortex-sshd</code> to use Cortex from a computer, and a notification that opens <code>npm run dev</code> or <code>python3 -m http.server</code> in the browser.</p></div>
+      <div class="feat reveal"><div class="ico"><svg aria-hidden="true"><use href="#i-shield"/></svg></div><h3>Your files, safe</h3><p><code>cortex-backup</code> for backup and restore, sessions that come back after Android ends the app, and your home folder in Android's Files app.</p></div>
+      <div class="feat reveal"><div class="ico"><svg aria-hidden="true"><use href="#i-keyboard"/></svg></div><h3>Hardware keyboards</h3><p>Ctrl, Alt and Shift work as in a desktop terminal: Ctrl+C, word jumps with Ctrl+arrows, selection with Shift, Meta on the left Alt, copy and paste shortcuts.</p></div>
+      <div class="feat reveal"><div class="ico"><svg aria-hidden="true"><use href="#i-lock"/></svg></div><h3>Root mode, if you want it</h3><p>On a rooted phone, sessions can run as real root in a chroot of the same Ubuntu: <code>mount</code>, real <code>chown</code> and ports below 1024.</p></div>
+      <div class="feat reveal"><div class="ico"><svg aria-hidden="true"><use href="#i-globe"/></svg></div><h3>50 languages</h3><p>The app follows your system language, from Arabic to Vietnamese, and lets you pick another one in Settings.</p></div>
     </div>
   </section>
 
@@ -571,7 +578,7 @@ footer a:hover{color:var(--accent)}
     document.getElementById('btn-version').textContent = v;
   }).catch(function () {});
   fetch('https://api.github.com/repos/ssfuisu/cortex').then(function (r) { return r.ok ? r.json() : null; }).then(function (j) {
-    if (j && typeof j.stargazers_count === 'number') document.getElementById('stars').textContent = '★ ' + j.stargazers_count;
+    if (j && typeof j.stargazers_count === 'number') { document.getElementById('stars').textContent = j.stargazers_count; document.documentElement.classList.add('has-stars'); }
   }).catch(function () {});
 
   // The terminal in the hero types a short session
