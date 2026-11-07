@@ -63,13 +63,13 @@
   --text:#f2f3fb;--muted:#a8aecb;--accent:#89b4fa;--accent2:#cba6f7;--pink:#f38ba8;--ok:#a6e3a1;--warn:#f9e2af;
   --term:#11111b;--term-line:#2a2b3d;--glow:rgba(137,180,250,.35);--shadow:0 20px 60px rgba(0,0,0,.45);
   --radius:18px;--ease:cubic-bezier(.2,.8,.2,1);
-  --btn-a:#89b4fa;--btn-b:#cba6f7;--btn-fg:#0f1020
+  --btn-a:#89b4fa;--btn-b:#cba6f7;--btn-fg:#0f1020;--shine:rgba(255,255,255,.45)
 }
 @media (prefers-color-scheme:light){:root{
   --bg:#f6f7fc;--bg2:#eceef8;--card:rgba(255,255,255,.82);--card-solid:#fff;--line:rgba(31,95,214,.16);
   --text:#161827;--muted:#525876;--accent:#1f5fd6;--accent2:#7c3aed;--pink:#c0305a;--ok:#1f7a3a;--warn:#9a6a00;
   --glow:rgba(31,95,214,.22);--shadow:0 20px 50px rgba(30,40,90,.16);
-  --btn-a:#1a4fb8;--btn-b:#5b21b6;--btn-fg:#fff
+  --btn-a:#1a4fb8;--btn-b:#5b21b6;--btn-fg:#fff;--shine:rgba(255,255,255,.15)
 }}
 *{box-sizing:border-box}
 html{scroll-behavior:smooth;-webkit-text-size-adjust:100%}
@@ -122,11 +122,11 @@ h1{font-size:clamp(2.2rem,5.6vw,3.9rem);line-height:1.06;margin:18px 0 16px;lett
 .cta{display:flex;flex-wrap:wrap;gap:12px}
 @media (max-width:900px){.cta{justify-content:center}}
 .btn{position:relative;display:inline-flex;align-items:center;gap:10px;background:linear-gradient(135deg,var(--btn-a),var(--btn-b));color:var(--btn-fg);font-weight:800;text-decoration:none;padding:14px 24px;border-radius:14px;box-shadow:0 10px 30px var(--glow);transition:transform .25s var(--ease),box-shadow .25s;overflow:hidden}
-.btn::after{content:"";position:absolute;inset:0;background:linear-gradient(120deg,transparent 30%,rgba(255,255,255,.45) 50%,transparent 70%);transform:translateX(-120%);transition:transform .7s var(--ease)}
+.btn::after{content:"";position:absolute;inset:0;background:linear-gradient(120deg,transparent 30%,var(--shine) 50%,transparent 70%);transform:translateX(-120%);transition:transform .7s var(--ease)}
 .btn:hover{transform:translateY(-2px);box-shadow:0 16px 40px var(--glow)}
 .btn:hover::after{transform:translateX(120%)}
 .btn small{font-weight:700;opacity:.75;font-size:.8rem}
-.btn.alt{background:var(--card);color:var(--text);border:1px solid var(--line);box-shadow:none}
+.btn.alt{--shine:rgba(255,255,255,.15);background:var(--card);color:var(--text);border:1px solid var(--line);box-shadow:none}
 .btn.alt:hover{box-shadow:0 10px 30px var(--glow)}
 .btn svg{width:20px;height:20px;flex:none}
 

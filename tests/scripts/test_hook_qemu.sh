@@ -326,7 +326,11 @@ int main(int argc, char **argv) {
 }
 EOC
 mkdir -p "$work/root/run/cortex/listening"
-chosen_port=$((20000 + $$ % 5000))
+# Candidates must sit below the range the kernel picks ports from (what the hook reads, 32768 if unknown)
+ephemeral_low=$(awk '{print $1}' /proc/sys/net/ipv4/ip_local_port_range 2>/dev/null)
+case "$ephemeral_low" in ''|*[!0-9]*) ephemeral_low=32768 ;; esac
+[ "$ephemeral_low" -gt 1424 ] || ephemeral_low=32768
+chosen_port=$((1024 + $$ % (ephemeral_low - 1224)))
 read -r picked chosen unbound <<<"$(run "$work/listeners" "$chosen_port")"
 reported=$(ls "$work/root/run/cortex/listening" | sort -n | tr '\n' ' ')
 check "a server on a port it chose is reported to the app" test "$chosen" -gt 0 -a -e "$work/root/run/cortex/listening/$chosen"
