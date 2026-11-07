@@ -25,6 +25,7 @@
 <meta name="twitter:image" content="https://ssfuisu.github.io/cortex/social-preview.png">
 <link rel="icon" type="image/png" href="icon.png">
 <link rel="apple-touch-icon" href="icon.png">
+<script>document.documentElement.classList.add('js')</script>
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
@@ -61,12 +62,14 @@
   --bg:#0f1020;--bg2:#15172b;--card:rgba(30,32,56,.72);--card-solid:#1e2038;--line:rgba(137,180,250,.16);
   --text:#f2f3fb;--muted:#a8aecb;--accent:#89b4fa;--accent2:#cba6f7;--pink:#f38ba8;--ok:#a6e3a1;--warn:#f9e2af;
   --term:#11111b;--term-line:#2a2b3d;--glow:rgba(137,180,250,.35);--shadow:0 20px 60px rgba(0,0,0,.45);
-  --radius:18px;--ease:cubic-bezier(.2,.8,.2,1)
+  --radius:18px;--ease:cubic-bezier(.2,.8,.2,1);
+  --btn-a:#89b4fa;--btn-b:#cba6f7;--btn-fg:#0f1020
 }
 @media (prefers-color-scheme:light){:root{
   --bg:#f6f7fc;--bg2:#eceef8;--card:rgba(255,255,255,.82);--card-solid:#fff;--line:rgba(31,95,214,.16);
   --text:#161827;--muted:#525876;--accent:#1f5fd6;--accent2:#7c3aed;--pink:#c0305a;--ok:#1f7a3a;--warn:#9a6a00;
-  --glow:rgba(31,95,214,.22);--shadow:0 20px 50px rgba(30,40,90,.16)
+  --glow:rgba(31,95,214,.22);--shadow:0 20px 50px rgba(30,40,90,.16);
+  --btn-a:#1a4fb8;--btn-b:#5b21b6;--btn-fg:#fff
 }}
 *{box-sizing:border-box}
 html{scroll-behavior:smooth;-webkit-text-size-adjust:100%}
@@ -118,7 +121,7 @@ h1{font-size:clamp(2.2rem,5.6vw,3.9rem);line-height:1.06;margin:18px 0 16px;lett
 @keyframes chip{to{opacity:1;transform:none}}
 .cta{display:flex;flex-wrap:wrap;gap:12px}
 @media (max-width:900px){.cta{justify-content:center}}
-.btn{position:relative;display:inline-flex;align-items:center;gap:10px;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#0f1020;font-weight:800;text-decoration:none;padding:14px 24px;border-radius:14px;box-shadow:0 10px 30px var(--glow);transition:transform .25s var(--ease),box-shadow .25s;overflow:hidden}
+.btn{position:relative;display:inline-flex;align-items:center;gap:10px;background:linear-gradient(135deg,var(--btn-a),var(--btn-b));color:var(--btn-fg);font-weight:800;text-decoration:none;padding:14px 24px;border-radius:14px;box-shadow:0 10px 30px var(--glow);transition:transform .25s var(--ease),box-shadow .25s;overflow:hidden}
 .btn::after{content:"";position:absolute;inset:0;background:linear-gradient(120deg,transparent 30%,rgba(255,255,255,.45) 50%,transparent 70%);transform:translateX(-120%);transition:transform .7s var(--ease)}
 .btn:hover{transform:translateY(-2px);box-shadow:0 16px 40px var(--glow)}
 .btn:hover::after{transform:translateX(120%)}
@@ -148,8 +151,9 @@ section{padding:76px 0 0}
 h2{font-size:clamp(1.7rem,3.6vw,2.5rem);line-height:1.15;margin:0 0 12px;letter-spacing:-.01em}
 .sub{color:var(--muted);max-width:680px;margin:0 0 32px;font-size:1.06rem}
 .center{text-align:center}.center .sub{margin-left:auto;margin-right:auto}
-.reveal{opacity:0;transform:translateY(28px);transition:opacity .8s var(--ease),transform .8s var(--ease)}
-.reveal.in{opacity:1;transform:none}
+/* hidden only once the script runs: without it the page shows everything */
+.js .reveal{opacity:0;transform:translateY(28px);transition:opacity .8s var(--ease),transform .8s var(--ease)}
+.js .reveal.in{opacity:1;transform:none}
 
 /* stats */
 .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:56px}
@@ -220,7 +224,7 @@ tr:last-child th,tr:last-child td{border-bottom:0}
 /* install */
 .steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;counter-reset:step;margin:0;padding:0;list-style:none}
 .steps li{position:relative;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:22px 18px 18px 18px;counter-increment:step}
-.steps li::before{content:counter(step);display:grid;place-items:center;width:34px;height:34px;border-radius:10px;margin-bottom:10px;font-weight:800;color:#0f1020;background:linear-gradient(135deg,var(--accent),var(--accent2))}
+.steps li::before{content:counter(step);display:grid;place-items:center;width:34px;height:34px;border-radius:10px;margin-bottom:10px;font-weight:800;color:var(--btn-fg);background:linear-gradient(135deg,var(--btn-a),var(--btn-b))}
 .steps li p{margin:0;color:var(--muted)}
 .code{position:relative;margin-top:16px}
 .code pre{margin:0;background:var(--term);color:#cdd6f4;border:1px solid var(--term-line);border-radius:14px;padding:16px 18px;overflow-x:auto;font-size:.92rem}
@@ -252,7 +256,7 @@ footer a:hover{color:var(--accent)}
 
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
-  .reveal{opacity:1;transform:none}
+  .js .reveal{opacity:1;transform:none}
   .chips li{opacity:1;transform:none}
   .term{transform:none}
 }
@@ -538,7 +542,7 @@ footer a:hover{color:var(--accent)}
       var text = b.getAttribute('data-copy');
       var done = function () { b.textContent = 'Copied'; b.classList.add('done'); setTimeout(function () { b.textContent = 'Copy'; b.classList.remove('done'); }, 1600); };
       if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, function () {});
-      else { var t = document.createElement('textarea'); t.value = text; document.body.appendChild(t); t.select(); try { document.execCommand('copy'); done(); } catch (e) {} t.remove(); }
+      else { var t = document.createElement('textarea'); t.value = text; document.body.appendChild(t); t.select(); try { if (document.execCommand('copy')) done(); } catch (e) {} t.remove(); }
     });
   });
 
@@ -591,6 +595,7 @@ footer a:hover{color:var(--accent)}
   if (reduce) {
     var all = '';
     script.forEach(function (s) { if (s.cmd !== undefined) all += P + s.cmd + '\n'; else all += s.out + '\n'; });
+    term.style.height = 'auto'; // all of it, without the scrolling the animation does
     term.innerHTML = all;
     return;
   }

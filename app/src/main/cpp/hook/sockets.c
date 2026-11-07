@@ -258,7 +258,11 @@ int socket(int domain, int type, int protocol) {
         errno = EPROTONOSUPPORT;
         return -1;
     }
-    return orig_socket ? orig_socket(domain, type, protocol) : -1;
+    int fd = orig_socket ? orig_socket(domain, type, protocol) : -1;
+    // A new socket has not chosen a port, whatever the descriptor's last one had (close_range() and
+    // raw close system calls do not pass the hook's close())
+    if (fd >= 0) set_chosen_port_fd(fd, 0);
+    return fd;
 }
 
 #endif /* !CORTEX_HOST_TEST */

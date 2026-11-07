@@ -14,9 +14,9 @@ of a GitHub release from the section of its version here. Older versions are des
   a JVM test, took Cortex's connection instead of the one it waited for and read the end of it:
   `connect()` and `accept()` worked, but the data never arrived (`EOFException`), and `./gradlew`
   failed with "Did not receive connection preamble within 10s". Cortex now only asks servers on a port
-  the program chose below the kernel's own range (3000, 5173, 8000, 8888...), not those on a port the
-  kernel picked for them. The notification still comes for `npm run dev`, `vite`, `python3 -m
-  http.server` and `jupyter`.
+  the program chose below the kernel's own range (which starts at 32768 on most phones), not those on
+  a port the kernel picked for them. `npm run dev`, `vite`, `python3 -m http.server` and `jupyter`
+  (3000, 5173, 8000, 8888) still get the notification.
 
 ## 1.26.48 (2026-11-04)
 

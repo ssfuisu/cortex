@@ -313,7 +313,9 @@ static int serve(int port) {
 }
 int main(int argc, char **argv) {
     int picked = serve(0);
-    int chosen = serve(atoi(argv[1]));
+    // A port of its own below the kernel's range: the first one that is free
+    int chosen = -1;
+    for (int p = atoi(argv[1]); chosen < 0 && p < atoi(argv[1]) + 200; p++) chosen = serve(p);
     int unbound = socket(AF_INET, SOCK_STREAM, 0);
     listen(unbound, 4); // the kernel binds it to a port of its own
     struct sockaddr_in sin;
@@ -327,9 +329,9 @@ mkdir -p "$work/root/run/cortex/listening"
 chosen_port=$((20000 + $$ % 5000))
 read -r picked chosen unbound <<<"$(run "$work/listeners" "$chosen_port")"
 reported=$(ls "$work/root/run/cortex/listening" | sort -n | tr '\n' ' ')
-check "a server on a port it chose is reported to the app" test -e "$work/root/run/cortex/listening/$chosen_port"
-check "servers on ports the kernel picked are not (reported: $reported)" test "$reported" = "$chosen_port "
-[ "$reported" = "$chosen_port " ] || echo "        ports: picked $picked, chosen $chosen, unbound $unbound"
+check "a server on a port it chose is reported to the app" test "$chosen" -gt 0 -a -e "$work/root/run/cortex/listening/$chosen"
+check "servers on ports the kernel picked are not (reported: $reported)" test "$reported" = "$chosen "
+[ "$reported" = "$chosen " ] || echo "        ports: picked $picked, chosen $chosen, unbound $unbound"
 
 echo
 echo "$passed passed, $failed failed"
