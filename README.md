@@ -12,6 +12,9 @@ Cortex is a free and open-source terminal app and a native alternative to Termux
 
 **[Download the latest APK](https://github.com/ssfuisu/cortex/releases/latest)** · [Website](https://ssfuisu.github.io/cortex/) · [Changelog](CHANGELOG.md) · [Report a bug](https://github.com/ssfuisu/cortex/issues) · [Telegram](https://t.me/ratzgn)
 
+> [!TIP]
+> **Your phone's files are at `/sdcard`.** Once you allow storage access (Cortex asks on its first start), the phone's shared storage is right there: `cd /sdcard/Download`, `cp report.pdf /sdcard/Documents/`, `ls /sdcard/DCIM`. Since 1.26.41 there is no `~/storage` link any more, you don't need one. If you want the shortcut anyway, `ln -s /sdcard ~/storage` makes it, but keep in mind that `rm -rf ~/storage/*` then deletes the files on your phone ([why](#faq)).
+
 <p align="center">
   <img src="docs/screenshots/cortex-neofetch.jpg" width="31%" alt="neofetch in Cortex Terminal showing Ubuntu 24.04 LTS running natively on an Android phone" />
   <img src="docs/screenshots/cortex-keyboard.jpg" width="31%" alt="Cortex Terminal with its session tabs, a command's results and the two rows of keys: ESC, TAB, CTRL, ALT and the arrows" />
