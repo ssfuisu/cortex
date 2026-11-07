@@ -1691,6 +1691,147 @@ static void test_spawn_in_pty(void) {
     ASSERT_TRUE(strstr(out, "SIGPIPE=0000000000000000") != NULL, "no signal is ignored in the shell");
 }
 
+/* A program's DT_RUNPATH (Ubuntu's adb: /usr/lib/<arch>/android) reaches ld.so mapped into the rootfs:
+   ld.so opens those directories itself, without the hook, and found libbase.so.0 nowhere */
+static void test_runpath_reaches_ld_so(void) {
+    char dir[PATH_MAX], src[PATH_MAX], runpath_exe[PATH_MAX], rpath_exe[PATH_MAX], plain_exe[PATH_MAX], cmd[PATH_MAX * 4];
+    snprintf(dir, sizeof(dir), "%s/cortex_runpath_XXXXXX", get_test_tmp_dir());
+    ASSERT_TRUE(mkdtemp(dir) != NULL, "temporary directory");
+    snprintf(src, sizeof(src), "%s/p.c", dir);
+    FILE *f = fopen(src, "w");
+    ASSERT_TRUE(f != NULL, "source file");
+    fputs("int main(void) { return 0; }\n", f);
+    fclose(f);
+    snprintf(runpath_exe, sizeof(runpath_exe), "%s/runpath", dir);
+    snprintf(rpath_exe, sizeof(rpath_exe), "%s/rpath", dir);
+    snprintf(plain_exe, sizeof(plain_exe), "%s/plain", dir);
+    snprintf(cmd, sizeof(cmd),
+             "cc -o '%s' '%s' -Wl,--enable-new-dtags,-rpath,/usr/lib/aarch64-linux-gnu/android:'$ORIGIN/../lib':/system/lib64 && "
+             "cc -o '%s' '%s' -Wl,--disable-new-dtags,-rpath,/usr/lib/private && cc -o '%s' '%s'",
+             runpath_exe, src, rpath_exe, src, plain_exe, src);
+    if (system(cmd) != 0) {
+        printf("  skip: no C compiler to build programs with a RUNPATH\n");
+        return;
+    }
+
+    struct exec_probe probe;
+    probe_exec_file(runpath_exe, &probe);
+    ASSERT_TRUE(probe.is_dynamic, "the program is dynamic");
+    ASSERT_STR_EQ(probe.runpath, "/usr/lib/aarch64-linux-gnu/android:$ORIGIN/../lib:/system/lib64", "DT_RUNPATH is read");
+    probe_exec_file(rpath_exe, &probe);
+    ASSERT_STR_EQ(probe.runpath, "/usr/lib/private", "DT_RPATH is read when there is no DT_RUNPATH");
+    probe_exec_file(plain_exe, &probe);
+    ASSERT_STR_EQ(probe.runpath, "", "a program without either has none");
+
+    char saved[PATH_MAX];
+    size_t saved_len = g_cortex_root_len;
+    memcpy(saved, g_cortex_root, sizeof(saved));
+    snprintf(g_cortex_root, sizeof(g_cortex_root), "%s", "/data/user/0/org.cortex.terminal/files/cortex");
+    g_cortex_root_len = strlen(g_cortex_root);
+    const char *r = g_cortex_root;
+    char want[PATH_MAX * 2], lib_path[PATH_MAX * 6];
+    char ld_env[PATH_MAX];
+    snprintf(ld_env, sizeof(ld_env), "LD_LIBRARY_PATH=%s/usr/lib/aarch64-linux-gnu", r);
+    char *env[] = { ld_env, NULL };
+
+    char exe[PATH_MAX];
+    snprintf(exe, sizeof(exe), "%s/usr/bin/adb", r);
+
+    /* RUNPATH: after the caller's own directories, in its order ($ORIGIN expanded in place), before the
+       rootfs defaults the shell exports too */
+    build_ld_library_path(env, "/usr/lib/aarch64-linux-gnu/android:$ORIGIN/../lib:/system/lib64", 0, exe, lib_path, sizeof(lib_path));
+    snprintf(want, sizeof(want), "%s/usr/lib/aarch64-linux-gnu/android:%s/usr/bin/../lib:%s/lib/aarch64-linux-gnu:%s/usr/lib/aarch64-linux-gnu:", r, r, r, r);
+    ASSERT_TRUE(strncmp(lib_path, want, strlen(want)) == 0,
+                "RUNPATH directories mapped into the rootfs and in order ($ORIGIN in place), before the rootfs defaults");
+    ASSERT_TRUE(strstr(lib_path, "$ORIGIN") == NULL, "$ORIGIN is expanded");
+    ASSERT_TRUE(strstr(lib_path, ":/system/lib64") == NULL, "a directory outside the rootfs is not added");
+
+    char ld_env2[PATH_MAX * 2];
+    snprintf(ld_env2, sizeof(ld_env2), "LD_LIBRARY_PATH=/opt/custom:%s/usr/lib/aarch64-linux-gnu", r);
+    char *env2[] = { ld_env2, NULL };
+    build_ld_library_path(env2, "/usr/lib/aarch64-linux-gnu/android", 0, exe, lib_path, sizeof(lib_path));
+    snprintf(want, sizeof(want), "%s/opt/custom:%s/usr/lib/aarch64-linux-gnu/android:%s/lib/aarch64-linux-gnu:", r, r, r);
+    ASSERT_TRUE(strncmp(lib_path, want, strlen(want)) == 0, "a directory the user added stays before a RUNPATH");
+
+    /* RPATH: before LD_LIBRARY_PATH, as ld.so searches it */
+    build_ld_library_path(env2, "/usr/lib/private", 1, exe, lib_path, sizeof(lib_path));
+    snprintf(want, sizeof(want), "%s/usr/lib/private:%s/opt/custom:%s/lib/aarch64-linux-gnu:", r, r, r);
+    ASSERT_TRUE(strncmp(lib_path, want, strlen(want)) == 0, "an RPATH comes before the caller's directories");
+
+    /* A RUNPATH that names a default directory: in its place, and only once */
+    build_ld_library_path(env, "/usr/lib/aarch64-linux-gnu", 0, exe, lib_path, sizeof(lib_path));
+    snprintf(want, sizeof(want), "%s/usr/lib/aarch64-linux-gnu:", r);
+    ASSERT_TRUE(strncmp(lib_path, want, strlen(want)) == 0 && strstr(lib_path + strlen(want), "/usr/lib/aarch64-linux-gnu:") == NULL,
+                "a directory the list holds already is not added twice");
+
+    char plain_path[PATH_MAX * 6], before[PATH_MAX * 2];
+    build_ld_library_path(env, NULL, 0, exe, plain_path, sizeof(plain_path));
+    snprintf(before, sizeof(before), "%s/usr/lib/aarch64-linux-gnu:%s/lib/aarch64-linux-gnu:", r, r);
+    ASSERT_TRUE(strncmp(plain_path, before, strlen(before)) == 0, "without a RUNPATH the caller's list comes first, as before");
+    build_ld_library_path(env, "", 0, exe, lib_path, sizeof(lib_path));
+    ASSERT_STR_EQ(lib_path, plain_path, "an empty RUNPATH changes nothing");
+
+    /* A RUNPATH longer than the probe keeps its first whole entries */
+    char long_exe[PATH_MAX], long_rpath[2048];
+    size_t lr = 0;
+    for (int i = 0; i < 30; i++) lr += (size_t)snprintf(long_rpath + lr, sizeof(long_rpath) - lr, "%s/usr/lib/private_directory_number_%02d_xxxxxxxxxx", i ? ":" : "", i);
+    snprintf(long_exe, sizeof(long_exe), "%s/long", dir);
+    snprintf(cmd, sizeof(cmd), "cc -o '%s' '%s' -Wl,--enable-new-dtags,-rpath,%s", long_exe, src, long_rpath);
+    if (system(cmd) == 0) {
+        probe_exec_file(long_exe, &probe);
+        size_t got = strlen(probe.runpath);
+        ASSERT_TRUE(got > 0 && got < sizeof(probe.runpath), "a long RUNPATH is kept in part");
+        ASSERT_TRUE(strncmp(probe.runpath, long_rpath, got) == 0 && (long_rpath[got] == ':' || long_rpath[got] == '\0'),
+                    "and ends with a whole entry");
+        unlink(long_exe);
+    }
+
+    /* Program headers and dynamic entries beyond one read: 50 headers, 200 DT_NEEDED before DT_RUNPATH */
+    {
+        enum { PHN = 50, NEEDED = 200 };
+        size_t ph_off = 64, dyn_off = ph_off + PHN * 56, dyn_n = NEEDED + 3, str_off = dyn_off + dyn_n * 16;
+        const char rp[] = "/usr/lib/aarch64-linux-gnu/android";
+        size_t total = str_off + 1 + sizeof(rp);
+        unsigned char *img = calloc(1, total);
+        ASSERT_TRUE(img != NULL, "image");
+        img[0] = 0x7f; img[1] = 'E'; img[2] = 'L'; img[3] = 'F'; img[4] = 2; img[5] = 1;
+        uint64_t u64 = ph_off; memcpy(img + 32, &u64, 8);
+        uint16_t u16 = 56; memcpy(img + 54, &u16, 2);
+        u16 = PHN; memcpy(img + 56, &u16, 2);
+        for (int i = 0; i < PHN; i++) {
+            unsigned char *e = img + ph_off + (size_t)i * 56;
+            uint32_t type = i == 0 ? 3 /* PT_INTERP */ : i == 1 ? 1 /* PT_LOAD */ : i == PHN - 1 ? 2 /* PT_DYNAMIC */ : 4 /* PT_NOTE */;
+            memcpy(e, &type, 4);
+            uint64_t off = 0, vaddr = 0, filesz = 0;
+            if (type == 1) { off = 0; vaddr = 0x10000; filesz = total; }
+            if (type == 2) { off = dyn_off; vaddr = 0x10000 + dyn_off; filesz = dyn_n * 16; }
+            memcpy(e + 8, &off, 8); memcpy(e + 16, &vaddr, 8); memcpy(e + 32, &filesz, 8);
+        }
+        for (size_t i = 0; i < dyn_n; i++) {
+            int64_t tag = i < NEEDED ? 1 : i == NEEDED ? 5 : i == NEEDED + 1 ? 29 : 0;
+            uint64_t val = tag == 5 ? 0x10000 + str_off : tag == 29 ? 1 : 0;
+            memcpy(img + dyn_off + i * 16, &tag, 8); memcpy(img + dyn_off + i * 16 + 8, &val, 8);
+        }
+        memcpy(img + str_off + 1, rp, sizeof(rp));
+        char big[PATH_MAX];
+        snprintf(big, sizeof(big), "%s/big", dir);
+        int fd = open(big, O_CREAT | O_TRUNC | O_WRONLY, 0755);
+        ASSERT_TRUE(fd >= 0 && write(fd, img, total) == (ssize_t)total, "image written");
+        close(fd);
+        free(img);
+        probe_exec_file(big, &probe);
+        ASSERT_STR_EQ(probe.runpath, rp, "a RUNPATH after many program headers and DT_NEEDED entries is read");
+        ASSERT_EQ(probe.runpath_is_rpath, 0, "and known as a DT_RUNPATH");
+        unlink(big);
+    }
+    probe_exec_file(rpath_exe, &probe);
+    ASSERT_EQ(probe.runpath_is_rpath, 1, "a DT_RPATH is known as one");
+
+    memcpy(g_cortex_root, saved, sizeof(saved));
+    g_cortex_root_len = saved_len;
+    unlink(runpath_exe); unlink(rpath_exe); unlink(plain_exe); unlink(src); rmdir(dir);
+}
+
 /* lstat() of a link reads it again only when the hook rewrites what readlink() returns */
 static void test_readlink_result_may_change(void) {
     char saved[PATH_MAX];
@@ -2207,6 +2348,7 @@ int main(void) {
     test_app_files_owned_by_root();
     test_listening_port_report();
     test_dns_helpers();
+    test_runpath_reaches_ld_so();
     test_static_syscall_patching();
     test_absolutize_exec_path();
     test_rewrite_path_matches_reference();

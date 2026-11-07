@@ -44,52 +44,6 @@ static char **ensure_hook_in_envp(char *const envp[], const char *real_exe) {
     return prepare_cortex_env(envp, real_exe);
 }
 
-static void build_ld_library_path(char *const envp[], char *out_buf, size_t out_size) {
-    if (!out_buf || out_size == 0) return;
-    out_buf[0] = '\0';
-
-    const char *caller_ld = NULL;
-    if (envp) {
-        for (int i = 0; envp[i] != NULL; i++) {
-            if (envp[i][0] == 'L' && strncmp(envp[i], "LD_LIBRARY_PATH=", 16) == 0) {
-                caller_ld = envp[i] + 16;
-                break;
-            }
-        }
-    }
-    if (!caller_ld) {
-        caller_ld = getenv("LD_LIBRARY_PATH");
-    }
-
-    // The caller's directories (those inside the rootfs rewritten), then the rootfs ones it lacks,
-    // written straight into out_buf: this runs in nearly every child a shell forks, where two 8 KB
-    // copies of the list on the stack were pages more to copy before the exec.
-    size_t cap = out_size < PATH_MAX * 2 ? out_size : PATH_MAX * 2; // the caller's part, as before
-    size_t used = 0;
-    for (const char *p = caller_ld; p && *p;) {
-        const char *end = strchr(p, ':');
-        size_t len = end ? (size_t)(end - p) : strlen(p);
-        if (len > 0 && len < PATH_MAX) {
-            char tok[PATH_MAX];
-            memcpy(tok, p, len);
-            tok[len] = '\0';
-            char rw_buf[PATH_MAX];
-            const char *rw = (tok[0] == '/') ? rewrite_path(tok, rw_buf, sizeof(rw_buf)) : tok;
-            size_t rw_len = strlen(rw);
-            size_t need = (used > 0 ? 1 : 0) + rw_len;
-            if (used + need < cap) {
-                if (used > 0) out_buf[used++] = ':';
-                memcpy(out_buf + used, rw, rw_len);
-                used += rw_len;
-                out_buf[used] = '\0';
-            }
-        }
-        if (!end) break;
-        p = end + 1;
-    }
-    append_rootfs_lib_dirs_missing_from(out_buf, out_size, used, used > 0, out_buf);
-}
-
 // The file whose header decides how to start `target`: the symlink-resolved ELF (so ld.so and
 // /proc/self/exe see the real program, as with the kernel), else `target` itself (scripts,
 // links to ld.so). `probe` describes the returned file.
@@ -281,7 +235,7 @@ static int cortex_execve(const char *filename, char *const argv[], char *const e
                 char hook_buf[PATH_MAX];
                 const char *hook_so = cortex_hook_library(hook_buf, sizeof(hook_buf));
                 char ld_lib_path[PATH_MAX * 6];
-                build_ld_library_path(envp, ld_lib_path, sizeof(ld_lib_path));
+                build_ld_library_path(envp, probe.runpath, probe.runpath_is_rpath, elf_target, ld_lib_path, sizeof(ld_lib_path));
                 char **new_argv = build_ldso_argv(ld_so, hook_so, ld_lib_path, elf_target, exec_prog_name(target), argv);
                 if (!new_argv) {
                     errno = ENOMEM;
@@ -763,6 +717,8 @@ static int cortex_posix_spawn(pid_t *pid, const char *path,
         probe.android_interp = 0;
         probe.e_machine = 0;
         probe.mode = 0;
+        probe.runpath[0] = '\0';
+        probe.runpath_is_rpath = 0;
     }
 
     char ld_so[PATH_MAX];
@@ -781,7 +737,7 @@ static int cortex_posix_spawn(pid_t *pid, const char *path,
         char hook_buf[PATH_MAX];
         const char *hook_so = cortex_hook_library(hook_buf, sizeof(hook_buf));
         char ld_lib_path[PATH_MAX * 6];
-        build_ld_library_path(orig_ep, ld_lib_path, sizeof(ld_lib_path));
+        build_ld_library_path(orig_ep, probe.runpath, probe.runpath_is_rpath, elf_target, ld_lib_path, sizeof(ld_lib_path));
         char **new_argv = build_ldso_argv(ld_so, hook_so, ld_lib_path, elf_target, prog_name, argv);
         if (new_argv) {
             if (orig_posix_spawn) {

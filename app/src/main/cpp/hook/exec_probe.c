@@ -293,7 +293,268 @@ struct exec_probe {
     int android_interp; // AArch64 ELF whose PT_INTERP is Android's linker (a Go program for GOOS=android)
     uint16_t e_machine;
     mode_t mode;        // st_mode, filled in for dynamic ELF files only
+    int runpath_is_rpath; // runpath holds a DT_RPATH (searched before LD_LIBRARY_PATH), not a DT_RUNPATH
+    char runpath[1024]; // DT_RUNPATH (else DT_RPATH) of a dynamic ELF as written in it, or ""
 };
+
+// The DT_RUNPATH of a dynamic ELF (its DT_RPATH when it has none, as ld.so does) into `out`, as
+// written in the file. ld.so looks for the program's libraries there, but it opens those
+// directories itself, without the hook: an absolute one such as /usr/lib/aarch64-linux-gnu/android
+// (Ubuntu's adb and fastboot keep their own libbase, liblog, libssl... there) is looked for in
+// Android's tree and the program does not start. The exec adds the rootfs copies to the
+// --library-path it gives ld.so (build_ld_library_path). Returns 1 for a DT_RUNPATH, 2 for a
+// DT_RPATH, 0 when there is neither. The headers are read in pieces, so that their number does
+// not matter; a list longer than `out` keeps its first whole entries (ld.so still has the rest).
+static int elf_read_runpath(int fd, const unsigned char *h, ssize_t n, char *out, size_t outsz) {
+    if (!out || outsz < 2) return 0;
+    out[0] = '\0';
+    if (n < 52 || h[0] != 0x7f || h[1] != 'E' || h[2] != 'L' || h[3] != 'F' || h[5] != 1 /* LSB */) return 0;
+    int is_64 = (h[4] == 2);
+    if (!is_64 && h[4] != 1) return 0;
+    if (is_64 && n < 64) return 0;
+    uint64_t phoff = 0;
+    uint16_t phentsize = 0, phnum = 0;
+    if (is_64) {
+        memcpy(&phoff, h + 32, 8);
+        memcpy(&phentsize, h + 54, 2);
+        memcpy(&phnum, h + 56, 2);
+    } else {
+        uint32_t off32 = 0;
+        memcpy(&off32, h + 28, 4);
+        phoff = off32;
+        memcpy(&phentsize, h + 42, 2);
+        memcpy(&phnum, h + 44, 2);
+    }
+    size_t ph_size = is_64 ? 56 : 32;
+    if (phoff == 0 || phoff > (1ULL << 40) || phentsize < ph_size || phentsize > 1024 || phnum == 0) return 0;
+
+    // PT_DYNAMIC, and the PT_LOAD segments that map an address of the file to its offset
+    unsigned char buf[2048];
+    uint64_t dyn_off = 0, dyn_size = 0;
+    uint64_t load_vaddr[16], load_off[16], load_size[16];
+    int loads = 0;
+    size_t per_read = sizeof(buf) / phentsize;
+    for (size_t first = 0; first < phnum; first += per_read) {
+        size_t count = phnum - first < per_read ? phnum - first : per_read;
+        size_t bytes = count * phentsize;
+        if (pread(fd, buf, bytes, (off_t)(phoff + first * phentsize)) != (ssize_t)bytes) return 0;
+        for (size_t i = 0; i < count; i++) {
+            const unsigned char *e = buf + i * phentsize;
+            uint32_t type = 0;
+            memcpy(&type, e, 4);
+            uint64_t off = 0, vaddr = 0, filesz = 0;
+            if (is_64) {
+                memcpy(&off, e + 8, 8);
+                memcpy(&vaddr, e + 16, 8);
+                memcpy(&filesz, e + 32, 8);
+            } else {
+                uint32_t v = 0;
+                memcpy(&v, e + 4, 4); off = v;
+                memcpy(&v, e + 8, 4); vaddr = v;
+                memcpy(&v, e + 16, 4); filesz = v;
+            }
+            if (type == 2 /* PT_DYNAMIC */) {
+                dyn_off = off;
+                dyn_size = filesz;
+            } else if (type == 1 /* PT_LOAD */ && loads < 16) {
+                load_vaddr[loads] = vaddr;
+                load_off[loads] = off;
+                load_size[loads] = filesz;
+                loads++;
+            }
+        }
+    }
+    if (dyn_size == 0 || dyn_off > (1ULL << 40)) return 0;
+    if (dyn_size > (1u << 20)) dyn_size = 1u << 20;
+
+    size_t ent = is_64 ? 16 : 8;
+    uint64_t strtab = 0, runpath = 0, rpath = 0;
+    int has_strtab = 0, has_runpath = 0, has_rpath = 0, done = 0;
+    for (uint64_t at = 0; at + ent <= dyn_size && !done;) {
+        size_t want = dyn_size - at < sizeof(buf) ? (size_t)(dyn_size - at) : sizeof(buf);
+        want -= want % ent;
+        ssize_t got = pread(fd, buf, want, (off_t)(dyn_off + at));
+        if (got < (ssize_t)ent) break;
+        for (size_t i = 0; i + ent <= (size_t)got; i += ent) {
+            int64_t tag = 0;
+            uint64_t val = 0;
+            if (is_64) {
+                memcpy(&tag, buf + i, 8);
+                memcpy(&val, buf + i + 8, 8);
+            } else {
+                int32_t tv = 0;
+                uint32_t vv = 0;
+                memcpy(&tv, buf + i, 4);
+                memcpy(&vv, buf + i + 4, 4);
+                tag = tv;
+                val = vv;
+            }
+            if (tag == 0 /* DT_NULL */) { done = 1; break; }
+            if (tag == 5 /* DT_STRTAB */) { strtab = val; has_strtab = 1; }
+            else if (tag == 29 /* DT_RUNPATH */) { runpath = val; has_runpath = 1; }
+            else if (tag == 15 /* DT_RPATH */) { rpath = val; has_rpath = 1; }
+        }
+        at += (uint64_t)got - (uint64_t)got % ent;
+    }
+    if (!has_strtab || (!has_runpath && !has_rpath)) return 0;
+    uint64_t str_index = has_runpath ? runpath : rpath;
+
+    // DT_STRTAB is an address: the file offset is that of the PT_LOAD segment holding it
+    uint64_t strtab_off = 0;
+    int mapped = 0;
+    for (int i = 0; i < loads; i++) {
+        if (strtab >= load_vaddr[i] && strtab - load_vaddr[i] < load_size[i]) {
+            strtab_off = load_off[i] + (strtab - load_vaddr[i]);
+            mapped = 1;
+            break;
+        }
+    }
+    if (!mapped || str_index > (1ULL << 32)) return 0;
+    ssize_t len = pread(fd, out, outsz - 1, (off_t)(strtab_off + str_index));
+    if (len <= 0) {
+        out[0] = '\0';
+        return 0;
+    }
+    out[len] = '\0';
+    if (strnlen(out, (size_t)len) == (size_t)len) {
+        // Longer than `out`: its whole entries up to there
+        char *last = strrchr(out, ':');
+        if (!last) {
+            out[0] = '\0';
+            return 0;
+        }
+        *last = '\0';
+    }
+    if (out[0] == '\0') return 0;
+    return has_runpath ? 1 : 2;
+}
+
+// Appends dir[0..len) to the ':'-separated out_buf[0..used) unless it is there already.
+static size_t append_lib_dir(char *out_buf, size_t out_size, size_t used, const char *dir, size_t len) {
+    if (len == 0 || lib_dir_list_has(out_buf, dir, len)) return used;
+    size_t need = (used > 0 ? 1 : 0) + len;
+    if (used + need >= out_size) return used;
+    if (used > 0) out_buf[used++] = ':';
+    memcpy(out_buf + used, dir, len);
+    used += len;
+    out_buf[used] = '\0';
+    return used;
+}
+
+// The directories of `runpath` (a DT_RUNPATH or DT_RPATH), in their order, appended to
+// out_buf[0..used): the absolute ones that lie in the rootfs mapped into it, and those that start
+// with $ORIGIN with it replaced by the directory of `exe` (the program's real path, in the rootfs
+// already), so that both keep their places. ld.so opens them itself, without the hook, so
+// /usr/lib/aarch64-linux-gnu/android would be looked for in Android's tree. Others ($LIB,
+// $PLATFORM, directories outside the rootfs) are left to ld.so. Returns the new length.
+static size_t append_runpath_dirs(char *out_buf, size_t out_size, size_t used, const char *runpath, const char *exe) {
+    size_t origin_len = 0;
+    if (exe) {
+        const char *slash = strrchr(exe, '/');
+        if (slash) origin_len = slash > exe ? (size_t)(slash - exe) : 1;
+    }
+    for (const char *p = runpath; p && *p;) {
+        const char *end = strchr(p, ':');
+        size_t len = end ? (size_t)(end - p) : strlen(p);
+        if (len > 0 && len < PATH_MAX) {
+            char tok[PATH_MAX];
+            memcpy(tok, p, len);
+            tok[len] = '\0';
+            size_t skip = 0;
+            if (strncmp(tok, "$ORIGIN", 7) == 0) skip = 7;
+            else if (strncmp(tok, "${ORIGIN}", 9) == 0) skip = 9;
+            if (skip && (tok[skip] == '\0' || tok[skip] == '/') && origin_len > 0 && !strchr(tok + skip, '$')) {
+                char full[PATH_MAX];
+                size_t rest = len - skip;
+                if (origin_len + rest < sizeof(full)) {
+                    memcpy(full, exe, origin_len);
+                    memcpy(full + origin_len, tok + skip, rest);
+                    full[origin_len + rest] = '\0';
+                    used = append_lib_dir(out_buf, out_size, used, full, origin_len + rest);
+                }
+            } else if (tok[0] == '/' && len > 1 && !strchr(tok, '$')) {
+                char rw_buf[PATH_MAX];
+                const char *rw = rewrite_path_in_root(tok, rw_buf, sizeof(rw_buf));
+                if (strcmp(rw, tok) != 0) used = append_lib_dir(out_buf, out_size, used, rw, strlen(rw));
+            }
+        }
+        if (!end) break;
+        p = end + 1;
+    }
+    return used;
+}
+
+// Whether dir[0..len) is one of the rootfs library directories Cortex adds itself (also what its
+// shells export in LD_LIBRARY_PATH).
+static int is_rootfs_default_lib_dir(const char *dir, size_t len) {
+    if (len <= g_cortex_root_len || memcmp(dir, g_cortex_root, g_cortex_root_len) != 0) return 0;
+    const char *rel = dir + g_cortex_root_len;
+    size_t rel_len = len - g_cortex_root_len;
+    for (size_t i = 0; i < sizeof(k_rootfs_lib_dirs) / sizeof(k_rootfs_lib_dirs[0]); i++) {
+        if (strlen(k_rootfs_lib_dirs[i]) == rel_len && memcmp(k_rootfs_lib_dirs[i], rel, rel_len) == 0) return 1;
+    }
+    return 0;
+}
+
+// The --library-path ld.so is given for the rootfs program `exe`: the caller's LD_LIBRARY_PATH (the
+// rootfs paths in it mapped), then the rootfs library directories it lacks. A program with a
+// RUNPATH or RPATH gets its directories in the order ld.so searches them on Linux: an RPATH before
+// the caller's directories, a RUNPATH after them, and the rootfs defaults (which Cortex's shells
+// export in LD_LIBRARY_PATH too, where Linux has none) after both, so that a library the program
+// keeps for itself wins over one of the same name in /usr/lib. Runs after the hook's setup, so the
+// rewrites are those of rewrite_path().
+static void build_ld_library_path(char *const envp[], const char *runpath, int is_rpath, const char *exe,
+                                  char *out_buf, size_t out_size) {
+    if (!out_buf || out_size == 0) return;
+    out_buf[0] = '\0';
+
+    const char *caller_ld = NULL;
+    if (envp) {
+        for (int i = 0; envp[i] != NULL; i++) {
+            if (envp[i][0] == 'L' && strncmp(envp[i], "LD_LIBRARY_PATH=", 16) == 0) {
+                caller_ld = envp[i] + 16;
+                break;
+            }
+        }
+    }
+    if (!caller_ld) {
+        caller_ld = getenv("LD_LIBRARY_PATH");
+    }
+    int has_runpath = runpath && runpath[0];
+
+    size_t used = 0;
+    if (has_runpath && is_rpath) used = append_runpath_dirs(out_buf, out_size, used, runpath, exe);
+
+    // The caller's directories (those inside the rootfs rewritten), written straight into out_buf:
+    // this runs in nearly every child a shell forks, where two 8 KB copies of the list on the stack
+    // were pages more to copy before the exec.
+    size_t cap = used + PATH_MAX * 2 < out_size ? used + PATH_MAX * 2 : out_size; // the caller's part, as before
+    for (const char *p = caller_ld; p && *p;) {
+        const char *end = strchr(p, ':');
+        size_t len = end ? (size_t)(end - p) : strlen(p);
+        if (len > 0 && len < PATH_MAX) {
+            char tok[PATH_MAX];
+            memcpy(tok, p, len);
+            tok[len] = '\0';
+            char rw_buf[PATH_MAX];
+            const char *rw = (tok[0] == '/') ? rewrite_path_in_root(tok, rw_buf, sizeof(rw_buf)) : tok;
+            size_t rw_len = strlen(rw);
+            size_t need = (used > 0 ? 1 : 0) + rw_len;
+            if (has_runpath && is_rootfs_default_lib_dir(rw, rw_len)) {
+                // after the program's own directories, with the other defaults
+            } else if (used + need < cap) {
+                if (used > 0) out_buf[used++] = ':';
+                memcpy(out_buf + used, rw, rw_len);
+                used += rw_len;
+                out_buf[used] = '\0';
+            }
+        }
+        if (!end) break;
+        p = end + 1;
+    }
+    if (has_runpath && !is_rpath) used = append_runpath_dirs(out_buf, out_size, used, runpath, exe);
+    append_rootfs_lib_dirs_missing_from(out_buf, out_size, used, used > 0, out_buf);
+}
 
 // fstat() without the hook's stat emulation: the probe wants the mode bits only, and the
 // emulation would map the hard link table and look up the app's ids in a child that is about to
@@ -319,6 +580,8 @@ static void probe_exec_file(const char *path, struct exec_probe *p) {
     p->android_interp = 0;
     p->e_machine = 0;
     p->mode = 0;
+    p->runpath[0] = '\0';
+    p->runpath_is_rpath = 0;
     if (!path || path[0] == '\0') return;
     int fd = open(path, O_RDONLY | O_CLOEXEC);
     if (fd < 0) return;
@@ -333,6 +596,7 @@ static void probe_exec_file(const char *path, struct exec_probe *p) {
         if (dynamic < 0) dynamic = check_elf_dynamic(fd, h, n);
         p->is_dynamic = dynamic;
         if (dynamic && p->e_machine == 183 /* EM_AARCH64 */) p->android_interp = elf_interp_is_android(fd, h, n);
+        if (dynamic && !p->android_interp) p->runpath_is_rpath = elf_read_runpath(fd, h, n, p->runpath, sizeof(p->runpath)) == 2;
         struct stat st;
         if (dynamic && probe_fstat(fd, &st) == 0) p->mode = st.st_mode;
     }
