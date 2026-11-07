@@ -6,7 +6,7 @@
 <title>Cortex Terminal: Ubuntu 24.04 on Android without root or PRoot</title>
 <meta name="description" content="Free open-source Android terminal that runs real Ubuntu 24.04 (glibc 2.39, apt) natively. No root, no PRoot, no containers, no VM. A Termux alternative.">
 <link rel="canonical" href="https://ssfuisu.github.io/cortex/">
-<meta name="theme-color" content="#1a1b26">
+<meta name="theme-color" content="#0f1020">
 <!-- Google Search Console: paste the verification tag here, e.g.
 <meta name="google-site-verification" content="XXXXXXXX">
 -->
@@ -25,6 +25,7 @@
 <meta name="twitter:image" content="https://ssfuisu.github.io/cortex/social-preview.png">
 <link rel="icon" type="image/png" href="icon.png">
 <link rel="apple-touch-icon" href="icon.png">
+<script>document.documentElement.classList.add('js')</script>
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
@@ -57,109 +58,410 @@
 }
 </script>
 <style>
-:root{--bg:#1a1b26;--card:#24273a;--line:#363a4f;--text:#f5f5f7;--muted:#a6adc8;--accent:#89b4fa;--pink:#f38ba8;--ok:#a6e3a1}
-@media (prefers-color-scheme:light){:root{--bg:#f7f7fb;--card:#fff;--line:#d9dbe8;--text:#1c1d29;--muted:#555a73;--accent:#1f5fd6;--pink:#c0305a;--ok:#1f7a3a}}
+:root{
+  --bg:#0f1020;--bg2:#15172b;--card:rgba(30,32,56,.72);--card-solid:#1e2038;--line:rgba(137,180,250,.16);
+  --text:#f2f3fb;--muted:#a8aecb;--accent:#89b4fa;--accent2:#cba6f7;--pink:#f38ba8;--ok:#a6e3a1;--warn:#f9e2af;
+  --term:#11111b;--term-line:#2a2b3d;--glow:rgba(137,180,250,.35);--shadow:0 20px 60px rgba(0,0,0,.45);
+  --radius:18px;--ease:cubic-bezier(.2,.8,.2,1);
+  --btn-a:#89b4fa;--btn-b:#cba6f7;--btn-fg:#0f1020;--shine:rgba(255,255,255,.45)
+}
+@media (prefers-color-scheme:light){:root{
+  --bg:#f6f7fc;--bg2:#eceef8;--card:rgba(255,255,255,.82);--card-solid:#fff;--line:rgba(31,95,214,.16);
+  --text:#161827;--muted:#525876;--accent:#1f5fd6;--accent2:#7c3aed;--pink:#c0305a;--ok:#1f7a3a;--warn:#9a6a00;
+  --glow:rgba(31,95,214,.22);--shadow:0 20px 50px rgba(30,40,90,.16);
+  --btn-a:#1a4fb8;--btn-b:#5b21b6;--btn-fg:#fff;--shine:rgba(255,255,255,.15)
+}}
 *{box-sizing:border-box}
-html{scroll-behavior:smooth}
-body{margin:0;background:var(--bg);color:var(--text);font:16px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+html{scroll-behavior:smooth;-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.65 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;overflow-x:hidden}
 a{color:var(--accent)}
-.wrap{max-width:960px;margin:0 auto;padding:0 20px}
-header.hero{padding:56px 0 36px;text-align:center}
-header.hero img.logo{width:84px;height:84px;border-radius:20px}
-h1{font-size:clamp(1.9rem,5vw,3rem);line-height:1.15;margin:16px 0 12px}
-h2{font-size:1.5rem;margin:48px 0 14px}
-.lead{font-size:1.15rem;color:var(--muted);max-width:720px;margin:0 auto 24px}
-.badges{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin:0 0 26px;padding:0;list-style:none}
-.badges li{background:var(--card);border:1px solid var(--line);border-radius:999px;padding:4px 14px;font-weight:600;color:var(--pink);font-size:.95rem}
-.btn{display:inline-block;background:var(--accent);color:#10131c;font-weight:700;text-decoration:none;padding:13px 26px;border-radius:12px;margin:4px}
-.btn.alt{background:transparent;color:var(--accent);border:2px solid var(--accent)}
-.shots{display:flex;gap:18px;justify-content:center;flex-wrap:wrap;margin:36px 0 8px}
-.shots img{width:min(260px,44vw);height:auto;border-radius:18px;border:1px solid var(--line)}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px}
-.card h3{margin:0 0 6px;font-size:1.05rem}
-.card p{margin:0;color:var(--muted)}
-table{width:100%;border-collapse:collapse;font-size:.93rem;background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden}
-th,td{padding:10px 12px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
-th{background:rgba(127,127,160,.12)}
-.scroll{overflow-x:auto}
-code,pre{font-family:ui-monospace,"JetBrains Mono",Menlo,Consolas,monospace}
-pre{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px;overflow-x:auto}
-details{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 16px;margin:10px 0}
-summary{cursor:pointer;font-weight:600}
-details p{margin:10px 0 0;color:var(--muted)}
-footer{border-top:1px solid var(--line);margin-top:56px;padding:26px 0 48px;color:var(--muted);font-size:.92rem;text-align:center}
+img{max-width:100%}
+code,pre,.mono{font-family:ui-monospace,"JetBrains Mono","SF Mono",Menlo,Consolas,monospace}
+:focus-visible{outline:3px solid var(--accent);outline-offset:3px;border-radius:6px}
+.wrap{max-width:1080px;margin:0 auto;padding:0 20px}
+.skip{position:absolute;left:-999px;top:8px;background:var(--accent);color:#0f1020;padding:8px 14px;border-radius:8px;z-index:50}
+.skip:focus{left:12px}
+
+/* ---- top bar ---- */
+.nav{position:sticky;top:0;z-index:20;backdrop-filter:saturate(1.4) blur(14px);-webkit-backdrop-filter:saturate(1.4) blur(14px);background:color-mix(in srgb,var(--bg) 72%,transparent);border-bottom:1px solid transparent;transition:border-color .3s,background .3s}
+.nav.scrolled{border-bottom-color:var(--line)}
+.nav .wrap{display:flex;align-items:center;gap:14px;height:60px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:800;color:var(--text);text-decoration:none;letter-spacing:.2px}
+.brand img{width:30px;height:30px;border-radius:8px}
+.nav ul{display:flex;gap:4px;margin:0 0 0 auto;padding:0;list-style:none}
+.nav ul a{color:var(--muted);text-decoration:none;padding:8px 12px;border-radius:10px;font-weight:600;font-size:.95rem;transition:color .2s,background .2s}
+.nav ul a:hover{color:var(--text);background:var(--card)}
+.nav .gh{margin-left:6px;display:inline-flex;align-items:center;gap:6px;color:var(--text);text-decoration:none;font-weight:700;border:1px solid var(--line);padding:7px 12px;border-radius:10px}
+@media (max-width:760px){.nav ul{display:none}.nav .gh{margin-left:auto}}
+
+/* ---- hero ---- */
+.hero{position:relative;padding:64px 0 40px;overflow:hidden;isolation:isolate}
+.aurora{position:absolute;inset:-30% -10% auto -10%;height:120%;z-index:-1;pointer-events:none;filter:blur(60px);opacity:.75}
+.aurora span{position:absolute;border-radius:50%;mix-blend-mode:screen;animation:drift 18s var(--ease) infinite alternate}
+.aurora span:nth-child(1){width:46vw;height:46vw;left:4%;top:6%;background:radial-gradient(circle,#89b4fa 0,transparent 65%)}
+.aurora span:nth-child(2){width:40vw;height:40vw;right:2%;top:0;background:radial-gradient(circle,#cba6f7 0,transparent 65%);animation-duration:22s;animation-delay:-6s}
+.aurora span:nth-child(3){width:34vw;height:34vw;left:34%;top:34%;background:radial-gradient(circle,#f38ba8 0,transparent 65%);animation-duration:26s;animation-delay:-11s;opacity:.7}
+@media (prefers-color-scheme:light){.aurora{opacity:.35}.aurora span{mix-blend-mode:multiply}}
+@keyframes drift{0%{transform:translate(0,0) scale(1)}50%{transform:translate(6vw,4vh) scale(1.12)}100%{transform:translate(-4vw,-3vh) scale(.95)}}
+.grid-bg{position:absolute;inset:0;z-index:-1;background-image:linear-gradient(var(--line) 1px,transparent 1px),linear-gradient(90deg,var(--line) 1px,transparent 1px);background-size:44px 44px;mask-image:radial-gradient(ellipse at 50% 30%,#000 10%,transparent 70%);-webkit-mask-image:radial-gradient(ellipse at 50% 30%,#000 10%,transparent 70%);opacity:.5}
+.hero-grid{display:grid;grid-template-columns:1.05fr .95fr;gap:44px;align-items:center}
+@media (max-width:900px){.hero-grid{grid-template-columns:1fr;gap:34px;text-align:center}}
+.pill{display:inline-flex;align-items:center;gap:8px;background:var(--card);border:1px solid var(--line);border-radius:999px;padding:6px 14px;font-weight:700;font-size:.88rem;color:var(--muted);text-decoration:none}
+.pill .dot{width:8px;height:8px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 0 var(--ok);animation:pulse 2s infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--ok) 70%,transparent)}70%{box-shadow:0 0 0 9px transparent}100%{box-shadow:0 0 0 0 transparent}}
+h1{font-size:clamp(2.2rem,5.6vw,3.9rem);line-height:1.06;margin:18px 0 16px;letter-spacing:-.02em}
+.grad{background:linear-gradient(100deg,var(--accent) 0%,var(--accent2) 45%,var(--pink) 90%);background-size:200% auto;-webkit-background-clip:text;background-clip:text;color:transparent;animation:shine 7s linear infinite}
+@keyframes shine{to{background-position:200% center}}
+.lead{font-size:1.15rem;color:var(--muted);max-width:620px;margin:0 0 24px}
+@media (max-width:900px){.lead{margin:0 auto 24px}}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 28px;padding:0;list-style:none}
+@media (max-width:900px){.chips{justify-content:center}}
+.chips li{background:var(--card);border:1px solid var(--line);border-radius:999px;padding:4px 13px;font-weight:700;color:var(--pink);font-size:.9rem;opacity:0;transform:translateY(8px);animation:chip .6s var(--ease) forwards}
+.chips li:nth-child(1){animation-delay:.15s}.chips li:nth-child(2){animation-delay:.25s}.chips li:nth-child(3){animation-delay:.35s}.chips li:nth-child(4){animation-delay:.45s}.chips li:nth-child(5){animation-delay:.55s}.chips li:nth-child(6){animation-delay:.65s}
+@keyframes chip{to{opacity:1;transform:none}}
+.cta{display:flex;flex-wrap:wrap;gap:12px}
+@media (max-width:900px){.cta{justify-content:center}}
+.btn{position:relative;display:inline-flex;align-items:center;gap:10px;background:linear-gradient(135deg,var(--btn-a),var(--btn-b));color:var(--btn-fg);font-weight:800;text-decoration:none;padding:14px 24px;border-radius:14px;box-shadow:0 10px 30px var(--glow);transition:transform .25s var(--ease),box-shadow .25s;overflow:hidden}
+.btn::after{content:"";position:absolute;inset:0;background:linear-gradient(120deg,transparent 30%,var(--shine) 50%,transparent 70%);transform:translateX(-120%);transition:transform .7s var(--ease)}
+.btn:hover{transform:translateY(-2px);box-shadow:0 16px 40px var(--glow)}
+.btn:hover::after{transform:translateX(120%)}
+.btn small{font-weight:700;opacity:.75;font-size:.8rem}
+.btn.alt{--shine:rgba(255,255,255,.15);background:var(--card);color:var(--text);border:1px solid var(--line);box-shadow:none}
+.btn.alt:hover{box-shadow:0 10px 30px var(--glow)}
+.btn svg{width:20px;height:20px;flex:none}
+
+/* ---- terminal ---- */
+.term{position:relative;background:var(--term);border:1px solid var(--term-line);border-radius:16px;box-shadow:var(--shadow),0 0 0 1px rgba(255,255,255,.03) inset;overflow:hidden;text-align:left;transform:perspective(1200px) rotateY(-6deg) rotateX(3deg);transition:transform .6s var(--ease)}
+.term:hover{transform:perspective(1200px) rotateY(0) rotateX(0)}
+@media (max-width:900px){.term{transform:none}}
+.term-bar{display:flex;align-items:center;gap:8px;padding:11px 14px;background:#181825;border-bottom:1px solid var(--term-line)}
+.term-bar i{width:12px;height:12px;border-radius:50%;display:block}
+.term-bar i:nth-child(1){background:#f38ba8}.term-bar i:nth-child(2){background:#f9e2af}.term-bar i:nth-child(3){background:#a6e3a1}
+.term-bar span{margin-left:8px;color:#7f849c;font:600 .82rem ui-monospace,Menlo,monospace}
+.term-body{height:360px;padding:16px 18px;color:#cdd6f4;font:13.5px/1.55 ui-monospace,"JetBrains Mono",Menlo,Consolas,monospace;overflow:hidden;white-space:pre-wrap;word-break:break-word}
+@media (max-width:520px){.term-body{height:330px;font-size:12px;padding:12px}}
+.term-body .p{color:#a6e3a1}.term-body .d{color:#89b4fa}.term-body .m{color:#7f849c}.term-body .y{color:#f9e2af}.term-body .r{color:#f38ba8}.term-body .v{color:#cba6f7}.term-body .b{font-weight:700}
+.caret{display:inline-block;width:.6em;height:1.15em;vertical-align:-.2em;background:#cdd6f4;animation:blink 1s steps(1) infinite}
+@keyframes blink{50%{opacity:0}}
+.term-glow{position:absolute;inset:auto -20% -40% -20%;height:60%;background:radial-gradient(ellipse at center,var(--glow),transparent 60%);pointer-events:none;z-index:-1}
+
+/* ---- sections ---- */
+section{padding:76px 0 0}
+.kicker{display:inline-block;font-weight:800;font-size:.82rem;letter-spacing:.12em;text-transform:uppercase;color:var(--accent);margin-bottom:8px}
+h2{font-size:clamp(1.7rem,3.6vw,2.5rem);line-height:1.15;margin:0 0 12px;letter-spacing:-.01em}
+.sub{color:var(--muted);max-width:680px;margin:0 0 32px;font-size:1.06rem}
+.center{text-align:center}.center .sub{margin-left:auto;margin-right:auto}
+/* hidden only once the script runs: without it the page shows everything */
+.js .reveal{opacity:0;transform:translateY(28px);transition:opacity .8s var(--ease),transform .8s var(--ease)}
+.js .reveal.in{opacity:1;transform:none}
+
+/* stats */
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:56px}
+@media (max-width:760px){.stats{grid-template-columns:repeat(2,1fr)}}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:18px;text-align:center}
+.stat b{display:block;font-size:clamp(1.7rem,4vw,2.3rem);line-height:1.1;background:linear-gradient(120deg,var(--accent),var(--accent2));-webkit-background-clip:text;background-clip:text;color:transparent}
+.stat span{color:var(--muted);font-size:.92rem;font-weight:600}
+
+/* how it works */
+.flow{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+@media (max-width:820px){.flow{grid-template-columns:1fr}}
+.lane{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:22px}
+.lane h3{margin:0 0 4px;font-size:1.12rem}
+.lane p.note{color:var(--muted);margin:0 0 16px;font-size:.95rem}
+.lane.good{border-color:color-mix(in srgb,var(--ok) 45%,transparent)}
+.stack{position:relative;display:flex;flex-direction:column;gap:10px}
+.node{position:relative;display:flex;align-items:center;gap:12px;background:var(--card-solid);border:1px solid var(--line);border-radius:12px;padding:11px 14px;font-weight:700;font-size:.95rem}
+.node small{display:block;color:var(--muted);font-weight:500;font-size:.82rem}
+.node .ico{width:30px;height:30px;border-radius:9px;display:grid;place-items:center;font-size:1rem;flex:none;background:color-mix(in srgb,var(--accent) 18%,transparent)}
+.node.slow .ico{background:color-mix(in srgb,var(--pink) 20%,transparent)}
+.wire{position:relative;height:18px;margin:-2px 0 -2px 28px;border-left:2px dashed var(--line)}
+.packet{position:absolute;left:-6px;width:10px;height:10px;border-radius:50%;background:var(--ok);box-shadow:0 0 12px var(--ok);opacity:0}
+.lane.good .packet{animation:fall 1.6s linear infinite}
+.lane.bad .packet{background:var(--pink);box-shadow:0 0 12px var(--pink);animation:fall 3.6s linear infinite}
+.lane .wire:nth-of-type(4) .packet{animation-delay:.4s}.lane .wire:nth-of-type(6) .packet{animation-delay:.8s}.lane .wire:nth-of-type(8) .packet{animation-delay:1.2s}
+@keyframes fall{0%{top:-4px;opacity:0}15%{opacity:1}85%{opacity:1}100%{top:14px;opacity:0}}
+.speed{margin-top:16px;display:flex;align-items:center;gap:10px;font-weight:700;font-size:.9rem}
+.speed .bar{flex:1;height:8px;border-radius:99px;background:var(--line);overflow:hidden}
+.speed .bar i{display:block;height:100%;width:0;border-radius:inherit;transition:width 1.6s var(--ease)}
+.lane.good .speed .bar i{background:linear-gradient(90deg,var(--ok),var(--accent))}
+.lane.bad .speed .bar i{background:linear-gradient(90deg,var(--pink),var(--warn))}
+.in .lane.good .speed .bar i{width:96%}
+.in .lane.bad .speed .bar i{width:42%}
+
+/* features */
+.features{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px}
+.feat{position:relative;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:20px;overflow:hidden;transition:transform .35s var(--ease),border-color .35s}
+.feat::before{content:"";position:absolute;inset:0;background:radial-gradient(420px circle at var(--mx,50%) var(--my,0%),var(--glow),transparent 45%);opacity:0;transition:opacity .35s;pointer-events:none}
+.feat:hover{transform:translateY(-4px);border-color:color-mix(in srgb,var(--accent) 45%,transparent)}
+.feat:hover::before{opacity:1}
+.feat .ico{width:42px;height:42px;border-radius:12px;display:grid;place-items:center;font-size:1.3rem;margin-bottom:12px;background:linear-gradient(135deg,color-mix(in srgb,var(--accent) 30%,transparent),color-mix(in srgb,var(--accent2) 30%,transparent))}
+.feat h3{margin:0 0 6px;font-size:1.06rem}
+.feat p{margin:0;color:var(--muted);font-size:.95rem}
+
+/* gallery */
+.gallery{position:relative}
+.track{display:flex;gap:22px;overflow-x:auto;scroll-snap-type:x mandatory;padding:10px 4px 26px;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+.track::-webkit-scrollbar{display:none}
+.phone{flex:none;width:min(250px,64vw);scroll-snap-align:center;border-radius:34px;padding:10px;background:linear-gradient(160deg,#2b2d45,#11111b);box-shadow:var(--shadow);transition:transform .5s var(--ease)}
+.phone img{display:block;width:100%;height:auto;border-radius:25px;aspect-ratio:1080/2400;object-fit:cover;background:#11111b}
+.phone figcaption{color:#cdd6f4;font-weight:700;font-size:.85rem;text-align:center;padding:10px 4px 4px}
+.phone:hover{transform:translateY(-6px) rotate(-1deg)}
+.gal-nav{display:flex;justify-content:center;gap:10px}
+.gal-nav button{width:44px;height:44px;border-radius:50%;border:1px solid var(--line);background:var(--card);color:var(--text);font-size:1.2rem;cursor:pointer;transition:background .2s,transform .2s}
+.gal-nav button:hover{transform:scale(1.06)}
+
+/* compare */
+.scroll{overflow-x:auto;border-radius:var(--radius);border:1px solid var(--line)}
+table{width:100%;border-collapse:collapse;font-size:.94rem;background:var(--card);min-width:720px}
+th,td{padding:13px 14px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+thead th{background:color-mix(in srgb,var(--accent) 10%,transparent);font-size:.9rem}
+tbody th{color:var(--muted);font-weight:700;width:18%}
+td.us,th.us{background:color-mix(in srgb,var(--ok) 9%,transparent)}
+thead th.us{color:var(--ok)}
+tr:last-child th,tr:last-child td{border-bottom:0}
+.yes{color:var(--ok);font-weight:800}.no{color:var(--pink);font-weight:800}
+
+/* install */
+.steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;counter-reset:step;margin:0;padding:0;list-style:none}
+.steps li{position:relative;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:22px 18px 18px 18px;counter-increment:step}
+.steps li::before{content:counter(step);display:grid;place-items:center;width:34px;height:34px;border-radius:10px;margin-bottom:10px;font-weight:800;color:var(--btn-fg);background:linear-gradient(135deg,var(--btn-a),var(--btn-b))}
+.steps li p{margin:0;color:var(--muted)}
+.code{position:relative;margin-top:16px}
+.code pre{margin:0;background:var(--term);color:#cdd6f4;border:1px solid var(--term-line);border-radius:14px;padding:16px 18px;overflow-x:auto;font-size:.92rem}
+.code pre .p{color:#a6e3a1}
+.copy{position:absolute;top:10px;right:10px;border:1px solid var(--term-line);background:#1e1e2e;color:#cdd6f4;border-radius:9px;padding:6px 10px;font-weight:700;font-size:.8rem;cursor:pointer;transition:background .2s}
+.copy:hover{background:#313244}
+.copy.done{color:#a6e3a1}
+
+/* faq */
+.faq{display:grid;gap:10px}
+details{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:0 18px;transition:border-color .3s}
+details[open]{border-color:color-mix(in srgb,var(--accent) 45%,transparent)}
+summary{cursor:pointer;font-weight:700;padding:15px 0;list-style:none;display:flex;justify-content:space-between;align-items:center;gap:12px}
+summary::-webkit-details-marker{display:none}
+summary::after{content:"+";font-size:1.4rem;line-height:1;color:var(--accent);transition:transform .3s var(--ease)}
+details[open] summary::after{transform:rotate(45deg)}
+details .ans{overflow:hidden;color:var(--muted)}
+details .ans p{margin:0 0 16px}
+
+/* final cta */
+.final{margin-top:84px;position:relative;border-radius:26px;padding:48px 24px;text-align:center;overflow:hidden;background:linear-gradient(135deg,color-mix(in srgb,var(--accent) 22%,var(--bg2)),color-mix(in srgb,var(--accent2) 22%,var(--bg2)));border:1px solid var(--line)}
+.final h2{margin-bottom:10px}
+.final p{color:var(--muted);margin:0 auto 24px;max-width:560px}
+.final .cta{justify-content:center}
+
+footer{border-top:1px solid var(--line);margin-top:72px;padding:28px 0 48px;color:var(--muted);font-size:.92rem;text-align:center}
+footer a{color:var(--muted)}
+footer a:hover{color:var(--accent)}
+
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
+  .js .reveal{opacity:1;transform:none}
+  .chips li{opacity:1;transform:none}
+  .term{transform:none}
+}
 </style>
 </head>
 <body>
-<header class="hero">
+<a class="skip" href="#main">Skip to content</a>
+
+<nav class="nav" id="nav" aria-label="Main">
   <div class="wrap">
-    <img class="logo" src="icon.png" width="84" height="84" alt="Cortex Terminal app icon">
-    <h1>Ubuntu 24.04 on Android, natively</h1>
-    <p class="lead"><strong>Cortex Terminal</strong> runs real Ubuntu 24.04 LTS (glibc 2.39 and <code>apt</code>) directly on your Android phone or tablet. No root, no PRoot, no containers, no virtual machine. A free, open-source alternative to Termux + proot-distro.</p>
-    <ul class="badges" aria-label="Highlights">
-      <li>No root</li><li>No PRoot</li><li>No containers</li><li>No VM</li><li>Apache-2.0</li><li>50 languages</li>
+    <a class="brand" href="#top"><img src="icon.png" width="30" height="30" alt="">Cortex</a>
+    <ul>
+      <li><a href="#how">How it works</a></li>
+      <li><a href="#features">Features</a></li>
+      <li><a href="#screens">Screenshots</a></li>
+      <li><a href="#compare">Compare</a></li>
+      <li><a href="#install">Install</a></li>
+      <li><a href="#faq">FAQ</a></li>
     </ul>
-    <a class="btn" href="https://github.com/ssfuisu/cortex/releases/latest">Download the APK</a>
-    <a class="btn alt" href="https://github.com/ssfuisu/cortex">View on GitHub</a>
-    <div class="shots">
-      <img src="screenshots/cortex-neofetch.jpg" width="1080" height="2400" loading="lazy" alt="neofetch in Cortex Terminal showing Ubuntu 24.04 LTS running natively on an Android phone">
-      <img src="screenshots/cortex-keyboard.jpg" width="1080" height="2400" loading="lazy" alt="Cortex Terminal with its session tabs, a command's results and the two rows of keys: ESC, TAB, CTRL, ALT and the arrows">
-      <img src="screenshots/cortex-api.jpg" width="1080" height="2400" loading="lazy" alt="cortex-api in the terminal: the battery state as JSON, the Android clipboard and notify-send">
-      <img src="screenshots/cortex-sessions.jpg" width="1080" height="2400" loading="lazy" alt="The drawer of Cortex Terminal: one card for each session, and the New session button">
-      <img src="screenshots/cortex-themes.jpg" width="1080" height="2400" loading="lazy" alt="The color scheme picker: every scheme shown as a bit of terminal in its own colors">
+    <a class="gh" href="https://github.com/ssfuisu/cortex" aria-label="Cortex on GitHub">
+      <svg viewBox="0 0 16 16" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      <span id="stars">GitHub</span>
+    </a>
+  </div>
+</nav>
+
+<header class="hero" id="top">
+  <div class="aurora" aria-hidden="true"><span></span><span></span><span></span></div>
+  <div class="grid-bg" aria-hidden="true"></div>
+  <div class="wrap hero-grid">
+    <div>
+      <a class="pill" id="release-pill" href="https://github.com/ssfuisu/cortex/releases/latest"><span class="dot"></span><span id="release-text">Latest release on GitHub</span></a>
+      <h1>Ubuntu 24.04 on Android, <span class="grad">natively</span></h1>
+      <p class="lead"><strong>Cortex Terminal</strong> runs real Ubuntu 24.04 LTS (glibc 2.39 and <code>apt</code>) directly on your Android phone or tablet. No root, no PRoot, no containers, no virtual machine. A free, open-source alternative to Termux + proot-distro.</p>
+      <ul class="chips" aria-label="Highlights">
+        <li>No root</li><li>No PRoot</li><li>No containers</li><li>No VM</li><li>Apache-2.0</li><li>50 languages</li>
+      </ul>
+      <div class="cta">
+        <a class="btn" href="https://github.com/ssfuisu/cortex/releases/latest">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0l-5-5m5 5l5-5M4 21h16"/></svg>
+          <span>Download the APK <small id="btn-version"></small></span>
+        </a>
+        <a class="btn alt" href="https://github.com/ssfuisu/cortex">View on GitHub</a>
+      </div>
+    </div>
+    <div style="position:relative">
+      <div class="term-glow" aria-hidden="true"></div>
+      <div class="term" role="img" aria-label="An animated Cortex session: apt installs git and python3, then neofetch shows Ubuntu 24.04 LTS on Android">
+        <div class="term-bar" aria-hidden="true"><i></i><i></i><i></i><span>cortex — bash</span></div>
+        <div class="term-body" id="term" aria-hidden="true"></div>
+      </div>
+    </div>
+  </div>
+  <div class="wrap">
+    <div class="stats reveal">
+      <div class="stat"><b data-count="24.04" data-dec="2">24.04</b><span>Ubuntu LTS</span></div>
+      <div class="stat"><b data-count="2.39" data-dec="2">2.39</b><span>glibc, not Bionic</span></div>
+      <div class="stat"><b data-count="50">50</b><span>languages</span></div>
+      <div class="stat"><b data-count="14">14</b><span>color schemes</span></div>
     </div>
   </div>
 </header>
 
-<main class="wrap">
-  <h2>What you get</h2>
-  <div class="grid">
-    <div class="card"><h3>Genuine Ubuntu 24.04 LTS</h3><p>Ubuntu's own <code>.deb</code> packages with glibc 2.39, installed with <code>apt</code> from the official archive.</p></div>
-    <div class="card"><h3>Direct execution</h3><p>Programs run on the Android kernel itself. A small preloaded library maps <code>/usr</code>, <code>/etc</code> and friends into the app's private storage.</p></div>
-    <div class="card"><h3>Built for developers</h3><p>gcc, git, Python, Java 17, Node.js (apt or nvm) and more. Changed <code>~/.bashrc</code> files are picked up at the next prompt.</p></div>
-    <div class="card"><h3>Made for a phone</h3><p>Session tabs and drawer, a virtual key toolbar, thirteen color schemes that theme the whole screen, terminal search, clickable links and image paste.</p></div>
-    <div class="card"><h3>Go programs just work</h3><p>Single-file Go tools (<code>gh</code>, <code>lazygit</code>, <code>fzf</code>...) see Ubuntu's files and start Ubuntu's programs, with no root.</p></div>
-    <div class="card"><h3>Terminal integration</h3><p>Clipboard from tmux/vim (OSC 52), notifications when long commands finish, OSC 8 hyperlinks, bracketed paste, cursor shapes, focus events and synchronized output.</p></div>
-    <div class="card"><h3>Your files, safe</h3><p><code>cortex-backup</code> for backup and restore, and your home folder in Android's Files app.</p></div>
-    <div class="card"><h3>Android from the shell</h3><p><code>cortex-api</code> shows notifications, uses the clipboard, opens links and files in Android apps, shares, reads the battery and speaks. <code>notify-send</code> and <code>xdg-open</code> use it.</p></div>
-    <div class="card"><h3>Root mode, if you want it</h3><p>On a rooted phone, sessions can run as real root in a chroot of the same Ubuntu: <code>mount</code>, real <code>chown</code>, set-user-ID programs and ports below 1024.</p></div>
+<main id="main" class="wrap">
+
+  <section id="how" class="reveal">
+    <div class="center">
+      <span class="kicker">How it works</span>
+      <h2>No layer in between</h2>
+      <p class="sub">Ubuntu's programs run on the Android kernel itself. A small preloaded library maps <code>/usr</code>, <code>/etc</code> and friends into the app's private storage, so there is no <code>ptrace</code> stop on every system call and no virtual machine.</p>
+    </div>
+    <div class="flow">
+      <div class="lane good">
+        <h3>Cortex</h3>
+        <p class="note">A program calls the kernel directly. Paths are rewritten in the same process, in user space.</p>
+        <div class="stack">
+          <div class="node"><span class="ico">⌨️</span><div>Your program<small>bash, gcc, python3, node…</small></div></div>
+          <div class="wire"><i class="packet"></i></div>
+          <div class="node"><span class="ico">🧩</span><div>glibc 2.39 + Cortex's library<small>maps /usr, /etc into the app's storage</small></div></div>
+          <div class="wire"><i class="packet"></i></div>
+          <div class="node"><span class="ico">🐧</span><div>Android's Linux kernel<small>at full speed, on the phone's CPU</small></div></div>
+        </div>
+        <div class="speed"><span>Overhead</span><span class="bar"><i></i></span><span>a few %</span></div>
+      </div>
+      <div class="lane bad">
+        <h3>PRoot</h3>
+        <p class="note">Every system call stops the program and is handled by a second process, then resumed.</p>
+        <div class="stack">
+          <div class="node slow"><span class="ico">⌨️</span><div>Your program<small>stopped at each system call</small></div></div>
+          <div class="wire"><i class="packet"></i></div>
+          <div class="node slow"><span class="ico">🔁</span><div>ptrace stop<small>a context switch to PRoot and back</small></div></div>
+          <div class="wire"><i class="packet"></i></div>
+          <div class="node slow"><span class="ico">🛠️</span><div>PRoot rewrites the call<small>in another process</small></div></div>
+          <div class="wire"><i class="packet"></i></div>
+          <div class="node slow"><span class="ico">🐧</span><div>Android's Linux kernel<small>after the round trip</small></div></div>
+        </div>
+        <div class="speed"><span>Overhead</span><span class="bar"><i></i></span><span>every call</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="features">
+    <div class="center reveal">
+      <span class="kicker">Features</span>
+      <h2>What you get</h2>
+      <p class="sub">A real Ubuntu userland and a terminal made for a phone.</p>
+    </div>
+    <div class="features">
+      <div class="feat reveal"><div class="ico">🐧</div><h3>Genuine Ubuntu 24.04 LTS</h3><p>Ubuntu's own <code>.deb</code> packages with glibc 2.39, installed with <code>apt</code> from the official archive.</p></div>
+      <div class="feat reveal"><div class="ico">⚡</div><h3>Direct execution</h3><p>Programs run on the Android kernel itself. A small preloaded library maps <code>/usr</code>, <code>/etc</code> and friends into the app's private storage.</p></div>
+      <div class="feat reveal"><div class="ico">🛠️</div><h3>Built for developers</h3><p>gcc, git, Python, Java 17, Node.js (apt or nvm) and more. Changed <code>~/.bashrc</code> files are picked up at the next prompt.</p></div>
+      <div class="feat reveal"><div class="ico">📱</div><h3>Made for a phone</h3><p>Session tabs and drawer, a key toolbar of your own, fourteen color schemes that theme the whole screen, search, clickable links and image paste.</p></div>
+      <div class="feat reveal"><div class="ico">🐹</div><h3>Go programs just work</h3><p>Single-file Go tools (<code>gh</code>, <code>lazygit</code>, <code>fzf</code>…) see Ubuntu's files and start Ubuntu's programs, with no root.</p></div>
+      <div class="feat reveal"><div class="ico">🔗</div><h3>Terminal integration</h3><p>Clipboard from tmux/vim (OSC 52), notifications when long commands finish, OSC 8 hyperlinks, bracketed paste, cursor shapes and synchronized output.</p></div>
+      <div class="feat reveal"><div class="ico">🤖</div><h3>Android from the shell</h3><p><code>cortex-api</code> shows notifications, uses the clipboard, opens links and files in Android apps, shares, reads the battery and speaks.</p></div>
+      <div class="feat reveal"><div class="ico">🌐</div><h3>SSH and local servers</h3><p><code>cortex-sshd</code> to use Cortex from a computer, and a notification that opens <code>npm run dev</code> or <code>python3 -m http.server</code> in the browser.</p></div>
+      <div class="feat reveal"><div class="ico">💾</div><h3>Your files, safe</h3><p><code>cortex-backup</code> for backup and restore, sessions that come back after Android ends the app, and your home folder in Android's Files app.</p></div>
+      <div class="feat reveal"><div class="ico">⌨️</div><h3>Hardware keyboards</h3><p>Ctrl, Alt and Shift work as in a desktop terminal: Ctrl+C, word jumps with Ctrl+arrows, selection with Shift, Meta on the left Alt, copy and paste shortcuts.</p></div>
+      <div class="feat reveal"><div class="ico">🔐</div><h3>Root mode, if you want it</h3><p>On a rooted phone, sessions can run as real root in a chroot of the same Ubuntu: <code>mount</code>, real <code>chown</code> and ports below 1024.</p></div>
+      <div class="feat reveal"><div class="ico">🌍</div><h3>50 languages</h3><p>The app follows your system language, from Arabic to Vietnamese, and lets you pick another one in Settings.</p></div>
+    </div>
+  </section>
+
+  <section id="screens">
+    <div class="center reveal">
+      <span class="kicker">Screenshots</span>
+      <h2>See it on a phone</h2>
+      <p class="sub">Taken from the app running on an Android emulator in CI.</p>
+    </div>
+    <div class="gallery reveal">
+      <div class="track" id="track" tabindex="0" aria-label="Screenshots, scroll sideways">
+        <figure class="phone"><img src="screenshots/cortex-neofetch.jpg" width="1080" height="2400" loading="lazy" alt="neofetch in Cortex Terminal showing Ubuntu 24.04 LTS running natively on an Android phone"><figcaption>neofetch: Ubuntu 24.04 LTS</figcaption></figure>
+        <figure class="phone"><img src="screenshots/cortex-keyboard.jpg" width="1080" height="2400" loading="lazy" alt="Cortex Terminal with its session tabs, a command's results and the two rows of keys: ESC, TAB, CTRL, ALT and the arrows"><figcaption>Tabs and the key toolbar</figcaption></figure>
+        <figure class="phone"><img src="screenshots/cortex-api.jpg" width="1080" height="2400" loading="lazy" alt="cortex-api in the terminal: the battery state as JSON, the Android clipboard and notify-send"><figcaption>cortex-api</figcaption></figure>
+        <figure class="phone"><img src="screenshots/cortex-sessions.jpg" width="1080" height="2400" loading="lazy" alt="The drawer of Cortex Terminal: one card for each session, and the New session button"><figcaption>Sessions</figcaption></figure>
+        <figure class="phone"><img src="screenshots/cortex-themes.jpg" width="1080" height="2400" loading="lazy" alt="The color scheme picker: every scheme shown as a bit of terminal in its own colors"><figcaption>Color schemes</figcaption></figure>
+      </div>
+      <div class="gal-nav"><button type="button" id="prev" aria-label="Previous screenshot">←</button><button type="button" id="next" aria-label="Next screenshot">→</button></div>
+    </div>
+  </section>
+
+  <section id="compare" class="reveal">
+    <div class="center">
+      <span class="kicker">Compare</span>
+      <h2>Cortex compared</h2>
+      <p class="sub">Pick Cortex when you want Ubuntu's own packages and a genuine glibc without the layers PRoot or a VM add. Termux remains a great choice for its large, Android-specific package set.</p>
+    </div>
+    <div class="scroll">
+    <table>
+      <thead><tr><th></th><th class="us">Cortex</th><th>Termux (own packages)</th><th>Termux + proot-distro</th><th>Android Linux Terminal (VM)</th></tr></thead>
+      <tbody>
+        <tr><th>Needs root</th><td class="us"><span class="yes">No</span></td><td>No</td><td>No</td><td>No</td></tr>
+        <tr><th>How Linux programs run</th><td class="us">Directly on the Android kernel, with path redirection in user space</td><td>Directly, as programs built for Android</td><td>Inside PRoot, a user-space chroot using <code>ptrace</code></td><td>Inside a virtual machine (supported devices only)</td></tr>
+        <tr><th>C library</th><td class="us">glibc 2.39 (Ubuntu)</td><td>Bionic</td><td>glibc of the chosen distribution</td><td>glibc (Debian)</td></tr>
+        <tr><th>Package source</th><td class="us">Ubuntu 24.04 archive via <code>apt</code></td><td>Termux repositories via <code>pkg</code></td><td>The distribution's own <code>apt</code></td><td>Debian <code>apt</code></td></tr>
+        <tr><th><code>ptrace</code> system-call overhead</th><td class="us"><span class="yes">None</span></td><td>None</td><td><span class="no">Yes</span></td><td>None (VM overhead instead)</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </section>
+
+  <section id="install">
+    <div class="center reveal">
+      <span class="kicker">Install</span>
+      <h2>Up and running in minutes</h2>
+      <p class="sub">One APK, a one-time setup of the base system, then <code>apt</code> as on any Ubuntu.</p>
+    </div>
+    <ol class="steps">
+      <li class="reveal"><strong>Open the release</strong><p>Go to the <a href="https://github.com/ssfuisu/cortex/releases/latest">latest release</a> on GitHub.</p></li>
+      <li class="reveal"><strong>Pick your APK</strong><p><code>Cortex-arm64-v8a-signed.apk</code> for 64-bit phones (almost all current ones), <code>Cortex-armeabi-v7a-signed.apk</code> for 32-bit ARM.</p></li>
+      <li class="reveal"><strong>Install and open</strong><p>Allow storage access when asked and wait for the one-time base system setup.</p></li>
+      <li class="reveal"><strong>Install your tools</strong><p>Use <code>apt</code> like on any Ubuntu system.</p></li>
+    </ol>
+    <div class="code reveal">
+      <button type="button" class="copy" data-copy="apt update && apt install git python3 build-essential openjdk-17-jdk">Copy</button>
+<pre><code><span class="p">$</span> apt update
+<span class="p">$</span> apt install git python3 build-essential openjdk-17-jdk</code></pre>
+    </div>
+  </section>
+
+  <section id="faq">
+    <div class="center reveal">
+      <span class="kicker">FAQ</span>
+      <h2>Questions</h2>
+    </div>
+    <div class="faq">
+      <details class="reveal"><summary>Does Cortex need root?</summary><div class="ans"><p>No. It runs on unrooted devices. On a rooted phone, the optional root mode (Settings) runs sessions as real root.</p></div></details>
+      <details class="reveal"><summary>Does it use PRoot, chroot or a virtual machine?</summary><div class="ans"><p>No PRoot and no virtual machine. Programs run directly on the Android kernel. In normal mode a small preloaded library redirects file paths such as <code>/usr</code> and <code>/etc</code> to Cortex's private storage and emulates root-only details like the user id. Only the optional root mode on rooted phones uses a chroot (a real one, without the library).</p></div></details>
+      <details class="reveal"><summary>Which Android versions and CPUs are supported?</summary><div class="ans"><p>Android 7.0 and newer, with separate APKs for 64-bit (arm64-v8a) and 32-bit (armeabi-v7a) ARM devices.</p></div></details>
+      <details class="reveal"><summary>How do I install software?</summary><div class="ans"><p>Use <code>apt</code> like on any Ubuntu system. Installers such as <code>nvm</code> also work.</p></div></details>
+      <details class="reveal"><summary>Is there a desktop or GUI?</summary><div class="ans"><p>Not yet. Cortex is a terminal; there is no X11 or Wayland server.</p></div></details>
+      <details class="reveal"><summary>Will every Ubuntu package work?</summary><div class="ans"><p>Most command-line tools do. Packages that depend on kernel features Android does not allow for apps, such as systemd services or privileged device access, cannot work.</p></div></details>
+      <details class="reveal"><summary>Which languages does the app support?</summary><div class="ans"><p>It follows your system language and offers 50 languages in Settings. The translations were made with machine assistance, so corrections are welcome on GitHub.</p></div></details>
+      <details class="reveal"><summary>Where do I report problems?</summary><div class="ans"><p>On <a href="https://github.com/ssfuisu/cortex/issues">GitHub Issues</a> or on <a href="https://t.me/ratzgn">Telegram</a>.</p></div></details>
+    </div>
+  </section>
+
+  <div class="final reveal">
+    <h2>Carry a real Ubuntu in your pocket</h2>
+    <p>Free and open source. Download the APK, run <code>apt</code>, and get to work.</p>
+    <div class="cta">
+      <a class="btn" href="https://github.com/ssfuisu/cortex/releases/latest">Download the APK</a>
+      <a class="btn alt" href="https://t.me/ratzgn">Join on Telegram</a>
+    </div>
   </div>
-
-  <h2>Cortex compared</h2>
-  <div class="scroll">
-  <table>
-    <thead><tr><th></th><th>Cortex</th><th>Termux (own packages)</th><th>Termux + proot-distro</th><th>Android Linux Terminal (VM)</th></tr></thead>
-    <tbody>
-      <tr><th>Needs root</th><td>No</td><td>No</td><td>No</td><td>No</td></tr>
-      <tr><th>How Linux programs run</th><td>Directly on the Android kernel, with path redirection in user space</td><td>Directly, as programs built for Android</td><td>Inside PRoot, a user-space chroot using <code>ptrace</code></td><td>Inside a virtual machine (supported devices only)</td></tr>
-      <tr><th>C library</th><td>glibc 2.39 (Ubuntu)</td><td>Bionic</td><td>glibc of the chosen distribution</td><td>glibc (Debian)</td></tr>
-      <tr><th>Package source</th><td>Ubuntu 24.04 archive via <code>apt</code></td><td>Termux repositories via <code>pkg</code></td><td>The distribution's own <code>apt</code></td><td>Debian <code>apt</code></td></tr>
-      <tr><th><code>ptrace</code> system-call overhead</th><td>None</td><td>None</td><td>Yes</td><td>None (VM overhead instead)</td></tr>
-    </tbody>
-  </table>
-  </div>
-  <p style="color:var(--muted)">Pick Cortex when you want Ubuntu's own packages and a genuine glibc without the layers PRoot or a VM add. Termux remains a great choice for its large, Android-specific package set.</p>
-
-  <h2>Install</h2>
-  <ol>
-    <li>Open the <a href="https://github.com/ssfuisu/cortex/releases/latest">latest release</a>.</li>
-    <li>Download <code>Cortex-arm64-v8a-signed.apk</code> (64-bit, almost all current phones) or <code>Cortex-armeabi-v7a-signed.apk</code> (32-bit ARM).</li>
-    <li>Install it, allow storage access when asked, and wait for the one-time base system setup.</li>
-    <li>Install tools with <code>apt</code>:</li>
-  </ol>
-  <pre><code>apt update
-apt install git python3 build-essential openjdk-17-jdk</code></pre>
-
-  <h2>FAQ</h2>
-  <details><summary>Does Cortex need root?</summary><p>No. It runs on unrooted devices. On a rooted phone, the optional root mode (Settings) runs sessions as real root.</p></details>
-  <details><summary>Does it use PRoot, chroot or a virtual machine?</summary><p>No PRoot and no virtual machine. Programs run directly on the Android kernel. In normal mode a small preloaded library redirects file paths such as <code>/usr</code> and <code>/etc</code> to Cortex's private storage and emulates root-only details like the user id. Only the optional root mode on rooted phones uses a chroot (a real one, without the library).</p></details>
-  <details><summary>Which Android versions and CPUs are supported?</summary><p>Android 7.0 and newer, with separate APKs for 64-bit (arm64-v8a) and 32-bit (armeabi-v7a) ARM devices.</p></details>
-  <details><summary>How do I install software?</summary><p>Use <code>apt</code> like on any Ubuntu system. Installers such as <code>nvm</code> also work.</p></details>
-  <details><summary>Is there a desktop or GUI?</summary><p>Not yet. Cortex is a terminal; there is no X11 or Wayland server.</p></details>
-  <details><summary>Will every Ubuntu package work?</summary><p>Most command-line tools do. Packages that depend on kernel features Android does not allow for apps, such as systemd services or privileged device access, cannot work.</p></details>
-  <details><summary>Which languages does the app support?</summary><p>It follows your system language and offers 50 languages in Settings. The translations were made with machine assistance, so corrections are welcome on GitHub.</p></details>
-  <details><summary>Where do I report problems?</summary><p>On <a href="https://github.com/ssfuisu/cortex/issues">GitHub Issues</a> or on <a href="https://t.me/ratzgn">Telegram</a>.</p></details>
 </main>
 
 <footer>
@@ -167,8 +469,160 @@ apt install git python3 build-essential openjdk-17-jdk</code></pre>
     Cortex Terminal is open source under the <a href="https://www.apache.org/licenses/LICENSE-2.0">Apache License 2.0</a> ·
     <a href="https://github.com/ssfuisu/cortex">Source code</a> ·
     <a href="https://github.com/ssfuisu/cortex/releases">All releases</a> ·
+    <a href="https://github.com/ssfuisu/cortex/blob/main/CHANGELOG.md">Changelog</a> ·
     <a href="https://t.me/ratzgn">Telegram</a>
   </div>
 </footer>
+
+<script>
+(function () {
+  var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // Sticky bar border once the page scrolls
+  var nav = document.getElementById('nav');
+  var onScroll = function () { nav.classList.toggle('scrolled', window.scrollY > 8); };
+  window.addEventListener('scroll', onScroll, { passive: true });
+  onScroll();
+
+  // Sections fade in as they come into view; numbers count up
+  function countUp(el) {
+    var target = parseFloat(el.getAttribute('data-count'));
+    var dec = parseInt(el.getAttribute('data-dec') || '0', 10);
+    if (reduce || isNaN(target)) return;
+    var start = null, dur = 1400;
+    function step(t) {
+      if (start === null) start = t;
+      var p = Math.min(1, (t - start) / dur);
+      var e = 1 - Math.pow(1 - p, 3);
+      el.textContent = (target * e).toFixed(dec);
+      if (p < 1) requestAnimationFrame(step); else el.textContent = target.toFixed(dec);
+    }
+    requestAnimationFrame(step);
+  }
+  var items = document.querySelectorAll('.reveal');
+  if ('IntersectionObserver' in window && !reduce) {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (en) {
+        if (!en.isIntersecting) return;
+        var el = en.target;
+        var siblings = el.parentElement ? Array.prototype.indexOf.call(el.parentElement.children, el) : 0;
+        el.style.transitionDelay = Math.min(siblings, 8) * 60 + 'ms';
+        el.classList.add('in');
+        el.querySelectorAll('[data-count]').forEach(countUp);
+        io.unobserve(el);
+      });
+    }, { threshold: 0.12, rootMargin: '0px 0px -40px 0px' });
+    items.forEach(function (el) { io.observe(el); });
+  } else {
+    items.forEach(function (el) { el.classList.add('in'); });
+  }
+
+  // Cards follow the pointer with a soft glow
+  document.querySelectorAll('.feat').forEach(function (card) {
+    card.addEventListener('pointermove', function (e) {
+      var r = card.getBoundingClientRect();
+      card.style.setProperty('--mx', (e.clientX - r.left) + 'px');
+      card.style.setProperty('--my', (e.clientY - r.top) + 'px');
+    });
+  });
+
+  // Gallery buttons
+  var track = document.getElementById('track');
+  function slide(dir) {
+    var phone = track.querySelector('.phone');
+    var w = phone ? phone.getBoundingClientRect().width + 22 : 260;
+    track.scrollBy({ left: dir * w, behavior: reduce ? 'auto' : 'smooth' });
+  }
+  document.getElementById('prev').addEventListener('click', function () { slide(-1); });
+  document.getElementById('next').addEventListener('click', function () { slide(1); });
+
+  // Copy buttons
+  document.querySelectorAll('.copy').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var text = b.getAttribute('data-copy');
+      var done = function () { b.textContent = 'Copied'; b.classList.add('done'); setTimeout(function () { b.textContent = 'Copy'; b.classList.remove('done'); }, 1600); };
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, function () {});
+      else { var t = document.createElement('textarea'); t.value = text; document.body.appendChild(t); t.select(); try { if (document.execCommand('copy')) done(); } catch (e) {} t.remove(); }
+    });
+  });
+
+  // FAQ: smooth open and close
+  document.querySelectorAll('.faq details').forEach(function (d) {
+    var s = d.querySelector('summary'), a = d.querySelector('.ans');
+    s.addEventListener('click', function (e) {
+      if (reduce || !a.animate) return;
+      e.preventDefault();
+      if (d.open) {
+        var h = a.offsetHeight;
+        a.animate([{ height: h + 'px', opacity: 1 }, { height: '0px', opacity: 0 }], { duration: 260, easing: 'ease' }).onfinish = function () { d.open = false; };
+      } else {
+        d.open = true;
+        var h2 = a.offsetHeight;
+        a.animate([{ height: '0px', opacity: 0 }, { height: h2 + 'px', opacity: 1 }], { duration: 320, easing: 'cubic-bezier(.2,.8,.2,1)' });
+      }
+    });
+  });
+
+  // The latest release and the star count, from GitHub (the page works without them)
+  fetch('https://api.github.com/repos/ssfuisu/cortex/releases/latest').then(function (r) { return r.ok ? r.json() : null; }).then(function (j) {
+    if (!j || !j.tag_name) return;
+    var v = j.tag_name;
+    document.getElementById('release-text').textContent = 'Cortex ' + v + ' is out';
+    document.getElementById('btn-version').textContent = v;
+  }).catch(function () {});
+  fetch('https://api.github.com/repos/ssfuisu/cortex').then(function (r) { return r.ok ? r.json() : null; }).then(function (j) {
+    if (j && typeof j.stargazers_count === 'number') document.getElementById('stars').textContent = '★ ' + j.stargazers_count;
+  }).catch(function () {});
+
+  // The terminal in the hero types a short session
+  var term = document.getElementById('term');
+  var P = '<span class="p">root@cortex</span>:<span class="d">~</span># ';
+  var script = [
+    { cmd: 'apt install -y git python3' },
+    { out: '<span class="m">Reading package lists... Done</span>' },
+    { out: '<span class="m">Building dependency tree... Done</span>' },
+    { out: 'The following NEW packages will be installed:\n  git python3 python3-minimal libpython3.12' },
+    { out: '<span class="m">Get:1 http://ports.ubuntu.com/ubuntu-ports noble/main arm64 git 1:2.43.0</span>', wait: 260 },
+    { out: '<span class="m">Setting up git (1:2.43.0-1ubuntu7) ...</span>', wait: 260 },
+    { out: '<span class="m">Setting up python3 (3.12.3-0ubuntu2) ...</span>', wait: 260 },
+    { cmd: 'python3 -c "import platform; print(platform.libc_ver())"' },
+    { out: "('glibc', '2.39')" },
+    { cmd: 'neofetch --off' },
+    { out: '<span class="r b">root</span>@<span class="r b">cortex</span>\n----------\n<span class="r b">OS</span>: Ubuntu 24.04 LTS aarch64\n<span class="r b">Host</span>: Android phone\n<span class="r b">Kernel</span>: 6.1 android14\n<span class="r b">Shell</span>: bash 5.2.21\n<span class="r b">Terminal</span>: Cortex\n<span class="r b">Packages</span>: 412 (dpkg)' },
+    { cmd: '' }
+  ];
+  function render(html) { term.innerHTML = html + '<span class="caret"></span>'; term.scrollTop = term.scrollHeight; }
+  if (reduce) {
+    var all = '';
+    script.forEach(function (s) { if (s.cmd !== undefined) all += P + s.cmd + '\n'; else all += s.out + '\n'; });
+    term.style.height = 'auto'; // all of it, without the scrolling the animation does
+    term.innerHTML = all;
+    return;
+  }
+  var shown = '', i = 0;
+  function next() {
+    if (i >= script.length) { setTimeout(function () { shown = ''; i = 0; next(); }, 5200); return; }
+    var s = script[i++];
+    if (s.cmd !== undefined) {
+      var k = 0, base = shown + P;
+      (function type() {
+        render(base + s.cmd.slice(0, k));
+        if (k < s.cmd.length) { k++; setTimeout(type, 28 + Math.random() * 45); }
+        else { shown = base + s.cmd + (s.cmd ? '\n' : ''); setTimeout(next, s.cmd ? 420 : 0); }
+      })();
+    } else {
+      shown += s.out + '\n';
+      render(shown);
+      setTimeout(next, s.wait || 140);
+    }
+  }
+  // Starts once the terminal is in view (and the page is shown)
+  var started = false;
+  function start() { if (!started) { started = true; next(); } }
+  if ('IntersectionObserver' in window) {
+    new IntersectionObserver(function (en, obs) { if (en[0].isIntersecting) { start(); obs.disconnect(); } }).observe(term);
+  } else start();
+})();
+</script>
 </body>
 </html>

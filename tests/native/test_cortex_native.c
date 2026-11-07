@@ -1210,6 +1210,25 @@ static void test_listening_port_report(void) {
     report_listening_port(root, 0, port + 1, "x");
     ASSERT_TRUE(access(dir, F_OK) == 0, "no report for port 0 or without a rootfs");
 
+    /* only a port the program chose below the kernel's own range is reported (#51) */
+    ASSERT_EQ(ephemeral_port_low("32768\t60999\n"), 32768, "Linux's range");
+    ASSERT_EQ(ephemeral_port_low(" 37000 50000"), 37000, "a range of its own");
+    ASSERT_EQ(ephemeral_port_low(NULL), 32768, "no file: Linux's default");
+    ASSERT_EQ(ephemeral_port_low("x"), 32768, "nonsense: Linux's default");
+    ASSERT_EQ(ephemeral_port_low("0 1"), 32768, "port 0 is no range");
+    ASSERT_TRUE(listening_port_is_reported(1, 3000, 32768), "npm run dev on 3000");
+    ASSERT_TRUE(listening_port_is_reported(1, 32767, 32768), "the last port below the range");
+    ASSERT_TRUE(!listening_port_is_reported(0, 3000, 32768), "a port the kernel picked");
+    ASSERT_TRUE(!listening_port_is_reported(1, 44445, 32768), "a chosen port in the kernel's range");
+    ASSERT_TRUE(!listening_port_is_reported(1, 0, 32768), "no port");
+    set_chosen_port_fd(5, 1);
+    set_chosen_port_fd(6, 0);
+    ASSERT_TRUE(is_chosen_port_fd(5) && !is_chosen_port_fd(6), "a chosen port is kept per descriptor");
+    set_chosen_port_fd(5, 0);
+    ASSERT_TRUE(!is_chosen_port_fd(5), "and forgotten");
+    set_chosen_port_fd(CORTEX_CHOSEN_PORT_FDS + 3, 1);
+    ASSERT_TRUE(!is_chosen_port_fd(CORTEX_CHOSEN_PORT_FDS + 3) && !is_chosen_port_fd(-1), "descriptors past the bitmap are not chosen");
+
     int udp = socket(AF_INET, SOCK_DGRAM, 0);
     ASSERT_EQ(listening_tcp_port(-1), 0, "no port for a bad descriptor");
     int unix_fd = socket(AF_UNIX, SOCK_STREAM, 0);

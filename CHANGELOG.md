@@ -4,6 +4,20 @@ What changed in each version of Cortex Terminal, newest first. The release workf
 of a GitHub release from the section of its version here. Older versions are described on the
 [GitHub releases](https://github.com/ssfuisu/cortex/releases) page.
 
+## 1.26.49 (2026-11-07)
+
+### Fixed
+
+- **Programs that talk to each other over local TCP (#51).** When a program started listening on a
+  port, Cortex connected to it once to see whether it serves web pages (for the "open in browser"
+  notification). A server that waits for one connection, such as Gradle's daemon, the Kotlin daemon or
+  a JVM test, took Cortex's connection instead of the one it waited for and read the end of it:
+  `connect()` and `accept()` worked, but the data never arrived (`EOFException`), and `./gradlew`
+  failed with "Did not receive connection preamble within 10s". Cortex now only asks servers on a port
+  the program chose below the kernel's own range (which starts at 32768 on most phones), not those on
+  a port the kernel picked for them. `npm run dev`, `vite`, `python3 -m http.server` and `jupyter`
+  (3000, 5173, 8000, 8888) still get the notification as long as their port is below that range.
+
 ## 1.26.48 (2026-11-04)
 
 ### Faster

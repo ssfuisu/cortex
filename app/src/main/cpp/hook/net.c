@@ -173,6 +173,31 @@ static int dns_parse_answer(const unsigned char *msg, int n, uint16_t txid, int 
     return (msg[2] & 0x02) ? -1 : 1; // no such record, unless the reply was truncated
 }
 
+// ---- Sockets bound to a port the program chose ----------------------------------------------
+// Which descriptors are TCP/UDP sockets that bind() gave a port the program asked for (not 0,
+// where the kernel picks one). listen() reports only those to the app, which connects to a
+// reported port to see whether it serves web pages (sockets.c). Descriptors past the bitmap
+// are taken as not chosen: they are not reported.
+#define CORTEX_CHOSEN_PORT_FDS 65536
+static unsigned char g_chosen_port_fds[CORTEX_CHOSEN_PORT_FDS / 8];
+
+static void set_chosen_port_fd(int fd, int chosen) {
+    if (fd < 0 || fd >= CORTEX_CHOSEN_PORT_FDS) return;
+    unsigned char bit = (unsigned char)(1u << (fd & 7));
+    // Written only when it changes: a page of the bitmap is copied for a forked child only then
+    if (chosen) {
+        if (!(__atomic_load_n(&g_chosen_port_fds[fd >> 3], __ATOMIC_RELAXED) & bit))
+            __atomic_fetch_or(&g_chosen_port_fds[fd >> 3], bit, __ATOMIC_RELAXED);
+    } else if (__atomic_load_n(&g_chosen_port_fds[fd >> 3], __ATOMIC_RELAXED) & bit) {
+        __atomic_fetch_and(&g_chosen_port_fds[fd >> 3], (unsigned char)~bit, __ATOMIC_RELAXED);
+    }
+}
+
+static int is_chosen_port_fd(int fd) {
+    if (fd < 0 || fd >= CORTEX_CHOSEN_PORT_FDS) return 0;
+    return (__atomic_load_n(&g_chosen_port_fds[fd >> 3], __ATOMIC_RELAXED) >> (fd & 7)) & 1;
+}
+
 #ifndef CORTEX_HOST_TEST
 
 // DNS resolution hooking and localhost DNS redirect
@@ -218,6 +243,7 @@ int close(int fd) {
     // The ARM translator's memory file (privileged.c): left open, as if it were closed
     if (g_kept_fd_count > 0 && is_kept_fd(fd)) return 0;
     clear_dns_redirect(fd);
+    set_chosen_port_fd(fd, 0);
     return orig_close ? orig_close(fd) : -1;
 }
 
@@ -226,6 +252,7 @@ int dup2(int oldfd, int newfd) {
     if (!orig_dup2) orig_dup2 = (int (*)(int, int))dlsym(RTLD_NEXT, "dup2");
     if (oldfd != newfd) {
         clear_dns_redirect(newfd);
+        set_chosen_port_fd(newfd, is_chosen_port_fd(oldfd));
     }
     return orig_dup2 ? orig_dup2(oldfd, newfd) : -1;
 }
@@ -235,6 +262,7 @@ int dup3(int oldfd, int newfd, int flags) {
     if (!orig_dup3) orig_dup3 = (int (*)(int, int, int))dlsym(RTLD_NEXT, "dup3");
     if (oldfd != newfd) {
         clear_dns_redirect(newfd);
+        set_chosen_port_fd(newfd, is_chosen_port_fd(oldfd));
     }
     return orig_dup3 ? orig_dup3(oldfd, newfd, flags) : -1;
 }

@@ -38,6 +38,21 @@ class ServerPortsTest {
     }
 
     @Test
+    fun portsTheKernelPicksAreNotAskedForWebPages() {
+        assertEquals(32768, ServerPorts.ephemeralLow("32768\t60999\n"))
+        assertEquals("Android's range on some phones", 37000, ServerPorts.ephemeralLow("37000 50000"))
+        assertEquals("no file", 32768, ServerPorts.ephemeralLow(null))
+        assertEquals("nonsense", 32768, ServerPorts.ephemeralLow("x y"))
+        assertEquals(32768, ServerPorts.ephemeralLow("0 60999"))
+        assertTrue("npm run dev", ServerPorts.mayServeWebPages(3000, 32768))
+        assertTrue("jupyter", ServerPorts.mayServeWebPages(8888, 32768))
+        assertTrue(ServerPorts.mayServeWebPages(32767, 32768))
+        assertFalse("Gradle's daemon on a port the kernel picked (#51)", ServerPorts.mayServeWebPages(44445, 32768))
+        assertFalse(ServerPorts.mayServeWebPages(32768, 32768))
+        assertFalse(ServerPorts.mayServeWebPages(0, 32768))
+    }
+
+    @Test
     fun anHttpAnswer() {
         assertTrue(ServerPorts.isHttpResponse("HTTP/1.0"))
         assertTrue(ServerPorts.isHttpResponse("HTTP/1.1 "))

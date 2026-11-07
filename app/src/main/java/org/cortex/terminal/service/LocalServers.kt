@@ -135,7 +135,7 @@ class LocalServers(private val context: Context, private val root: File) {
 
     // A new listen(): also a new server on a port that was left alone
     private fun reported(port: Int) {
-        if (port in shown || port == ApiServer.port) return
+        if (port in shown || port == ApiServer.port || !ServerPorts.mayServeWebPages(port, ephemeralLow)) return
         ignored.remove(port)
         val program = readReport(File(dir, port.toString()))?.second
         addPending(port, program)
@@ -166,7 +166,7 @@ class LocalServers(private val context: Context, private val root: File) {
             val report = readReport(file)
             if (report == null || !File("/proc/${report.first}").exists()) {
                 file.delete()
-            } else if (port !in shown && port !in pending && port !in ignored) {
+            } else if (port !in shown && port !in pending && port !in ignored && ServerPorts.mayServeWebPages(port, ephemeralLow)) {
                 addPending(port, report.second)
             }
         }
@@ -179,7 +179,7 @@ class LocalServers(private val context: Context, private val root: File) {
             known = if (before == null) ports else before.intersect(ports) + shown.keys
             if (before != null) {
                 for (port in ports - before - shown.keys - pending.keys - ignored) {
-                    if (port != ApiServer.port) addPending(port, null)
+                    if (port != ApiServer.port && ServerPorts.mayServeWebPages(port, ephemeralLow)) addPending(port, null)
                 }
             }
         }
@@ -219,6 +219,18 @@ class LocalServers(private val context: Context, private val root: File) {
         ServerPorts.parseReport(file.readText())
     } catch (e: Exception) {
         null
+    }
+
+    // The kernel's range for the ports it picks itself: ports in it are not asked for web pages
+    // (the hook does not report them either)
+    private val ephemeralLow: Int by lazy {
+        ServerPorts.ephemeralLow(
+            try {
+                File("/proc/sys/net/ipv4/ip_local_port_range").readText()
+            } catch (e: Exception) {
+                null
+            }
+        )
     }
 
     // When /proc/net may be asked again (Android 10 and newer refuse it, and every refusal is a line

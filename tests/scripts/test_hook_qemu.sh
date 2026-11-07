@@ -287,6 +287,56 @@ else
   echo "  skip  the repair of directories (needs root or passwordless sudo, setpriv and the user nobody)"
 fi
 
+# The app connects to each server the hook reports, to see whether it serves web pages. Gradle's
+# daemon and other programs that talk to each other over TCP let the kernel pick their port and
+# accept one connection, which the app's took: they read EOF (#51). Only a port the program chose,
+# below the kernel's own range, is reported.
+prog listeners <<'EOC'
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/socket.h>
+#include <unistd.h>
+static int serve(int port) {
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    struct sockaddr_in sin;
+    memset(&sin, 0, sizeof(sin));
+    sin.sin_family = AF_INET;
+    sin.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    sin.sin_port = htons(port);
+    if (bind(fd, (struct sockaddr *)&sin, sizeof(sin)) != 0 || listen(fd, 4) != 0) return -1;
+    socklen_t len = sizeof(sin);
+    getsockname(fd, (struct sockaddr *)&sin, &len);
+    return ntohs(sin.sin_port);
+}
+int main(int argc, char **argv) {
+    int picked = serve(0);
+    // A port of its own below the kernel's range: the first one that is free
+    int chosen = -1;
+    for (int p = atoi(argv[1]); chosen < 0 && p < atoi(argv[1]) + 200; p++) chosen = serve(p);
+    int unbound = socket(AF_INET, SOCK_STREAM, 0);
+    listen(unbound, 4); // the kernel binds it to a port of its own
+    struct sockaddr_in sin;
+    socklen_t len = sizeof(sin);
+    getsockname(unbound, (struct sockaddr *)&sin, &len);
+    printf("%d %d %d\n", picked, chosen, ntohs(sin.sin_port));
+    return 0;
+}
+EOC
+mkdir -p "$work/root/run/cortex/listening"
+# Candidates must sit below the range the kernel picks ports from (what the hook reads, 32768 if unknown)
+ephemeral_low=$(awk '{print $1}' /proc/sys/net/ipv4/ip_local_port_range 2>/dev/null)
+case "$ephemeral_low" in ''|*[!0-9]*) ephemeral_low=32768 ;; esac
+[ "$ephemeral_low" -gt 1424 ] || ephemeral_low=32768
+chosen_port=$((1024 + $$ % (ephemeral_low - 1224)))
+read -r picked chosen unbound <<<"$(run "$work/listeners" "$chosen_port")"
+reported=$(ls "$work/root/run/cortex/listening" | sort -n | tr '\n' ' ')
+check "a server on a port it chose is reported to the app" test "$chosen" -gt 0 -a -e "$work/root/run/cortex/listening/$chosen"
+check "servers on ports the kernel picked are not (reported: $reported)" test "$reported" = "$chosen "
+[ "$reported" = "$chosen " ] || echo "        ports: picked $picked, chosen $chosen, unbound $unbound"
+
 echo
 echo "$passed passed, $failed failed"
 [ "$failed" = 0 ]
