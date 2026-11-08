@@ -4,6 +4,26 @@ What changed in each version of Cortex Terminal, newest first. The release workf
 of a GitHub release from the section of its version here. Older versions are described on the
 [GitHub releases](https://github.com/ssfuisu/cortex/releases) page.
 
+## 1.27.2 (2026-11-08)
+
+### Fixed
+
+- **The terminal did not open after a fresh install on some phones.** Every session ended at once
+  with "bash: error while loading shared libraries: libtinfo.so.6". On a Xiaomi phone with Android 17
+  the bytes the app read of its own Ubuntu archive came out damaged ("corruption detected"), the
+  extraction stopped half way, and the app still marked the system installed. The archive is now
+  read straight from the APK file and checked against the CRC the APK records for it, the other way
+  is tried when one fails, and a system that did not come out whole is never marked installed: the
+  app says so and tries again at the next start. A system left half extracted by 1.27.1 is extracted
+  again by this version on its own.
+
+### Changed
+
+- **The desktop has its own button at the top of the menu**, a monitor icon left of the update
+  check, instead of the long button above the keyboard key.
+- The bug report tells the page size of the phone and which essential files of the system are
+  missing, if any.
+
 ## 1.27.1 (2026-11-08)
 
 ### New
