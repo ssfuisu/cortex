@@ -194,6 +194,30 @@ class RfbClientTest {
     }
 
     @Test
+    fun sizeAskedBeforeTheServerCanIsSentWhenItCan() {
+        val p = connect()
+        readSetup(p)
+        p.recorder.next()
+        // asked for right after the handshake, before the server said it can change its size
+        assertTrue(!p.client.requestSize(10, 12))
+        startReader(p.client)
+        p.toClient.writeByte(RfbClient.MSG_FRAMEBUFFER_UPDATE)
+        p.toClient.writeByte(0)
+        p.toClient.writeShort(1)
+        p.toClient.rect(0, 0, 8, 6, RfbClient.PSEUDO_EXTENDED_DESKTOP_SIZE)
+        p.toClient.writeByte(1)
+        p.toClient.write(ByteArray(3))
+        p.toClient.writeInt(7)
+        p.toClient.writeShort(0); p.toClient.writeShort(0); p.toClient.writeShort(8); p.toClient.writeShort(6)
+        p.toClient.writeInt(0)
+        p.toClient.flush()
+        assertEquals(RfbClient.MSG_SET_DESKTOP_SIZE, p.fromClient.readUnsignedByte())
+        p.fromClient.readUnsignedByte()
+        assertEquals(10, p.fromClient.readUnsignedShort())
+        assertEquals(12, p.fromClient.readUnsignedShort())
+    }
+
+    @Test
     fun keysAndPointerAreSentAsRfbMessages() {
         val p = connect()
         readSetup(p)

@@ -63,6 +63,10 @@ class RfbClient(input: InputStream, output: OutputStream, private val listener: 
     @Volatile
     var supportsResize = false
         private set
+    @Volatile
+    private var wantedWidth = 0
+    @Volatile
+    private var wantedHeight = 0
 
     @Volatile
     private var extendedClipboard = false
@@ -171,7 +175,11 @@ class RfbClient(input: InputStream, output: OutputStream, private val listener: 
 
     /** Asks the X server for a screen of this size (Xvnc changes it with RandR); false when it cannot. */
     fun requestSize(w: Int, h: Int): Boolean {
-        if (!supportsResize || w <= 0 || h <= 0) return false
+        if (w <= 0 || h <= 0) return false
+        // kept for when the server says it can (its first update after the handshake)
+        wantedWidth = w
+        wantedHeight = h
+        if (!supportsResize) return false
         send {
             writeByte(MSG_SET_DESKTOP_SIZE)
             writeByte(0)
@@ -303,7 +311,10 @@ class RfbClient(input: InputStream, output: OutputStream, private val listener: 
                 screenFlags = flags
             }
         }
+        val first = !supportsResize
         supportsResize = true
+        // a size asked for before the server said it can change it
+        if (first && wantedWidth > 0 && (wantedWidth != w || wantedHeight != h)) requestSize(wantedWidth, wantedHeight)
         // reason 1 is the answer to our own request; a status other than 0 refused it
         if (reason == 1 && status != 0) return
         if (w != width || h != height) resize(w, h)
@@ -350,6 +361,8 @@ class RfbClient(input: InputStream, output: OutputStream, private val listener: 
                             CLIP_ACTION_PROVIDE or CLIP_FORMAT_TEXT,
                         caps
                     )
+                    // a clipboard set before this was sent the old way (Latin-1 only): again, whole
+                    if (localClipboard != null) writeExtendedClipboard(CLIP_ACTION_NOTIFY or CLIP_FORMAT_TEXT, ByteArray(0))
                 }
             }
             flags and CLIP_ACTION_NOTIFY != 0 -> if (textFormat) {

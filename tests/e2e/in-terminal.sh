@@ -224,7 +224,10 @@ x_server() {
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends tigervnc-standalone-server x11-utils \
         >/dev/null 2>&1 || { echo "apt-get install failed"; return 1; }
     mkdir -p /etc/cortex && echo "DESKTOP=light" > /etc/cortex/desktop.conf
-    cortex-desktop start --size 800x600 || { tail -n 30 ~/.cortex/desktop.log; return 1; }
+    # no desktop session is installed here: a stand-in that runs as long as the X server
+    local stub=/tmp/e2e-desktop-stub
+    mkdir -p "$stub" && printf '#!/bin/bash\nexec -a dbus-launch sleep 600\n' > "$stub/dbus-launch" && chmod +x "$stub/dbus-launch"
+    PATH="$stub:$PATH" cortex-desktop start --size 800x600 || { tail -n 30 ~/.cortex/desktop.log; return 1; }
     local display s=0
     display="$(cat /tmp/.cortex-desktop/display)"
     perl -MIO::Socket::UNIX -e '
@@ -237,12 +240,14 @@ x_server() {
     # a login shell of the terminal finds the running desktop on its own
     bash -lc 'echo "terminal DISPLAY=$DISPLAY"' | grep "DISPLAY=:$display" || s=1
     cortex-desktop stop
-    rm -f /etc/cortex/desktop.conf
+    rm -rf /etc/cortex/desktop.conf "$stub"
     [ "$s" = 0 ] || { echo "--- desktop log"; tail -n 30 ~/.cortex/desktop.log; cat /tmp/xdpyinfo.txt | head -20; }
     return $s
 }
 export -f x_server
-if [ -z "$NO_APT" ]; then
+if [ -e /etc/cortex/desktop.conf ]; then
+    skip x-server "a desktop of the user's is installed here"
+elif [ -z "$NO_APT" ]; then
     expect x-server "rfb banner: RFB 003.008" x_server
 else
     skip x-server "Xvnc is a package"

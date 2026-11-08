@@ -50,9 +50,12 @@ class DesktopActivity : AppCompatActivity() {
     private var socket: LocalSocket? = null
     @Volatile
     private var client: RfbClient? = null
+    @Volatile
+    private var connecting: LocalSocket? = null
     private var audio: DesktopAudio? = null
     private var lastClipboardFromDesktop: String? = null
     private var started = false
+    @Volatile
     private var generation = 0
 
     private val clipboard by lazy { getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager }
@@ -68,6 +71,10 @@ class DesktopActivity : AppCompatActivity() {
 
         WindowCompat.setDecorFitsSystemWindows(window, false)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        // Settings > Secure screen, as for the terminal: no screenshots, a blank preview in recent apps
+        if (PreferenceManager.getDefaultSharedPreferences(this).getBoolean("secure_screen", false)) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        }
         window.statusBarColor = Color.BLACK
         window.navigationBarColor = p.bar
         WindowInsetsControllerCompat(window, window.decorView).apply {
@@ -270,17 +277,25 @@ class DesktopActivity : AppCompatActivity() {
         val path = DesktopAddon.socket(this).absolutePath
         var lastError: Exception? = null
         repeat(20) {
+            val s = LocalSocket()
             try {
-                val s = LocalSocket()
                 s.connect(LocalSocketAddress(path, LocalSocketAddress.Namespace.FILESYSTEM))
+                connecting = s // leaving the screen closes it, which ends a handshake that hangs
+                // a server that accepts and then says nothing does not keep this thread forever
+                s.soTimeout = HANDSHAKE_TIMEOUT_MS
                 val c = RfbClient(s.inputStream, s.outputStream, listener(gen))
-                desktop.client = c
                 c.handshake()
+                s.soTimeout = 0
+                connecting = null
                 if (gen != generation) {
                     // the screen was left while it connected
                     try { s.close() } catch (e: Exception) { }
                     return "stopped"
                 }
+                // only now the view gets this client (an older attempt never replaces a newer one),
+                // with the whole screen drawn from it
+                desktop.client = c
+                desktop.onResize(c.width, c.height)
                 socket = s
                 client = c
                 thread(name = "Cortex-DesktopReader") {
@@ -297,6 +312,9 @@ class DesktopActivity : AppCompatActivity() {
                 return null
             } catch (e: Exception) {
                 lastError = e
+                connecting = null
+                try { s.close() } catch (ce: Exception) { }
+                if (gen != generation) return "stopped"
                 Thread.sleep(250)
             }
         }
@@ -332,6 +350,8 @@ class DesktopActivity : AppCompatActivity() {
 
     private fun disconnect() {
         generation++
+        connecting?.let { try { it.close() } catch (e: Exception) { } }
+        connecting = null
         audio?.stop()
         audio = null
         val s = socket
@@ -395,5 +415,6 @@ class DesktopActivity : AppCompatActivity() {
 
     companion object {
         private const val TAG = "DesktopActivity"
+        private const val HANDSHAKE_TIMEOUT_MS = 10_000
     }
 }

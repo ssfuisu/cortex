@@ -19,6 +19,13 @@
 
 #ifndef CORTEX_HOST_TEST
 
+#ifndef MAP_FIXED_NOREPLACE
+#define MAP_FIXED_NOREPLACE 0x100000
+#endif
+#ifndef SHM_REMAP
+#define SHM_REMAP 040000
+#endif
+
 #define SHM_DIR "/tmp/.cortex-sysv-shm"
 #define SHM_MAX_ATTACH 512
 
@@ -152,7 +159,12 @@ static void shm_collect(void) {
 
 // A new segment: claims an id, makes its memory, then writes its description. Returns the id or -1.
 static int shm_create(long key, size_t size, unsigned mode) {
-    unsigned seed = (unsigned)getpid() * 2654435761u ^ (unsigned)time(NULL);
+    // a different sequence of ids for every call, also within one second and one process
+    static unsigned calls = 0;
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    unsigned seed = (unsigned)getpid() * 2654435761u ^ (unsigned)now.tv_nsec ^ (unsigned)now.tv_sec * 40503u ^
+                    __atomic_add_fetch(&calls, 1, __ATOMIC_RELAXED) * 0x9e3779b9u;
     for (int attempt = 0; attempt < 64; attempt++) {
         seed = seed * 1103515245u + 12345u;
         int id = (int)((seed >> 1) & 0x3fffffff);
@@ -167,7 +179,15 @@ static int shm_create(long key, size_t size, unsigned mode) {
         snprintf(name, sizeof(name), "seg-%d", id);
         int seg_fd = shm_open_file(name, O_RDWR | O_CREAT | O_TRUNC, 0600);
         long page = sysconf(_SC_PAGESIZE);
-        size_t rounded = page > 0 ? (size + (size_t)page - 1) / (size_t)page * (size_t)page : size;
+        if (page <= 0) page = 4096;
+        if (size > (size_t)INTPTR_MAX - (size_t)page) {
+            // no file (and no mapping) can be that large
+            syscall(SYS_close, meta_fd);
+            shm_remove(id, IPC_PRIVATE);
+            errno = EINVAL;
+            return -1;
+        }
+        size_t rounded = (size + (size_t)page - 1) / (size_t)page * (size_t)page;
         if (seg_fd < 0 || ftruncate(seg_fd, (off_t)rounded) != 0) {
             int saved = errno;
             if (seg_fd >= 0) syscall(SYS_close, seg_fd);
@@ -220,7 +240,10 @@ static int shm_publish(const char *name, int id, const char *text, size_t len, i
             if (kfd < 0) return -1;
             written = (ssize_t)syscall(SYS_write, kfd, text, len);
             syscall(SYS_close, kfd);
-            return written == (ssize_t)len ? 0 : -1;
+            if (written == (ssize_t)len) return 0;
+            syscall(SYS_unlinkat, AT_FDCWD, path, 0);
+            errno = ENOSPC;
+            return -1;
         }
     } else {
         rc = syscall(SYS_renameat2, AT_FDCWD, tmp, AT_FDCWD, path, 0);
@@ -323,25 +346,47 @@ void *shmat(int shmid, const void *shmaddr, int shmflg) {
             errno = EINVAL;
             return (void *)-1;
         }
-        flags |= MAP_FIXED;
+        // an address in use is replaced only with SHM_REMAP, as on Linux (MAP_FIXED_NOREPLACE: a kernel
+        // older than 4.17 takes it as a hint, which the check below catches)
+        flags |= (shmflg & SHM_REMAP) ? MAP_FIXED : MAP_FIXED_NOREPLACE;
     }
-    void *addr = mmap(want, meta.size, readonly ? PROT_READ : (PROT_READ | PROT_WRITE), flags, fd, 0);
-    int saved = errno;
-    syscall(SYS_close, fd);
-    if (addr == MAP_FAILED) {
-        errno = saved == ENOMEM ? ENOMEM : EINVAL;
-        return (void *)-1;
-    }
+    // a place in the table first, so that every attach can be detached
+    int slot = -1;
     pthread_mutex_lock(&g_shm_lock);
     for (int i = 0; i < SHM_MAX_ATTACH; i++) {
-        if (!g_shm_attach[i].addr) {
-            g_shm_attach[i].addr = addr;
-            g_shm_attach[i].size = meta.size;
-            g_shm_attach[i].id = shmid;
+        if (!g_shm_attach[i].addr && !g_shm_attach[i].size) {
+            g_shm_attach[i].size = 1; // reserved
+            slot = i;
             break;
         }
     }
     pthread_mutex_unlock(&g_shm_lock);
+    if (slot < 0) {
+        syscall(SYS_close, fd);
+        errno = EMFILE;
+        return (void *)-1;
+    }
+    void *addr = mmap(want, meta.size, readonly ? PROT_READ : (PROT_READ | PROT_WRITE), flags, fd, 0);
+    int saved = errno;
+    syscall(SYS_close, fd);
+    if (addr != MAP_FAILED && want && addr != want) {
+        munmap(addr, meta.size);
+        addr = MAP_FAILED;
+        saved = EINVAL;
+    }
+    pthread_mutex_lock(&g_shm_lock);
+    if (addr == MAP_FAILED) {
+        g_shm_attach[slot].size = 0;
+    } else {
+        g_shm_attach[slot].addr = addr;
+        g_shm_attach[slot].size = meta.size;
+        g_shm_attach[slot].id = shmid;
+    }
+    pthread_mutex_unlock(&g_shm_lock);
+    if (addr == MAP_FAILED) {
+        errno = saved == ENOMEM ? ENOMEM : EINVAL;
+        return (void *)-1;
+    }
     return addr;
 }
 
@@ -352,6 +397,7 @@ int shmdt(const void *shmaddr) {
             void *addr = g_shm_attach[i].addr;
             size_t size = g_shm_attach[i].size;
             g_shm_attach[i].addr = NULL;
+            g_shm_attach[i].size = 0;
             pthread_mutex_unlock(&g_shm_lock);
             munmap(addr, size);
             return 0;
@@ -382,10 +428,11 @@ int shmctl(int shmid, int cmd, struct shmid_ds *buf) {
     case IPC_INFO:
     case SHM_INFO:
         if (buf) {
-            memset(buf, 0, sizeof(struct shminfo) > sizeof(*buf) ? sizeof(*buf) : sizeof(struct shminfo));
+            // the caller's buffer is the structure of the command (struct shminfo or struct shm_info)
+            memset(buf, 0, cmd == IPC_INFO ? sizeof(struct shminfo) : sizeof(struct shm_info));
             if (cmd == IPC_INFO) {
                 struct shminfo *info = (struct shminfo *)buf;
-                info->shmmax = (unsigned long)1 << 40;
+                info->shmmax = sizeof(unsigned long) > 4 ? (unsigned long)1 << 40 : 0x7fffffffUL;
                 info->shmmin = 1;
                 info->shmmni = 4096;
                 info->shmseg = 4096;

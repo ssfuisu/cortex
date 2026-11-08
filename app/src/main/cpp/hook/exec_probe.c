@@ -571,6 +571,7 @@ static int dlopen_preload_deps(const char *path, void *(*orig_dlopen)(const char
     if (!kind || count == 0) return 0;
     // the RUNPATH's directories, mapped into the rootfs ($ORIGIN from this library's own place)
     char dirs[PATH_MAX * 2];
+    dirs[0] = '\0';
     size_t used = append_runpath_dirs(dirs, sizeof(dirs), 0, runpath, path);
     if (used == 0) return 0;
     int loaded = 0;

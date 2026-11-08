@@ -60,10 +60,29 @@ pid_alive() {
     [[ "${1:-}" =~ ^[0-9]+$ ]] && kill -0 "$1" 2>/dev/null && ! grep -q '^State:[[:space:]]*Z' "/proc/$1/status" 2>/dev/null
 }
 
+# Whether pid runs the program named (a pid of an ended process can be another's later)
+pid_is() {
+    pid_alive "$1" && tr '\0' ' ' 2>/dev/null </proc/"$1"/cmdline | grep -Eq "$2"
+}
+
+XVNC_NAMES='X(tig)?vnc'
+SESSION_NAMES='dbus-launch|openbox|xfce4-session|startxfce4|setsid'
+
 running_pid() {
     local pid
     pid="$(cat "$STATE/xvnc.pid" 2>/dev/null)" || return 1
-    pid_alive "$pid" && echo "$pid"
+    pid_is "$pid" "$XVNC_NAMES" && echo "$pid"
+}
+
+session_running() {
+    pid_is "$(cat "$STATE/session.pid" 2>/dev/null)" "$SESSION_NAMES"
+}
+
+# One start or stop at a time (the app and a terminal can ask together)
+take_lock() {
+    mkdir -p "$STATE" 2>/dev/null && chmod 700 "$STATE"
+    exec 9>"$STATE/lock" || return 0
+    command -v flock >/dev/null 2>&1 && flock -w 60 9
 }
 
 # A display number that no X server holds: :1 unless a live one has it (its lock file names its pid)
@@ -97,6 +116,17 @@ cmd_install() {
     done
     local packages="$LIGHT_PACKAGES"
     [ "$kind" = xfce ] && packages="$XFCE_PACKAGES"
+    # What was there before stays when the desktop is removed: only the packages installed here are listed
+    mkdir -p "$(dirname "$CONF")"
+    local p
+    for p in $packages; do
+        dpkg-query -W -f='${Status}\n' "$p" 2>/dev/null | grep -q '^install ok installed' || echo "$p"
+    done >>"$R/etc/cortex/desktop.packages"
+    sort -u -o "$R/etc/cortex/desktop.packages" "$R/etc/cortex/desktop.packages" 2>/dev/null
+    # The links Cortex made to its Android opener step aside for the real ones (update-alternatives)
+    for p in x-www-browser xdg-open; do
+        [ "$(readlink "/usr/bin/$p" 2>/dev/null)" = /usr/local/bin/xdg-open ] && as_root rm -f "/usr/bin/$p"
+    done
     echo "Installing the $kind desktop. This downloads a few hundred MB from Ubuntu's archive."
     as_root apt-get update || die "apt-get update failed"
     # shellcheck disable=SC2086
@@ -111,6 +141,8 @@ cmd_install() {
 # repository has the real program.
 install_firefox() {
     echo "Installing Firefox from Mozilla's apt repository (packages.mozilla.org)."
+    dpkg-query -W -f='${Status}\n' firefox 2>/dev/null | grep -q '^install ok installed' ||
+        echo firefox >>"$R/etc/cortex/desktop.packages"
     as_root mkdir -p /etc/apt/keyrings || return 1
     curl -fsSL https://packages.mozilla.org/apt/repo-signing-key.gpg | as_root tee /etc/apt/keyrings/packages.mozilla.org.asc >/dev/null || return 1
     echo "deb [signed-by=/etc/apt/keyrings/packages.mozilla.org.asc] https://packages.mozilla.org/apt mozilla main" |
@@ -122,14 +154,19 @@ install_firefox() {
 
 cmd_remove() {
     cmd_stop >/dev/null 2>&1
-    local kind packages
-    kind="$(conf_value DESKTOP)"
-    packages="$LIGHT_PACKAGES"
-    [ "$kind" = xfce ] && packages="$XFCE_PACKAGES"
-    # shellcheck disable=SC2086
-    as_root env DEBIAN_FRONTEND=noninteractive apt-get remove -y $packages firefox 2>/dev/null
-    as_root apt-get autoremove -y
+    # Only what the desktop installed (packages that were there before it stay)
+    local packages="" p
+    for p in $(cat "$R/etc/cortex/desktop.packages" 2>/dev/null); do
+        dpkg-query -W -f='${Status}\n' "$p" 2>/dev/null | grep -q '^install ok installed' && packages="$packages $p"
+    done
+    if [ -n "$packages" ]; then
+        # shellcheck disable=SC2086
+        as_root env DEBIAN_FRONTEND=noninteractive apt-get remove -y $packages ||
+            die "the packages could not be removed (see above); the desktop stays installed"
+        as_root env DEBIAN_FRONTEND=noninteractive apt-get autoremove -y || true
+    fi
     as_root rm -f /etc/apt/sources.list.d/mozilla.list /etc/apt/preferences.d/mozilla
+    rm -f "$R/etc/cortex/desktop.packages"
     set_conf DESKTOP ""
     echo "The desktop was removed."
 }
@@ -236,14 +273,19 @@ cmd_start() {
     local size="" pid
     while [ $# -gt 0 ]; do
         case "$1" in
-            --size) size="${2:-}"; shift 2 ;;
+            --size) [ "$#" -ge 2 ] || die "--size needs a value, such as 1280x720"; size="$2"; shift 2 ;;
             --size=*) size="${1#--size=}"; shift ;;
             *) die "unknown option: $1" ;;
         esac
     done
     [[ -z "$size" || "$size" =~ ^[0-9]{3,4}x[0-9]{3,4}$ ]] || die "the size is WIDTHxHEIGHT, such as 1280x720"
     [ -n "$(installed_kind)" ] || die "the desktop is not installed: cortex-desktop install"
+    take_lock
     if pid="$(running_pid)"; then
+        if ! session_running; then
+            # the X server outlived its desktop (logged out, or it crashed): a new one on it
+            start_session "$(cat "$STATE/display" 2>/dev/null || echo 1)" || die "the desktop did not start (log: $LOG)"
+        fi
         echo "The desktop is running (DISPLAY=:$(cat "$STATE/display" 2>/dev/null || echo 1))."
         return 0
     fi
@@ -261,7 +303,7 @@ cmd_start() {
     # on a pseudo-terminal of its own) sends it no SIGHUP, which makes an X server reset.
     setsid Xvnc ":$display" -geometry "$size" -depth 24 -rfbunixpath "$SOCKET" -rfbunixmode 0600 -rfbport -1 \
         -SecurityTypes None -nolisten tcp -AlwaysShared -AcceptSetDesktopSize -dpi 120 \
-        </dev/null >>"$LOG" 2>&1 &
+        </dev/null >>"$LOG" 2>&1 9>&- &
     pid=$!
     echo "$pid" >"$STATE/xvnc.pid"
     echo "$display" >"$STATE/display"
@@ -274,11 +316,24 @@ cmd_start() {
         fi
         sleep 0.5
         waited=$((waited + 1))
-        [ "$waited" -lt 120 ] || die "the X server did not start within a minute (log: $LOG)"
+        if [ "$waited" -ge 120 ]; then
+            kill "$pid" 2>/dev/null
+            rm -f "$STATE/xvnc.pid" "$SOCKET"
+            die "the X server did not start within a minute (log: $LOG)"
+        fi
     done
     start_audio
+    if ! start_session "$display"; then
+        stop_processes
+        die "the desktop did not start (log: $LOG)"
+    fi
+    echo "The desktop is running: DISPLAY=:$display (programs started from the terminal open on it)."
+}
+
+# The desktop's session on the X server of display $1; fails when it ends at once
+start_session() {
+    local display="$1" pulse="" current="openbox"
     [ "$(conf_value DESKTOP)" = xfce ] || ensure_openbox_autostart
-    local pulse="" current="openbox"
     [ -f "$STATE/pulse.server" ] && pulse="$(cat "$STATE/pulse.server")"
     [ "$(conf_value DESKTOP)" = xfce ] && current="XFCE"
     (
@@ -288,20 +343,38 @@ cmd_start() {
         [ -n "$pulse" ] && export PULSE_SERVER="$pulse"
         # shellcheck disable=SC2046
         exec setsid dbus-launch --exit-with-session $(session_command)
-    ) </dev/null >>"$LOG" 2>&1 &
-    echo "$!" >"$STATE/session.pid"
-    echo "The desktop is running: DISPLAY=:$display (programs started from the terminal open on it)."
+    ) </dev/null >>"$LOG" 2>&1 9>&- &
+    local session=$!
+    echo "$session" >"$STATE/session.pid"
+    sleep 1
+    if ! pid_alive "$session"; then
+        tail -n 15 "$LOG" >&2
+        rm -f "$STATE/session.pid"
+        return 1
+    fi
 }
 
-cmd_stop() {
-    local pid stopped=0
+# Ends the session and the X server (only processes that are still theirs), and waits for them
+stop_processes() {
+    local f pid names stopped=1 i
     for f in session.pid xvnc.pid; do
+        names="$SESSION_NAMES"
+        [ "$f" = xvnc.pid ] && names="$XVNC_NAMES"
         pid="$(cat "$STATE/$f" 2>/dev/null)"
-        if pid_alive "$pid"; then
-            kill "$pid" 2>/dev/null && stopped=1
+        if pid_is "$pid" "$names"; then
+            kill "$pid" 2>/dev/null && stopped=0
+            # the old server removes its socket as it ends: not after a new one made it
+            for i in $(seq 1 50); do pid_alive "$pid" || break; sleep 0.1; done
         fi
         rm -f "$STATE/$f"
     done
+    return $stopped
+}
+
+cmd_stop() {
+    take_lock
+    local stopped=0
+    stop_processes && stopped=1
     command -v pulseaudio >/dev/null 2>&1 && pulseaudio --kill >/dev/null 2>&1
     rm -f "$STATE/pulse.server" "$SOCKET"
     if [ "$stopped" = 1 ]; then echo "The desktop was stopped."; else echo "The desktop was not running."; fi

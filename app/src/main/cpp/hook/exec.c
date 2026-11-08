@@ -302,6 +302,7 @@ static int cortex_execve(const char *filename, char *const argv[], char *const e
                 }
                 for (int i = 0; i <= argc; i++) new_argv[i] = argv[i];
                 new_argv[pi] = (char *)prog;
+                prepare_static_program(static_elf); // ld.so is a static program itself
                 char **cortex_env = prepare_cortex_env(envp, target);
                 int ret = run_execve(orig_execve, target, new_argv, cortex_env);
                 int saved_errno = errno;
@@ -330,6 +331,7 @@ static int cortex_execve(const char *filename, char *const argv[], char *const e
                 new_argv[2] = ld_lib_path;
                 for (int i = 1; i <= argc; i++) new_argv[i + 2] = argv[i];
                 new_argv[pi + 2] = (char *)prog; // ld.so opens it itself: "ldd /usr/bin/adb" as well
+                prepare_static_program(static_elf); // ld.so is a static program itself
                 char **cortex_env = prepare_cortex_env(envp, target);
                 int ret = run_execve(orig_execve, target, new_argv, cortex_env);
                 int saved_errno = errno;

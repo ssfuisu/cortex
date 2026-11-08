@@ -458,18 +458,35 @@ class DesktopView(context: Context) : View(context), RfbClient.Listener {
         outAttrs.imeOptions = EditorInfo.IME_FLAG_NO_FULLSCREEN or EditorInfo.IME_FLAG_NO_EXTRACT_UI or
             EditorInfo.IME_ACTION_NONE
         return object : BaseInputConnection(this, false) {
+            // What an input method that composes anyway (gesture typing, Chinese and Japanese input)
+            // has typed so far: X gets it at once, and each change replaces it, by erasing what
+            // differs from the end and typing the new rest
+            private var composing = ""
+
+            private fun replaceComposing(text: String) {
+                var common = 0
+                while (common < composing.length && common < text.length && composing[common] == text[common]) common++
+                if (common > 0 && Character.isHighSurrogate(composing[common - 1])) common-- // a whole character
+                repeat(composing.codePointCount(common, composing.length)) { sendKeysym(XKeySyms.BACKSPACE) }
+                if (common < text.length) sendText(text.substring(common))
+                composing = text
+            }
+
             override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
-                if (!text.isNullOrEmpty()) sendText(text)
+                replaceComposing(text?.toString() ?: "")
+                composing = ""
                 return true
             }
 
             override fun setComposingText(text: CharSequence?, newCursorPosition: Int): Boolean {
-                // An input method that composes anyway: its text is final at once
-                if (!text.isNullOrEmpty()) sendText(text)
+                replaceComposing(text?.toString() ?: "")
                 return true
             }
 
-            override fun finishComposingText() = true
+            override fun finishComposingText(): Boolean {
+                composing = ""
+                return true
+            }
 
             override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
                 repeat(beforeLength.coerceAtMost(64)) { sendKeysym(XKeySyms.BACKSPACE) }

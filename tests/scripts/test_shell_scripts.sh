@@ -824,6 +824,9 @@ DESKTOP_SH="$ASSETS_SCRIPTS/cortex-desktop.sh"
 DR="$TEST_TMP/desktop_root"
 DBIN="$TEST_TMP/desktop_bin"
 mkdir -p "$DR/tmp" "$DBIN" "$TEST_TMP/desktop_home"
+# no sound here: a real PulseAudio of this machine must not be stopped or replaced by the test
+printf '#!/bin/bash\nexit 0\n' > "$DBIN/pulseaudio"
+chmod +x "$DBIN/pulseaudio"
 desktop_() {
     CORTEX_DESKTOP_ROOT="$DR" HOME="$TEST_TMP/desktop_home" PATH="$DBIN:$PATH" bash "$DESKTOP_SH" "$@"
 }
@@ -836,6 +839,7 @@ fi
 # Xvnc: listens on the Unix socket it is given and on the display's socket in /tmp/.X11-unix
 cat > "$DBIN/Xvnc" <<'EOS'
 #!/bin/bash
+echo "$*" > "$CORTEX_DESKTOP_ROOT/tmp/xvnc-args"
 display="${1#:}"; sock=""; geometry=""
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -845,13 +849,13 @@ while [ $# -gt 0 ]; do
     shift
 done
 echo "$geometry" > "$CORTEX_DESKTOP_ROOT/tmp/xvnc-geometry"
-exec python3 -c 'import socket, sys, time
+exec -a Xvnc python3 -c 'import socket, sys, time
 socks = []
 for path in sys.argv[1:]:
     s = socket.socket(socket.AF_UNIX); s.bind(path); s.listen(1); socks.append(s)
 time.sleep(300)' "$sock" "$CORTEX_DESKTOP_ROOT/tmp/.X11-unix/X$display"
 EOS
-printf '#!/bin/bash\necho "$*" > "$CORTEX_DESKTOP_ROOT/tmp/session-args"\nexec sleep 300\n' > "$DBIN/dbus-launch"
+printf '#!/bin/bash\necho "$*" > "$CORTEX_DESKTOP_ROOT/tmp/session-args"\nexec -a dbus-launch sleep 300\n' > "$DBIN/dbus-launch"
 chmod +x "$DBIN/Xvnc" "$DBIN/dbus-launch"
 mkdir -p "$DR/etc/cortex" && echo "DESKTOP=light" > "$DR/etc/cortex/desktop.conf"
 if desktop_ start --size 1024x600 >/dev/null 2>&1 && desktop_ status | grep -q "running (light, DISPLAY=:1)" \
@@ -860,6 +864,13 @@ if desktop_ start --size 1024x600 >/dev/null 2>&1 && desktop_ status | grep -q "
     pass "cortex-desktop start runs Xvnc on its own socket at the size asked, status shows it"
 else
     fail "cortex-desktop start: $(desktop_ status); $(cat "$TEST_TMP/desktop_home/.cortex/desktop.log" 2>/dev/null)"
+fi
+XARGS="$(cat "$DR/tmp/xvnc-args" 2>/dev/null)"
+if [[ "$XARGS" == *"-rfbunixmode 0600"* && "$XARGS" == *"-rfbport -1"* && "$XARGS" == *"-nolisten tcp"* && \
+      "$XARGS" == *"-rfbunixpath $DR/tmp/.cortex-desktop/vnc.sock"* ]]; then
+    pass "the X server listens on no network port, only on a socket of the app's user"
+else
+    fail "Xvnc arguments: $XARGS"
 fi
 sleep 0.5
 if grep -q "exit-with-session openbox-session" "$DR/tmp/session-args" 2>/dev/null \
@@ -874,6 +885,14 @@ if desktop_ start | grep -q "is running" && [ "$(cat "$DR/tmp/.cortex-desktop/xv
     pass "cortex-desktop start again leaves the running one, refuses a bad size"
 else
     fail "cortex-desktop second start"
+fi
+SESSION_PID="$(cat "$DR/tmp/.cortex-desktop/session.pid" 2>/dev/null)"
+kill "$SESSION_PID" 2>/dev/null; sleep 0.3
+if desktop_ start >/dev/null 2>&1 && [ "$(cat "$DR/tmp/.cortex-desktop/session.pid")" != "$SESSION_PID" ] \
+    && [ "$(cat "$DR/tmp/.cortex-desktop/xvnc.pid")" = "$XVNC_PID" ]; then
+    pass "cortex-desktop start gives a running X server whose desktop ended a new one"
+else
+    fail "cortex-desktop session restart"
 fi
 desktop_ stop >/dev/null
 sleep 0.3
@@ -891,6 +910,19 @@ if desktop_ start >/dev/null 2>&1 && desktop_ status | grep -q "DISPLAY=:1" \
     pass "cortex-desktop takes over the display of a dead server, default size 1280x720"
 else
     fail "cortex-desktop with a stale lock: $(desktop_ status)"
+fi
+desktop_ stop >/dev/null
+# a desktop that ends at once is an error, and leaves no X server behind
+printf '#!/bin/bash\nexit 1\n' > "$DBIN/dbus-launch"
+if ! desktop_ start >/dev/null 2>&1 && ! desktop_ status >/dev/null 2>&1 && [ ! -e "$DR/tmp/.cortex-desktop/xvnc.pid" ]; then
+    pass "cortex-desktop start fails when the desktop session does not start, and stops its X server"
+else
+    fail "cortex-desktop with a failing session: $(desktop_ status)"
+fi
+if ! desktop_ start --size >/dev/null 2>&1; then
+    pass "cortex-desktop start --size without a value is refused"
+else
+    fail "cortex-desktop start --size without a value"
 fi
 desktop_ stop >/dev/null
 pkill -f "$DR/tmp/.cortex-desktop/vnc.sock" 2>/dev/null

@@ -189,6 +189,8 @@ static int real_scm_credentials(const struct msghdr *msg, struct msghdr *mod, ch
     mod->msg_control = ctrl;
     for (struct cmsghdr *c = CMSG_FIRSTHDR(mod); c; c = CMSG_NXTHDR(mod, c)) {
         if (c->cmsg_level != SOL_SOCKET || c->cmsg_type != SCM_CREDENTIALS || c->cmsg_len < CMSG_LEN(sizeof(struct ucred))) continue;
+        // a record that claims more than the buffer holds is the kernel's to refuse, not ours to read
+        if (c->cmsg_len > mod->msg_controllen - (size_t)((char *)c - ctrl)) break;
         struct ucred cred;
         memcpy(&cred, CMSG_DATA(c), sizeof(cred));
         cred.pid = getpid();
