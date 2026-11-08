@@ -266,15 +266,15 @@ object BootstrapManager {
         val fromAssets: () -> InputStream = {
             CrcCheckedInputStream(context.assets.open(assetName), expectedCrc, "$assetName (AssetManager)")
         }
-        return installBootstrap(context, fromApkFile, onProgress, fallbackOpen = fromAssets)
+        return installBootstrap(context, fromApkFile, fallbackOpen = fromAssets, onProgress = onProgress)
     }
 
     /** [installBootstrapFromAssets] with the archive (tar, tar.gz or tar.zst) from [open], which tests use. */
     internal fun installBootstrap(
         context: Context,
         open: () -> InputStream,
-        onProgress: ((Int) -> Unit)? = null,
-        fallbackOpen: (() -> InputStream)? = null
+        fallbackOpen: (() -> InputStream)? = null,
+        onProgress: ((Int) -> Unit)? = null
     ): Boolean {
         val root = Environment.getCortexRoot(context)
         val started = android.os.SystemClock.uptimeMillis()
