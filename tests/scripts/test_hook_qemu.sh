@@ -413,6 +413,37 @@ echo "$out" | grep -q "not found" && echo "        got: $out"
 out=$(run "$work/ldlist" /usr/bin/use_conf)
 check "and one through ld.so.conf" sh -c 'echo "$1" | grep -q "libconf.so.0 => .*/opt/conflib/libconf.so.0"' sh "$out"
 
+# A --library-path of the caller's own stays as it is, and the program is still found in the rootfs
+prog ldlist_own <<'EOC'
+#include <stdio.h>
+#include <unistd.h>
+int main(int argc, char **argv) {
+    char *args[] = { "ld-linux-aarch64.so.1", "--library-path", "/nonexistent", "--list", argv[1], NULL };
+    execv("/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1", args);
+    perror("execv");
+    return 3;
+}
+EOC
+out=$(run "$work/ldlist_own" /usr/bin/use_runpath)
+check "ld.so --library-path DIR PROGRAM opens the program in the rootfs" sh -c 'echo "$1" | grep -q "libpriv_runpath.so.0"' sh "$out"
+echo "$out" | grep -q "libpriv_runpath.so.0" || echo "        got: $out"
+
+# ldconfig does nothing, but marks ld.so.cache changed: an edit of a .conf file counts after it, also in
+# a process that read the configuration before
+prog run_ldconfig <<'EOC'
+#include <stdio.h>
+#include <unistd.h>
+int main(void) {
+    char *args[] = { "ldconfig", NULL };
+    execv("/sbin/ldconfig", args);
+    perror("execv");
+    return 3;
+}
+EOC
+rm -f "$work/root/etc/ld.so.cache"
+run "$work/run_ldconfig" >/dev/null
+check "ldconfig marks /etc/ld.so.cache changed" test -e "$work/root/etc/ld.so.cache"
+
 # System V shared memory (X's MIT-SHM): Android's seccomp filter blocks it, the hook keeps the segments
 # in files. One process makes a segment, another one (started anew, so nothing is inherited) attaches it.
 mkdir -p "$work/root/usr/lib" && cp "$work/hook.so" "$work/root/usr/lib/libcortex-hook.so" # children get the hook too
@@ -466,7 +497,8 @@ int main(void) {
     int rc = run_peer(ids, NULL);
     printf("peer exit %d, wrote back: %s\n", rc, p + 512);
     struct shmid_ds ds;
-    printf("stat %d size %zu\n", shmctl(id, IPC_STAT, &ds), (size_t)ds.shm_segsz);
+    int stat_rc = shmctl(id, IPC_STAT, &ds);
+    printf("stat %d size %zu\n", stat_rc, stat_rc == 0 ? (size_t)ds.shm_segsz : (size_t)0);
     printf("rmid %d\n", shmctl(id, IPC_RMID, NULL));
     printf("still mapped: %s\n", p);
     printf("attach after rmid: %s\n", shmat(id, NULL, 0) == (void *)-1 ? "refused" : "allowed");
@@ -479,6 +511,13 @@ int main(void) {
     printf("exclusive: %s\n", shmget(0x5ca1ab1e, 8192, IPC_CREAT | IPC_EXCL | 0600) < 0 ? "refused" : "allowed");
     rc = run_peer("0", "5ca1ab1e");
     printf("key peer exit %d, wrote back: %s\n", rc, k + 512);
+    struct shmid_ds kds;
+    memset(&kds, 0, sizeof(kds));
+    kds.shm_perm.mode = 0400;
+    int set_rc = shmctl(kid, IPC_SET, &kds);
+    int kstat = shmctl(kid, IPC_STAT, &kds);
+    printf("ipc_set %d mode %o, null %s\n", set_rc, kstat == 0 ? kds.shm_perm.mode & 0777u : 0u,
+           shmctl(kid, IPC_SET, NULL) < 0 ? "refused" : "allowed");
     shmctl(kid, IPC_RMID, NULL);
     printf("key after rmid: %s\n", shmget(0x5ca1ab1e, 0, 0) < 0 ? "gone" : "still there");
     return 0;
@@ -491,6 +530,7 @@ check "IPC_STAT tells its size" sh -c 'echo "$1" | grep -q "stat 0 size 4096"' s
 check "IPC_RMID keeps the mapping and refuses new attaches" sh -c 'echo "$1" | grep -q "rmid 0" && echo "$1" | grep -q "still mapped: ping" && echo "$1" | grep -q "attach after rmid: refused"' sh "$out"
 check "a key finds its segment, IPC_EXCL is refused" sh -c 'echo "$1" | grep -q "same key again: same id" && echo "$1" | grep -q "exclusive: refused" && echo "$1" | grep -q "key peer exit 0, wrote back: pong" && echo "$1" | grep -q "key after rmid: gone"' sh "$out"
 echo "$out" | grep -q "key after rmid: gone" || echo "$out" | sed 's/^/        /'
+check "IPC_SET keeps the new rights (read-only), a NULL buffer is refused" sh -c 'echo "$1" | grep -q "ipc_set 0 mode 444, null refused"' sh "$out"
 check "the removed segments leave no files" sh -c '[ -z "$(ls -A "$1" 2>/dev/null)" ]' sh "$work/root/tmp/.cortex-sysv-shm"
 
 # A library loaded with dlopen() that finds its own dependencies through its RUNPATH (PulseAudio's
@@ -560,13 +600,16 @@ int main(void) {
         if (rc && rc->cmsg_type == SCM_CREDENTIALS) {
             memcpy(&got, CMSG_DATA(rc), sizeof(got));
             printf("received pid %s\n", got.pid == getpid() ? "mine" : "other");
+            printf("received ids %u %u\n", (unsigned)got.uid, (unsigned)got.gid);
         }
     }
     return 0;
 }
 EOC
 out=$(run "$work/send_creds")
-check "SCM_CREDENTIALS are sent with the real ids" sh -c 'echo "$1" | grep -q "sendmsg sent" && echo "$1" | grep -q "received pid mine"' sh "$out"
+# the ids the kernel knows (this shell's: the hook emulates root only inside); as root they are both
+# 0 and the rewrite cannot be told apart, CI runs the tests as a user
+check "SCM_CREDENTIALS are sent with the real ids" sh -c 'echo "$1" | grep -q "sendmsg sent" && echo "$1" | grep -q "received pid mine" && echo "$1" | grep -q "received ids $2 $3"' sh "$out" "$(id -u)" "$(id -g)"
 echo "$out" | grep -q "received pid mine" || echo "$out" | sed 's/^/        /'
 
 echo

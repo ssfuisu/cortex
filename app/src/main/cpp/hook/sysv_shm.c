@@ -192,6 +192,51 @@ static int shm_create(long key, size_t size, unsigned mode) {
     return -1;
 }
 
+// Writes `text` to the file `name` at once: into "new-ID" first, then renamed over it (`exclusive`: only
+// when `name` does not exist yet, else -1 with EEXIST). Readers see the old file or the whole new one.
+static int shm_publish(const char *name, int id, const char *text, size_t len, int exclusive) {
+    char tmp_name[32], tmp[PATH_MAX], path[PATH_MAX];
+    snprintf(tmp_name, sizeof(tmp_name), "new-%d", id);
+    if (shm_path(tmp, sizeof(tmp), tmp_name) != 0 || shm_path(path, sizeof(path), name) != 0) {
+        errno = ENAMETOOLONG;
+        return -1;
+    }
+    int fd = (int)syscall(SYS_openat, AT_FDCWD, tmp, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+    if (fd < 0) return -1;
+    ssize_t written = (ssize_t)syscall(SYS_write, fd, text, len);
+    syscall(SYS_close, fd);
+    if (written != (ssize_t)len) {
+        syscall(SYS_unlinkat, AT_FDCWD, tmp, 0);
+        errno = ENOSPC;
+        return -1;
+    }
+    long rc;
+    if (exclusive) {
+        rc = syscall(SYS_renameat2, AT_FDCWD, tmp, AT_FDCWD, path, 1 /* RENAME_NOREPLACE */);
+        if (rc != 0 && (errno == ENOSYS || errno == EINVAL)) {
+            // a kernel or file system without RENAME_NOREPLACE: claim the name, then write it
+            int kfd = (int)syscall(SYS_openat, AT_FDCWD, path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
+            syscall(SYS_unlinkat, AT_FDCWD, tmp, 0);
+            if (kfd < 0) return -1;
+            written = (ssize_t)syscall(SYS_write, kfd, text, len);
+            syscall(SYS_close, kfd);
+            return written == (ssize_t)len ? 0 : -1;
+        }
+    } else {
+        rc = syscall(SYS_renameat2, AT_FDCWD, tmp, AT_FDCWD, path, 0);
+#ifdef SYS_renameat
+        if (rc != 0 && errno == ENOSYS) rc = syscall(SYS_renameat, AT_FDCWD, tmp, AT_FDCWD, path);
+#endif
+    }
+    if (rc != 0) {
+        int saved = errno;
+        syscall(SYS_unlinkat, AT_FDCWD, tmp, 0);
+        errno = saved;
+        return -1;
+    }
+    return 0;
+}
+
 int shmget(key_t key, size_t size, int shmflg) {
     init_cortex_hook();
     if (g_cortex_root[0] == '\0') {
@@ -237,16 +282,18 @@ int shmget(key_t key, size_t size, int shmflg) {
         }
         int id = shm_create((long)key, size, (unsigned)shmflg);
         if (id < 0) return -1;
-        int kfd = shm_open_file(key_name, O_WRONLY | O_CREAT | O_EXCL, 0600);
-        if (kfd >= 0) {
-            int len = snprintf(text, sizeof(text), "%d\n", id);
-            syscall(SYS_write, kfd, text, (size_t)len);
-            syscall(SYS_close, kfd);
-            return id;
+        // The key file appears with its id in it, never empty: written under a name of its own, then
+        // renamed to the key's name unless another process made the key's segment meanwhile
+        int len = snprintf(text, sizeof(text), "%d\n", id);
+        int published = shm_publish(key_name, id, text, (size_t)len, 1);
+        if (published == 0) return id;
+        int saved = errno;
+        shm_remove(id, IPC_PRIVATE);
+        if (saved != EEXIST) {
+            errno = saved;
+            return -1;
         }
         // another process made the key's segment at the same time: use that one
-        shm_remove(id, IPC_PRIVATE);
-        if (errno != EEXIST) return -1;
     }
     errno = EAGAIN;
     return -1;
@@ -379,8 +426,18 @@ int shmctl(int shmid, int cmd, struct shmid_ds *buf) {
         buf->shm_nattch = (shmatt_t)(shm_attached_here(shmid) + (meta.pid != getpid() ? 1 : 0));
         buf->shm_ctime = time(NULL);
         return cmd == IPC_STAT ? 0 : shmid;
-    case IPC_SET:
-        return 0;
+    case IPC_SET: {
+        if (!buf) {
+            errno = EFAULT;
+            return -1;
+        }
+        // the new rights are kept (owner and group stay the app's: there is no other user to give it to)
+        char name[32], text[128];
+        snprintf(name, sizeof(name), "id-%d", shmid);
+        int len = snprintf(text, sizeof(text), "%d %lx %o %lu\n", meta.pid, meta.key, buf->shm_perm.mode & 0777u,
+                           (unsigned long)meta.size);
+        return shm_publish(name, shmid, text, (size_t)len, 0) == 0 ? 0 : -1;
+    }
     case IPC_RMID:
         shm_remove(shmid, meta.key);
         return 0;

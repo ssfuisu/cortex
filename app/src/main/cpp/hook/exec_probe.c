@@ -527,14 +527,15 @@ static int is_rootfs_default_lib_dir(const char *dir, size_t len) {
 
 // Where the program is among the arguments of ld.so started directly (ldd runs "ld.so PROGRAM" with
 // LD_TRACE_LOADED_OBJECTS set; "ld.so --list PROGRAM" and "ld.so --verify PROGRAM" are the same): its
-// index, or -1 when there is none or the caller gives --library-path itself.
-static int ldso_program_index(char *const argv[]) {
+// index, or -1 when there is none; *has_library_path says whether the caller gives --library-path itself.
+static int ldso_program_index(char *const argv[], int *has_library_path) {
+    if (has_library_path) *has_library_path = 0;
     if (!argv || !argv[0]) return -1;
     static const char *const with_value[] = { "--library-path", "--preload", "--argv0", "--inhibit-rpath", "--audit",
                                               "--glibc-hwcaps-prepend", "--glibc-hwcaps-mask" };
     for (int i = 1; argv[i]; i++) {
         const char *a = argv[i];
-        if (strcmp(a, "--library-path") == 0) return -1;
+        if (strcmp(a, "--library-path") == 0 && has_library_path) *has_library_path = 1;
         if (a[0] != '-' || a[1] != '-') return i;
         if (a[2] == '\0') return argv[i + 1] ? i + 1 : -1;
         int takes_value = 0;

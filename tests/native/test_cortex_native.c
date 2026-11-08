@@ -1923,12 +1923,15 @@ static void test_ld_so_conf(void) {
     char *a4[] = { "ld.so", "--library-path", "/x", "prog", NULL };
     char *a5[] = { "ld.so", "--help", NULL };
     char *a6[] = { "ld.so", "--", "prog", NULL };
-    ASSERT_EQ(ldso_program_index(a1), 1, "ld.so PROGRAM");
-    ASSERT_EQ(ldso_program_index(a2), 2, "ld.so --list PROGRAM");
-    ASSERT_EQ(ldso_program_index(a3), 4, "options with values are skipped");
-    ASSERT_EQ(ldso_program_index(a4), -1, "a --library-path of the caller's own is left alone");
-    ASSERT_EQ(ldso_program_index(a5), -1, "no program");
-    ASSERT_EQ(ldso_program_index(a6), 2, "after --");
+    int own = -1;
+    ASSERT_EQ(ldso_program_index(a1, &own), 1, "ld.so PROGRAM");
+    ASSERT_EQ(own, 0, "no --library-path of the caller's");
+    ASSERT_EQ(ldso_program_index(a2, NULL), 2, "ld.so --list PROGRAM");
+    ASSERT_EQ(ldso_program_index(a3, NULL), 4, "options with values are skipped");
+    ASSERT_EQ(ldso_program_index(a4, &own), 3, "the program after the caller's own --library-path");
+    ASSERT_EQ(own, 1, "the caller's --library-path is seen (and left as it is)");
+    ASSERT_EQ(ldso_program_index(a5, NULL), -1, "no program");
+    ASSERT_EQ(ldso_program_index(a6, NULL), 2, "after --");
 }
 
 /* lstat() of a link reads it again only when the hook rewrites what readlink() returns */
