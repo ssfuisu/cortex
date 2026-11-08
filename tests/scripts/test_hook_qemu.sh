@@ -21,7 +21,7 @@ cross=/usr/aarch64-linux-gnu/lib
 [ -e "$cross/ld-linux-aarch64.so.1" ] || skip "the AArch64 C library is not in $cross"
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/cortex-hook-qemu.XXXXXX")
-trap 'rm -rf "$work"' EXIT
+[ -n "${KEEP_WORK:-}" ] && echo "work: $work" || trap 'rm -rf "$work"' EXIT
 passed=0
 failed=0
 ok() { passed=$((passed + 1)); echo "  ok    $1"; }
@@ -380,6 +380,194 @@ done
 out=$(run "$work/start_private" /usr/bin/use_runpath spawn)
 check "a program finds its libraries through its RUNPATH (posix_spawn)" test "$out" = "answer 42"
 [ "$out" = "answer 42" ] || echo "        got: $out"
+
+# A library found only through /etc/ld.so.conf.d (ld.so's cache on Linux, which ld.so cannot use here)
+mkdir -p "$work/root/opt/conflib" "$work/root/etc/ld.so.conf.d"
+echo 'int conf_answer(void) { return 7; }' | aarch64-linux-gnu-gcc -shared -fPIC -w -Wl,-soname,libconf.so.0 \
+  -o "$work/root/opt/conflib/libconf.so.0" -x c - || { echo "libconf did not build"; exit 1; }
+printf '#include <stdio.h>\nint conf_answer(void);\nint main(void) { printf("conf %%d\\n", conf_answer()); return 0; }\n' |
+  aarch64-linux-gnu-gcc -O2 -w -o "$work/root/usr/bin/use_conf" -x c - -x none "$work/root/opt/conflib/libconf.so.0" ||
+  { echo "use_conf did not build"; exit 1; }
+out=$(run "$work/start_private" /usr/bin/use_conf)
+check "a library outside the usual directories is not found without ld.so.conf" test "$out" != "conf 7"
+echo 'include /etc/ld.so.conf.d/*.conf' >"$work/root/etc/ld.so.conf"
+echo '/opt/conflib  # added by hand' >"$work/root/etc/ld.so.conf.d/zz-conflib.conf"
+out=$(run "$work/start_private" /usr/bin/use_conf)
+check "it is found once its directory is in /etc/ld.so.conf.d" test "$out" = "conf 7"
+[ "$out" = "conf 7" ] || echo "        got: $out"
+
+# ldd runs ld.so itself on the program: it gets the same --library-path
+prog ldlist <<'EOC'
+#include <stdio.h>
+#include <unistd.h>
+int main(int argc, char **argv) {
+    char *args[] = { "ld-linux-aarch64.so.1", "--list", argv[1], NULL };
+    execv("/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1", args);
+    perror("execv");
+    return 3;
+}
+EOC
+out=$(run "$work/ldlist" /usr/bin/use_runpath)
+check "ld.so --list (ldd) finds a library through the program's RUNPATH" sh -c 'echo "$1" | grep -q "libpriv_runpath.so.0 => .*/android/libpriv_runpath.so.0" && ! echo "$1" | grep -q "not found"' sh "$out"
+echo "$out" | grep -q "not found" && echo "        got: $out"
+out=$(run "$work/ldlist" /usr/bin/use_conf)
+check "and one through ld.so.conf" sh -c 'echo "$1" | grep -q "libconf.so.0 => .*/opt/conflib/libconf.so.0"' sh "$out"
+
+# System V shared memory (X's MIT-SHM): Android's seccomp filter blocks it, the hook keeps the segments
+# in files. One process makes a segment, another one (started anew, so nothing is inherited) attaches it.
+mkdir -p "$work/root/usr/lib" && cp "$work/hook.so" "$work/root/usr/lib/libcortex-hook.so" # children get the hook too
+prog shm_peer <<'EOC'
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/ipc.h>
+#include <sys/shm.h>
+int main(int argc, char **argv) {
+    int id = argc > 2 ? shmget((key_t)strtol(argv[2], NULL, 16), 0, 0) : atoi(argv[1]);
+    if (id < 0) { perror("shmget"); return 2; }
+    char *p = shmat(id, NULL, 0);
+    if (p == (void *)-1) { perror("shmat"); return 3; }
+    printf("peer read: %s\n", p);
+    strcpy(p + 512, "pong");
+    shmdt(p);
+    return 0;
+}
+EOC
+cp "$work/shm_peer" "$work/root/usr/bin/shm_peer"
+prog shm_main <<'EOC'
+#include <stdio.h>
+#include <string.h>
+#include <unistd.h>
+#include <sys/ipc.h>
+#include <sys/shm.h>
+#include <sys/wait.h>
+static int run_peer(char *a1, char *a2) {
+    pid_t pid = fork();
+    if (pid == 0) {
+        char *args[] = { "shm_peer", a1, a2, NULL };
+        execv("/usr/bin/shm_peer", args);
+        _exit(127);
+    }
+    int st = 0;
+    waitpid(pid, &st, 0);
+    return WIFEXITED(st) ? WEXITSTATUS(st) : 99;
+}
+int main(void) {
+    int id = shmget(IPC_PRIVATE, 4096, IPC_CREAT | 0600);
+    if (id < 0) { perror("shmget"); return 2; }
+    char *p = shmat(id, NULL, 0);
+    if (p == (void *)-1) { perror("shmat"); return 3; }
+    strcpy(p, "ping");
+    char seg[64];
+    snprintf(seg, sizeof(seg), "/tmp/.cortex-sysv-shm/seg-%d", id);
+    printf("backed by %s\n", access(seg, F_OK) == 0 ? "a file" : "the kernel");
+    char ids[32];
+    snprintf(ids, sizeof(ids), "%d", id);
+    int rc = run_peer(ids, NULL);
+    printf("peer exit %d, wrote back: %s\n", rc, p + 512);
+    struct shmid_ds ds;
+    printf("stat %d size %zu\n", shmctl(id, IPC_STAT, &ds), (size_t)ds.shm_segsz);
+    printf("rmid %d\n", shmctl(id, IPC_RMID, NULL));
+    printf("still mapped: %s\n", p);
+    printf("attach after rmid: %s\n", shmat(id, NULL, 0) == (void *)-1 ? "refused" : "allowed");
+    shmdt(p);
+    /* a key: the peer finds the segment by it */
+    int kid = shmget(0x5ca1ab1e, 8192, IPC_CREAT | 0600);
+    char *k = shmat(kid, NULL, 0);
+    strcpy(k, "by key");
+    printf("same key again: %s\n", shmget(0x5ca1ab1e, 0, 0) == kid ? "same id" : "other id");
+    printf("exclusive: %s\n", shmget(0x5ca1ab1e, 8192, IPC_CREAT | IPC_EXCL | 0600) < 0 ? "refused" : "allowed");
+    rc = run_peer("0", "5ca1ab1e");
+    printf("key peer exit %d, wrote back: %s\n", rc, k + 512);
+    shmctl(kid, IPC_RMID, NULL);
+    printf("key after rmid: %s\n", shmget(0x5ca1ab1e, 0, 0) < 0 ? "gone" : "still there");
+    return 0;
+}
+EOC
+out=$(run "$work/shm_main")
+check "the segment is the hook's (a file), not the kernel's" sh -c 'echo "$1" | grep -q "backed by a file"' sh "$out"
+check "a segment is shared with another process" sh -c 'echo "$1" | grep -q "peer read: ping" && echo "$1" | grep -q "peer exit 0, wrote back: pong"' sh "$out"
+check "IPC_STAT tells its size" sh -c 'echo "$1" | grep -q "stat 0 size 4096"' sh "$out"
+check "IPC_RMID keeps the mapping and refuses new attaches" sh -c 'echo "$1" | grep -q "rmid 0" && echo "$1" | grep -q "still mapped: ping" && echo "$1" | grep -q "attach after rmid: refused"' sh "$out"
+check "a key finds its segment, IPC_EXCL is refused" sh -c 'echo "$1" | grep -q "same key again: same id" && echo "$1" | grep -q "exclusive: refused" && echo "$1" | grep -q "key peer exit 0, wrote back: pong" && echo "$1" | grep -q "key after rmid: gone"' sh "$out"
+echo "$out" | grep -q "key after rmid: gone" || echo "$out" | sed 's/^/        /'
+check "the removed segments leave no files" sh -c '[ -z "$(ls -A "$1" 2>/dev/null)" ]' sh "$work/root/tmp/.cortex-sysv-shm"
+
+# A library loaded with dlopen() that finds its own dependencies through its RUNPATH (PulseAudio's
+# modules, many plugins): ld.so looked for them outside the rootfs
+mkdir -p "$work/root/usr/lib/aarch64-linux-gnu/plugdeps" "$work/root/usr/lib/plugins"
+echo 'int dep_value(void) { return 99; }' | aarch64-linux-gnu-gcc -shared -fPIC -w -Wl,-soname,libplugdep.so.1 \
+  -o "$work/root/usr/lib/aarch64-linux-gnu/plugdeps/libplugdep.so.1" -x c - || { echo "libplugdep did not build"; exit 1; }
+printf 'int dep_value(void);\nint plugin_value(void) { return dep_value() + 1; }\n' |
+  aarch64-linux-gnu-gcc -shared -fPIC -w -o "$work/root/usr/lib/plugins/plugin.so" -x c - -x none \
+    "$work/root/usr/lib/aarch64-linux-gnu/plugdeps/libplugdep.so.1" \
+    -Wl,--enable-new-dtags,-rpath,/usr/lib/aarch64-linux-gnu/plugdeps || { echo "plugin did not build"; exit 1; }
+prog load_plugin <<'EOC'
+#include <dlfcn.h>
+#include <stdio.h>
+int main(void) {
+    void *h = dlopen("/usr/lib/plugins/plugin.so", RTLD_NOW);
+    if (!h) { printf("dlopen failed: %s\n", dlerror()); return 1; }
+    int (*f)(void) = (int (*)(void))dlsym(h, "plugin_value");
+    printf("plugin %d\n", f ? f() : -1);
+    return 0;
+}
+EOC
+out=$(run "$work/load_plugin")
+check "dlopen() of a library whose dependency is in its RUNPATH" test "$out" = "plugin 100"
+[ "$out" = "plugin 100" ] || echo "        got: $out"
+
+# Credentials over a Unix socket (SCM_CREDENTIALS) go out as the process's real ones: getuid() is
+# root's 0 here, and the kernel refuses ids that are not the sender's (PulseAudio's clients failed)
+prog send_creds <<'EOC'
+#define _GNU_SOURCE
+#include <stdio.h>
+#include <string.h>
+#include <unistd.h>
+#include <sys/socket.h>
+int main(void) {
+    int sv[2];
+    if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv) != 0) return 2;
+    int on = 1;
+    setsockopt(sv[1], SOL_SOCKET, SO_PASSCRED, &on, sizeof(on));
+    struct ucred cred = { getpid(), getuid(), getgid() };
+    char ctrl[CMSG_SPACE(sizeof(cred))];
+    char byte = 'x';
+    struct iovec iov = { &byte, 1 };
+    struct msghdr msg = { 0 };
+    msg.msg_iov = &iov;
+    msg.msg_iovlen = 1;
+    msg.msg_control = ctrl;
+    msg.msg_controllen = sizeof(ctrl);
+    struct cmsghdr *c = CMSG_FIRSTHDR(&msg);
+    c->cmsg_level = SOL_SOCKET;
+    c->cmsg_type = SCM_CREDENTIALS;
+    c->cmsg_len = CMSG_LEN(sizeof(cred));
+    memcpy(CMSG_DATA(c), &cred, sizeof(cred));
+    ssize_t n = sendmsg(sv[0], &msg, 0);
+    printf("sendmsg %s\n", n == 1 ? "sent" : "refused");
+    char rctrl[CMSG_SPACE(sizeof(cred))];
+    struct msghdr rmsg = { 0 };
+    char rbyte;
+    struct iovec riov = { &rbyte, 1 };
+    rmsg.msg_iov = &riov;
+    rmsg.msg_iovlen = 1;
+    rmsg.msg_control = rctrl;
+    rmsg.msg_controllen = sizeof(rctrl);
+    if (recvmsg(sv[1], &rmsg, 0) == 1) {
+        struct cmsghdr *rc = CMSG_FIRSTHDR(&rmsg);
+        struct ucred got;
+        if (rc && rc->cmsg_type == SCM_CREDENTIALS) {
+            memcpy(&got, CMSG_DATA(rc), sizeof(got));
+            printf("received pid %s\n", got.pid == getpid() ? "mine" : "other");
+        }
+    }
+    return 0;
+}
+EOC
+out=$(run "$work/send_creds")
+check "SCM_CREDENTIALS are sent with the real ids" sh -c 'echo "$1" | grep -q "sendmsg sent" && echo "$1" | grep -q "received pid mine"' sh "$out"
+echo "$out" | grep -q "received pid mine" || echo "$out" | sed 's/^/        /'
 
 echo
 echo "$passed passed, $failed failed"

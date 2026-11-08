@@ -187,4 +187,26 @@
         <item>kk</item>
         <item>az</item>
     </string-array>
+    <string-array name="desktop_mouse_entries">
+        <item>@string/desktop_mouse_touch</item>
+        <item>@string/desktop_mouse_touchpad</item>
+    </string-array>
+
+    <string-array name="desktop_mouse_values" translatable="false">
+        <item>touch</item>
+        <item>touchpad</item>
+    </string-array>
+
+    <!-- Desktop pixels in percent of Android's dp: smaller fits more on the screen -->
+    <string-array name="desktop_scale_entries">
+        <item>@string/desktop_scale_small</item>
+        <item>@string/desktop_scale_medium</item>
+        <item>@string/desktop_scale_large</item>
+    </string-array>
+
+    <string-array name="desktop_scale_values" translatable="false">
+        <item>75</item>
+        <item>100</item>
+        <item>140</item>
+    </string-array>
 </resources>

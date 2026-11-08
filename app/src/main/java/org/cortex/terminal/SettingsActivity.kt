@@ -85,6 +85,19 @@ class SettingsActivity : AppCompatActivity() {
             SettingsStyle(this).install()
         }
 
+        override fun onResume() {
+            super.onResume()
+            // Whether the desktop is installed, and which one
+            val context = requireContext()
+            val kind = org.cortex.terminal.desktop.DesktopAddon.installedKind(context)
+            findPreference<Preference>("desktop_open")?.summary = when (kind) {
+                null -> getString(R.string.pref_desktop_open_missing)
+                org.cortex.terminal.desktop.DesktopAddon.KIND_XFCE -> getString(R.string.pref_desktop_open_installed, getString(R.string.desktop_kind_xfce))
+                else -> getString(R.string.pref_desktop_open_installed, getString(R.string.desktop_kind_light))
+            }
+            findPreference<Preference>("desktop_remove")?.isVisible = kind != null
+        }
+
         override fun onDisplayPreferenceDialog(preference: Preference) {
             if (preference is ListPreference) {
                 // The color schemes are shown as they look
@@ -175,6 +188,28 @@ class SettingsActivity : AppCompatActivity() {
             findPreference<Preference>("ssh_server")?.setOnPreferenceClickListener {
                 org.cortex.terminal.MainActivity.pendingSessionCommand = "cortex-sshd start"
                 activity?.finish()
+                true
+            }
+
+            // The desktop (X11): opened, installed (in a new session, where apt's progress can be read)
+            // or removed
+            findPreference<Preference>("desktop_open")?.setOnPreferenceClickListener {
+                val activity = requireActivity()
+                if (org.cortex.terminal.desktop.DesktopAddon.installedKind(activity) == null) {
+                    org.cortex.terminal.desktop.DesktopUi.showInstallDialog(activity) { activity.finish() }
+                } else {
+                    startActivity(android.content.Intent(activity, org.cortex.terminal.desktop.DesktopActivity::class.java))
+                }
+                true
+            }
+            findPreference<Preference>("desktop_install")?.setOnPreferenceClickListener {
+                val activity = requireActivity()
+                org.cortex.terminal.desktop.DesktopUi.showInstallDialog(activity) { activity.finish() }
+                true
+            }
+            findPreference<Preference>("desktop_remove")?.setOnPreferenceClickListener {
+                val activity = requireActivity()
+                org.cortex.terminal.desktop.DesktopUi.showRemoveDialog(activity) { activity.finish() }
                 true
             }
 

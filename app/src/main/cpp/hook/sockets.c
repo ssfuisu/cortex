@@ -165,9 +165,46 @@ ssize_t sendto(int sockfd, const void *buf, size_t len, int flags,
     return orig_sendto ? orig_sendto(sockfd, buf, len, flags, dest_addr, addrlen) : -1;
 }
 
+#if defined(__NR_getuid32)
+#define CORTEX_NR_REAL_GETUID __NR_getuid32
+#define CORTEX_NR_REAL_GETGID __NR_getgid32
+#else
+#define CORTEX_NR_REAL_GETUID __NR_getuid
+#define CORTEX_NR_REAL_GETGID __NR_getgid
+#endif
+
+// Credentials sent over a Unix socket (SCM_CREDENTIALS) have to be the process's own: the kernel
+// refuses others with EPERM, and programs fill them in with getuid(), which is root's 0 here.
+// PulseAudio's clients send them on every connection, which then failed ("Connection terminated").
+// Returns 1 with the message copied into mod (its control data into ctrl) and the ids made real.
+static int real_scm_credentials(const struct msghdr *msg, struct msghdr *mod, char *ctrl, size_t ctrl_size) {
+    if (!msg || !msg->msg_control || msg->msg_controllen < sizeof(struct cmsghdr) || msg->msg_controllen > ctrl_size) return 0;
+    int found = 0;
+    for (struct cmsghdr *c = CMSG_FIRSTHDR(msg); c; c = CMSG_NXTHDR((struct msghdr *)msg, c)) {
+        if (c->cmsg_level == SOL_SOCKET && c->cmsg_type == SCM_CREDENTIALS) found = 1;
+    }
+    if (!found) return 0;
+    memcpy(mod, msg, sizeof(*mod));
+    memcpy(ctrl, msg->msg_control, msg->msg_controllen);
+    mod->msg_control = ctrl;
+    for (struct cmsghdr *c = CMSG_FIRSTHDR(mod); c; c = CMSG_NXTHDR(mod, c)) {
+        if (c->cmsg_level != SOL_SOCKET || c->cmsg_type != SCM_CREDENTIALS || c->cmsg_len < CMSG_LEN(sizeof(struct ucred))) continue;
+        struct ucred cred;
+        memcpy(&cred, CMSG_DATA(c), sizeof(cred));
+        cred.pid = getpid();
+        cred.uid = (uid_t)call_orig_syscall(CORTEX_NR_REAL_GETUID, 0, 0, 0, 0, 0, 0);
+        cred.gid = (gid_t)call_orig_syscall(CORTEX_NR_REAL_GETGID, 0, 0, 0, 0, 0, 0);
+        memcpy(CMSG_DATA(c), &cred, sizeof(cred));
+    }
+    return 1;
+}
+
 ssize_t sendmsg(int sockfd, const struct msghdr *msg, int flags) {
     static ssize_t (*orig_sendmsg)(int, const struct msghdr *, int) = NULL;
     if (!orig_sendmsg) orig_sendmsg = (ssize_t (*)(int, const struct msghdr *, int))dlsym(RTLD_NEXT, "sendmsg");
+    struct msghdr cred_msg;
+    char cred_ctrl[512] __attribute__((aligned(8)));
+    if (real_scm_credentials(msg, &cred_msg, cred_ctrl, sizeof(cred_ctrl))) msg = &cred_msg;
 
     if (msg && msg->msg_name && is_loopback_dns((const struct sockaddr *)msg->msg_name, msg->msg_namelen)) {
         struct sockaddr_storage redirected;

@@ -255,6 +255,41 @@ static int cortex_execve(const char *filename, char *const argv[], char *const e
             }
         }
 
+        // ld.so started directly (ldd, "ld.so --list PROGRAM", "ld.so PROGRAM"): the program it loads
+        // gets the --library-path a start of its own gets, or ldd reports its libraries as not found,
+        // and its path mapped into the rootfs, since ld.so opens it without the hook
+        if (probe.is_elf && !probe.is_dynamic && is_ld_linux(elf_target)) {
+            int pi = ldso_program_index(argv);
+            if (pi > 0) {
+                char prog_buf[PATH_MAX];
+                const char *prog = argv[pi][0] == '/' ? rewrite_path(argv[pi], prog_buf, sizeof(prog_buf)) : argv[pi];
+                struct exec_probe prog_probe;
+                probe_exec_file(prog, &prog_probe);
+                char ld_lib_path[PATH_MAX * 6];
+                build_ld_library_path(envp, prog_probe.runpath, prog_probe.runpath_is_rpath,
+                                      prog[0] == '/' ? prog : NULL, ld_lib_path, sizeof(ld_lib_path));
+                int argc = 0;
+                while (argv[argc]) argc++;
+                char **new_argv = (char **)malloc(sizeof(char *) * (size_t)(argc + 3));
+                if (!new_argv) {
+                    errno = ENOMEM;
+                    return -1;
+                }
+                new_argv[0] = argv[0];
+                new_argv[1] = (char *)"--library-path";
+                new_argv[2] = ld_lib_path;
+                for (int i = 1; i <= argc; i++) new_argv[i + 2] = argv[i];
+                new_argv[pi + 2] = (char *)prog; // ld.so opens it itself: "ldd /usr/bin/adb" as well
+                char **cortex_env = prepare_cortex_env(envp, target);
+                int ret = run_execve(orig_execve, target, new_argv, cortex_env);
+                int saved_errno = errno;
+                free_modified_env(cortex_env, envp);
+                free(new_argv);
+                errno = saved_errno;
+                return ret;
+            }
+        }
+
         // 2. Handle scripts with shebang lines (e.g., #!/bin/sh, #!/usr/bin/perl)
         if (!probe.is_elf && probe.n >= 2 && probe.hdr[0] == '#' && probe.hdr[1] == '!') {
             char *interp;
@@ -378,6 +413,8 @@ static void prepare_exec_in_parent(int level) {
             cortex_hook_library(hook_buf, sizeof(hook_buf));
             struct stat st;
             probe_fstat(-1, &st); // looks fstat() up; -1 only fails with EBADF
+            char conf[PATH_MAX * 2];
+            ldconf_dirs(conf, sizeof(conf)); // ld.so.conf read here, so the children only compare times
         }
         if (level >= 2) rehearse_exec();
     }

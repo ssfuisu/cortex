@@ -12,7 +12,7 @@ import java.util.zip.GZIPInputStream
 
 object BootstrapManager {
     private const val TAG = "BootstrapManager"
-    const val CURRENT_BOOTSTRAP_VERSION = 12650
+    const val CURRENT_BOOTSTRAP_VERSION = 12701
 
     fun initializeFileSystem(context: Context) {
         val root = Environment.getCortexRoot(context)
@@ -1455,7 +1455,14 @@ object BootstrapManager {
                 "    *\":\$HOME/.local/bin:\"*) ;;\n" +
                 "    *) PATH=\"\$HOME/.local/bin:\$PATH\" ;;\n" +
                 "esac\n" +
-                "export PATH\n"
+                "export PATH\n" +
+                "# The desktop (cortex-desktop): programs started from the terminal open on it while it runs\n" +
+                "if [ -z \"\${DISPLAY:-}\" ] && [ -S /tmp/.cortex-desktop/vnc.sock ] && [ -r /tmp/.cortex-desktop/display ]; then\n" +
+                "    export DISPLAY=\":\$(cat /tmp/.cortex-desktop/display)\"\n" +
+                "fi\n" +
+                "if [ -z \"\${PULSE_SERVER:-}\" ] && [ -r /tmp/.cortex-desktop/pulse.server ]; then\n" +
+                "    export PULSE_SERVER=\"\$(cat /tmp/.cortex-desktop/pulse.server)\"\n" +
+                "fi\n"
             FileInstaller.install(envSh, envContent, 384) // 0600
         } catch (e: Exception) {
             Log.e(TAG, "Failed to ensure profile environment", e)

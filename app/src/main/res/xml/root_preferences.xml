@@ -59,6 +59,33 @@
             app:title="@string/pref_ssh_title" />
     </PreferenceCategory>
 
+    <PreferenceCategory app:title="@string/pref_cat_desktop">
+        <Preference
+            app:key="desktop_open"
+            app:title="@string/pref_desktop_open_title" />
+        <Preference
+            app:key="desktop_install"
+            app:summary="@string/pref_desktop_install_summary"
+            app:title="@string/pref_desktop_install_title" />
+        <ListPreference
+            app:key="desktop_mouse_mode"
+            app:defaultValue="touch"
+            app:entries="@array/desktop_mouse_entries"
+            app:entryValues="@array/desktop_mouse_values"
+            app:title="@string/pref_desktop_mouse_title"
+            app:useSimpleSummaryProvider="true" />
+        <ListPreference
+            app:key="desktop_scale"
+            app:defaultValue="100"
+            app:entries="@array/desktop_scale_entries"
+            app:entryValues="@array/desktop_scale_values"
+            app:title="@string/pref_desktop_scale_title"
+            app:useSimpleSummaryProvider="true" />
+        <Preference
+            app:key="desktop_remove"
+            app:title="@string/pref_desktop_remove_title" />
+    </PreferenceCategory>
+
     <PreferenceCategory app:title="@string/pref_cat_language">
         <ListPreference
             app:defaultValue="system"

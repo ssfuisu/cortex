@@ -4,6 +4,40 @@ What changed in each version of Cortex Terminal, newest first. The release workf
 of a GitHub release from the section of its version here. Older versions are described on the
 [GitHub releases](https://github.com/ssfuisu/cortex/releases) page.
 
+## 1.27.1 (2026-11-08)
+
+### New
+
+- **A desktop (X11), as an add-on.** The menu's *Desktop* button, or *Settings > Desktop*, installs a
+  light Openbox desktop (panel, files, terminal, editor; about 150 MB) or XFCE (about 500 MB), and
+  Firefox if you tick it (from Mozilla's apt repository, since Ubuntu's package needs snap). It is
+  downloaded in a new terminal session, so apt's progress shows. Then the same button opens it in its
+  own screen: Ubuntu's Xvnc runs on a Unix socket only the app can open, no network port, and the app
+  draws it itself. Tap to click, long press for the right button, drag to hold the left one, two
+  fingers to scroll or zoom, or touchpad mode if you prefer a pointer. The bar under it has the
+  keyboard, Esc, Tab, Ctrl, Alt, Super and the arrows. The clipboard is shared both ways, sound plays
+  on the phone (PulseAudio), and turning the phone resizes the desktop. It keeps running when you
+  leave the screen (*Stop* ends it), and programs started in the terminal open on it while it runs.
+  From the shell: `cortex-desktop install|start|stop|status|remove`. Everything is drawn by the CPU,
+  fine for editors and browsing, slow for games and video.
+- **`ldconfig`, `/etc/ld.so.conf.d` and `ldd`.** Libraries in a folder listed in
+  `/etc/ld.so.conf.d/*.conf` (after `sudo ldconfig`, as on a PC) are now found by the programs that
+  need them, and `ldd` lists a program's libraries from Ubuntu's files instead of failing. Calling the
+  loader directly (`/lib/ld-linux-aarch64.so.1 ./program`) gets the same folders.
+- **System V shared memory (`shmget`, `shmat`).** Android has none; Cortex now emulates it with
+  files, so X programs get MIT-SHM and other programs that use it (some databases, older IPC code)
+  work.
+
+### Fixed
+
+- **Plugins with libraries of their own.** A library opened with `dlopen()` whose dependencies are in
+  its own RUNPATH folder (PulseAudio's modules, some Python and GTK plugins) failed with "cannot open
+  shared object file"; Cortex now finds them in Ubuntu's files.
+- **Programs that check who is on the other end of a socket.** Credentials sent over a Unix socket
+  (`SCM_CREDENTIALS`) carried the emulated root user, which the receiver refused because the kernel
+  knows the real one; PulseAudio's clients were cut off with "Connection terminated". The real ids are
+  sent now.
+
 ## 1.26.50 (2026-11-07)
 
 ### Fixed

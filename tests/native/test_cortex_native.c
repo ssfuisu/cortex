@@ -1832,6 +1832,105 @@ static void test_runpath_reaches_ld_so(void) {
     unlink(runpath_exe); unlink(rpath_exe); unlink(plain_exe); unlink(src); rmdir(dir);
 }
 
+/* /etc/ld.so.conf and the files it includes reach ld.so as --library-path, mapped into the rootfs,
+   read again when ld.so.conf, ld.so.conf.d or ld.so.cache changes; ldd's direct ld.so call finds its program */
+static void write_text(const char *path, const char *text) {
+    FILE *f = fopen(path, "w");
+    if (f) { fputs(text, f); fclose(f); }
+}
+
+static void test_ld_so_conf(void) {
+    char root[PATH_MAX], path[PATH_MAX];
+    snprintf(root, sizeof(root), "%s/cortex_ldconf_XXXXXX", get_test_tmp_dir());
+    ASSERT_TRUE(mkdtemp(root) != NULL, "temporary rootfs");
+    snprintf(path, sizeof(path), "%s/etc", root); mkdir(path, 0755);
+    snprintf(path, sizeof(path), "%s/etc/ld.so.conf.d", root); mkdir(path, 0755);
+    snprintf(path, sizeof(path), "%s/etc/ld.so.conf", root);
+    write_text(path, "include /etc/ld.so.conf.d/*.conf\n");
+    snprintf(path, sizeof(path), "%s/etc/ld.so.conf.d/aarch64-linux-gnu.conf", root);
+    write_text(path, "# Multiarch support\n/usr/local/lib/aarch64-linux-gnu\n/lib/aarch64-linux-gnu\n/usr/lib/aarch64-linux-gnu\n");
+    snprintf(path, sizeof(path), "%s/etc/ld.so.conf.d/zz-opt.conf", root);
+    write_text(path, "  /opt/conflib/   # trailing comment\nhwcap 0 nosegneg\n/opt/old=libc5\ninclude extra/*.conf\n\n");
+    snprintf(path, sizeof(path), "%s/etc/ld.so.conf.d/extra", root); mkdir(path, 0755);
+    snprintf(path, sizeof(path), "%s/etc/ld.so.conf.d/extra/a.conf", root);
+    write_text(path, "/opt/extra\n");
+    snprintf(path, sizeof(path), "%s/etc/ld.so.conf.d/.hidden.conf", root);
+    write_text(path, "/opt/hidden\n");
+    snprintf(path, sizeof(path), "%s/etc/ld.so.conf.d/notes.txt", root);
+    write_text(path, "/opt/notes\n");
+
+    char saved[PATH_MAX];
+    size_t saved_len = g_cortex_root_len;
+    memcpy(saved, g_cortex_root, sizeof(saved));
+    snprintf(g_cortex_root, sizeof(g_cortex_root), "%s", root);
+    g_cortex_root_len = strlen(g_cortex_root);
+    g_ldconf.valid = 0;
+
+    char conf[PATH_MAX * 2], want[PATH_MAX * 4];
+    ldconf_dirs(conf, sizeof(conf));
+    snprintf(want, sizeof(want), "%s/usr/local/lib/aarch64-linux-gnu:%s/lib/aarch64-linux-gnu:%s/usr/lib/aarch64-linux-gnu:%s/opt/conflib:%s/opt/old:%s/opt/extra",
+             root, root, root, root, root, root);
+    ASSERT_STR_EQ(conf, want, "ld.so.conf directories in file order, includes followed, comments, hwcap and other names skipped");
+
+    /* a new .conf file counts at once (the directory changes) */
+    snprintf(path, sizeof(path), "%s/etc/ld.so.conf.d/zzz-new.conf", root);
+    write_text(path, "/opt/new\n");
+    struct timespec later[2] = { { 0, UTIME_OMIT }, { time(NULL) + 5, 0 } };
+    snprintf(path, sizeof(path), "%s/etc/ld.so.conf.d", root);
+    utimensat(AT_FDCWD, path, later, 0);
+    ldconf_dirs(conf, sizeof(conf));
+    ASSERT_TRUE(strstr(conf, "/opt/new") != NULL, "a .conf file added is read");
+
+    /* an edit of one counts after ldconfig (ld.so.cache changes), as on Linux */
+    snprintf(path, sizeof(path), "%s/etc/ld.so.conf.d/zzz-new.conf", root);
+    write_text(path, "/opt/edited\n");
+    ldconf_dirs(conf, sizeof(conf));
+    ASSERT_TRUE(strstr(conf, "/opt/edited") == NULL, "an edit alone keeps the copy");
+    snprintf(path, sizeof(path), "%s/etc/ld.so.cache", root);
+    write_text(path, "cache");
+    ldconf_dirs(conf, sizeof(conf));
+    ASSERT_TRUE(strstr(conf, "/opt/edited") != NULL && strstr(conf, "/opt/new") == NULL, "after ldconfig the edit counts");
+
+    /* the order ld.so gets: caller's own, RUNPATH, ld.so.conf, defaults */
+    char ld_env[PATH_MAX * 2], lib_path[PATH_MAX * 6];
+    snprintf(ld_env, sizeof(ld_env), "LD_LIBRARY_PATH=/home/me/lib:%s/usr/lib/aarch64-linux-gnu", root);
+    char *env[] = { ld_env, NULL };
+    build_ld_library_path(env, "/usr/lib/aarch64-linux-gnu/android", 0, NULL, lib_path, sizeof(lib_path));
+    snprintf(want, sizeof(want), "%s/home/me/lib:%s/usr/lib/aarch64-linux-gnu/android:%s/usr/local/lib/aarch64-linux-gnu:%s/lib/aarch64-linux-gnu:%s/usr/lib/aarch64-linux-gnu:%s/opt/conflib:",
+             root, root, root, root, root, root);
+    ASSERT_TRUE(strncmp(lib_path, want, strlen(want)) == 0, "caller's own, then RUNPATH, then ld.so.conf, then the defaults");
+    build_ld_library_path(env, NULL, 0, NULL, lib_path, sizeof(lib_path));
+    snprintf(want, sizeof(want), "%s/home/me/lib:%s/usr/local/lib/aarch64-linux-gnu:", root, root);
+    ASSERT_TRUE(strncmp(lib_path, want, strlen(want)) == 0, "without a RUNPATH ld.so.conf still comes before the defaults");
+
+    /* no ld.so.conf at all: nothing */
+    snprintf(path, sizeof(path), "%s/etc/ld.so.conf", root); unlink(path);
+    snprintf(path, sizeof(path), "%s/etc/ld.so.conf.d", root);
+    char cmd[PATH_MAX * 2];
+    snprintf(cmd, sizeof(cmd), "rm -rf '%s'", root);
+    ASSERT_EQ(system(cmd), 0, "cleanup");
+    ldconf_dirs(conf, sizeof(conf));
+    ASSERT_STR_EQ(conf, "", "without ld.so.conf there are no directories");
+
+    memcpy(g_cortex_root, saved, sizeof(saved));
+    g_cortex_root_len = saved_len;
+    g_ldconf.valid = 0;
+
+    /* where ldd's program is among ld.so's arguments */
+    char *a1[] = { "ld.so", "/usr/bin/adb", NULL };
+    char *a2[] = { "ld.so", "--list", "/usr/bin/adb", NULL };
+    char *a3[] = { "ld.so", "--argv0", "x", "--verify", "prog", "arg", NULL };
+    char *a4[] = { "ld.so", "--library-path", "/x", "prog", NULL };
+    char *a5[] = { "ld.so", "--help", NULL };
+    char *a6[] = { "ld.so", "--", "prog", NULL };
+    ASSERT_EQ(ldso_program_index(a1), 1, "ld.so PROGRAM");
+    ASSERT_EQ(ldso_program_index(a2), 2, "ld.so --list PROGRAM");
+    ASSERT_EQ(ldso_program_index(a3), 4, "options with values are skipped");
+    ASSERT_EQ(ldso_program_index(a4), -1, "a --library-path of the caller's own is left alone");
+    ASSERT_EQ(ldso_program_index(a5), -1, "no program");
+    ASSERT_EQ(ldso_program_index(a6), 2, "after --");
+}
+
 /* lstat() of a link reads it again only when the hook rewrites what readlink() returns */
 static void test_readlink_result_may_change(void) {
     char saved[PATH_MAX];
@@ -2349,6 +2448,7 @@ int main(void) {
     test_listening_port_report();
     test_dns_helpers();
     test_runpath_reaches_ld_so();
+    test_ld_so_conf();
     test_static_syscall_patching();
     test_absolutize_exec_path();
     test_rewrite_path_matches_reference();
