@@ -318,10 +318,22 @@ object BootstrapManager {
             }
             if (!streamed) {
                 Log.w(TAG, "Native extraction failed, using the system tar")
-                // Fallback to system tar, which needs the archive as a file
-                openBootstrap(fallbackOpen ?: open).use { stream ->
-                    tmpTar.outputStream().use { out -> stream.copyTo(out) }
+                // Fallback to system tar, which needs the archive as a file: from the first source that
+                // reads whole (its CRC matches), the APK file before AssetManager
+                var copyError: Exception? = null
+                val copied = listOfNotNull(open, fallbackOpen).any { source ->
+                    try {
+                        openBootstrap(source).use { stream ->
+                            tmpTar.outputStream().use { out -> stream.copyTo(out) }
+                        }
+                        true
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Copying the archive failed: ${e.message}")
+                        copyError = e
+                        false
+                    }
                 }
+                if (!copied) throw copyError ?: java.io.IOException("the archive could not be read")
                 // From the file, the native extractor can still do it (the system tar cannot read zstd)
                 val fromFile = try {
                     PtyNative.extractTar(tmpTar.absolutePath, root.absolutePath) == 0
@@ -410,7 +422,13 @@ object BootstrapManager {
         val counted = if (onProgress != null && total > 0) ProgressInputStream(raw, total, onProgress) else raw
         val pushback = PushbackInputStream(counted, 2)
         val header = ByteArray(2)
-        val bytesRead = pushback.read(header)
+        val bytesRead = try {
+            pushback.read(header)
+        } catch (e: java.io.IOException) {
+            // the caller never gets the stream to close (the APK file stays open otherwise)
+            try { raw.close() } catch (_: Exception) {}
+            throw e
+        }
         if (bytesRead > 0) {
             pushback.unread(header, 0, bytesRead)
         }
@@ -1689,11 +1707,24 @@ internal class CrcCheckedInputStream(
         return super.skip(n)
     }
 
+    /**
+     * Reads what is left (the extractor stops at the tar's end marker, before the end of the stream)
+     * so that the whole archive is checked, then closes. A mismatch is thrown from here.
+     */
     override fun close() {
         try {
-            super.close()
+            if (!checked && expected >= 0) {
+                val rest = ByteArray(64 * 1024)
+                while (read(rest, 0, rest.size) >= 0) {
+                    // read() updates the CRC and judges it at the end
+                }
+            }
         } finally {
-            onClose()
+            try {
+                super.close()
+            } finally {
+                onClose()
+            }
         }
     }
 }
