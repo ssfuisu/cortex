@@ -305,7 +305,19 @@ struct exec_probe {
 // --library-path it gives ld.so (build_ld_library_path). Returns 1 for a DT_RUNPATH, 2 for a
 // DT_RPATH, 0 when there is neither. The headers are read in pieces, so that their number does
 // not matter; a list longer than `out` keeps its first whole entries (ld.so still has the rest).
+static int elf_read_dynamic(int fd, const unsigned char *h, ssize_t n, char *out, size_t outsz,
+                            char *needed, size_t needed_size, int *needed_count);
+
 static int elf_read_runpath(int fd, const unsigned char *h, ssize_t n, char *out, size_t outsz) {
+    return elf_read_dynamic(fd, h, n, out, outsz, NULL, 0, NULL);
+}
+
+// elf_read_runpath(), and with `needed` the DT_NEEDED names too: one after the other, each ended by a
+// NUL, their number in *needed_count (as many as fit).
+#define ELF_MAX_NEEDED 128
+static int elf_read_dynamic(int fd, const unsigned char *h, ssize_t n, char *out, size_t outsz,
+                            char *needed, size_t needed_size, int *needed_count) {
+    if (needed_count) *needed_count = 0;
     if (!out || outsz < 2) return 0;
     out[0] = '\0';
     if (n < 52 || h[0] != 0x7f || h[1] != 'E' || h[2] != 'L' || h[3] != 'F' || h[5] != 1 /* LSB */) return 0;
@@ -370,6 +382,8 @@ static int elf_read_runpath(int fd, const unsigned char *h, ssize_t n, char *out
     size_t ent = is_64 ? 16 : 8;
     uint64_t strtab = 0, runpath = 0, rpath = 0;
     int has_strtab = 0, has_runpath = 0, has_rpath = 0, done = 0;
+    uint64_t needed_at[ELF_MAX_NEEDED];
+    int nneeded = 0;
     for (uint64_t at = 0; at + ent <= dyn_size && !done;) {
         size_t want = dyn_size - at < sizeof(buf) ? (size_t)(dyn_size - at) : sizeof(buf);
         want -= want % ent;
@@ -393,6 +407,7 @@ static int elf_read_runpath(int fd, const unsigned char *h, ssize_t n, char *out
             if (tag == 5 /* DT_STRTAB */) { strtab = val; has_strtab = 1; }
             else if (tag == 29 /* DT_RUNPATH */) { runpath = val; has_runpath = 1; }
             else if (tag == 15 /* DT_RPATH */) { rpath = val; has_rpath = 1; }
+            else if (tag == 1 /* DT_NEEDED */ && needed && nneeded < ELF_MAX_NEEDED) needed_at[nneeded++] = val;
         }
         at += (uint64_t)got - (uint64_t)got % ent;
     }
@@ -410,6 +425,20 @@ static int elf_read_runpath(int fd, const unsigned char *h, ssize_t n, char *out
         }
     }
     if (!mapped || str_index > (1ULL << 32)) return 0;
+    if (needed && needed_count && needed_size > 0) {
+        size_t used = 0;
+        for (int i = 0; i < nneeded; i++) {
+            char name[256];
+            ssize_t got = pread(fd, name, sizeof(name) - 1, (off_t)(strtab_off + needed_at[i]));
+            if (got <= 0) continue;
+            name[got] = '\0';
+            size_t len = strnlen(name, (size_t)got);
+            if (len == 0 || len == (size_t)got || used + len + 1 > needed_size) continue;
+            memcpy(needed + used, name, len + 1);
+            used += len + 1;
+            (*needed_count)++;
+        }
+    }
     ssize_t len = pread(fd, out, outsz - 1, (off_t)(strtab_off + str_index));
     if (len <= 0) {
         out[0] = '\0';
@@ -496,12 +525,309 @@ static int is_rootfs_default_lib_dir(const char *dir, size_t len) {
     return 0;
 }
 
-// The --library-path ld.so is given for the rootfs program `exe`: the caller's LD_LIBRARY_PATH (the
-// rootfs paths in it mapped), then the rootfs library directories it lacks. A program with a
-// RUNPATH or RPATH gets its directories in the order ld.so searches them on Linux: an RPATH before
-// the caller's directories, a RUNPATH after them, and the rootfs defaults (which Cortex's shells
-// export in LD_LIBRARY_PATH too, where Linux has none) after both, so that a library the program
-// keeps for itself wins over one of the same name in /usr/lib. Runs after the hook's setup, so the
+// Where the program is among the arguments of ld.so started directly (ldd runs "ld.so PROGRAM" with
+// LD_TRACE_LOADED_OBJECTS set; "ld.so --list PROGRAM" and "ld.so --verify PROGRAM" are the same): its
+// index, or -1 when there is none; *has_library_path says whether the caller gives --library-path itself.
+static int ldso_program_index(char *const argv[], int *has_library_path) {
+    if (has_library_path) *has_library_path = 0;
+    if (!argv || !argv[0]) return -1;
+    static const char *const with_value[] = { "--library-path", "--preload", "--argv0", "--inhibit-rpath", "--audit",
+                                              "--glibc-hwcaps-prepend", "--glibc-hwcaps-mask" };
+    for (int i = 1; argv[i]; i++) {
+        const char *a = argv[i];
+        if (strcmp(a, "--library-path") == 0 && has_library_path) *has_library_path = 1;
+        if (a[0] != '-' || a[1] != '-') return i;
+        if (a[2] == '\0') return argv[i + 1] ? i + 1 : -1;
+        int takes_value = 0;
+        for (size_t k = 0; k < sizeof(with_value) / sizeof(with_value[0]); k++) {
+            if (strcmp(a, with_value[k]) == 0) takes_value = 1;
+        }
+        if (takes_value) {
+            if (!argv[i + 1]) return -1;
+            i++;
+        }
+    }
+    return -1;
+}
+
+// ---- dlopen() of a library with a RUNPATH ---------------------------------------------------
+// A library that a program loads with dlopen() looks for its own dependencies in its RUNPATH, which ld.so
+// opens without the hook: PulseAudio's modules (RUNPATH /usr/lib/aarch64-linux-gnu/pulseaudio) and many
+// plugins did not load. Before the real dlopen(), the dependencies found in the rootfs copies of those
+// directories are loaded by their full path, depth first; ld.so then finds them loaded, by their name.
+#define DLOPEN_PRELOAD_DEPTH 6
+
+static int dlopen_preload_deps(const char *path, void *(*orig_dlopen)(const char *, int), int depth) {
+    if (depth > DLOPEN_PRELOAD_DEPTH || !path || path[0] != '/') return 0;
+    int fd = (int)syscall(SYS_openat, AT_FDCWD, path, O_RDONLY | O_CLOEXEC);
+    if (fd < 0) return 0;
+    unsigned char hdr[64];
+    ssize_t n = pread(fd, hdr, sizeof(hdr), 0);
+    char runpath[1024];
+    char needed[4096];
+    int count = 0;
+    int kind = n > 0 ? elf_read_dynamic(fd, hdr, n, runpath, sizeof(runpath), needed, sizeof(needed), &count) : 0;
+    syscall(SYS_close, fd);
+    if (!kind || count == 0) return 0;
+    // the RUNPATH's directories, mapped into the rootfs ($ORIGIN from this library's own place)
+    char dirs[PATH_MAX * 2];
+    dirs[0] = '\0';
+    size_t used = append_runpath_dirs(dirs, sizeof(dirs), 0, runpath, path);
+    if (used == 0) return 0;
+    int loaded = 0;
+    const char *name = needed;
+    for (int i = 0; i < count; i++, name += strlen(name) + 1) {
+        if (strchr(name, '/')) continue;
+        void *already = orig_dlopen(name, RTLD_LAZY | RTLD_NOLOAD);
+        if (already) {
+            dlclose(already);
+            continue;
+        }
+        for (const char *p = dirs; *p;) {
+            const char *end = strchr(p, ':');
+            size_t len = end ? (size_t)(end - p) : strlen(p);
+            char candidate[PATH_MAX];
+            if (len + 1 + strlen(name) < sizeof(candidate)) {
+                memcpy(candidate, p, len);
+                candidate[len] = '/';
+                strcpy(candidate + len + 1, name);
+                int probe_fd = (int)syscall(SYS_openat, AT_FDCWD, candidate, O_PATH | O_CLOEXEC);
+                if (probe_fd >= 0) {
+                    syscall(SYS_close, probe_fd);
+                    dlopen_preload_deps(candidate, orig_dlopen, depth + 1);
+                    if (orig_dlopen(candidate, RTLD_LAZY | RTLD_LOCAL)) loaded++;
+                    break;
+                }
+            }
+            if (!end) break;
+            p = end + 1;
+        }
+    }
+    return loaded;
+}
+
+// ---- /etc/ld.so.conf -------------------------------------------------------------------------
+// The library directories of /etc/ld.so.conf and the files it includes (/etc/ld.so.conf.d/*.conf),
+// mapped into the rootfs. On Linux, ldconfig turns them into /etc/ld.so.cache, which ld.so reads.
+// Here ld.so would read Android's /etc/ld.so.cache, and the paths in the cache are not mapped into
+// the rootfs either, so the exec hands the directories to ld.so in --library-path instead. They are
+// read again only when /etc/ld.so.conf, /etc/ld.so.conf.d or /etc/ld.so.cache changes: a .conf file
+// added or removed counts at once, an edit of one after ldconfig, as on Linux.
+#define LDCONF_MAX_DEPTH 4
+#define LDCONF_MAX_INCLUDES 64
+
+struct ldconf_sig {
+    int64_t t[6]; // mtimes (seconds, nanoseconds) of ld.so.conf, ld.so.conf.d and ld.so.cache; 0 if missing
+};
+
+static struct {
+    int valid;
+    struct ldconf_sig sig;
+    char root[PATH_MAX];
+    char dirs[PATH_MAX * 2];
+} g_ldconf;
+static pthread_mutex_t g_ldconf_lock = PTHREAD_MUTEX_INITIALIZER;
+
+// fstatat() behind the hook's stat emulation (which would map the hard link table in a child that is
+// about to exec): only the times are wanted.
+static int ldconf_stat_time(const char *real, int64_t *sec, int64_t *nsec) {
+    static int (*f)(int, const char *, struct stat64 *, int) = NULL;
+    int (*fn)(int, const char *, struct stat64 *, int) = __atomic_load_n(&f, __ATOMIC_RELAXED);
+    if (!fn) {
+        fn = (int (*)(int, const char *, struct stat64 *, int))dlsym(RTLD_NEXT, "fstatat64");
+        if (!fn) return -1;
+        __atomic_store_n(&f, fn, __ATOMIC_RELAXED);
+    }
+    struct stat64 st;
+    if (fn(AT_FDCWD, real, &st, 0) != 0) return -1;
+    *sec = (int64_t)st.st_mtim.tv_sec;
+    *nsec = (int64_t)st.st_mtim.tv_nsec;
+    return 0;
+}
+
+static void ldconf_signature(struct ldconf_sig *sig) {
+    static const char *const files[3] = { "/etc/ld.so.conf", "/etc/ld.so.conf.d", "/etc/ld.so.cache" };
+    for (int i = 0; i < 3; i++) {
+        char path[PATH_MAX];
+        size_t n = cortex_append(path, sizeof(path), 0, g_cortex_root, g_cortex_root_len);
+        cortex_append(path, sizeof(path), n, files[i], strlen(files[i]));
+        if (ldconf_stat_time(path, &sig->t[i * 2], &sig->t[i * 2 + 1]) != 0) {
+            sig->t[i * 2] = 0;
+            sig->t[i * 2 + 1] = 0;
+        }
+    }
+}
+
+// The whole of the rootfs file `logical` (an absolute path inside Ubuntu) into buf, NUL-terminated.
+static ssize_t ldconf_read(const char *logical, char *buf, size_t bufsz) {
+    char rw_buf[PATH_MAX];
+    const char *real = rewrite_path_in_root(logical, rw_buf, sizeof(rw_buf));
+    int fd = (int)syscall(SYS_openat, AT_FDCWD, real, O_RDONLY | O_CLOEXEC);
+    if (fd < 0) return -1;
+    size_t got = 0;
+    while (got + 1 < bufsz) {
+        ssize_t n = (ssize_t)syscall(SYS_read, fd, buf + got, bufsz - 1 - got);
+        if (n <= 0) break;
+        got += (size_t)n;
+    }
+    syscall(SYS_close, fd);
+    buf[got] = '\0';
+    return (ssize_t)got;
+}
+
+static int ldconf_name_cmp(const void *a, const void *b) {
+    return strcmp(*(const char *const *)a, *(const char *const *)b);
+}
+
+static void ldconf_parse_file(const char *logical, char *out, size_t outsz, size_t *used, int depth, int *includes);
+
+// include PATTERN: the files of one directory that match a shell pattern, in name order (as glob()).
+// Patterns in the directory part are not supported (Ubuntu uses /etc/ld.so.conf.d/*.conf).
+static void ldconf_include(const char *pattern, char *out, size_t outsz, size_t *used, int depth, int *includes) {
+    const char *slash = strrchr(pattern, '/');
+    if (!slash || slash == pattern) return;
+    size_t dir_len = (size_t)(slash - pattern);
+    if (dir_len >= PATH_MAX || memchr(pattern, '*', dir_len) || memchr(pattern, '?', dir_len) || memchr(pattern, '[', dir_len)) return;
+    char dir[PATH_MAX];
+    memcpy(dir, pattern, dir_len);
+    dir[dir_len] = '\0';
+    const char *name_pattern = slash + 1;
+    if (!strpbrk(name_pattern, "*?[")) {
+        ldconf_parse_file(pattern, out, outsz, used, depth + 1, includes);
+        return;
+    }
+    char rw_buf[PATH_MAX];
+    const char *real = rewrite_path_in_root(dir, rw_buf, sizeof(rw_buf));
+    int fd = (int)syscall(SYS_openat, AT_FDCWD, real, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    if (fd < 0) return;
+    char names_buf[4096];
+    char *names[LDCONF_MAX_INCLUDES];
+    int count = 0;
+    size_t names_used = 0;
+    char dents[4096];
+    for (;;) {
+        long n = syscall(SYS_getdents64, fd, dents, sizeof(dents));
+        if (n <= 0) break;
+        for (long at = 0; at < n;) {
+            unsigned short reclen;
+            memcpy(&reclen, dents + at + 16, sizeof(reclen));
+            const char *name = dents + at + 19;
+            if (reclen == 0) break;
+            size_t len = strnlen(name, (size_t)reclen - 19);
+            if (count < LDCONF_MAX_INCLUDES && names_used + len + 1 <= sizeof(names_buf) &&
+                fnmatch(name_pattern, name, FNM_PERIOD) == 0) {
+                memcpy(names_buf + names_used, name, len + 1);
+                names[count++] = names_buf + names_used;
+                names_used += len + 1;
+            }
+            at += reclen;
+        }
+    }
+    syscall(SYS_close, fd);
+    qsort(names, (size_t)count, sizeof(names[0]), ldconf_name_cmp);
+    for (int i = 0; i < count; i++) {
+        char file[PATH_MAX];
+        if (dir_len + 1 + strlen(names[i]) >= sizeof(file)) continue;
+        snprintf(file, sizeof(file), "%s/%s", dir, names[i]);
+        ldconf_parse_file(file, out, outsz, used, depth + 1, includes);
+    }
+}
+
+// One ld.so.conf-style file: a directory per line, "include PATTERN..." (relative to the file's own
+// directory), "#" comments, and the old "hwcap" lines, which are skipped as glibc does.
+static void ldconf_parse_file(const char *logical, char *out, size_t outsz, size_t *used, int depth, int *includes) {
+    if (depth > LDCONF_MAX_DEPTH || ++*includes > LDCONF_MAX_INCLUDES) return;
+    char text[8192];
+    if (ldconf_read(logical, text, sizeof(text)) < 0) return;
+    for (char *line = text; line && *line;) {
+        char *next = strchr(line, '\n');
+        if (next) *next++ = '\0';
+        char *hash = strchr(line, '#');
+        if (hash) *hash = '\0';
+        while (*line == ' ' || *line == '\t' || *line == '\r') line++;
+        size_t len = strlen(line);
+        while (len > 0 && (line[len - 1] == ' ' || line[len - 1] == '\t' || line[len - 1] == '\r')) line[--len] = '\0';
+        if (len == 0) {
+            line = next;
+            continue;
+        }
+        if (strncmp(line, "include", 7) == 0 && (line[7] == ' ' || line[7] == '\t')) {
+            for (char *p = line + 8; *p;) {
+                while (*p == ' ' || *p == '\t') p++;
+                if (!*p) break;
+                char *end = p;
+                while (*end && *end != ' ' && *end != '\t') end++;
+                char saved = *end;
+                *end = '\0';
+                char pattern[PATH_MAX];
+                if (p[0] == '/') {
+                    snprintf(pattern, sizeof(pattern), "%s", p);
+                } else {
+                    const char *slash = strrchr(logical, '/');
+                    int base = slash ? (int)(slash - logical) : 0;
+                    snprintf(pattern, sizeof(pattern), "%.*s/%s", base, logical, p);
+                }
+                ldconf_include(pattern, out, outsz, used, depth, includes);
+                *end = saved;
+                p = end;
+            }
+        } else if (strncmp(line, "hwcap", 5) == 0 && (line[5] == ' ' || line[5] == '\t')) {
+            // ignored by ldconfig since glibc 2.37
+        } else if (line[0] == '/') {
+            // "DIR" or the old "DIR=TYPE" / "DIR TYPE"
+            size_t dlen = strcspn(line, "= \t");
+            while (dlen > 1 && line[dlen - 1] == '/') dlen--;
+            if (dlen > 0 && dlen < PATH_MAX) {
+                char dir[PATH_MAX];
+                memcpy(dir, line, dlen);
+                dir[dlen] = '\0';
+                char rw_buf[PATH_MAX];
+                const char *rw = rewrite_path_in_root(dir, rw_buf, sizeof(rw_buf));
+                if (strcmp(rw, dir) != 0) *used = append_lib_dir(out, outsz, *used, rw, strlen(rw));
+            }
+        }
+        line = next;
+    }
+}
+
+static void ldconf_parse(char *out, size_t outsz) {
+    out[0] = '\0';
+    size_t used = 0;
+    int includes = 0;
+    ldconf_parse_file("/etc/ld.so.conf", out, outsz, &used, 0, &includes);
+}
+
+// The ld.so.conf directories into out (':'-separated, "" when there are none). Uses the copy of an
+// earlier call while the files have not changed: the parent finds it when it first forks, and its
+// children only compare the three times. Never waits for the lock: a child forked while another
+// thread held it reads the files itself.
+static void ldconf_dirs(char *out, size_t outsz) {
+    if (!out || outsz == 0) return;
+    out[0] = '\0';
+    if (g_cortex_root[0] == '\0') return;
+    struct ldconf_sig sig;
+    ldconf_signature(&sig);
+    if (sig.t[0] == 0 && sig.t[1] == 0) return; // neither ld.so.conf nor ld.so.conf.d
+    if (pthread_mutex_trylock(&g_ldconf_lock) != 0) {
+        ldconf_parse(out, outsz);
+        return;
+    }
+    if (!g_ldconf.valid || memcmp(&g_ldconf.sig, &sig, sizeof(sig)) != 0 || strcmp(g_ldconf.root, g_cortex_root) != 0) {
+        ldconf_parse(g_ldconf.dirs, sizeof(g_ldconf.dirs));
+        g_ldconf.sig = sig;
+        snprintf(g_ldconf.root, sizeof(g_ldconf.root), "%s", g_cortex_root);
+        g_ldconf.valid = 1;
+    }
+    snprintf(out, outsz, "%s", g_ldconf.dirs);
+    pthread_mutex_unlock(&g_ldconf_lock);
+}
+
+// The --library-path ld.so is given for the rootfs program `exe`, in the order ld.so searches on
+// Linux: the program's RPATH, the caller's LD_LIBRARY_PATH (the rootfs paths in it mapped), its
+// RUNPATH, the directories of /etc/ld.so.conf (ld.so's cache), and the rootfs defaults last. Cortex's
+// shells export the defaults in LD_LIBRARY_PATH too, where Linux has none; when there is anything to
+// put before them they move to the end, so that a library the program keeps for itself wins over
+// one of the same name in /usr/lib. Runs after the hook's setup, so the
 // rewrites are those of rewrite_path().
 static void build_ld_library_path(char *const envp[], const char *runpath, int is_rpath, const char *exe,
                                   char *out_buf, size_t out_size) {
@@ -521,6 +847,11 @@ static void build_ld_library_path(char *const envp[], const char *runpath, int i
         caller_ld = getenv("LD_LIBRARY_PATH");
     }
     int has_runpath = runpath && runpath[0];
+    char conf[PATH_MAX * 2];
+    ldconf_dirs(conf, sizeof(conf));
+    // The rootfs defaults that Cortex's shells export in LD_LIBRARY_PATH go to the end, after the
+    // program's and ld.so.conf's own directories, as on Linux (where LD_LIBRARY_PATH has none of them)
+    int move_defaults = has_runpath || conf[0] != '\0';
 
     size_t used = 0;
     if (has_runpath && is_rpath) used = append_runpath_dirs(out_buf, out_size, used, runpath, exe);
@@ -540,7 +871,7 @@ static void build_ld_library_path(char *const envp[], const char *runpath, int i
             const char *rw = (tok[0] == '/') ? rewrite_path_in_root(tok, rw_buf, sizeof(rw_buf)) : tok;
             size_t rw_len = strlen(rw);
             size_t need = (used > 0 ? 1 : 0) + rw_len;
-            if (has_runpath && is_rootfs_default_lib_dir(rw, rw_len)) {
+            if (move_defaults && is_rootfs_default_lib_dir(rw, rw_len)) {
                 // after the program's own directories, with the other defaults
             } else if (used + need < cap) {
                 if (used > 0) out_buf[used++] = ':';
@@ -553,6 +884,14 @@ static void build_ld_library_path(char *const envp[], const char *runpath, int i
         p = end + 1;
     }
     if (has_runpath && !is_rpath) used = append_runpath_dirs(out_buf, out_size, used, runpath, exe);
+    // ld.so.conf, as ld.so's cache: after LD_LIBRARY_PATH and RUNPATH, before the default directories
+    for (const char *p = conf; *p;) {
+        const char *end = strchr(p, ':');
+        size_t len = end ? (size_t)(end - p) : strlen(p);
+        used = append_lib_dir(out_buf, out_size, used, p, len);
+        if (!end) break;
+        p = end + 1;
+    }
     append_rootfs_lib_dirs_missing_from(out_buf, out_size, used, used > 0, out_buf);
 }
 

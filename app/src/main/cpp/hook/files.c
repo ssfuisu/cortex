@@ -58,15 +58,25 @@ static int refused_in_repaired_dir(int dirfd, const char *name) {
     return fixed;
 }
 
+static int dlopen_preload_deps(const char *path, void *(*orig_dlopen)(const char *, int), int depth);
+
 // Hook dlopen and dlmopen
 void *dlopen(const char *filename, int flags) {
     static void *(*orig_dlopen)(const char *, int) = NULL;
     if (!orig_dlopen) orig_dlopen = (void *(*)(const char *, int))dlsym(RTLD_NEXT, "dlopen");
     if (!filename) return orig_dlopen ? orig_dlopen(NULL, flags) : NULL;
+    if (!orig_dlopen) return NULL;
 
     char buf[PATH_MAX];
     const char *target = rewrite_path(filename, buf, sizeof(buf));
-    return orig_dlopen ? orig_dlopen(target, flags) : NULL;
+    void *handle = orig_dlopen(target, flags);
+    if (!handle && target[0] == '/' && !(flags & RTLD_NOLOAD)) {
+        // Its dependencies may be in its RUNPATH, which ld.so looked for outside the rootfs
+        int saved = errno;
+        if (dlopen_preload_deps(target, orig_dlopen, 0) > 0) handle = orig_dlopen(target, flags);
+        if (!handle) errno = saved;
+    }
+    return handle;
 }
 
 void *dlmopen(Lmid_t lmid, const char *filename, int flags) {

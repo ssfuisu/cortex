@@ -39,6 +39,9 @@
 #include <sched.h>
 #include <time.h>
 #include <sys/xattr.h>
+#include <fnmatch.h>
+#include <sys/ipc.h>
+#include <sys/shm.h>
 #include <sys/sysmacros.h>
 #include <net/if.h>
 
@@ -76,3 +79,4 @@
 #include "hook/exec.c"
 #include "hook/net.c"
 #include "hook/sockets.c"
+#include "hook/sysv_shm.c"

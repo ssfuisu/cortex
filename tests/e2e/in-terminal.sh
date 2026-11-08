@@ -217,6 +217,42 @@ else
     skip ssh-server "openssh-server is a package"
 fi
 
+# The desktop's X server (Ubuntu's Xvnc, as cortex-desktop starts it) on Android's kernel: it opens its
+# Unix socket for the app (RFB), takes X programs on DISPLAY, and has shared memory (MIT-SHM, which
+# the hook emulates). Only the server and xdpyinfo: the whole desktop is a large download.
+x_server() {
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends tigervnc-standalone-server x11-utils \
+        >/dev/null 2>&1 || { echo "apt-get install failed"; return 1; }
+    mkdir -p /etc/cortex && echo "DESKTOP=light" > /etc/cortex/desktop.conf
+    # no desktop session is installed here: a stand-in that runs as long as the X server
+    local stub=/tmp/e2e-desktop-stub
+    mkdir -p "$stub" && printf '#!/bin/bash\nexec -a dbus-launch sleep 600\n' > "$stub/dbus-launch" && chmod +x "$stub/dbus-launch"
+    PATH="$stub:$PATH" cortex-desktop start --size 800x600 || { tail -n 30 ~/.cortex/desktop.log; return 1; }
+    local display s=0
+    display="$(cat /tmp/.cortex-desktop/display)"
+    perl -MIO::Socket::UNIX -e '
+        my $s = IO::Socket::UNIX->new(Peer => $ARGV[0]) or die "connect: $!\n";
+        read($s, my $banner, 12) == 12 or die "no banner\n";
+        print "rfb banner: $banner";' /tmp/.cortex-desktop/vnc.sock || s=1
+    DISPLAY=":$display" xdpyinfo > /tmp/xdpyinfo.txt 2>&1 || s=1
+    grep -E "dimensions|MIT-SHM" /tmp/xdpyinfo.txt
+    grep -q "800x600 pixels" /tmp/xdpyinfo.txt && grep -q MIT-SHM /tmp/xdpyinfo.txt || s=1
+    # a login shell of the terminal finds the running desktop on its own
+    bash -lc 'echo "terminal DISPLAY=$DISPLAY"' | grep "DISPLAY=:$display" || s=1
+    cortex-desktop stop
+    rm -rf /etc/cortex/desktop.conf "$stub"
+    [ "$s" = 0 ] || { echo "--- desktop log"; tail -n 30 ~/.cortex/desktop.log; cat /tmp/xdpyinfo.txt | head -20; }
+    return $s
+}
+export -f x_server
+if [ -e /etc/cortex/desktop.conf ]; then
+    skip x-server "a desktop of the user's is installed here"
+elif [ -z "$NO_APT" ]; then
+    expect x-server "rfb banner: RFB 003.008" x_server
+else
+    skip x-server "Xvnc is a package"
+fi
+
 # A web server for the notification about it, which run-emulator-test.sh looks for (perl-base is
 # part of every Ubuntu system); it answers for three minutes
 perl -MIO::Socket::INET -e '

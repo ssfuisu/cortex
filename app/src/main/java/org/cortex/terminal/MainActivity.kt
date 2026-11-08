@@ -266,6 +266,21 @@ class MainActivity : AppCompatActivity() {
             drawerLayout.closeDrawer(GravityCompat.START)
         }
 
+        binding.btnDrawerDesktop.setOnClickListener {
+            drawerLayout.closeDrawer(GravityCompat.START)
+            if (org.cortex.terminal.desktop.DesktopAddon.installedKind(this) == null) {
+                org.cortex.terminal.desktop.DesktopUi.showInstallDialog(this) {
+                    // the installation runs in a new session, where apt's progress can be read
+                    pendingSessionCommand?.let { command ->
+                        pendingSessionCommand = null
+                        createNewSession().write("$command\r")
+                    }
+                }
+            } else {
+                startActivity(Intent(this, org.cortex.terminal.desktop.DesktopActivity::class.java))
+            }
+        }
+
         applyPreferences()
         val root = Environment.getCortexRoot(this)
         val homeDir = Environment.getHomeDir(this)
@@ -545,6 +560,8 @@ class MainActivity : AppCompatActivity() {
         btnDrawerSettings.imageTintList = ColorStateList.valueOf(p.textDim)
         btnDrawerKeyboard.background = Chrome.buttonBackground(p, 16 * density, hairline, filled = false)
         btnDrawerKeyboard.setTextColor(p.text)
+        binding.btnDrawerDesktop.background = Chrome.buttonBackground(p, 16 * density, hairline, filled = false)
+        binding.btnDrawerDesktop.setTextColor(p.text)
         btnDrawerNewSession.background = Chrome.buttonBackground(p, 16 * density, hairline, filled = true)
         btnDrawerNewSession.setTextColor(p.onAccent)
         if (::sessionAdapter.isInitialized) sessionAdapter.notifyDataSetChanged()

@@ -139,6 +139,24 @@ static int run_execve(orig_execve_f_type f, const char *path, char *const argv[]
     return f(path, argv, envp);
 }
 
+// ldconfig does nothing in Cortex (its cache is for paths that ld.so opens without the hook), but the
+// exec code reads /etc/ld.so.conf(.d) again when /etc/ld.so.cache changes: "sudo ldconfig" after an
+// edit of a .conf file marks it changed, as the real ldconfig would by writing it.
+static void ldconfig_mark_cache(void) {
+    if (g_cortex_root[0] == '\0') return;
+    char path[PATH_MAX];
+    size_t n = cortex_append(path, sizeof(path), 0, g_cortex_root, g_cortex_root_len);
+    cortex_append(path, sizeof(path), n, "/etc/ld.so.cache", 16);
+    int fd = (int)syscall(SYS_openat, AT_FDCWD, path, O_WRONLY | O_CREAT | O_CLOEXEC, 0644);
+    if (fd < 0) return;
+    syscall(SYS_utimensat, fd, NULL, NULL, 0);
+    syscall(SYS_close, fd);
+}
+
+static int is_ldconfig_name(const char *name) {
+    return strcmp(name, "ldconfig") == 0 || strcmp(name, "ldconfig.real") == 0;
+}
+
 static int cortex_execve(const char *filename, char *const argv[], char *const envp[], int depth) {
     orig_execve_f_type orig_execve = real_execve();
     if (!orig_execve) {
@@ -188,6 +206,7 @@ static int cortex_execve(const char *filename, char *const argv[], char *const e
         strcmp(prog_name, "update-desktop-database") == 0 ||
         strcmp(prog_name, "install-info") == 0 ||
         strcmp(prog_name, "install-sgmlcatalog") == 0) {
+        if (is_ldconfig_name(f_base) || is_ldconfig_name(prog_name)) ldconfig_mark_cache();
         _exit(0);
     }
     if (strcmp(f_base, "mountpoint") == 0 || strcmp(prog_name, "mountpoint") == 0) {
@@ -250,6 +269,74 @@ static int cortex_execve(const char *filename, char *const argv[], char *const e
                 int saved_errno = errno;
                 free(new_argv);
                 free_modified_env(new_env, envp);
+                errno = saved_errno;
+                return ret;
+            }
+        }
+
+        // ld.so started directly (ldd, "ld.so --list PROGRAM", "ld.so PROGRAM"): the program it loads
+        // gets the --library-path a start of its own gets, or ldd reports its libraries as not found,
+        // and its path mapped into the rootfs, since ld.so opens it without the hook
+        if (probe.is_elf && !probe.is_dynamic && is_ld_linux(elf_target)) {
+            int caller_lib_path = 0;
+            int pi = ldso_program_index(argv, &caller_lib_path);
+            if (pi > 0 && caller_lib_path) {
+                // the caller's own --library-path stays as it is; only the program is mapped (when it is
+                // in the rootfs: a caller can also name a file by its real path)
+                char prog_buf[PATH_MAX];
+                const char *prog = argv[pi];
+                if (prog[0] == '/') {
+                    const char *mapped = rewrite_path(prog, prog_buf, sizeof(prog_buf));
+                    int fd = mapped != prog ? (int)syscall(SYS_openat, AT_FDCWD, mapped, O_PATH | O_CLOEXEC) : -1;
+                    if (fd >= 0) {
+                        syscall(SYS_close, fd);
+                        prog = mapped;
+                    }
+                }
+                int argc = 0;
+                while (argv[argc]) argc++;
+                char **new_argv = (char **)malloc(sizeof(char *) * (size_t)(argc + 1));
+                if (!new_argv) {
+                    errno = ENOMEM;
+                    return -1;
+                }
+                for (int i = 0; i <= argc; i++) new_argv[i] = argv[i];
+                new_argv[pi] = (char *)prog;
+                prepare_static_program(static_elf); // ld.so is a static program itself
+                char **cortex_env = prepare_cortex_env(envp, target);
+                int ret = run_execve(orig_execve, target, new_argv, cortex_env);
+                int saved_errno = errno;
+                free_modified_env(cortex_env, envp);
+                free(new_argv);
+                errno = saved_errno;
+                return ret;
+            }
+            if (pi > 0) {
+                char prog_buf[PATH_MAX];
+                const char *prog = argv[pi][0] == '/' ? rewrite_path(argv[pi], prog_buf, sizeof(prog_buf)) : argv[pi];
+                struct exec_probe prog_probe;
+                probe_exec_file(prog, &prog_probe);
+                char ld_lib_path[PATH_MAX * 6];
+                build_ld_library_path(envp, prog_probe.runpath, prog_probe.runpath_is_rpath,
+                                      prog[0] == '/' ? prog : NULL, ld_lib_path, sizeof(ld_lib_path));
+                int argc = 0;
+                while (argv[argc]) argc++;
+                char **new_argv = (char **)malloc(sizeof(char *) * (size_t)(argc + 3));
+                if (!new_argv) {
+                    errno = ENOMEM;
+                    return -1;
+                }
+                new_argv[0] = argv[0];
+                new_argv[1] = (char *)"--library-path";
+                new_argv[2] = ld_lib_path;
+                for (int i = 1; i <= argc; i++) new_argv[i + 2] = argv[i];
+                new_argv[pi + 2] = (char *)prog; // ld.so opens it itself: "ldd /usr/bin/adb" as well
+                prepare_static_program(static_elf); // ld.so is a static program itself
+                char **cortex_env = prepare_cortex_env(envp, target);
+                int ret = run_execve(orig_execve, target, new_argv, cortex_env);
+                int saved_errno = errno;
+                free_modified_env(cortex_env, envp);
+                free(new_argv);
                 errno = saved_errno;
                 return ret;
             }
@@ -378,6 +465,8 @@ static void prepare_exec_in_parent(int level) {
             cortex_hook_library(hook_buf, sizeof(hook_buf));
             struct stat st;
             probe_fstat(-1, &st); // looks fstat() up; -1 only fails with EBADF
+            char conf[PATH_MAX * 2];
+            ldconf_dirs(conf, sizeof(conf)); // ld.so.conf read here, so the children only compare times
         }
         if (level >= 2) rehearse_exec();
     }
@@ -655,6 +744,7 @@ static int cortex_posix_spawn(pid_t *pid, const char *path,
         strcmp(prog_name, "start-stop-daemon") == 0) {
         pid_t child = fork();
         if (child == 0) {
+            if (is_ldconfig_name(f_base) || is_ldconfig_name(prog_name)) ldconfig_mark_cache();
             _exit(0);
         } else if (child > 0) {
             if (pid) *pid = child;

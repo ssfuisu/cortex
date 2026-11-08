@@ -68,6 +68,7 @@ Pick Cortex when you need Ubuntu's own `.deb` packages and a genuine glibc witho
 - **Full Storage & Background Services**: Deep `/sdcard` device storage integration and standard background service controls via `service`, `/etc/init.d/`, and `/etc/cortex/autostart`.
 - **SSH Server and Local Web Servers**: `cortex-sshd` (or Settings > Remote access) starts Ubuntu's OpenSSH on port 8022 to use Cortex from a computer, and a notification opens the web servers programs start (`npm run dev`, `python3 -m http.server`) in the browser (see [Remote Access](#remote-access)).
 - **Android Integration**: `cortex-api` for notifications, the clipboard, opening links and files in Android apps, sharing, battery state, speech and vibration; `notify-send` and `xdg-open` use it (see [Android Integration](#android-integration-cortex-api)).
+- **Desktop (X11) as an Add-on**: A light Openbox desktop or XFCE, and Firefox, installed from the app with one tap and shown in its own screen, with touch or touchpad control, the keyboard, a shared clipboard and sound. Programs started in the terminal open on it (see [Desktop](#desktop-x11)).
 - **Root Mode**: On a rooted phone, sessions can run as real root in a chroot of the same Ubuntu files, with nothing translated or emulated (see [Root Mode](#root-mode)).
 
 ---
@@ -231,6 +232,26 @@ The server runs while Cortex runs; `cortex-api wakelock on` keeps it going with 
 
 **Local web servers.** When a program in Cortex serves web pages (`npm run dev`, `python3 -m http.server`, `jupyter lab`, `hugo server`...), a notification offers to open it in the browser or to copy its address, and goes away when the server stops. Only servers that answer HTTP count, so SSH, databases and the like stay quiet. Settings > Notifications & Clipboard > *Local web servers* turns it off.
 
+## Desktop (X11)
+
+The menu's *Desktop* button (or *Settings > Desktop*) installs a graphical desktop the first time, in a new terminal session where apt's progress can be read:
+
+- **Light**: Openbox with a panel (tint2), a file manager (PCManFM), LXTerminal and Mousepad, about 150 MB.
+- **XFCE**: the whole XFCE desktop, about 500 MB.
+- **Firefox**, if ticked, from Mozilla's own apt repository (Ubuntu's `firefox` package needs snap, which cannot run on Android).
+
+After that the button opens the desktop in its own screen. The server is Ubuntu's Xvnc on a Unix socket that only the app can open (no network port), and the app draws it the way a VNC viewer would, with nothing else to install. A tap clicks, a long press is the right button, dragging holds the left button, two fingers scroll and pinch to zoom; in touchpad mode the finger moves the pointer like a laptop's touchpad. The bar under the desktop has the keyboard, Esc, Tab, Ctrl, Alt, Super and the arrows. The clipboard is shared both ways, sound plays through PulseAudio on the phone's speaker, and turning the phone resizes the desktop (with the keyboard open, the view follows the pointer). *Settings > Desktop* sets the touch mode and the size of things on it, and removes it.
+
+The desktop keeps running when you leave its screen (the *Stop* key ends it), and programs started in the terminal open on it while it runs (`DISPLAY` is set for new shells):
+
+```
+cortex-desktop install light|xfce [--firefox]
+cortex-desktop start [--size 1600x900] | stop | restart | status
+cortex-desktop remove
+```
+
+There is no GPU: everything is drawn by the CPU, which is fine for editors, file managers, office programs and browsing, and slow for games and video. X programs get shared memory (MIT-SHM) from Cortex's own emulation of System V shared memory, which Android does not have.
+
 ## Your Own Keys
 
 The keys above the keyboard come from `~/.cortex/keys` when it exists; Cortex uses it as soon as it is saved. `~/.cortex/keys.example` has the keys as they are now and explains the format:
@@ -290,7 +311,7 @@ Android 7.0 and newer. There are two APKs: `Cortex-arm64-v8a-signed.apk` for 64-
 Use `apt` like on any Ubuntu system, for example `apt install git python3 build-essential openjdk-17-jdk`. The app comes without package lists (they would be weeks old and made the app twice as big), so the first `apt install` runs `apt update` by itself. After the first start Cortex measures Ubuntu's mirrors once and lets apt use the fastest one with the current packages, if it is clearly faster than Ubuntu's own server (`cortex-api mirror show` tells which; `cortex-api mirror official` goes back; security updates always come from Ubuntu's server, and apt checks every package against Ubuntu's signature whichever mirror it comes from). Installers such as `nvm` also work, and a changed `~/.bashrc` is picked up at the next prompt.
 
 **Is there a desktop or GUI?**
-Not yet. Cortex is a terminal; there is no X11 or Wayland server.
+Yes, as an add-on: the menu's *Desktop* button (or Settings > Desktop) installs a light Openbox desktop or XFCE, and Firefox if you want it, and shows it in the app (see [Desktop](#desktop-x11)). It is X11 drawn by the CPU, with no GPU and no Wayland.
 
 **Will every Ubuntu package work?**
 Most command-line tools do. Packages that depend on kernel features Android does not allow for apps (for example systemd services or privileged device access) cannot work. An app cannot become another user, so a server that refuses to run as root cannot run in normal mode: PostgreSQL's packages install (`psql` works against a server elsewhere), but its own cluster is not created and the server not started; use [root mode](#root-mode) for that. MariaDB (`apt install mariadb-server`, then `mariadbd-safe &` and `mariadb`) and redis run in normal mode. On a rooted phone, [root mode](#root-mode) removes the limits that come from running as an app; systemd cannot be the init system in either mode.

@@ -27,7 +27,7 @@ cleanup() {
 trap cleanup EXIT
 
 echo "=== 0. Checking LF line endings and syntax ==="
-for script_name in reload.sh service.sh systemctl.sh su.sh cortex-shell.sh cortex-backup.sh cortex-api.sh notify-send.sh apt-autoupdate.sh cortex-sshd.sh termux-clipboard.sh; do
+for script_name in reload.sh service.sh systemctl.sh su.sh cortex-shell.sh cortex-backup.sh cortex-api.sh notify-send.sh apt-autoupdate.sh cortex-sshd.sh cortex-desktop.sh termux-clipboard.sh; do
     script_path="$ASSETS_SCRIPTS/$script_name"
     if LC_ALL=C grep -q $'\r' "$script_path"; then
         fail "$script_name contains CRLF line endings"
@@ -818,6 +818,114 @@ else
     fail "cortex-sshd stop left process $SSHD_PID"
     kill "$SSHD_PID" 2>/dev/null
 fi
+
+echo "=== 6c. Testing cortex-desktop.sh against a stand-in X server ==="
+DESKTOP_SH="$ASSETS_SCRIPTS/cortex-desktop.sh"
+DR="$TEST_TMP/desktop_root"
+DBIN="$TEST_TMP/desktop_bin"
+mkdir -p "$DR/tmp" "$DBIN" "$TEST_TMP/desktop_home"
+# no sound here: a real PulseAudio of this machine must not be stopped or replaced by the test
+printf '#!/bin/bash\nexit 0\n' > "$DBIN/pulseaudio"
+chmod +x "$DBIN/pulseaudio"
+desktop_() {
+    CORTEX_DESKTOP_ROOT="$DR" HOME="$TEST_TMP/desktop_home" PATH="$DBIN:$PATH" bash "$DESKTOP_SH" "$@"
+}
+OUT="$(desktop_ status)"; RC=$?
+if [ "$RC" = 3 ] && [ "$OUT" = "not installed" ] && ! desktop_ start >/dev/null 2>&1; then
+    pass "cortex-desktop says it is not installed and does not start then"
+else
+    fail "cortex-desktop without the desktop: $OUT ($RC)"
+fi
+# Xvnc: listens on the Unix socket it is given and on the display's socket in /tmp/.X11-unix
+cat > "$DBIN/Xvnc" <<'EOS'
+#!/bin/bash
+echo "$*" > "$CORTEX_DESKTOP_ROOT/tmp/xvnc-args"
+display="${1#:}"; sock=""; geometry=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -rfbunixpath) sock="$2"; shift ;;
+        -geometry) geometry="$2"; shift ;;
+    esac
+    shift
+done
+echo "$geometry" > "$CORTEX_DESKTOP_ROOT/tmp/xvnc-geometry"
+exec -a Xvnc python3 -c 'import socket, sys, time
+socks = []
+for path in sys.argv[1:]:
+    s = socket.socket(socket.AF_UNIX); s.bind(path); s.listen(1); socks.append(s)
+time.sleep(300)' "$sock" "$CORTEX_DESKTOP_ROOT/tmp/.X11-unix/X$display"
+EOS
+printf '#!/bin/bash\necho "$*" > "$CORTEX_DESKTOP_ROOT/tmp/session-args"\nexec -a dbus-launch sleep 300\n' > "$DBIN/dbus-launch"
+chmod +x "$DBIN/Xvnc" "$DBIN/dbus-launch"
+mkdir -p "$DR/etc/cortex" && echo "DESKTOP=light" > "$DR/etc/cortex/desktop.conf"
+if desktop_ start --size 1024x600 >/dev/null 2>&1 && desktop_ status | grep -q "running (light, DISPLAY=:1)" \
+    && [ -S "$DR/tmp/.cortex-desktop/vnc.sock" ] && [ "$(cat "$DR/tmp/xvnc-geometry")" = 1024x600 ] \
+    && [ "$(stat -c %a "$DR/tmp/.cortex-desktop")" = 700 ]; then
+    pass "cortex-desktop start runs Xvnc on its own socket at the size asked, status shows it"
+else
+    fail "cortex-desktop start: $(desktop_ status); $(cat "$TEST_TMP/desktop_home/.cortex/desktop.log" 2>/dev/null)"
+fi
+XARGS="$(cat "$DR/tmp/xvnc-args" 2>/dev/null)"
+if [[ "$XARGS" == *"-rfbunixmode 0600"* && "$XARGS" == *"-rfbport -1"* && "$XARGS" == *"-nolisten tcp"* && \
+      "$XARGS" == *"-rfbunixpath $DR/tmp/.cortex-desktop/vnc.sock"* ]]; then
+    pass "the X server listens on no network port, only on a socket of the app's user"
+else
+    fail "Xvnc arguments: $XARGS"
+fi
+sleep 0.5
+if grep -q "exit-with-session openbox-session" "$DR/tmp/session-args" 2>/dev/null \
+    && [ -f "$TEST_TMP/desktop_home/.config/openbox/autostart" ]; then
+    pass "cortex-desktop starts the Openbox session and gives it a panel"
+else
+    fail "cortex-desktop session: $(cat "$DR/tmp/session-args" 2>/dev/null)"
+fi
+XVNC_PID="$(cat "$DR/tmp/.cortex-desktop/xvnc.pid" 2>/dev/null)"
+if desktop_ start | grep -q "is running" && [ "$(cat "$DR/tmp/.cortex-desktop/xvnc.pid")" = "$XVNC_PID" ] \
+    && ! desktop_ start --size 12x34 >/dev/null 2>&1; then
+    pass "cortex-desktop start again leaves the running one, refuses a bad size"
+else
+    fail "cortex-desktop second start"
+fi
+SESSION_PID="$(cat "$DR/tmp/.cortex-desktop/session.pid" 2>/dev/null)"
+kill "$SESSION_PID" 2>/dev/null; sleep 0.3
+if desktop_ start >/dev/null 2>&1 && [ "$(cat "$DR/tmp/.cortex-desktop/session.pid")" != "$SESSION_PID" ] \
+    && [ "$(cat "$DR/tmp/.cortex-desktop/xvnc.pid")" = "$XVNC_PID" ]; then
+    pass "cortex-desktop start gives a running X server whose desktop ended a new one"
+else
+    fail "cortex-desktop session restart"
+fi
+desktop_ stop >/dev/null
+sleep 0.3
+OUT="$(desktop_ status)"
+if { ! kill -0 "$XVNC_PID" 2>/dev/null || grep -q '^State:[[:space:]]*Z' "/proc/$XVNC_PID/status"; } && [ "$OUT" = "stopped (light)" ] && [ ! -e "$DR/tmp/.cortex-desktop/vnc.sock" ]; then
+    pass "cortex-desktop stop ends the X server"
+else
+    fail "cortex-desktop stop: $OUT"
+    kill "$XVNC_PID" 2>/dev/null
+fi
+# a dead server's lock file does not keep its display
+echo "99999999" > "$DR/tmp/.X1-lock"
+if desktop_ start >/dev/null 2>&1 && desktop_ status | grep -q "DISPLAY=:1" \
+    && [ "$(cat "$DR/tmp/xvnc-geometry")" = 1280x720 ]; then
+    pass "cortex-desktop takes over the display of a dead server, default size 1280x720"
+else
+    fail "cortex-desktop with a stale lock: $(desktop_ status)"
+fi
+desktop_ stop >/dev/null
+# a desktop that ends at once is an error, and leaves no X server behind
+printf '#!/bin/bash\nexit 1\n' > "$DBIN/dbus-launch"
+if ! desktop_ start >/dev/null 2>&1 && ! desktop_ status >/dev/null 2>&1 && [ ! -e "$DR/tmp/.cortex-desktop/xvnc.pid" ]; then
+    pass "cortex-desktop start fails when the desktop session does not start, and stops its X server"
+else
+    fail "cortex-desktop with a failing session: $(desktop_ status)"
+fi
+if ! desktop_ start --size >/dev/null 2>&1; then
+    pass "cortex-desktop start --size without a value is refused"
+else
+    fail "cortex-desktop start --size without a value"
+fi
+desktop_ stop >/dev/null
+pkill -f "$DR/tmp/.cortex-desktop/vnc.sock" 2>/dev/null
 
 echo "=== 7. Checking translations ==="
 if command -v python3 >/dev/null 2>&1; then

@@ -187,8 +187,22 @@ object ShellScriptsInstaller {
 
             val xdgOpenFile = File(localBin, "xdg-open")
             // Opens links and files in Android apps through cortex-api; prints the link when that is
-            // not possible (Cortex in the background, or no app for it).
+            // not possible (Cortex in the background, or no app for it). On the desktop (DISPLAY set) a
+            // program of Ubuntu's own by the same name comes first: Firefox or Chromium installed there,
+            // xdg-utils' xdg-open, which then opens links in them.
             val simpleXdgOpenScript = "#!/bin/sh\n" +
+                "name=\"\${0##*/}\"\n" +
+                "if [ -n \"\${DISPLAY:-}\" ]; then\n" +
+                "    for dir in /usr/bin /bin; do\n" +
+                "        real=\"\$(readlink -f \"\$dir/\$name\" 2>/dev/null)\"\n" +
+                "        case \"\$real\" in\n" +
+                "            \"\"|/usr/local/bin/*) ;;\n" +
+                "            *) if [ -x \"\$real\" ] && ! head -c 256 \"\$real\" | grep -q /usr/local/bin/xdg-open; then\n" +
+                "                   exec \"\$real\" \"\$@\"\n" +
+                "               fi ;;\n" +
+                "        esac\n" +
+                "    done\n" +
+                "fi\n" +
                 "if [ \$# -gt 0 ] && command -v cortex-api >/dev/null 2>&1 && cortex-api open \"\$1\" 2>/dev/null; then\n" +
                 "    exit 0\n" +
                 "fi\n" +
@@ -284,7 +298,8 @@ object ShellScriptsInstaller {
     }
 
     /**
-     * Installs cortex-api (Android features for the shell) and what uses it: notify-send, cortex-sshd and
+     * Installs cortex-api (Android features for the shell) and what uses it: notify-send, cortex-sshd,
+     * cortex-desktop (the X11 desktop) and
      * the clipboard commands that editors look for (termux-clipboard-get/-set, one script by two names).
      */
     private fun ensureApiTools(localBin: File, context: Context?) {
@@ -292,6 +307,7 @@ object ShellScriptsInstaller {
             "cortex-api" to "cortex-api.sh",
             "notify-send" to "notify-send.sh",
             "cortex-sshd" to "cortex-sshd.sh",
+            "cortex-desktop" to "cortex-desktop.sh",
             "termux-clipboard-get" to "termux-clipboard.sh",
             "termux-clipboard-set" to "termux-clipboard.sh"
         )
