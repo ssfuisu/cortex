@@ -12,7 +12,7 @@ import java.util.zip.GZIPInputStream
 
 object BootstrapManager {
     private const val TAG = "BootstrapManager"
-    const val CURRENT_BOOTSTRAP_VERSION = 12701
+    const val CURRENT_BOOTSTRAP_VERSION = 12702
 
     fun initializeFileSystem(context: Context) {
         val root = Environment.getCortexRoot(context)
@@ -143,11 +143,33 @@ object BootstrapManager {
         ElfLinkerPatcher.ensureDynamicLinkerSymlinks(root)
     }
 
+    /**
+     * What a session needs of the extracted system and is not there: the shell, apt, dpkg's package
+     * list, and the C library and terminfo library of one of the architectures (the last files of
+     * an archive whose extraction stopped half way are the first to be missing).
+     */
+    internal fun missingEssentials(root: File): List<String> {
+        val missing = mutableListOf<String>()
+        for (path in listOf("usr/bin/bash", "usr/bin/apt", "usr/bin/dpkg")) {
+            if (!File(root, path).exists()) missing += path
+        }
+        val status = File(root, "var/lib/dpkg/status")
+        if (!status.isFile || status.length() == 0L) missing += "var/lib/dpkg/status"
+        val archDirs = listOf("usr/lib/aarch64-linux-gnu", "usr/lib/arm-linux-gnueabihf")
+        for (lib in listOf("libc.so.6", "libtinfo.so.6")) {
+            // exists() follows the link (libtinfo.so.6 -> libtinfo.so.6.4): a dangling one counts as missing
+            if (archDirs.none { File(root, "$it/$lib").exists() }) missing += lib
+        }
+        return missing
+    }
+
     /** Whether the base system is installed; it may still need [updateInstalledSystem] for this app. */
     fun isBootstrapInstalled(context: Context): Boolean {
         val root = Environment.getCortexRoot(context)
+        // A system that an earlier version marked installed although its extraction stopped half way
+        // (1.27.1 on some phones) counts as not installed: it is extracted again
         return File(root, "usr/bin/apt").exists() && File(root, "usr/bin/bash").exists() &&
-            hasDynamicLinker(root) && File(root, ".cortex_version").exists()
+            hasDynamicLinker(root) && File(root, ".cortex_version").exists() && missingEssentials(root).isEmpty()
     }
 
     /** Whether the installed base system was set up by an older version of the app. */
@@ -223,13 +245,35 @@ object BootstrapManager {
      */
     fun installBootstrapFromAssets(context: Context, onProgress: ((Int) -> Unit)? = null): Boolean {
         val assetName = findBootstrapAsset(context) ?: return false
-        return installBootstrap(context, { context.assets.open(assetName) }, onProgress)
+        // The archive is read from the APK file itself first, and checked against the CRC the APK
+        // records for it: on a Xiaomi phone with Android 17 the bytes AssetManager gave were damaged
+        // (zstd: "corruption detected"), and the install went on with half a system. AssetManager
+        // stays as the second way.
+        val apk = context.applicationInfo.sourceDir
+        val expectedCrc = try {
+            java.util.zip.ZipFile(apk).use { it.getEntry("assets/$assetName")?.crc ?: -1L }
+        } catch (e: Exception) {
+            -1L
+        }
+        val fromApkFile: () -> InputStream = {
+            val zip = java.util.zip.ZipFile(apk)
+            val entry = zip.getEntry("assets/$assetName") ?: run {
+                zip.close()
+                throw java.io.FileNotFoundException("assets/$assetName in $apk")
+            }
+            CrcCheckedInputStream(zip.getInputStream(entry), entry.crc, "$assetName (APK file)") { zip.close() }
+        }
+        val fromAssets: () -> InputStream = {
+            CrcCheckedInputStream(context.assets.open(assetName), expectedCrc, "$assetName (AssetManager)")
+        }
+        return installBootstrap(context, fromApkFile, fallbackOpen = fromAssets, onProgress = onProgress)
     }
 
     /** [installBootstrapFromAssets] with the archive (tar, tar.gz or tar.zst) from [open], which tests use. */
     internal fun installBootstrap(
         context: Context,
         open: () -> InputStream,
+        fallbackOpen: (() -> InputStream)? = null,
         onProgress: ((Int) -> Unit)? = null
     ): Boolean {
         val root = Environment.getCortexRoot(context)
@@ -267,12 +311,29 @@ object BootstrapManager {
 
             // Extract archive using high performance native C extractor. It applies the archive's
             // modes and gives the owner access to every file and directory.
-            if (!extractBootstrapStreaming(open, root, onProgress)) {
+            var streamed = extractBootstrapStreaming(open, root, onProgress)
+            if (!streamed && fallbackOpen != null) {
+                Log.w(TAG, "Native extraction failed, reading the archive the other way")
+                streamed = extractBootstrapStreaming(fallbackOpen, root, onProgress)
+            }
+            if (!streamed) {
                 Log.w(TAG, "Native extraction failed, using the system tar")
-                // Fallback to system tar, which needs the archive as a file
-                openBootstrap(open).use { stream ->
-                    tmpTar.outputStream().use { out -> stream.copyTo(out) }
+                // Fallback to system tar, which needs the archive as a file: from the first source that
+                // reads whole (its CRC matches), the APK file before AssetManager
+                var copyError: Exception? = null
+                val copied = listOfNotNull(open, fallbackOpen).any { source ->
+                    try {
+                        openBootstrap(source).use { stream ->
+                            tmpTar.outputStream().use { out -> stream.copyTo(out) }
+                        }
+                        true
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Copying the archive failed: ${e.message}")
+                        copyError = e
+                        false
+                    }
                 }
+                if (!copied) throw copyError ?: java.io.IOException("the archive could not be read")
                 // From the file, the native extractor can still do it (the system tar cannot read zstd)
                 val fromFile = try {
                     PtyNative.extractTar(tmpTar.absolutePath, root.absolutePath) == 0
@@ -290,6 +351,15 @@ object BootstrapManager {
                     process.waitFor()
                     ensureOwnerAccess(root)
                 }
+            }
+
+            // A system that did not come out whole is not marked installed: the next start tries again
+            // (and the error is shown) instead of sessions that end with "error while loading shared
+            // libraries"
+            val missing = missingEssentials(root)
+            if (missing.isNotEmpty()) {
+                Log.e(TAG, "The base system is incomplete after extraction, missing: ${missing.joinToString()}")
+                return false
             }
 
             ensureDynamicLinkerSymlinks(root)
@@ -352,7 +422,13 @@ object BootstrapManager {
         val counted = if (onProgress != null && total > 0) ProgressInputStream(raw, total, onProgress) else raw
         val pushback = PushbackInputStream(counted, 2)
         val header = ByteArray(2)
-        val bytesRead = pushback.read(header)
+        val bytesRead = try {
+            pushback.read(header)
+        } catch (e: java.io.IOException) {
+            // the caller never gets the stream to close (the APK file stays open otherwise)
+            try { raw.close() } catch (_: Exception) {}
+            throw e
+        }
         if (bytesRead > 0) {
             pushback.unread(header, 0, bytesRead)
         }
@@ -1589,6 +1665,70 @@ object BootstrapManager {
 }
 
 /** Reports how much of [total] bytes has been read, in whole percent, whenever that changes. */
+/**
+ * Checks what is read against the CRC-32 the APK records for the entry: at its end, a mismatch is an
+ * IOException, so a damaged read fails the extraction instead of leaving half a system. A stream not
+ * read to its end (the extractor stops at the tar's end marker) is not judged. [expected] -1: unknown.
+ */
+internal class CrcCheckedInputStream(
+    input: InputStream,
+    private val expected: Long,
+    private val name: String,
+    private val onClose: () -> Unit = {}
+) : java.io.FilterInputStream(input) {
+    private val crc = java.util.zip.CRC32()
+    private var checked = false
+
+    private fun finish() {
+        if (checked || expected < 0) return
+        checked = true
+        if (crc.value != expected) {
+            throw java.io.IOException(
+                "$name is damaged as read: CRC-32 %08x, the APK records %08x".format(crc.value, expected)
+            )
+        }
+    }
+
+    override fun read(): Int {
+        val b = super.read()
+        if (b < 0) finish() else crc.update(b)
+        return b
+    }
+
+    override fun read(b: ByteArray, off: Int, len: Int): Int {
+        val n = super.read(b, off, len)
+        if (n < 0) finish() else if (n > 0) crc.update(b, off, n)
+        return n
+    }
+
+    override fun skip(n: Long): Long {
+        // Skipped bytes are not seen: no verdict then
+        checked = true
+        return super.skip(n)
+    }
+
+    /**
+     * Reads what is left (the extractor stops at the tar's end marker, before the end of the stream)
+     * so that the whole archive is checked, then closes. A mismatch is thrown from here.
+     */
+    override fun close() {
+        try {
+            if (!checked && expected >= 0) {
+                val rest = ByteArray(64 * 1024)
+                while (read(rest, 0, rest.size) >= 0) {
+                    // read() updates the CRC and judges it at the end
+                }
+            }
+        } finally {
+            try {
+                super.close()
+            } finally {
+                onClose()
+            }
+        }
+    }
+}
+
 internal class ProgressInputStream(
     input: InputStream,
     private val total: Long,

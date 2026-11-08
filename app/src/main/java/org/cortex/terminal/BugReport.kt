@@ -69,6 +69,7 @@ object BugReport {
             "release" to "${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})",
             "device" to "${Build.MANUFACTURER} ${Build.MODEL}",
             "ABIs" to Build.SUPPORTED_ABIS.joinToString(),
+            "page size" to try { "${android.system.Os.sysconf(android.system.OsConstants._SC_PAGESIZE) / 1024} KB" } catch (e: Exception) { null },
             "free space" to try {
                 "${StatFs(context.filesDir.path).availableBytes / (1024 * 1024)} MB"
             } catch (e: Exception) {
@@ -79,7 +80,8 @@ object BugReport {
             "release" to osRelease(readOrNull(File(root, "etc/os-release"))),
             "packages" to readOrNull(File(root, "var/lib/dpkg/status"))?.let { packageCount(it).toString() },
             "mirror" to MirrorSelector.status(root),
-            "hook library" to File(root, "usr/lib/libcortex-hook.so").let { if (it.isFile) "${it.length()} bytes" else "missing" }
+            "hook library" to File(root, "usr/lib/libcortex-hook.so").let { if (it.isFile) "${it.length()} bytes" else "missing" },
+            "missing" to BootstrapManager.missingEssentials(root).joinToString().ifEmpty { "nothing" }
         )
         return format(sections) + "\n== Log (newest $LOG_LINES lines)\n" + appLog()
     }

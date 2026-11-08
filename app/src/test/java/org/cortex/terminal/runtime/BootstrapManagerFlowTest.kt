@@ -62,6 +62,11 @@ class BootstrapManagerFlowTest {
         put("usr/bin/apt", "apt", base)
         put("usr/bin/mawk", "mawk", base)
         put("usr/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1", "ld.so", base)
+        put("usr/bin/dpkg", "dpkg", base)
+        put("var/lib/dpkg/status", "Package: bash\nStatus: install ok installed\n", base)
+        put("usr/lib/aarch64-linux-gnu/libc.so.6", "libc", base)
+        put("usr/lib/aarch64-linux-gnu/libtinfo.so.6.4", "libtinfo", base)
+        Files.createSymbolicLink(File(base, "usr/lib/aarch64-linux-gnu/libtinfo.so.6").toPath(), File("libtinfo.so.6.4").toPath())
         put("usr/share/base-passwd/passwd.master", "root:*:0:0:root:/root:/bin/bash\nman:*:6:12:man:/var/cache/man:/usr/sbin/nologin\nwww-data:*:33:33:www-data:/var/www:/usr/sbin/nologin\n", base)
         put("usr/share/base-passwd/group.master", "root:*:0:\nadm:*:4:\nman:*:12:\nnogroup:*:65534:\n", base)
         put("etc/skel/.bashrc", "# the image's .bashrc\n", base)
@@ -323,6 +328,56 @@ class BootstrapManagerFlowTest {
 
         assertFalse(File(root, ".cortex_version").exists())
         assertFalse(BootstrapManager.isBootstrapInstalled(context))
+    }
+
+    @Test(timeout = 120_000)
+    fun installBootstrap_ofAnArchiveThatStopsHalfWayFails() {
+        // What a damaged read left on a phone: the shell and the C library, not the libraries after them
+        val stage = File(context.cacheDir, "stage")
+        extractedSystem(stage)
+        File(stage, "usr/lib/aarch64-linux-gnu/libtinfo.so.6.4").delete()
+        val tgz = archive(stage)
+
+        assertFalse(BootstrapManager.installBootstrap(context, { tgz.inputStream() }))
+
+        assertFalse(File(root, ".cortex_version").exists())
+        assertFalse(BootstrapManager.isBootstrapInstalled(context))
+        assertEquals(listOf("libtinfo.so.6"), BootstrapManager.missingEssentials(root))
+    }
+
+    @Test(timeout = 120_000)
+    fun installBootstrap_readsTheArchiveTheOtherWayWhenTheFirstIsDamaged() {
+        val stage = File(context.cacheDir, "stage")
+        extractedSystem(stage)
+        val tgz = archive(stage)
+        val good = tgz.readBytes()
+        val damaged = good.copyOf().also { it[it.size / 2] = (it[it.size / 2].toInt() xor 0x55).toByte() }
+        val crc = java.util.zip.CRC32().also { it.update(good) }.value
+
+        assertTrue(
+            BootstrapManager.installBootstrap(
+                context,
+                { CrcCheckedInputStream(damaged.inputStream(), crc, "damaged") },
+                fallbackOpen = { CrcCheckedInputStream(good.inputStream(), crc, "good") }
+            )
+        )
+        assertTrue(BootstrapManager.isBootstrapInstalled(context))
+    }
+
+    @Test
+    fun crcCheckedInputStream_failsAtTheEndOfADamagedRead() {
+        val data = ByteArray(5000) { (it * 7).toByte() }
+        val crc = java.util.zip.CRC32().also { it.update(data) }.value
+        assertEquals(5000, CrcCheckedInputStream(data.inputStream(), crc, "ok").readBytes().size)
+        val bad = data.copyOf().also { it[100] = 1 }
+        try {
+            CrcCheckedInputStream(bad.inputStream(), crc, "bad").readBytes()
+            throw AssertionError("a damaged read was not noticed")
+        } catch (e: java.io.IOException) {
+            assertTrue(e.message!!.contains("damaged"))
+        }
+        // unknown CRC: no verdict
+        assertEquals(5000, CrcCheckedInputStream(bad.inputStream(), -1, "unknown").readBytes().size)
     }
 
     @Test
