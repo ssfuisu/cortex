@@ -501,7 +501,12 @@ int main(void) {
     printf("stat %d size %zu\n", stat_rc, stat_rc == 0 ? (size_t)ds.shm_segsz : (size_t)0);
     printf("rmid %d\n", shmctl(id, IPC_RMID, NULL));
     printf("still mapped: %s\n", p);
-    printf("attach after rmid: %s\n", shmat(id, NULL, 0) == (void *)-1 ? "refused" : "allowed");
+    /* GTK and cairo mark a segment removed right after asking X to attach it: it still attaches */
+    char *again = shmat(id, NULL, 0);
+    printf("attach after rmid: %s\n", again == (void *)-1 ? "refused" : again);
+    if (again != (void *)-1) shmdt(again);
+    struct shmid_ds rds;
+    printf("removed mode: %s\n", shmctl(id, IPC_STAT, &rds) == 0 && (rds.shm_perm.mode & 01000) ? "SHM_DEST" : "live");
     shmdt(p);
     /* a key: the peer finds the segment by it */
     int kid = shmget(0x5ca1ab1e, 8192, IPC_CREAT | 0600);
@@ -520,6 +525,10 @@ int main(void) {
            shmctl(kid, IPC_SET, NULL) < 0 ? "refused" : "allowed");
     shmctl(kid, IPC_RMID, NULL);
     printf("key after rmid: %s\n", shmget(0x5ca1ab1e, 0, 0) < 0 ? "gone" : "still there");
+    /* once their time is over, the next segment made deletes the removed ones' files */
+    setenv("CORTEX_SHM_RMID_GRACE", "0", 1);
+    int last = shmget(IPC_PRIVATE, 4096, IPC_CREAT | 0600);
+    shmctl(last, IPC_RMID, NULL);
     return 0;
 }
 EOC
@@ -527,7 +536,7 @@ out=$(run "$work/shm_main")
 check "the segment is the hook's (a file), not the kernel's" sh -c 'echo "$1" | grep -q "backed by a file"' sh "$out"
 check "a segment is shared with another process" sh -c 'echo "$1" | grep -q "peer read: ping" && echo "$1" | grep -q "peer exit 0, wrote back: pong"' sh "$out"
 check "IPC_STAT tells its size" sh -c 'echo "$1" | grep -q "stat 0 size 4096"' sh "$out"
-check "IPC_RMID keeps the mapping and refuses new attaches" sh -c 'echo "$1" | grep -q "rmid 0" && echo "$1" | grep -q "still mapped: ping" && echo "$1" | grep -q "attach after rmid: refused"' sh "$out"
+check "IPC_RMID keeps the mapping and still lets it be attached (X's MIT-SHM)" sh -c 'echo "$1" | grep -q "rmid 0" && echo "$1" | grep -q "still mapped: ping" && echo "$1" | grep -q "attach after rmid: ping" && echo "$1" | grep -q "removed mode: SHM_DEST"' sh "$out"
 check "a key finds its segment, IPC_EXCL is refused" sh -c 'echo "$1" | grep -q "same key again: same id" && echo "$1" | grep -q "exclusive: refused" && echo "$1" | grep -q "key peer exit 0, wrote back: pong" && echo "$1" | grep -q "key after rmid: gone"' sh "$out"
 echo "$out" | grep -q "key after rmid: gone" || echo "$out" | sed 's/^/        /'
 check "IPC_SET keeps the new rights (read-only), a NULL buffer is refused" sh -c 'echo "$1" | grep -q "ipc_set 0 mode 444, null refused"' sh "$out"

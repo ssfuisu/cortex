@@ -4,6 +4,17 @@ What changed in each version of Cortex Terminal, newest first. The release workf
 of a GitHub release from the section of its version here. Older versions are described on the
 [GitHub releases](https://github.com/ssfuisu/cortex/releases) page.
 
+## 1.27.3 (2026-11-09)
+
+### Fixed
+
+- **XFCE did not start: "BadAccess (attempt to access private resource denied)" (MIT-SHM).** GTK
+  and cairo make a shared memory segment, ask the X server to attach it and mark it removed at once,
+  before the server has attached it. On Linux a removed segment can still be attached while anyone
+  has it attached; Cortex's emulation of System V shared memory deleted it right away, so the X
+  server's attach failed and xfce4-session stopped. A removed segment now stays attachable for 30
+  seconds, its key is gone at once, and IPC_STAT shows it as removed (SHM_DEST), as on Linux.
+
 ## 1.27.2 (2026-11-08)
 
 ### Fixed
