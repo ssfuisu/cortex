@@ -12,8 +12,8 @@ of a GitHub release from the section of its version here. Older versions are des
   and cairo make a shared memory segment, ask the X server to attach it and mark it removed at once,
   before the server has attached it. On Linux a removed segment can still be attached while anyone
   has it attached; Cortex's emulation of System V shared memory deleted it right away, so the X
-  server's attach failed and xfce4-session stopped. A removed segment now stays attachable for 30
-  seconds, its key is gone at once, and IPC_STAT shows it as removed (SHM_DEST), as on Linux.
+  server's attach failed and xfce4-session stopped. A removed segment now stays attachable for up to
+  30 seconds (or until the program that made it exits), its key is gone at once, and IPC_STAT shows it as removed (SHM_DEST), as on Linux.
 
 ## 1.27.2 (2026-11-08)
 

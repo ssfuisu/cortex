@@ -50,6 +50,21 @@ static long shm_rmid_grace(void) {
     return v && *v ? atol(v) : SHM_RMID_GRACE;
 }
 
+// Seconds since boot, for the grace period: the same in every process and not moved by a change of
+// the wall clock. Never 0 (0 means "not removed" in the metadata).
+static long shm_clock(void) {
+    struct timespec ts;
+    if (clock_gettime(CLOCK_BOOTTIME, &ts) != 0 && clock_gettime(CLOCK_MONOTONIC, &ts) != 0) return 1;
+    return ts.tv_sec > 0 ? (long)ts.tv_sec : 1;
+}
+
+// Whether the grace period of a segment removed at the time `removed` is over. A time ahead of the
+// clock was written before a reboot: it is over.
+static int shm_grace_over(long removed) {
+    long now = shm_clock();
+    return now < removed || now - removed >= shm_rmid_grace();
+}
+
 struct shm_attach {
     void *addr;
     size_t size;
@@ -161,7 +176,7 @@ static void shm_collect(void) {
                 meta.removed = 0;
                 if (shm_read_small(entry, text, sizeof(text)) > 0 &&
                     sscanf(text, "%d %lx %o %lu %ld", &meta.pid, &meta.key, &meta.mode, &size, &meta.removed) >= 3 &&
-                    (!shm_process_alive(meta.pid) || (meta.removed && time(NULL) - meta.removed >= shm_rmid_grace()))) {
+                    (!shm_process_alive(meta.pid) || (meta.removed && shm_grace_over(meta.removed)))) {
                     dead[ndead++] = id;
                 }
             }
@@ -518,9 +533,8 @@ int shmctl(int shmid, int cmd, struct shmid_ds *buf) {
         }
         char name[32], text[128];
         snprintf(name, sizeof(name), "id-%d", shmid);
-        long now = (long)time(NULL);
         int len = snprintf(text, sizeof(text), "%d %lx %o %lu %ld\n", meta.pid, meta.key, meta.mode, (unsigned long)meta.size,
-                           now > 0 ? now : 1);
+                           shm_clock());
         if (shm_publish(name, shmid, text, (size_t)len, 0) != 0) shm_remove(shmid, IPC_PRIVATE);
         shm_collect();
         return 0;
