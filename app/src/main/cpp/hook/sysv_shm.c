@@ -12,10 +12,11 @@
 //   key-K   for a segment with a key: the N it belongs to (K in hex)
 //
 // N is chosen at random and claimed with O_EXCL, so processes never pick the same one. IPC_RMID
-// removes the files at once: programs that attached the segment keep their mapping (as on Linux),
-// later attaches fail, which is what X programs expect (they remove a segment as soon as the X
-// server has attached it). The segments of processes that ended without removing theirs are deleted
-// by the next shmget() that creates one.
+// takes the key away at once and marks the segment removed; programs that attached it keep their
+// mapping, and it can still be attached for SHM_RMID_GRACE seconds (Linux allows it while anyone has
+// it attached; X programs mark a segment removed right after asking the X server to attach it).
+// Removed segments past that time, and those of processes that ended without removing theirs, are
+// deleted by the next shmget() that creates one.
 
 #ifndef CORTEX_HOST_TEST
 
@@ -34,7 +35,35 @@ struct shm_meta {
     long key;
     unsigned mode;
     size_t size;
+    long removed; // when IPC_RMID marked it (seconds), 0 while it is not
 };
+
+// A segment marked with IPC_RMID can still be attached for this long. On Linux it can be attached as
+// long as anyone has it attached, and X programs count on that: GTK and cairo create a segment, send
+// the X server ShmAttach and mark the segment removed at once, before the server has attached it (it
+// then answered BadAccess and XFCE did not start). The time can be changed for tests with
+// CORTEX_SHM_RMID_GRACE (seconds).
+#define SHM_RMID_GRACE 30
+
+static long shm_rmid_grace(void) {
+    const char *v = getenv("CORTEX_SHM_RMID_GRACE");
+    return v && *v ? atol(v) : SHM_RMID_GRACE;
+}
+
+// Seconds since boot, for the grace period: the same in every process and not moved by a change of
+// the wall clock. Never 0 (0 means "not removed" in the metadata).
+static long shm_clock(void) {
+    struct timespec ts;
+    if (clock_gettime(CLOCK_BOOTTIME, &ts) != 0 && clock_gettime(CLOCK_MONOTONIC, &ts) != 0) return 1;
+    return ts.tv_sec > 0 ? (long)ts.tv_sec : 1;
+}
+
+// Whether the grace period of a segment removed at the time `removed` is over. A time ahead of the
+// clock was written before a reboot: it is over.
+static int shm_grace_over(long removed) {
+    long now = shm_clock();
+    return now < removed || now - removed >= shm_rmid_grace();
+}
 
 struct shm_attach {
     void *addr;
@@ -91,7 +120,8 @@ static int shm_read_meta(int id, struct shm_meta *meta) {
         int n = shm_read_small(name, text, sizeof(text));
         if (n < 0) break;
         unsigned long size = 0;
-        if (n > 0 && sscanf(text, "%d %lx %o %lu", &meta->pid, &meta->key, &meta->mode, &size) == 4) {
+        meta->removed = 0;
+        if (n > 0 && sscanf(text, "%d %lx %o %lu %ld", &meta->pid, &meta->key, &meta->mode, &size, &meta->removed) >= 4) {
             meta->size = (size_t)size;
             return 0;
         }
@@ -142,8 +172,11 @@ static void shm_collect(void) {
                 int id = atoi(entry + 3);
                 char text[128];
                 struct shm_meta meta;
+                unsigned long size = 0;
+                meta.removed = 0;
                 if (shm_read_small(entry, text, sizeof(text)) > 0 &&
-                    sscanf(text, "%d %lx %o", &meta.pid, &meta.key, &meta.mode) == 3 && !shm_process_alive(meta.pid)) {
+                    sscanf(text, "%d %lx %o %lu %ld", &meta.pid, &meta.key, &meta.mode, &size, &meta.removed) >= 3 &&
+                    (!shm_process_alive(meta.pid) || (meta.removed && shm_grace_over(meta.removed)))) {
                     dead[ndead++] = id;
                 }
             }
@@ -460,11 +493,11 @@ int shmctl(int shmid, int cmd, struct shmid_ds *buf) {
             return -1;
         }
         memset(buf, 0, sizeof(*buf));
-        buf->shm_perm.__key = (key_t)meta.key;
+        buf->shm_perm.__key = meta.removed ? IPC_PRIVATE : (key_t)meta.key;
         // The owner's rights for everyone of the app: X compares the uid of its client with the owner's,
         // and the two can differ in Cortex (root emulated for one, not the other)
         unsigned owner = meta.mode & 0600;
-        buf->shm_perm.mode = (unsigned short)(owner | (owner >> 3) | (owner >> 6));
+        buf->shm_perm.mode = (unsigned short)(owner | (owner >> 3) | (owner >> 6) | (meta.removed ? 01000 /* SHM_DEST */ : 0));
         buf->shm_perm.uid = buf->shm_perm.cuid = geteuid();
         buf->shm_perm.gid = buf->shm_perm.cgid = getegid();
         buf->shm_segsz = meta.size;
@@ -481,13 +514,31 @@ int shmctl(int shmid, int cmd, struct shmid_ds *buf) {
         // the new rights are kept (owner and group stay the app's: there is no other user to give it to)
         char name[32], text[128];
         snprintf(name, sizeof(name), "id-%d", shmid);
-        int len = snprintf(text, sizeof(text), "%d %lx %o %lu\n", meta.pid, meta.key, buf->shm_perm.mode & 0777u,
-                           (unsigned long)meta.size);
+        int len = snprintf(text, sizeof(text), "%d %lx %o %lu %ld\n", meta.pid, meta.key, buf->shm_perm.mode & 0777u,
+                           (unsigned long)meta.size, meta.removed);
         return shm_publish(name, shmid, text, (size_t)len, 0) == 0 ? 0 : -1;
     }
-    case IPC_RMID:
-        shm_remove(shmid, meta.key);
+    case IPC_RMID: {
+        if (meta.removed) return 0;
+        // The key no longer finds it at once; the segment itself stays attachable for a while (see
+        // SHM_RMID_GRACE), then the next shmget() that creates one deletes its files
+        if (meta.key != IPC_PRIVATE) {
+            char key_name[32], text[32];
+            snprintf(key_name, sizeof(key_name), "key-%lx", meta.key);
+            if (shm_read_small(key_name, text, sizeof(text)) > 0 && atoi(text) == shmid) shm_unlink_file(key_name);
+        }
+        if (shm_rmid_grace() <= 0) {
+            shm_remove(shmid, IPC_PRIVATE);
+            return 0;
+        }
+        char name[32], text[128];
+        snprintf(name, sizeof(name), "id-%d", shmid);
+        int len = snprintf(text, sizeof(text), "%d %lx %o %lu %ld\n", meta.pid, meta.key, meta.mode, (unsigned long)meta.size,
+                           shm_clock());
+        if (shm_publish(name, shmid, text, (size_t)len, 0) != 0) shm_remove(shmid, IPC_PRIVATE);
+        shm_collect();
         return 0;
+    }
     default:
         errno = EINVAL;
         return -1;
