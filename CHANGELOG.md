@@ -4,6 +4,15 @@ What changed in each version of Cortex Terminal, newest first. The release workf
 of a GitHub release from the section of its version here. Older versions are described on the
 [GitHub releases](https://github.com/ssfuisu/cortex/releases) page.
 
+## 1.27.4 (2026-11-09)
+
+### Fixed
+
+- **A custom terminal font copied in or replaced was not used (#58).** With Custom Font selected
+  before `~/.cortex/font.ttf` existed, Cortex kept the fallback font, and a replaced file kept the
+  old one, until another font was selected and Custom Font again. The file's size and date are now
+  checked whenever Cortex comes back to the front, and a new or changed file is loaded.
+
 ## 1.27.3 (2026-11-09)
 
 ### Fixed
