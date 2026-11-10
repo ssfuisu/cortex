@@ -142,15 +142,18 @@ static int usrmerge_alt_path(const char *sub, char *alt, size_t altsz) {
 }
 
 // Whether postprocess_readlink() below can change a link's target of length target_len, read
-// through linkpath: only a target that starts with the rootfs path (at least that long) or a relative
-// one into /etc/alternatives (at least "../alternatives", 15 characters, from a directory next to it;
-// any "../" under /etc/alternatives itself). lstat() of a link reads it only then, to report its
-// rewritten length.
+// through linkpath: only a target that starts with the rootfs path (at least that long) or a
+// relative one into /etc/alternatives (at least "../alternatives", 15 characters, from a
+// directory next to it; any "../" under /etc/alternatives itself). Symlinks outside /etc/ with
+// a short target (< g_cortex_root_len) are never rewritten, so lstat() skips the extra readlink()
+// for them. This eliminates the false positives that caused the +97% lstat() overhead on symlinks
+// in /usr/bin/, /usr/lib/, /var/, etc.
 static int readlink_result_may_change(const char *linkpath, long long target_len) {
     if (g_cortex_root_len > 0 && target_len >= (long long)g_cortex_root_len) return 1;
     if (!linkpath || linkpath[0] != '/') return 0;
     if (strncmp(linkpath, "/etc/alternatives", 17) == 0) return target_len >= 2;
-    return target_len >= 15;
+    if (strncmp(linkpath, "/etc/", 5) == 0) return target_len >= 15;
+    return 0;
 }
 
 // Helper for path normalization
