@@ -18,12 +18,14 @@ import java.util.Locale
 
 /**
  * A text file with what helps to find a problem: the app's and the phone's versions, the state of
- * the Ubuntu system and root mode, and the app's own log (Android lets an app read only its own).
+ * the Ubuntu system and root mode, the desktop's log, and the app's own log (Android lets an app
+ * read only its own).
  * Settings > Send a bug report shares it with an app the user picks; nothing is sent otherwise.
  */
 object BugReport {
     private const val LOG_LINES = 4000
     private const val LOG_LIMIT = 2_000_000
+    private const val DESKTOP_LOG_LINES = 300
 
     fun write(context: Context): File {
         val dir = File(context.cacheDir, "reports")
@@ -83,8 +85,20 @@ object BugReport {
             "hook library" to File(root, "usr/lib/libcortex-hook.so").let { if (it.isFile) "${it.length()} bytes" else "missing" },
             "missing" to BootstrapManager.missingEssentials(root).joinToString().ifEmpty { "nothing" }
         )
-        return format(sections) + "\n== Log (newest $LOG_LINES lines)\n" + appLog()
+        sections["Desktop"] = listOf(
+            "installed" to (org.cortex.terminal.desktop.DesktopAddon.installedKind(context) ?: "no"),
+            "running" to org.cortex.terminal.desktop.DesktopAddon.isRunning(context).toString()
+        )
+        // What the X server and the desktop's session wrote: the only place their errors are
+        val desktopLog = readOrNull(File(Environment.getHomeDir(context), ".cortex/desktop.log"))
+        return format(sections) +
+            (if (desktopLog.isNullOrBlank()) "" else "== Desktop log (newest $DESKTOP_LOG_LINES lines)\n${lastLines(desktopLog, DESKTOP_LOG_LINES)}\n\n") +
+            "== Log (newest $LOG_LINES lines)\n" + appLog()
     }
+
+    /** The last [count] lines of a text. */
+    internal fun lastLines(text: String, count: Int): String =
+        text.trimEnd('\n').lines().takeLast(count).joinToString("\n")
 
     /** The sections as "== Name" headings with "key: value" lines; missing values are marked. */
     internal fun format(sections: Map<String, List<Pair<String, String?>>>): String = buildString {

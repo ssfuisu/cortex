@@ -48,4 +48,11 @@ class BugReportTest {
         assertEquals(2, BugReport.packageCount(status))
         assertEquals(0, BugReport.packageCount(""))
     }
+
+    @Test
+    fun lastLines_keepsTheNewestLines() {
+        assertEquals("c\nd", BugReport.lastLines("a\nb\nc\nd\n", 2))
+        assertEquals("a\nb", BugReport.lastLines("a\nb", 5))
+        assertEquals("", BugReport.lastLines("", 3))
+    }
 }
