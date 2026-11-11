@@ -58,7 +58,7 @@ static int refused_in_repaired_dir(int dirfd, const char *name) {
     return fixed;
 }
 
-static int dlopen_preload_deps(const char *path, void *(*orig_dlopen)(const char *, int), int depth);
+static int dlopen_preload_deps(const char *name, void *(*orig_dlopen)(const char *, int));
 
 // Hook dlopen and dlmopen
 void *dlopen(const char *filename, int flags) {
@@ -70,10 +70,13 @@ void *dlopen(const char *filename, int flags) {
     char buf[PATH_MAX];
     const char *target = rewrite_path(filename, buf, sizeof(buf));
     void *handle = orig_dlopen(target, flags);
-    if (!handle && target[0] == '/' && !(flags & RTLD_NOLOAD)) {
-        // Its dependencies may be in its RUNPATH, which ld.so looked for outside the rootfs
+    if (!handle && !(flags & RTLD_NOLOAD)) {
+        // Its dependencies, or theirs, may be in a RUNPATH, which ld.so looked for outside the rootfs
+        // Asked again in any case: with what was loaded, or for dlerror() to have ld.so's own words
+        // (the look for the dependencies replaced them)
         int saved = errno;
-        if (dlopen_preload_deps(target, orig_dlopen, 0) > 0) handle = orig_dlopen(target, flags);
+        dlopen_preload_deps(target, orig_dlopen);
+        handle = orig_dlopen(target, flags);
         if (!handle) errno = saved;
     }
     return handle;

@@ -4,6 +4,36 @@ What changed in each version of Cortex Terminal, newest first. The release workf
 of a GitHub release from the section of its version here. Older versions are described on the
 [GitHub releases](https://github.com/ssfuisu/cortex/releases) page.
 
+## 1.27.5 (2026-11-11)
+
+### Fixed
+
+- **XFCE: "Unable to contact settings server. The connection is closed".** Every program in Cortex
+  sees itself as root, but the kernel told a server the app's real user for the program at the other
+  end of a Unix socket. dbus-daemon compares the two and closed every connection to the session bus,
+  so XFCE's settings service could not be reached and the session stopped at that message. The other
+  end is now shown as the user programs see for themselves (SO_PEERCRED, received SCM_CREDENTIALS).
+  The session bus works for other programs too.
+- **XFCE's panel ended at once and the desktop stayed black.** Cortex does not build the database
+  of file types when packages are installed, and GTK cannot load an icon without it. `cortex-desktop`
+  now builds it, and the database of the programs that open files, when the desktop is installed or
+  started and a package has added to them.
+- **"Plugin PulseAudio Plugin unexpectedly left the panel".** A library loaded with dlopen() did
+  not find what one of its dependencies keeps in a directory of its own (libpulse.so.0 and its
+  libpulsecommon). The same kept programs that load libpulse by name from having sound.
+
+- **Every start of the desktop left a PulseAudio behind.** `pulseaudio --kill` looks for a process
+  named pulseaudio and found none (Cortex's programs run as ld.so), so the old one was never
+  stopped and the new one started without its socket: after the desktop was started again its sound
+  went to a daemon nobody listened to. The desktop now keeps track of its PulseAudio itself, and
+  ends the ones older versions left.
+
+### Changed
+
+- XFCE starts with its compositor off (shadows and transparency are drawn by the CPU here); it can
+  be turned on in Settings > Window Manager Tweaks. The desktops install the SVG icon loader.
+- A bug report has the desktop's state and the last lines of its log (`~/.cortex/desktop.log`).
+
 ## 1.27.4 (2026-11-09)
 
 ### Fixed

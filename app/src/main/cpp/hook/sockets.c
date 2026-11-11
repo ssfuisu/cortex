@@ -201,6 +201,16 @@ static int real_scm_credentials(const struct msghdr *msg, struct msghdr *mod, ch
     return 1;
 }
 
+// The other end of a Unix socket as the kernel names it (SO_PEERCRED, a received SCM_CREDENTIALS)
+// is the app's real user, while every program here sees itself as root (getuid() is 0). A server
+// that compares the two refuses its own user: dbus-daemon closed every connection to the session
+// bus, and XFCE stopped at "Unable to contact settings server: The connection is closed". The
+// app's own ids are shown as the ids programs see for themselves; any other id is left as it is.
+static void peer_cred_as_seen_here(struct ucred *cred) {
+    if (cred->uid == (uid_t)call_orig_syscall(CORTEX_NR_REAL_GETUID, 0, 0, 0, 0, 0, 0)) cred->uid = getuid();
+    if (cred->gid == (gid_t)call_orig_syscall(CORTEX_NR_REAL_GETGID, 0, 0, 0, 0, 0, 0)) cred->gid = getgid();
+}
+
 ssize_t sendmsg(int sockfd, const struct msghdr *msg, int flags) {
     static ssize_t (*orig_sendmsg)(int, const struct msghdr *, int) = NULL;
     if (!orig_sendmsg) orig_sendmsg = (ssize_t (*)(int, const struct msghdr *, int))dlsym(RTLD_NEXT, "sendmsg");
@@ -255,6 +265,32 @@ ssize_t recvmsg(int sockfd, struct msghdr *msg, int flags) {
         int saved_errno = errno;
         restore_dns_source(sockfd, (struct sockaddr *)msg->msg_name, cap, &msg->msg_namelen);
         errno = saved_errno;
+    }
+    if (ret >= 0 && msg && msg->msg_control && msg->msg_controllen >= sizeof(struct cmsghdr)) {
+        for (struct cmsghdr *c = CMSG_FIRSTHDR(msg); c; c = CMSG_NXTHDR(msg, c)) {
+            if (c->cmsg_level != SOL_SOCKET || c->cmsg_type != SCM_CREDENTIALS || c->cmsg_len < CMSG_LEN(sizeof(struct ucred))) continue;
+            struct ucred cred;
+            memcpy(&cred, CMSG_DATA(c), sizeof(cred));
+            peer_cred_as_seen_here(&cred);
+            memcpy(CMSG_DATA(c), &cred, sizeof(cred));
+        }
+    }
+    return ret;
+}
+
+int getsockopt(int sockfd, int level, int optname, void *optval, socklen_t *optlen) {
+    static int (*orig_getsockopt)(int, int, int, void *, socklen_t *) = NULL;
+    if (!orig_getsockopt) orig_getsockopt = (int (*)(int, int, int, void *, socklen_t *))dlsym(RTLD_NEXT, "getsockopt");
+    if (!orig_getsockopt) {
+        errno = ENOSYS;
+        return -1;
+    }
+    int ret = orig_getsockopt(sockfd, level, optname, optval, optlen);
+    if (ret == 0 && level == SOL_SOCKET && optname == SO_PEERCRED && optval && optlen && *optlen >= sizeof(struct ucred)) {
+        struct ucred cred;
+        memcpy(&cred, optval, sizeof(cred));
+        peer_cred_as_seen_here(&cred);
+        memcpy(optval, &cred, sizeof(cred));
     }
     return ret;
 }

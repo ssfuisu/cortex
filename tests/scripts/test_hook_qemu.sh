@@ -566,19 +566,64 @@ out=$(run "$work/load_plugin")
 check "dlopen() of a library whose dependency is in its RUNPATH" test "$out" = "plugin 100"
 [ "$out" = "plugin 100" ] || echo "        got: $out"
 
+# The RUNPATH of a dependency: a plugin without one needs a library that ld.so finds, which needs
+# another in its own RUNPATH (XFCE's PulseAudio plugin: libpulse.so.0, then libpulsecommon). And a
+# library asked for by its name alone (dlopen("libpulse.so.0"), as Firefox and SDL do).
+mkdir -p "$work/root/usr/lib/aarch64-linux-gnu/deepdeps" "$work/root/usr/lib/mid"
+echo 'int deep_value(void) { return 40; }' | aarch64-linux-gnu-gcc -shared -fPIC -w -Wl,-soname,libdeep.so.1 \
+  -o "$work/root/usr/lib/aarch64-linux-gnu/deepdeps/libdeep.so.1" -x c - || { echo "libdeep did not build"; exit 1; }
+printf 'int deep_value(void);\nint mid_value(void) { return deep_value() + 1; }\n' |
+  aarch64-linux-gnu-gcc -shared -fPIC -w -Wl,-soname,libmid.so.1 -o "$work/root/usr/lib/mid/libmid.so.1" -x c - -x none \
+    "$work/root/usr/lib/aarch64-linux-gnu/deepdeps/libdeep.so.1" \
+    -Wl,--enable-new-dtags,-rpath,/usr/lib/aarch64-linux-gnu/deepdeps || { echo "libmid did not build"; exit 1; }
+printf 'int mid_value(void);\nint plugin_value(void) { return mid_value() + 1; }\n' |
+  aarch64-linux-gnu-gcc -shared -fPIC -w -o "$work/root/usr/lib/plugins/plugin2.so" -x c - -x none \
+    "$work/root/usr/lib/mid/libmid.so.1" || { echo "plugin2 did not build"; exit 1; }
+prog load_plugin2 <<'EOC'
+#include <dlfcn.h>
+#include <stdio.h>
+#include <string.h>
+int main(int argc, char **argv) {
+    void *h = dlopen(argv[1], RTLD_NOW);
+    if (!h) {
+        const char *e = dlerror();
+        printf("dlopen failed: %s\n", e && strstr(e, "cannot open shared object file") ? "cannot open shared object file" : (e ? e : "no message"));
+        return 1;
+    }
+    int (*f)(void) = (int (*)(void))dlsym(h, argv[2]);
+    printf("%s %d\n", argv[2], f ? f() : -1);
+    return 0;
+}
+EOC
+run_mid() {
+  (cd "$work" && env -i CORTEX_ROOT="$work/root" HOME="$work" timeout 60 qemu-aarch64 "$cross/ld-linux-aarch64.so.1" \
+    --preload "$work/hook.so" --library-path "$cross:$work/root/usr/lib/mid" "$work/load_plugin2" "$@" 2>&1 | grep -v "cannot be preloaded")
+}
+out="$(run_mid /usr/lib/plugins/plugin2.so plugin_value); $(run_mid libmid.so.1 mid_value); $(run_mid libnothere.so.9 x)"
+check "dlopen() finds what a dependency has in its own RUNPATH, also for a library asked for by name" \
+  test "$out" = "plugin_value 42; mid_value 41; dlopen failed: cannot open shared object file"
+[ "$out" = "plugin_value 42; mid_value 41; dlopen failed: cannot open shared object file" ] || echo "        got: $out"
+
 # Credentials over a Unix socket (SCM_CREDENTIALS) go out as the process's real ones: getuid() is
-# root's 0 here, and the kernel refuses ids that are not the sender's (PulseAudio's clients failed)
+# root's 0 here, and the kernel refuses ids that are not the sender's (PulseAudio's clients failed).
+# What comes in (SCM_CREDENTIALS, SO_PEERCRED) is shown as the ids a program sees for itself: a
+# server that compares its peer with getuid() refused its own user (dbus-daemon, so XFCE's settings)
 prog send_creds <<'EOC'
 #define _GNU_SOURCE
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
 #include <sys/socket.h>
+#include <sys/syscall.h>
 int main(void) {
     int sv[2];
     if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv) != 0) return 2;
     int on = 1;
     setsockopt(sv[1], SOL_SOCKET, SO_PASSCRED, &on, sizeof(on));
+    struct ucred peer = { 0, 12345, 12345 };
+    socklen_t peer_len = sizeof(peer);
+    if (getsockopt(sv[0], SOL_SOCKET, SO_PEERCRED, &peer, &peer_len) == 0)
+        printf("peer ids %u %u, mine %u %u\n", (unsigned)peer.uid, (unsigned)peer.gid, (unsigned)getuid(), (unsigned)getgid());
     struct ucred cred = { getpid(), getuid(), getgid() };
     char ctrl[CMSG_SPACE(sizeof(cred))];
     char byte = 'x';
@@ -616,10 +661,12 @@ int main(void) {
 }
 EOC
 out=$(run "$work/send_creds")
-# the ids the kernel knows (this shell's: the hook emulates root only inside); as root they are both
-# 0 and the rewrite cannot be told apart, CI runs the tests as a user
-check "SCM_CREDENTIALS are sent with the real ids" sh -c 'echo "$1" | grep -q "sendmsg sent" && echo "$1" | grep -q "received pid mine" && echo "$1" | grep -q "received ids $2 $3"' sh "$out" "$(id -u)" "$(id -g)"
-echo "$out" | grep -q "received pid mine" || echo "$out" | sed 's/^/        /'
+# The kernel takes only the sender's real ids (this shell's: the hook emulates root only inside), so
+# a message that went out had them; as root they are 0 as well and the rewrite cannot be told apart,
+# CI runs the tests as a user
+check "SCM_CREDENTIALS are sent with the real ids" sh -c 'echo "$1" | grep -q "sendmsg sent" && echo "$1" | grep -q "received pid mine"' sh "$out"
+check "the peer of a Unix socket has the ids the program sees for itself" sh -c 'echo "$1" | grep -q "peer ids 0 0, mine 0 0" && echo "$1" | grep -q "received ids 0 0"' sh "$out"
+echo "$out" | grep -q "received ids 0 0" || echo "$out" | sed 's/^/        /'
 
 echo
 echo "$passed passed, $failed failed"
