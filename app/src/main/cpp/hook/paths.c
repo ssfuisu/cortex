@@ -164,7 +164,8 @@ static int readlink_result_may_change(const char *linkpath, long long target_len
     if (g_cortex_root_len > 0 && target_len >= (long long)g_cortex_root_len) return 1;
     if (!linkpath || linkpath[0] != '/') return 0;
     if (strncmp(linkpath, "/etc/alternatives", 17) == 0) return target_len >= 2;
-    if (strncmp(linkpath, "/etc/", 5) == 0) return target_len >= 15;
+    // "/usr/../etc/x", "//etc/x": where the link is is not read off the start of such a path
+    if (strncmp(linkpath, "/etc/", 5) == 0 || strstr(linkpath, "/..") || strstr(linkpath, "//")) return target_len >= 15;
     return target_len >= 19;
 }
 

@@ -294,6 +294,15 @@ int recvmmsg(int sockfd, struct mmsghdr *msgvec, unsigned int vlen, int flags, s
     return ret;
 }
 
+static void peer_cred_option_as_seen_here(int ret, int level, int optname, void *optval, socklen_t *optlen) {
+    if (ret == 0 && level == SOL_SOCKET && optname == SO_PEERCRED && optval && optlen && *optlen >= sizeof(struct ucred)) {
+        struct ucred cred;
+        memcpy(&cred, optval, sizeof(cred));
+        peer_cred_as_seen_here(&cred);
+        memcpy(optval, &cred, sizeof(cred));
+    }
+}
+
 int getsockopt(int sockfd, int level, int optname, void *optval, socklen_t *optlen) {
     static int (*orig_getsockopt)(int, int, int, void *, socklen_t *) = NULL;
     if (!orig_getsockopt) orig_getsockopt = (int (*)(int, int, int, void *, socklen_t *))dlsym(RTLD_NEXT, "getsockopt");
@@ -302,14 +311,50 @@ int getsockopt(int sockfd, int level, int optname, void *optval, socklen_t *optl
         return -1;
     }
     int ret = orig_getsockopt(sockfd, level, optname, optval, optlen);
-    if (ret == 0 && level == SOL_SOCKET && optname == SO_PEERCRED && optval && optlen && *optlen >= sizeof(struct ucred)) {
-        struct ucred cred;
-        memcpy(&cred, optval, sizeof(cred));
-        peer_cred_as_seen_here(&cred);
-        memcpy(optval, &cred, sizeof(cred));
-    }
+    peer_cred_option_as_seen_here(ret, level, optname, optval, optlen);
     return ret;
 }
+
+#if !defined(__LP64__)
+// The names glibc gives these calls in a program built with a 64-bit time_t on a 32-bit system,
+// as all of Ubuntu's armhf packages are: without them dbus-daemon there still saw the app's real
+// user. The timeout of __recvmmsg64 is a 64-bit timespec, which is only passed on.
+int __getsockopt64(int sockfd, int level, int optname, void *optval, socklen_t *optlen) {
+    static int (*orig)(int, int, int, void *, socklen_t *) = NULL;
+    if (!orig) orig = (int (*)(int, int, int, void *, socklen_t *))dlsym(RTLD_NEXT, "__getsockopt64");
+    if (!orig) return getsockopt(sockfd, level, optname, optval, optlen);
+    int ret = orig(sockfd, level, optname, optval, optlen);
+    peer_cred_option_as_seen_here(ret, level, optname, optval, optlen);
+    return ret;
+}
+
+ssize_t __recvmsg64(int sockfd, struct msghdr *msg, int flags) {
+    static ssize_t (*orig)(int, struct msghdr *, int) = NULL;
+    if (!orig) orig = (ssize_t (*)(int, struct msghdr *, int))dlsym(RTLD_NEXT, "__recvmsg64");
+    if (!orig) return recvmsg(sockfd, msg, flags);
+    socklen_t cap = msg ? msg->msg_namelen : 0;
+    ssize_t ret = orig(sockfd, msg, flags);
+    if (ret > 0 && msg && msg->msg_name) {
+        int saved_errno = errno;
+        restore_dns_source(sockfd, (struct sockaddr *)msg->msg_name, cap, &msg->msg_namelen);
+        errno = saved_errno;
+    }
+    if (ret >= 0) received_creds_as_seen_here(msg);
+    return ret;
+}
+
+int __recvmmsg64(int sockfd, struct mmsghdr *msgvec, unsigned int vlen, int flags, void *timeout) {
+    static int (*orig)(int, struct mmsghdr *, unsigned int, int, void *) = NULL;
+    if (!orig) orig = (int (*)(int, struct mmsghdr *, unsigned int, int, void *))dlsym(RTLD_NEXT, "__recvmmsg64");
+    if (!orig) {
+        errno = ENOSYS;
+        return -1;
+    }
+    int ret = orig(sockfd, msgvec, vlen, flags, timeout);
+    for (int i = 0; i < ret && msgvec; i++) received_creds_as_seen_here(&msgvec[i].msg_hdr);
+    return ret;
+}
+#endif
 
 int getpeername(int sockfd, struct sockaddr *addr, socklen_t *addrlen) {
     static int (*orig_getpeername)(int, struct sockaddr *, socklen_t *) = NULL;

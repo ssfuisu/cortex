@@ -60,6 +60,18 @@ static int refused_in_repaired_dir(int dirfd, const char *name) {
 
 static int dlopen_preload_deps(const char *name, void *(*orig_dlopen)(const char *, int));
 
+// RTLD_DEEPBIND makes a library, and the libraries it brings along, look for a function in their
+// own dependencies (libc) before the program's, which is before this hook: none of their calls
+// would be seen. PHP loads every extension that way, so an extension's files were looked for in
+// Android's tree and the memfd lock of its opcache was never reached (memfd_locks.c). Without the
+// flag they are bound like any other library.
+static int dlopen_flags_for_hook(int flags) {
+#ifdef RTLD_DEEPBIND
+    flags &= ~RTLD_DEEPBIND;
+#endif
+    return flags;
+}
+
 // Hook dlopen and dlmopen
 void *dlopen(const char *filename, int flags) {
     static void *(*orig_dlopen)(const char *, int) = NULL;
@@ -69,6 +81,7 @@ void *dlopen(const char *filename, int flags) {
 
     char buf[PATH_MAX];
     const char *target = rewrite_path(filename, buf, sizeof(buf));
+    flags = dlopen_flags_for_hook(flags);
     void *handle = orig_dlopen(target, flags);
     if (!handle && !(flags & RTLD_NOLOAD)) {
         // Its dependencies, or theirs, may be in a RUNPATH, which ld.so looked for outside the rootfs
@@ -89,7 +102,7 @@ void *dlmopen(Lmid_t lmid, const char *filename, int flags) {
 
     char buf[PATH_MAX];
     const char *target = rewrite_path(filename, buf, sizeof(buf));
-    return orig_dlmopen ? orig_dlmopen(lmid, target, flags) : NULL;
+    return orig_dlmopen ? orig_dlmopen(lmid, target, dlopen_flags_for_hook(flags)) : NULL;
 }
 
 // Hook open

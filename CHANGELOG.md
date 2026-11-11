@@ -38,6 +38,10 @@ of a GitHub release from the section of its version here. Older versions are des
   of its opcache in a memory file (memfd), and Android does not let an app lock one. A lock that
   Android refuses on a memfd is now taken on a file of Cortex's own, which the program's children
   share, so `php -S` and PHP-FPM start.
+- **PHP extensions looked for their files in Android's tree.** PHP loads every extension with
+  RTLD_DEEPBIND, which makes a library call libc directly, past Cortex's library: an extension's
+  absolute paths (a certificate bundle, a database file) were not Ubuntu's. Libraries are now loaded
+  without that flag.
 
 ### Changed
 

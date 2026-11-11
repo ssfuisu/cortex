@@ -622,10 +622,31 @@ static size_t ldso_search_dirs(void *(*orig_dlopen)(const char *, int), char *ou
     return used;
 }
 
-// `search` is ldso_search_dirs(), read once for a whole walk (NULL: not read yet, "" when unknown)
-static int dlopen_preload_deps_in(const char *path, void *(*orig_dlopen)(const char *, int), int depth, char *search, size_t search_size,
-                                  int *search_read) {
+// What one walk carries along: ldso_search_dirs(), read when first needed, and the libraries it
+// has read already (several of them need the same ones: each is read once)
+#define DLOPEN_WALK_SEEN 96
+struct dlopen_walk {
+    char *search;
+    size_t search_size;
+    int search_read;
+    uint64_t seen[DLOPEN_WALK_SEEN];
+    int nseen;
+};
+
+static uint64_t dlopen_walk_hash(const char *path) {
+    uint64_t h = 1469598103934665603ULL; // FNV-1a
+    for (const unsigned char *p = (const unsigned char *)path; *p; p++) h = (h ^ *p) * 1099511628211ULL;
+    return h ? h : 1;
+}
+
+static int dlopen_preload_deps_in(const char *path, void *(*orig_dlopen)(const char *, int), int depth, struct dlopen_walk *walk) {
     if (depth > DLOPEN_PRELOAD_DEPTH || !path || path[0] != '/') return 0;
+    uint64_t hash = dlopen_walk_hash(path);
+    for (int i = 0; i < walk->nseen; i++) {
+        if (walk->seen[i] == hash) return 0;
+    }
+    if (walk->nseen == DLOPEN_WALK_SEEN) return 0; // a tree this wide is not walked to its end
+    walk->seen[walk->nseen++] = hash;
     int fd = (int)syscall(SYS_openat, AT_FDCWD, path, O_RDONLY | O_CLOEXEC);
     if (fd < 0) return 0;
     unsigned char hdr[64];
@@ -658,16 +679,16 @@ static int dlopen_preload_deps_in(const char *path, void *(*orig_dlopen)(const c
         int found = 0, in_runpath = 0;
         if (kind == 2) found = in_runpath = find_in_lib_dirs(dirs, name, candidate, sizeof(candidate));
         if (!found) {
-            if (!*search_read) {
-                ldso_search_dirs(orig_dlopen, search, search_size);
-                *search_read = 1;
+            if (!walk->search_read) {
+                ldso_search_dirs(orig_dlopen, walk->search, walk->search_size);
+                walk->search_read = 1;
             }
-            found = find_in_lib_dirs(search, name, candidate, sizeof(candidate));
+            found = find_in_lib_dirs(walk->search, name, candidate, sizeof(candidate));
         }
         if (!found && kind != 2) found = in_runpath = find_in_lib_dirs(dirs, name, candidate, sizeof(candidate));
         if (!found) continue;
         // what it needs may be in its own RUNPATH, whoever finds it
-        loaded += dlopen_preload_deps_in(candidate, orig_dlopen, depth + 1, search, search_size, search_read);
+        loaded += dlopen_preload_deps_in(candidate, orig_dlopen, depth + 1, walk);
         // one that ld.so finds itself is left to it
         if (in_runpath && orig_dlopen(candidate, RTLD_LAZY | RTLD_LOCAL)) loaded++;
     }
@@ -677,15 +698,16 @@ static int dlopen_preload_deps_in(const char *path, void *(*orig_dlopen)(const c
 // `name` is the library asked for: a path (in the rootfs already), or a name that ld.so looks for
 static int dlopen_preload_deps(const char *name, void *(*orig_dlopen)(const char *, int)) {
     if (!name || !name[0]) return 0;
-    char *search = (char *)malloc(PATH_MAX * 4);
-    if (!search) return 0;
-    search[0] = '\0';
-    int search_read = 0, loaded = 0;
+    struct dlopen_walk *walk = (struct dlopen_walk *)calloc(1, sizeof(*walk) + PATH_MAX * 4);
+    if (!walk) return 0;
+    walk->search = (char *)(walk + 1);
+    walk->search_size = PATH_MAX * 4;
+    int loaded = 0;
     char found[PATH_MAX];
     if (name[0] != '/' && !strchr(name, '/')) {
-        ldso_search_dirs(orig_dlopen, search, PATH_MAX * 4);
-        search_read = 1;
-        name = find_in_lib_dirs(search, name, found, sizeof(found)) ? found : NULL;
+        ldso_search_dirs(orig_dlopen, walk->search, walk->search_size);
+        walk->search_read = 1;
+        name = find_in_lib_dirs(walk->search, name, found, sizeof(found)) ? found : NULL;
     } else if (name[0] != '/') {
         // "./plugins/x.so": from the directory the program is in (the kernel's name for it, which
         // is in the rootfs already), only to read the file; ld.so is asked with the caller's words
@@ -699,8 +721,8 @@ static int dlopen_preload_deps(const char *name, void *(*orig_dlopen)(const char
             name = NULL;
         }
     }
-    if (name && name[0] == '/') loaded = dlopen_preload_deps_in(name, orig_dlopen, 0, search, PATH_MAX * 4, &search_read);
-    free(search);
+    if (name && name[0] == '/') loaded = dlopen_preload_deps_in(name, orig_dlopen, 0, walk);
+    free(walk);
     return loaded;
 }
 
@@ -1025,10 +1047,14 @@ static void runpath_scan_dir(struct runpath_scan *scan, const char *dir, size_t 
     syscall(SYS_close, fd);
 }
 
+// Whether the list is not there and can be written: a system whose /etc/ld.so.conf.d is gone or
+// cannot be written is not read through by every program that starts
 static int runpath_conf_missing(void) {
-    char rw_buf[PATH_MAX];
+    char rw_buf[PATH_MAX], dir_buf[PATH_MAX];
     const char *real = rewrite_path_in_root(RUNPATH_CONF, rw_buf, sizeof(rw_buf));
-    return syscall(SYS_faccessat, AT_FDCWD, real, F_OK) != 0;
+    if (syscall(SYS_faccessat, AT_FDCWD, real, F_OK) == 0) return 0;
+    const char *dir = rewrite_path_in_root("/etc/ld.so.conf.d", dir_buf, sizeof(dir_buf));
+    return syscall(SYS_faccessat, AT_FDCWD, dir, W_OK | X_OK) == 0;
 }
 
 // Reads the libraries and writes the file when what it should hold changed

@@ -703,6 +703,27 @@ check "SCM_CREDENTIALS are sent with the real ids" sh -c 'echo "$1" | grep -q "s
 check "the peer of a Unix socket has the ids the program sees for itself" sh -c 'echo "$1" | grep -q "peer ids 0 0, mine 0 0" && echo "$1" | grep -q "received ids 0 0"' sh "$out"
 echo "$out" | grep -q "received ids 0 0" || echo "$out" | sed 's/^/        /'
 
+# A library loaded with RTLD_DEEPBIND (every PHP extension) looks for libc's functions in libc
+# before the hook: its calls were not seen, so it opened Android's files instead of Ubuntu's
+echo marker > "$work/root/etc/deepbind-marker"
+printf '#include <unistd.h>\nint plugin_sees(void) { return access("/etc/deepbind-marker", F_OK) == 0; }\n' |
+  aarch64-linux-gnu-gcc -shared -fPIC -w -o "$work/root/usr/lib/plugins/deepbind.so" -x c - || { echo "deepbind.so did not build"; exit 1; }
+prog load_deepbind <<'EOC'
+#define _GNU_SOURCE
+#include <dlfcn.h>
+#include <stdio.h>
+int main(void) {
+    void *h = dlopen("/usr/lib/plugins/deepbind.so", RTLD_NOW | RTLD_DEEPBIND);
+    if (!h) { printf("dlopen failed: %s\n", dlerror()); return 1; }
+    int (*f)(void) = (int (*)(void))dlsym(h, "plugin_sees");
+    printf("deepbind plugin %s\n", f && f() ? "sees Ubuntu's file" : "does not see Ubuntu's file");
+    return 0;
+}
+EOC
+out=$(run "$work/load_deepbind")
+check "a library loaded with RTLD_DEEPBIND still goes through the hook (PHP's extensions)" test "$out" = "deepbind plugin sees Ubuntu's file"
+[ "$out" = "deepbind plugin sees Ubuntu's file" ] || echo "        got: $out"
+
 # Locks on a memfd: Android's SELinux policy refuses them (EACCES), and PHP keeps its opcache lock in
 # one ("php -S": Cannot create lock - Permission denied). CORTEX_MEMFD_LOCKS=deny makes the hook act
 # as on Android; the lock is then taken on a file of its own, which a forked child shares.
@@ -716,6 +737,10 @@ prog memfd_lock <<'EOC'
 #include <sys/mman.h>
 #include <sys/wait.h>
 #include <unistd.h>
+static int try_lock(int fd) { // 1: taken, 0: someone else holds it
+    struct flock try = { .l_type = F_WRLCK, .l_whence = SEEK_SET, .l_start = 0, .l_len = 1 };
+    return fcntl(fd, F_SETLK, &try) == 0;
+}
 int main(void) {
     int fd = memfd_create("opcache_lock", MFD_CLOEXEC);
     if (fd < 0) { perror("memfd_create"); return 2; }
@@ -725,8 +750,7 @@ int main(void) {
     fflush(stdout);
     pid_t pid = fork();
     if (pid == 0) {
-        struct flock try = { .l_type = F_WRLCK, .l_whence = SEEK_SET, .l_start = 0, .l_len = 1 };
-        int held = fcntl(fd, F_SETLK, &try) == -1 && (errno == EAGAIN || errno == EACCES);
+        int held = !try_lock(fd);
         struct flock who = { .l_type = F_WRLCK, .l_whence = SEEK_SET, .l_start = 0, .l_len = 1 };
         int asked = fcntl(fd, F_GETLK, &who);
         printf("child: %s, holder %s\n", held ? "refused" : "got it too", asked == 0 && who.l_type == F_WRLCK && who.l_pid == getppid() ? "is the parent" : "unknown");
@@ -736,11 +760,51 @@ int main(void) {
     int status = 0;
     waitpid(pid, &status, 0);
     lock.l_type = F_UNLCK;
-    printf("unlock %d\n", fcntl(fd, F_SETLK, &lock));
+    rc = fcntl(fd, F_SETLK, &lock);
+    printf("unlock %d\n", rc);
+
+    // forked before either of them locked it: both still meet on the same lock
+    int early = memfd_create("early", MFD_CLOEXEC);
+    int to_child[2], to_parent[2];
+    if (pipe(to_child) != 0 || pipe(to_parent) != 0) return 3;
+    fflush(stdout);
+    pid = fork();
+    if (pid == 0) {
+        char c;
+        int mine = try_lock(early);
+        if (write(to_parent[1], "x", 1) != 1 || read(to_child[0], &c, 1) != 1) _exit(1);
+        _exit(mine ? 0 : 7);
+    }
+    char c;
+    if (read(to_parent[0], &c, 1) != 1) return 4;
+    int parent_got = try_lock(early); // the child holds it now
+    // through a second descriptor of the memfd it is the same lock
+    int alias = dup(early);
+    int alias_got = try_lock(alias);
+    if (write(to_child[1], "x", 1) != 1) return 5;
+    waitpid(pid, &status, 0);
+    printf("early fork: child %s, parent %s, alias %s\n", WIFEXITED(status) && WEXITSTATUS(status) == 0 ? "locked" : "failed",
+           parent_got ? "got it too" : "refused", alias_got ? "got it too" : "refused");
+
+    // closing the memfd gives its locks up, as closing a file does
+    int closing = memfd_create("closing", MFD_CLOEXEC);
+    int copy = dup(closing);
+    rc = try_lock(closing);
+    close(copy);
+    fflush(stdout);
+    pid = fork();
+    if (pid == 0) _exit(try_lock(closing) ? 0 : 7);
+    waitpid(pid, &status, 0);
+    printf("after close: locked %d, child %s\n", rc, WIFEXITED(status) && WEXITSTATUS(status) == 0 ? "locked" : "refused");
+
     int other = memfd_create("second", MFD_CLOEXEC);
-    printf("flock %d %d\n", flock(other, LOCK_EX | LOCK_NB), flock(other, LOCK_UN));
+    rc = flock(other, LOCK_EX | LOCK_NB);
+    int rc2 = flock(other, LOCK_UN);
+    printf("flock %d %d\n", rc, rc2);
     // a file that is not a memfd is not touched, and a refusal of another kind stays one
-    printf("bad fd %d %s\n", fcntl(-1, F_SETLK, &lock), errno == EBADF ? "EBADF" : "other");
+    rc = fcntl(-1, F_SETLK, &lock);
+    int bad = errno;
+    printf("bad fd %d %s\n", rc, bad == EBADF ? "EBADF" : "other");
     return 0;
 }
 EOC
@@ -750,9 +814,11 @@ out=$( (cd "$work" && env -i CORTEX_ROOT="$work/root" HOME="$work" CORTEX_MEMFD_
 want="lock 0 taken
 child: refused, holder is the parent
 unlock 0
+early fork: child locked, parent refused, alias refused
+after close: locked 1, child locked
 flock 0 0
 bad fd -1 EBADF"
-check "a memfd can be locked where Android refuses it, and a forked child sees the lock" test "$out" = "$want"
+check "a memfd can be locked where Android refuses it: children share the lock, closing gives it up" test "$out" = "$want"
 [ "$out" = "$want" ] || echo "$out" | sed 's/^/        /'
 
 echo
