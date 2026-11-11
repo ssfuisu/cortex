@@ -960,9 +960,9 @@ RUNS_SAME="$(wc -l < "$DR/tmp/mime-runs")"
 sleep 1.1
 echo "<mime-info/>" > "$DR/usr/share/mime/packages/gimp.xml"
 desktop_ start >/dev/null 2>&1
-if [ "$RUNS_SAME" = 1 ] && [ "$(wc -l < "$DR/tmp/mime-runs")" = 2 ] && [ "$(wc -l < "$DR/tmp/desktop-runs")" = 1 ] \
+if [ "$RUNS_SAME" = 1 ] && [ "$(wc -l < "$DR/tmp/mime-runs")" = 2 ] && [ "$(wc -l < "$DR/tmp/desktop-runs")" = 3 ] \
     && [ "$(cat "$XFWM")" = "mine" ]; then
-    pass "the databases are built again only after a package added to them, the user's XFCE settings stay"
+    pass "the file types are read again only after a package added to them, the user's XFCE settings stay"
 else
     fail "cortex-desktop database refresh: $RUNS_SAME then $(wc -l < "$DR/tmp/mime-runs") mime runs, $(wc -l < "$DR/tmp/desktop-runs") desktop runs, xfwm4.xml: $(cat "$XFWM")"
 fi

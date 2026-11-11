@@ -211,6 +211,18 @@ static void peer_cred_as_seen_here(struct ucred *cred) {
     if (cred->gid == (gid_t)call_orig_syscall(CORTEX_NR_REAL_GETGID, 0, 0, 0, 0, 0, 0)) cred->gid = getgid();
 }
 
+// The SCM_CREDENTIALS of a message that came in, shown the same way
+static void received_creds_as_seen_here(struct msghdr *msg) {
+    if (!msg || !msg->msg_control || msg->msg_controllen < sizeof(struct cmsghdr)) return;
+    for (struct cmsghdr *c = CMSG_FIRSTHDR(msg); c; c = CMSG_NXTHDR(msg, c)) {
+        if (c->cmsg_level != SOL_SOCKET || c->cmsg_type != SCM_CREDENTIALS || c->cmsg_len < CMSG_LEN(sizeof(struct ucred))) continue;
+        struct ucred cred;
+        memcpy(&cred, CMSG_DATA(c), sizeof(cred));
+        peer_cred_as_seen_here(&cred);
+        memcpy(CMSG_DATA(c), &cred, sizeof(cred));
+    }
+}
+
 ssize_t sendmsg(int sockfd, const struct msghdr *msg, int flags) {
     static ssize_t (*orig_sendmsg)(int, const struct msghdr *, int) = NULL;
     if (!orig_sendmsg) orig_sendmsg = (ssize_t (*)(int, const struct msghdr *, int))dlsym(RTLD_NEXT, "sendmsg");
@@ -266,15 +278,19 @@ ssize_t recvmsg(int sockfd, struct msghdr *msg, int flags) {
         restore_dns_source(sockfd, (struct sockaddr *)msg->msg_name, cap, &msg->msg_namelen);
         errno = saved_errno;
     }
-    if (ret >= 0 && msg && msg->msg_control && msg->msg_controllen >= sizeof(struct cmsghdr)) {
-        for (struct cmsghdr *c = CMSG_FIRSTHDR(msg); c; c = CMSG_NXTHDR(msg, c)) {
-            if (c->cmsg_level != SOL_SOCKET || c->cmsg_type != SCM_CREDENTIALS || c->cmsg_len < CMSG_LEN(sizeof(struct ucred))) continue;
-            struct ucred cred;
-            memcpy(&cred, CMSG_DATA(c), sizeof(cred));
-            peer_cred_as_seen_here(&cred);
-            memcpy(CMSG_DATA(c), &cred, sizeof(cred));
-        }
+    if (ret >= 0) received_creds_as_seen_here(msg);
+    return ret;
+}
+
+int recvmmsg(int sockfd, struct mmsghdr *msgvec, unsigned int vlen, int flags, struct timespec *timeout) {
+    static int (*orig_recvmmsg)(int, struct mmsghdr *, unsigned int, int, struct timespec *) = NULL;
+    if (!orig_recvmmsg) orig_recvmmsg = (int (*)(int, struct mmsghdr *, unsigned int, int, struct timespec *))dlsym(RTLD_NEXT, "recvmmsg");
+    if (!orig_recvmmsg) {
+        errno = ENOSYS;
+        return -1;
     }
+    int ret = orig_recvmmsg(sockfd, msgvec, vlen, flags, timeout);
+    for (int i = 0; i < ret && msgvec; i++) received_creds_as_seen_here(&msgvec[i].msg_hdr);
     return ret;
 }
 

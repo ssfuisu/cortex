@@ -114,25 +114,21 @@ real_tool() {
 # them out when packages are installed: they take time and a terminal has no use for them. But GTK
 # cannot load a single icon without the first (XFCE's panel ended at once, its desktop stayed
 # black), and a file manager does not know what opens a file without the second. They are built
-# here when they are missing or older than what a package added.
+# here: the first (a few seconds) when it is missing or a package added to or took from it (the
+# directory of its sources changed: a file dpkg unpacks keeps the date it has in the package, so the
+# files' own dates say nothing), the second (a moment) every time.
 refresh_databases() {
-    local tool dir cache newer real
-    for tool in update-mime-database update-desktop-database; do
-        if [ "$tool" = update-mime-database ]; then
-            dir="$R/usr/share/mime"
-            cache="$dir/mime.cache"
-            [ -d "$dir/packages" ] || continue
-            newer="$(find "$dir/packages" -newer "$cache" -print -quit 2>/dev/null)"
-        else
-            dir="$R/usr/share/applications"
-            cache="$dir/mimeinfo.cache"
-            [ -d "$dir" ] || continue
-            newer="$(find "$dir" -name '*.desktop' -newer "$cache" -print -quit 2>/dev/null)"
+    local dir real
+    dir="$R/usr/share/mime"
+    if [ -d "$dir/packages" ] && { [ ! -f "$dir/mime.cache" ] || [ -n "$(find "$dir/packages" -newer "$dir/mime.cache" -print -quit 2>/dev/null)" ]; }; then
+        if real="$(real_tool update-mime-database)"; then
+            "$real" "$dir" >/dev/null 2>&1 || echo "cortex-desktop: update-mime-database failed" >&2
         fi
-        if [ -f "$cache" ] && [ -z "$newer" ]; then continue; fi
-        real="$(real_tool "$tool")" || continue
-        "$real" "$dir" >/dev/null 2>&1 || echo "cortex-desktop: $tool failed" >&2
-    done
+    fi
+    dir="$R/usr/share/applications"
+    if [ -d "$dir" ] && real="$(real_tool update-desktop-database)"; then
+        "$real" "$dir" >/dev/null 2>&1 || echo "cortex-desktop: update-desktop-database failed" >&2
+    fi
 }
 
 installed_kind() {
@@ -297,11 +293,18 @@ EOF
 # never stopped, and every start of the desktop left one more behind, the new one without its socket
 # (the old one still held it). Ours are known by the pid kept at their start and by their socket.
 stop_audio() {
-    local pid i
+    local pid i theirs="module-native-protocol-unix socket=$STATE/pulse.sock"
     pid="$(cat "$STATE/pulse.pid" 2>/dev/null)"
     pid_is "$pid" pulseaudio && kill "$pid" 2>/dev/null
-    command -v pkill >/dev/null 2>&1 && pkill -f "module-native-protocol-unix socket=$STATE/pulse.sock" 2>/dev/null
-    for i in $(seq 1 30); do pid_is "$pid" pulseaudio || break; sleep 0.1; done
+    command -v pkill >/dev/null 2>&1 && pkill -f "$theirs" 2>/dev/null
+    # all of them gone before the socket is taken away: one that ends later removes it as it goes,
+    # which would be the next one's
+    for i in $(seq 1 30); do
+        if ! pid_is "$pid" pulseaudio && ! { command -v pgrep >/dev/null 2>&1 && pgrep -f "$theirs" >/dev/null 2>&1; }; then break; fi
+        sleep 0.1
+    done
+    if pid_is "$pid" pulseaudio; then kill -9 "$pid" 2>/dev/null; fi
+    command -v pkill >/dev/null 2>&1 && pkill -9 -f "$theirs" 2>/dev/null
     rm -f "$STATE/pulse.pid" "$STATE/pulse.server" "$STATE/pulse.sock"
 }
 
@@ -329,7 +332,8 @@ start_audio() {
     if [ -S "$STATE/pulse.sock" ]; then
         echo "unix:$STATE/pulse.sock" >"$STATE/pulse.server"
     else
-        rm -f "$STATE/pulse.pid"
+        # not one that runs on without anyone knowing its socket
+        stop_audio
     fi
 }
 

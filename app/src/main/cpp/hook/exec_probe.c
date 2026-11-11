@@ -594,15 +594,21 @@ static size_t ldso_search_dirs(void *(*orig_dlopen)(const char *, int), char *ou
     size_t used = 0;
     Dl_serinfo size;
     if (dlinfo(self, RTLD_DI_SERINFOSIZE, &size) == 0 && size.dls_size >= sizeof(size) && size.dls_size < (1u << 20)) {
-        Dl_serinfo *info = (Dl_serinfo *)malloc(size.dls_size);
+        // zeroed, and every name checked to lie in it: the list can change between the two calls
+        // (another thread loading a library), and what the second leaves unwritten is then not read
+        Dl_serinfo *info = (Dl_serinfo *)calloc(1, size.dls_size);
         if (info) {
             info->dls_size = size.dls_size;
             info->dls_cnt = size.dls_cnt;
+            const char *lo = (const char *)info, *hi = lo + size.dls_size;
             if (dlinfo(self, RTLD_DI_SERINFO, info) == 0) {
-                for (unsigned i = 0; i < info->dls_cnt; i++) {
+                unsigned cnt = info->dls_cnt < size.dls_cnt ? info->dls_cnt : size.dls_cnt;
+                for (unsigned i = 0; i < cnt; i++) {
+                    if ((const char *)&info->dls_serpath[i + 1] > hi) break;
                     const char *dir = info->dls_serpath[i].dls_name;
-                    size_t len = dir ? strlen(dir) : 0;
-                    if (len == 0 || dir[0] != '/' || used + len + 2 > outsz) continue;
+                    if (!dir || dir < lo || dir >= hi) continue;
+                    size_t len = strnlen(dir, (size_t)(hi - dir));
+                    if (len == 0 || len == (size_t)(hi - dir) || dir[0] != '/' || used + len + 2 > outsz) continue;
                     if (used) out[used++] = ':';
                     memcpy(out + used, dir, len);
                     used += len;
@@ -628,7 +634,8 @@ static int dlopen_preload_deps_in(const char *path, void *(*orig_dlopen)(const c
     char needed[4096];
     int count = 0;
     runpath[0] = '\0';
-    if (n > 0) elf_read_dynamic(fd, hdr, n, runpath, sizeof(runpath), needed, sizeof(needed), &count);
+    // 1: a DT_RUNPATH, 2: a DT_RPATH, 0: neither
+    int kind = n > 0 ? elf_read_dynamic(fd, hdr, n, runpath, sizeof(runpath), needed, sizeof(needed), &count) : 0;
     syscall(SYS_close, fd);
     if (count == 0) return 0;
     // the RUNPATH's directories, mapped into the rootfs ($ORIGIN from this library's own place)
@@ -644,20 +651,25 @@ static int dlopen_preload_deps_in(const char *path, void *(*orig_dlopen)(const c
             dlclose(already);
             continue;
         }
+        // In ld.so's order: a DT_RPATH comes before the directories it looks in for every library
+        // (LD_LIBRARY_PATH or --library-path), a DT_RUNPATH after them. A library that is in both
+        // must be the one ld.so takes, or the wrong one of the two would be loaded under its name.
         char candidate[PATH_MAX];
-        if (find_in_lib_dirs(dirs, name, candidate, sizeof(candidate))) {
-            loaded += dlopen_preload_deps_in(candidate, orig_dlopen, depth + 1, search, search_size, search_read);
-            if (orig_dlopen(candidate, RTLD_LAZY | RTLD_LOCAL)) loaded++;
-            continue;
+        int found = 0, in_runpath = 0;
+        if (kind == 2) found = in_runpath = find_in_lib_dirs(dirs, name, candidate, sizeof(candidate));
+        if (!found) {
+            if (!*search_read) {
+                ldso_search_dirs(orig_dlopen, search, search_size);
+                *search_read = 1;
+            }
+            found = find_in_lib_dirs(search, name, candidate, sizeof(candidate));
         }
-        // one that ld.so finds itself: what it needs may be in its own RUNPATH
-        if (!*search_read) {
-            ldso_search_dirs(orig_dlopen, search, search_size);
-            *search_read = 1;
-        }
-        if (find_in_lib_dirs(search, name, candidate, sizeof(candidate))) {
-            loaded += dlopen_preload_deps_in(candidate, orig_dlopen, depth + 1, search, search_size, search_read);
-        }
+        if (!found && kind != 2) found = in_runpath = find_in_lib_dirs(dirs, name, candidate, sizeof(candidate));
+        if (!found) continue;
+        // what it needs may be in its own RUNPATH, whoever finds it
+        loaded += dlopen_preload_deps_in(candidate, orig_dlopen, depth + 1, search, search_size, search_read);
+        // one that ld.so finds itself is left to it
+        if (in_runpath && orig_dlopen(candidate, RTLD_LAZY | RTLD_LOCAL)) loaded++;
     }
     return loaded;
 }
@@ -674,6 +686,18 @@ static int dlopen_preload_deps(const char *name, void *(*orig_dlopen)(const char
         ldso_search_dirs(orig_dlopen, search, PATH_MAX * 4);
         search_read = 1;
         name = find_in_lib_dirs(search, name, found, sizeof(found)) ? found : NULL;
+    } else if (name[0] != '/') {
+        // "./plugins/x.so": from the directory the program is in (the kernel's name for it, which
+        // is in the rootfs already), only to read the file; ld.so is asked with the caller's words
+        long cwd_len = syscall(SYS_getcwd, found, sizeof(found));
+        size_t at = cwd_len > 0 ? strnlen(found, sizeof(found)) : 0;
+        if (at > 0 && found[0] == '/' && at + 1 + strlen(name) < sizeof(found)) {
+            found[at] = '/';
+            strcpy(found + at + 1, name);
+            name = found;
+        } else {
+            name = NULL;
+        }
     }
     if (name && name[0] == '/') loaded = dlopen_preload_deps_in(name, orig_dlopen, 0, search, PATH_MAX * 4, &search_read);
     free(search);

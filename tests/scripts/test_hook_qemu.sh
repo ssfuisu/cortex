@@ -595,14 +595,17 @@ int main(int argc, char **argv) {
     return 0;
 }
 EOC
-run_mid() {
-  (cd "$work" && env -i CORTEX_ROOT="$work/root" HOME="$work" timeout 60 qemu-aarch64 "$cross/ld-linux-aarch64.so.1" \
+run_mid() { # the directory to start in, then the library and the function
+  local dir=$1
+  shift
+  (cd "$dir" && env -i CORTEX_ROOT="$work/root" HOME="$work" timeout 60 qemu-aarch64 "$cross/ld-linux-aarch64.so.1" \
     --preload "$work/hook.so" --library-path "$cross:$work/root/usr/lib/mid" "$work/load_plugin2" "$@" 2>&1 | grep -v "cannot be preloaded")
 }
-out="$(run_mid /usr/lib/plugins/plugin2.so plugin_value); $(run_mid libmid.so.1 mid_value); $(run_mid libnothere.so.9 x)"
-check "dlopen() finds what a dependency has in its own RUNPATH, also for a library asked for by name" \
-  test "$out" = "plugin_value 42; mid_value 41; dlopen failed: cannot open shared object file"
-[ "$out" = "plugin_value 42; mid_value 41; dlopen failed: cannot open shared object file" ] || echo "        got: $out"
+out="$(run_mid "$work" /usr/lib/plugins/plugin2.so plugin_value); $(run_mid "$work" libmid.so.1 mid_value)"
+out="$out; $(run_mid "$work/root/usr/lib" ./plugins/plugin2.so plugin_value); $(run_mid "$work" libnothere.so.9 x)"
+want="plugin_value 42; mid_value 41; plugin_value 42; dlopen failed: cannot open shared object file"
+check "dlopen() finds what a dependency has in its own RUNPATH: by path, by name, by a relative path" test "$out" = "$want"
+[ "$out" = "$want" ] || echo "        got: $out"
 
 # Credentials over a Unix socket (SCM_CREDENTIALS) go out as the process's real ones: getuid() is
 # root's 0 here, and the kernel refuses ids that are not the sender's (PulseAudio's clients failed).

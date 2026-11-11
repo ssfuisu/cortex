@@ -55,4 +55,17 @@ class BugReportTest {
         assertEquals("a\nb", BugReport.lastLines("a\nb", 5))
         assertEquals("", BugReport.lastLines("", 3))
     }
+
+    @Test
+    fun readTail_readsOnlyTheEndOfALongFile() {
+        val file = java.io.File.createTempFile("desktop", ".log")
+        try {
+            file.writeText("a".repeat(1000) + "end")
+            assertEquals("aaend", BugReport.readTail(file, 5))
+            assertEquals(1003, BugReport.readTail(file, 5000)?.length)
+            assertNull(BugReport.readTail(java.io.File(file.path + ".missing"), 5))
+        } finally {
+            file.delete()
+        }
+    }
 }

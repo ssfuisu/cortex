@@ -26,6 +26,7 @@ object BugReport {
     private const val LOG_LINES = 4000
     private const val LOG_LIMIT = 2_000_000
     private const val DESKTOP_LOG_LINES = 300
+    private const val DESKTOP_LOG_BYTES = 256 * 1024
 
     fun write(context: Context): File {
         val dir = File(context.cacheDir, "reports")
@@ -90,7 +91,7 @@ object BugReport {
             "running" to org.cortex.terminal.desktop.DesktopAddon.isRunning(context).toString()
         )
         // What the X server and the desktop's session wrote: the only place their errors are
-        val desktopLog = readOrNull(File(Environment.getHomeDir(context), ".cortex/desktop.log"))
+        val desktopLog = readTail(File(Environment.getHomeDir(context), ".cortex/desktop.log"), DESKTOP_LOG_BYTES)
         return format(sections) +
             (if (desktopLog.isNullOrBlank()) "" else "== Desktop log (newest $DESKTOP_LOG_LINES lines)\n${lastLines(desktopLog, DESKTOP_LOG_LINES)}\n\n") +
             "== Log (newest $LOG_LINES lines)\n" + appLog()
@@ -120,6 +121,24 @@ object BugReport {
 
     private fun readOrNull(file: File): String? = try {
         if (file.isFile) file.readText() else null
+    } catch (e: Exception) {
+        null
+    }
+
+    /** The end of a file, at most [maxBytes] of it (a log grows for as long as its session runs). */
+    internal fun readTail(file: File, maxBytes: Int): String? = try {
+        if (!file.isFile) {
+            null
+        } else {
+            java.io.RandomAccessFile(file, "r").use { raf ->
+                val length = raf.length()
+                val take = minOf(length, maxBytes.toLong()).toInt()
+                raf.seek(length - take)
+                val bytes = ByteArray(take)
+                raf.readFully(bytes)
+                String(bytes, Charsets.UTF_8)
+            }
+        }
     } catch (e: Exception) {
         null
     }
