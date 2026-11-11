@@ -17,7 +17,7 @@ android {
         // enforces SELinux W^X restrictions preventing execution from writable app data storage.
         targetSdk = 28
         versionCode = 12705
-        versionName = "1.27.5"
+        versionName = "1.27.5.1"
         // UbuntuOnDeviceTest (app/src/androidTest), on Firebase Test Lab
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

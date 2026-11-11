@@ -895,6 +895,190 @@ static void ldconf_parse(char *out, size_t outsz) {
     ldconf_parse_file("/etc/ld.so.conf", out, outsz, &used, 0, &includes);
 }
 
+// ---- the RUNPATH of libraries ------------------------------------------------------------------
+// A library's own DT_RUNPATH is where ld.so looks for what that library needs: librbd.so.1 names
+// /usr/lib/aarch64-linux-gnu/ceph, where its libceph-common.so.2 is. ld.so opens that directory
+// itself, without the hook, so it looked in Android's tree and fio ended with "libceph-common.so.2:
+// cannot open shared object file". The exec cannot read every library a program will load (that
+// would be paid by every program started), so the directories are collected the way ldconfig
+// collects its cache: when ldconfig runs (after packages are installed) and when the list is not
+// there yet, from the libraries in the directories ld.so searches, into a file of
+// /etc/ld.so.conf.d that the exec reads like the others (after them: "zz"). A directory that is
+// searched already, or does not exist, is not listed.
+#define RUNPATH_CONF "/etc/ld.so.conf.d/zz-cortex-runpath.conf"
+#define RUNPATH_CONF_NEW "/etc/ld.so.conf.d/.zz-cortex-runpath.new"
+#define RUNPATH_CONF_MAX 4096
+#define RUNPATH_SCAN_DIRS 32
+
+static const char k_runpath_conf_head[] =
+    "# Written by Cortex when ldconfig runs: the directories that libraries name in their RUNPATH,\n"
+    "# which ld.so would look for outside Ubuntu's files. Written again each time: not for editing.\n";
+
+struct runpath_scan {
+    char all[PATH_MAX * 2];   // the directories to read, real paths
+    char base[PATH_MAX * 2];  // those of them that are searched without this file
+    char old[RUNPATH_CONF_MAX + sizeof(k_runpath_conf_head)];
+    char text[RUNPATH_CONF_MAX + sizeof(k_runpath_conf_head)];
+    size_t text_len;
+    char dents[8192];
+    uint64_t seen[RUNPATH_SCAN_DIRS][2]; // device and inode of the directories read (/lib is /usr/lib)
+    int nseen;
+};
+
+// list without its entry dir[0..len)
+static void lib_dir_list_remove(char *list, const char *dir, size_t len) {
+    size_t out = 0;
+    for (const char *p = list; *p;) {
+        const char *end = strchr(p, ':');
+        size_t n = end ? (size_t)(end - p) : strlen(p);
+        if (!(n == len && memcmp(p, dir, len) == 0)) {
+            if (out > 0) list[out++] = ':';
+            memmove(list + out, p, n);
+            out += n;
+        }
+        if (!end) break;
+        p = end + 1;
+    }
+    list[out] = '\0';
+}
+
+// One directory of a RUNPATH, as a path inside Ubuntu: a line of the file when it is new
+static void runpath_scan_add(struct runpath_scan *scan, char *logical) {
+    size_t len = strlen(logical);
+    while (len > 1 && logical[len - 1] == '/') logical[--len] = '\0';
+    if (logical[0] != '/' || len < 2 || len >= PATH_MAX || strpbrk(logical, "$:\n# \t")) return;
+    char rw_buf[PATH_MAX];
+    const char *real = rewrite_path_in_root(logical, rw_buf, sizeof(rw_buf));
+    size_t real_len = strlen(real);
+    if (strcmp(real, logical) == 0 || lib_dir_list_has(scan->base, real, real_len)) return;
+    // a whole line of what was found so far
+    for (const char *p = scan->text; (p = strstr(p, logical)) != NULL; p += len) {
+        if (p > scan->text && p[-1] == '\n' && p[len] == '\n') return;
+    }
+    if (scan->text_len + len + 2 > sizeof(scan->text)) return;
+    int fd = (int)syscall(SYS_openat, AT_FDCWD, real, O_PATH | O_DIRECTORY | O_CLOEXEC);
+    if (fd < 0) return;
+    syscall(SYS_close, fd);
+    memcpy(scan->text + scan->text_len, logical, len);
+    scan->text_len += len;
+    scan->text[scan->text_len++] = '\n';
+    scan->text[scan->text_len] = '\0';
+}
+
+// The libraries of one directory (real path): the RUNPATH of each
+static void runpath_scan_dir(struct runpath_scan *scan, const char *dir, size_t dir_len) {
+    char real[PATH_MAX];
+    if (dir_len == 0 || dir_len >= sizeof(real)) return;
+    memcpy(real, dir, dir_len);
+    real[dir_len] = '\0';
+    int fd = (int)syscall(SYS_openat, AT_FDCWD, real, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    if (fd < 0) return;
+    struct statx stx;
+    if (syscall(SYS_statx, fd, "", AT_EMPTY_PATH, STATX_INO, &stx) == 0) {
+        uint64_t dev = ((uint64_t)stx.stx_dev_major << 32) | stx.stx_dev_minor;
+        for (int i = 0; i < scan->nseen; i++) {
+            if (scan->seen[i][0] == dev && scan->seen[i][1] == stx.stx_ino) {
+                syscall(SYS_close, fd);
+                return;
+            }
+        }
+        if (scan->nseen < RUNPATH_SCAN_DIRS) {
+            scan->seen[scan->nseen][0] = dev;
+            scan->seen[scan->nseen][1] = stx.stx_ino;
+            scan->nseen++;
+        }
+    }
+    for (;;) {
+        long n = syscall(SYS_getdents64, fd, scan->dents, sizeof(scan->dents));
+        if (n <= 0) break;
+        for (long at = 0; at < n;) {
+            unsigned short reclen;
+            memcpy(&reclen, scan->dents + at + 16, sizeof(reclen));
+            if (reclen == 0) break;
+            unsigned char type = (unsigned char)scan->dents[at + 18];
+            const char *name = scan->dents + at + 19;
+            at += reclen;
+            // the files themselves: a link names one of them (or one of another directory read)
+            if ((type != DT_REG && type != DT_UNKNOWN) || !strstr(name, ".so")) continue;
+            int lib = (int)syscall(SYS_openat, fd, name, O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+            if (lib < 0) continue;
+            unsigned char hdr[64];
+            char runpath[1024];
+            ssize_t got = pread(lib, hdr, sizeof(hdr), 0);
+            int kind = got > 0 ? elf_read_runpath(lib, hdr, got, runpath, sizeof(runpath)) : 0;
+            syscall(SYS_close, lib);
+            if (!kind) continue;
+            for (char *p = runpath; p && *p;) {
+                char *end = strchr(p, ':');
+                if (end) *end = '\0';
+                // $ORIGIN is the library's own place, which ld.so knows: only the absolute ones
+                char logical[PATH_MAX];
+                if (p[0] == '/' && strlen(p) < sizeof(logical)) {
+                    snprintf(logical, sizeof(logical), "%s", p);
+                    normalize_path(logical);
+                    runpath_scan_add(scan, logical);
+                }
+                p = end ? end + 1 : NULL;
+            }
+        }
+    }
+    syscall(SYS_close, fd);
+}
+
+static int runpath_conf_missing(void) {
+    char rw_buf[PATH_MAX];
+    const char *real = rewrite_path_in_root(RUNPATH_CONF, rw_buf, sizeof(rw_buf));
+    return syscall(SYS_faccessat, AT_FDCWD, real, F_OK) != 0;
+}
+
+// Reads the libraries and writes the file when what it should hold changed
+static void runpath_conf_refresh(void) {
+    if (g_cortex_root[0] == '\0') return;
+    // not on the stack: this runs in the child of a fork that is about to exec
+    struct runpath_scan *scan = (struct runpath_scan *)mmap(NULL, sizeof(*scan), PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (scan == MAP_FAILED) return;
+    ldconf_parse(scan->all, sizeof(scan->all));
+    size_t used = strlen(scan->all);
+    append_rootfs_lib_dirs_missing_from(scan->all, sizeof(scan->all), used, used > 0, scan->all);
+    memcpy(scan->base, scan->all, sizeof(scan->base));
+    ssize_t old_len = ldconf_read(RUNPATH_CONF, scan->old, sizeof(scan->old));
+    if (old_len > 0) {
+        // what the file itself adds does not count as searched: it would drop out of the new one
+        char *save = NULL;
+        char copy[sizeof(scan->old)];
+        memcpy(copy, scan->old, (size_t)old_len + 1);
+        for (char *line = strtok_r(copy, "\n", &save); line; line = strtok_r(NULL, "\n", &save)) {
+            if (line[0] != '/') continue;
+            char rw_buf[PATH_MAX];
+            const char *real = rewrite_path_in_root(line, rw_buf, sizeof(rw_buf));
+            lib_dir_list_remove(scan->base, real, strlen(real));
+        }
+    }
+    memcpy(scan->text, k_runpath_conf_head, sizeof(k_runpath_conf_head));
+    scan->text_len = sizeof(k_runpath_conf_head) - 1;
+    for (const char *p = scan->all; *p;) {
+        const char *end = strchr(p, ':');
+        size_t len = end ? (size_t)(end - p) : strlen(p);
+        runpath_scan_dir(scan, p, len);
+        if (!end) break;
+        p = end + 1;
+    }
+    if (old_len < 0 || (size_t)old_len != scan->text_len || memcmp(scan->old, scan->text, scan->text_len) != 0) {
+        char new_buf[PATH_MAX], final_buf[PATH_MAX];
+        const char *tmp = rewrite_path_in_root(RUNPATH_CONF_NEW, new_buf, sizeof(new_buf));
+        const char *final = rewrite_path_in_root(RUNPATH_CONF, final_buf, sizeof(final_buf));
+        int fd = (int)syscall(SYS_openat, AT_FDCWD, tmp, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
+        if (fd >= 0) {
+            ssize_t written = (ssize_t)syscall(SYS_write, fd, scan->text, scan->text_len);
+            syscall(SYS_close, fd);
+            if (written != (ssize_t)scan->text_len || syscall(SYS_renameat, AT_FDCWD, tmp, AT_FDCWD, final) != 0) {
+                syscall(SYS_unlinkat, AT_FDCWD, tmp, 0);
+            }
+        }
+    }
+    munmap(scan, sizeof(*scan));
+}
+
 // The ld.so.conf directories into out (':'-separated, "" when there are none). Uses the copy of an
 // earlier call while the files have not changed: the parent finds it when it first forks, and its
 // children only compare the three times. Never waits for the lock: a child forked while another
@@ -911,6 +1095,11 @@ static void ldconf_dirs(char *out, size_t outsz) {
         return;
     }
     if (!g_ldconf.valid || memcmp(&g_ldconf.sig, &sig, sizeof(sig)) != 0 || strcmp(g_ldconf.root, g_cortex_root) != 0) {
+        // a system set up before the list of the libraries' RUNPATH existed, or one without it
+        if (runpath_conf_missing()) {
+            runpath_conf_refresh();
+            ldconf_signature(&sig);
+        }
         ldconf_parse(g_ldconf.dirs, sizeof(g_ldconf.dirs));
         g_ldconf.sig = sig;
         snprintf(g_ldconf.root, sizeof(g_ldconf.root), "%s", g_cortex_root);

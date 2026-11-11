@@ -155,14 +155,17 @@ static int usrmerge_alt_path(const char *sub, char *alt, size_t altsz) {
 
 // Whether postprocess_readlink() below can change a link's target of length target_len, read
 // through linkpath: only a target that starts with the rootfs path (at least that long) or a relative
-// one into /etc/alternatives (at least "../alternatives", 15 characters, from a directory next to it;
-// any "../" under /etc/alternatives itself). lstat() of a link reads it only then, to report its
-// rewritten length.
+// one into /etc/alternatives. From a directory next to it under /etc that is at least
+// "../alternatives" (15 characters), from /etc/alternatives itself any "../", and from anywhere else
+// at least "../etc/alternatives" (19: the link is one directory below /, deeper ones need more).
+// lstat() of a link reads it only then, to report its rewritten length; the links of /usr/lib
+// (libssl.so.3 -> libssl.so.3.0.0 and the like, 15 to 18 characters) are not read a second time.
 static int readlink_result_may_change(const char *linkpath, long long target_len) {
     if (g_cortex_root_len > 0 && target_len >= (long long)g_cortex_root_len) return 1;
     if (!linkpath || linkpath[0] != '/') return 0;
     if (strncmp(linkpath, "/etc/alternatives", 17) == 0) return target_len >= 2;
-    return target_len >= 15;
+    if (strncmp(linkpath, "/etc/", 5) == 0) return target_len >= 15;
+    return target_len >= 19;
 }
 
 // Helper for path normalization

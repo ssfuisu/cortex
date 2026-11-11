@@ -178,8 +178,14 @@ if [ -z "$NO_APT" ]; then
     check apt-update apt-get update
     expect hello "Hello, world!" hello
     expect python3 "4" python3 -c 'print(2 + 2)'
+    # A lock on a memfd, which Android's SELinux policy refuses an app (PHP's opcache keeps its lock so)
+    expect memfd-lock "locked" python3 -c 'import fcntl, os
+fd = os.memfd_create("lock")
+fcntl.lockf(fd, fcntl.LOCK_EX)
+fcntl.flock(fd, fcntl.LOCK_EX)
+print("locked")'
 else
-    for name in apt-install apt-update hello python3; do skip "$name" "no packages on this emulator"; done
+    for name in apt-install apt-update hello python3 memfd-lock; do skip "$name" "no packages on this emulator"; done
 fi
 
 # cortex-api

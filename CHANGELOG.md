@@ -4,7 +4,7 @@ What changed in each version of Cortex Terminal, newest first. The release workf
 of a GitHub release from the section of its version here. Older versions are described on the
 [GitHub releases](https://github.com/ssfuisu/cortex/releases) page.
 
-## 1.27.5 (2026-11-11)
+## 1.27.5.1 (2026-11-11)
 
 ### Fixed
 
@@ -28,8 +28,21 @@ of a GitHub release from the section of its version here. Older versions are des
   went to a daemon nobody listened to. The desktop now keeps track of its PulseAudio itself, and
   ends the ones older versions left.
 
+- **Programs whose libraries name a directory of their own did not start (#67).** fio ended with
+  "libceph-common.so.2: cannot open shared object file": its librbd.so.1 finds that library through
+  its RUNPATH (/usr/lib/aarch64-linux-gnu/ceph), which ld.so looked for outside Ubuntu's files. The
+  directories that libraries name this way are now collected when ldconfig runs (after packages are
+  installed, as on Linux) into /etc/ld.so.conf.d/zz-cortex-runpath.conf. This also ends the
+  "libpxbackend-1.0.so: cannot open shared object file" lines of GTK programs.
+- **PHP's built-in server: "Cannot create lock - Permission denied (13)" (#69).** PHP keeps the lock
+  of its opcache in a memory file (memfd), and Android does not let an app lock one. A lock that
+  Android refuses on a memfd is now taken on a file of Cortex's own, which the program's children
+  share, so `php -S` and PHP-FPM start.
+
 ### Changed
 
+- lstat() of a link in /usr/lib (libssl.so.3 -> libssl.so.3.0.0 and the like) no longer reads the
+  link a second time: only a link that can lead into /etc/alternatives is read (#66).
 - XFCE starts with its compositor off (shadows and transparency are drawn by the CPU here); it can
   be turned on in Settings > Window Manager Tweaks. The desktops install the SVG icon loader.
 - A bug report has the desktop's state and the last lines of its log (`~/.cortex/desktop.log`).

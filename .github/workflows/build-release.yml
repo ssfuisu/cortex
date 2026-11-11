@@ -45,7 +45,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up JDK 17
-        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
         with:
           distribution: 'temurin'
           java-version: '17'
@@ -126,8 +126,7 @@ jobs:
         if: steps.cache-hook.outputs.cache-hit != 'true'
         run: |
           sudo rm -f /etc/apt/sources.list.d/*google* /etc/apt/sources.list.d/*chrome*
-          sudo apt-get update -o Acquire::Retries=3 -qq
-          sudo apt-get install -y --no-install-recommends gcc-aarch64-linux-gnu gcc-arm-linux-gnueabihf libc6-dev-arm64-cross libc6-dev-armhf-cross dpkg-dev
+          scripts/ci-apt-install.sh gcc-aarch64-linux-gnu gcc-arm-linux-gnueabihf libc6-dev-arm64-cross libc6-dev-armhf-cross dpkg-dev
           mkdir -p hook-libs
           # The code that is added to static Go programs (gosys/gosys.c), which the 64-bit hook carries
           scripts/build-gosys.sh
@@ -349,8 +348,7 @@ jobs:
           CORTEX_REQUIRE_GO_TESTS: 1
           CORTEX_GO_TEST_VERSIONS: "1.19.13 1.23.12"
         run: |
-          sudo apt-get update -o Acquire::Retries=3 -qq
-          sudo apt-get install -y --no-install-recommends qemu-user gcc-aarch64-linux-gnu libc6-dev-arm64-cross binutils-aarch64-linux-gnu
+          scripts/ci-apt-install.sh qemu-user gcc-aarch64-linux-gnu libc6-dev-arm64-cross binutils-aarch64-linux-gnu
           bash tests/scripts/test_go_programs.sh
           CORTEX_REQUIRE_QEMU_TESTS=1 bash tests/scripts/test_hook_qemu.sh
 

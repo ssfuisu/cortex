@@ -80,3 +80,4 @@
 #include "hook/net.c"
 #include "hook/sockets.c"
 #include "hook/sysv_shm.c"
+#include "hook/memfd_locks.c"

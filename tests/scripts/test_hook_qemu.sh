@@ -444,6 +444,38 @@ rm -f "$work/root/etc/ld.so.cache"
 run "$work/run_ldconfig" >/dev/null
 check "ldconfig marks /etc/ld.so.cache changed" test -e "$work/root/etc/ld.so.cache"
 
+# The RUNPATH of a library the program needs (fio: librbd.so.1 names /usr/lib/<arch>/ceph, where its
+# libceph-common.so.2 is). The exec does not read the libraries: their RUNPATH directories are in a
+# file of /etc/ld.so.conf.d, written when it is missing and when ldconfig runs.
+rp_conf="$work/root/etc/ld.so.conf.d/zz-cortex-runpath.conf"
+mkdir -p "$work/root/usr/lib/aarch64-linux-gnu/ceph" "$work/root/usr/lib/aarch64-linux-gnu/origin/sub"
+build_chain() { # name, the directory of the inner library, the RUNPATH the outer one names it by
+  echo "int $1_inner(void) { return 5; }" | aarch64-linux-gnu-gcc -shared -fPIC -w -Wl,-soname,lib$1inner.so.2 \
+    -o "$2/lib$1inner.so.2" -x c - || { echo "lib$1inner did not build"; exit 1; }
+  printf 'int %s_inner(void);\nint %s_outer(void) { return %s_inner() + 1; }\n' "$1" "$1" "$1" |
+    aarch64-linux-gnu-gcc -shared -fPIC -w -Wl,-soname,lib$1outer.so.1 -o "$work/root/usr/lib/aarch64-linux-gnu/lib$1outer.so.1" \
+      -x c - -x none "$2/lib$1inner.so.2" "-Wl,--enable-new-dtags,-rpath,$3" || { echo "lib$1outer did not build"; exit 1; }
+  printf '#include <stdio.h>\nint %s_outer(void);\nint main(void) { printf("%s %%d\\n", %s_outer()); return 0; }\n' "$1" "$1" "$1" |
+    aarch64-linux-gnu-gcc -O2 -w -o "$work/root/usr/bin/use_$1" -x c - -x none "$work/root/usr/lib/aarch64-linux-gnu/lib$1outer.so.1" \
+      -Wl,--allow-shlib-undefined || { echo "use_$1 did not build"; exit 1; }
+}
+build_chain rbd "$work/root/usr/lib/aarch64-linux-gnu/ceph" /usr/lib/aarch64-linux-gnu/ceph
+rm -f "$rp_conf"
+out=$(run "$work/start_private" /usr/bin/use_rbd)
+check "a program finds what one of its libraries has in that library's RUNPATH" test "$out" = "rbd 6"
+[ "$out" = "rbd 6" ] || echo "        got: $out"
+check "the directory is listed in /etc/ld.so.conf.d, and only what is not searched already" \
+  sh -c 'grep -qx "/usr/lib/aarch64-linux-gnu/ceph" "$1" && ! grep -q "android\|conflib" "$1"' sh "$rp_conf"
+# one installed later counts after ldconfig, as on Linux
+build_chain late "$work/root/usr/lib/aarch64-linux-gnu/origin/sub" /usr/lib/aarch64-linux-gnu/origin/sub
+before=$(run "$work/start_private" /usr/bin/use_late)
+run "$work/run_ldconfig" >/dev/null
+out=$(run "$work/start_private" /usr/bin/use_late)
+check "ldconfig reads the libraries again: one installed since is found after it" \
+  sh -c '[ "$1" != "late 6" ] && [ "$2" = "late 6" ] && grep -qx "/usr/lib/aarch64-linux-gnu/origin/sub" "$3" && grep -qx "/usr/lib/aarch64-linux-gnu/ceph" "$3"' \
+  sh "$before" "$out" "$rp_conf"
+[ "$out" = "late 6" ] || echo "        got: $out (before ldconfig: $before)"
+
 # System V shared memory (X's MIT-SHM): Android's seccomp filter blocks it, the hook keeps the segments
 # in files. One process makes a segment, another one (started anew, so nothing is inherited) attaches it.
 mkdir -p "$work/root/usr/lib" && cp "$work/hook.so" "$work/root/usr/lib/libcortex-hook.so" # children get the hook too
@@ -670,6 +702,58 @@ out=$(run "$work/send_creds")
 check "SCM_CREDENTIALS are sent with the real ids" sh -c 'echo "$1" | grep -q "sendmsg sent" && echo "$1" | grep -q "received pid mine"' sh "$out"
 check "the peer of a Unix socket has the ids the program sees for itself" sh -c 'echo "$1" | grep -q "peer ids 0 0, mine 0 0" && echo "$1" | grep -q "received ids 0 0"' sh "$out"
 echo "$out" | grep -q "received ids 0 0" || echo "$out" | sed 's/^/        /'
+
+# Locks on a memfd: Android's SELinux policy refuses them (EACCES), and PHP keeps its opcache lock in
+# one ("php -S": Cannot create lock - Permission denied). CORTEX_MEMFD_LOCKS=deny makes the hook act
+# as on Android; the lock is then taken on a file of its own, which a forked child shares.
+prog memfd_lock <<'EOC'
+#define _GNU_SOURCE
+#include <errno.h>
+#include <fcntl.h>
+#include <stdio.h>
+#include <string.h>
+#include <sys/file.h>
+#include <sys/mman.h>
+#include <sys/wait.h>
+#include <unistd.h>
+int main(void) {
+    int fd = memfd_create("opcache_lock", MFD_CLOEXEC);
+    if (fd < 0) { perror("memfd_create"); return 2; }
+    struct flock lock = { .l_type = F_WRLCK, .l_whence = SEEK_SET, .l_start = 0, .l_len = 1 };
+    int rc = fcntl(fd, F_SETLKW, &lock);
+    printf("lock %d %s\n", rc, rc ? strerror(errno) : "taken");
+    fflush(stdout);
+    pid_t pid = fork();
+    if (pid == 0) {
+        struct flock try = { .l_type = F_WRLCK, .l_whence = SEEK_SET, .l_start = 0, .l_len = 1 };
+        int held = fcntl(fd, F_SETLK, &try) == -1 && (errno == EAGAIN || errno == EACCES);
+        struct flock who = { .l_type = F_WRLCK, .l_whence = SEEK_SET, .l_start = 0, .l_len = 1 };
+        int asked = fcntl(fd, F_GETLK, &who);
+        printf("child: %s, holder %s\n", held ? "refused" : "got it too", asked == 0 && who.l_type == F_WRLCK && who.l_pid == getppid() ? "is the parent" : "unknown");
+        fflush(stdout);
+        _exit(0);
+    }
+    int status = 0;
+    waitpid(pid, &status, 0);
+    lock.l_type = F_UNLCK;
+    printf("unlock %d\n", fcntl(fd, F_SETLK, &lock));
+    int other = memfd_create("second", MFD_CLOEXEC);
+    printf("flock %d %d\n", flock(other, LOCK_EX | LOCK_NB), flock(other, LOCK_UN));
+    // a file that is not a memfd is not touched, and a refusal of another kind stays one
+    printf("bad fd %d %s\n", fcntl(-1, F_SETLK, &lock), errno == EBADF ? "EBADF" : "other");
+    return 0;
+}
+EOC
+mkdir -p "$work/root/tmp"
+out=$( (cd "$work" && env -i CORTEX_ROOT="$work/root" HOME="$work" CORTEX_MEMFD_LOCKS=deny timeout 60 qemu-aarch64 "$cross/ld-linux-aarch64.so.1" \
+  --preload "$work/hook.so" --library-path "$cross" "$work/memfd_lock" 2>&1 | grep -v "cannot be preloaded") )
+want="lock 0 taken
+child: refused, holder is the parent
+unlock 0
+flock 0 0
+bad fd -1 EBADF"
+check "a memfd can be locked where Android refuses it, and a forked child sees the lock" test "$out" = "$want"
+[ "$out" = "$want" ] || echo "$out" | sed 's/^/        /'
 
 echo
 echo "$passed passed, $failed failed"
