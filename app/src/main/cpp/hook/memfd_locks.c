@@ -162,6 +162,7 @@ static int cortex_fcntl(int fd, int cmd, void *arg, const char *symbol, int (**o
     int (*orig)(int, int, ...) = __atomic_load_n(orig_slot, __ATOMIC_RELAXED);
     if (!orig) {
         orig = (int (*)(int, int, ...))dlsym(RTLD_NEXT, symbol);
+        if (!orig) orig = (int (*)(int, int, ...))dlsym(RTLD_NEXT, "fcntl");
         if (!orig) {
             errno = ENOSYS;
             return -1;
@@ -184,17 +185,21 @@ static int cortex_fcntl(int fd, int cmd, void *arg, const char *symbol, int (**o
     return ret;
 }
 
-// The third argument is read as glibc's own fcntl() reads it: always, as a pointer
+// The third argument is read as glibc's own fcntl() reads it: always, as a pointer. On 32-bit ARM
+// the headers name this function __fcntl_time64 (see CORTEX_TIME64_NAME), which is what Ubuntu's
+// programs call there.
 int fcntl(int fd, int cmd, ...) {
     static int (*orig_fcntl)(int, int, ...) = NULL;
     va_list ap;
     va_start(ap, cmd);
     void *arg = va_arg(ap, void *);
     va_end(ap);
-    return cortex_fcntl(fd, cmd, arg, "fcntl", &orig_fcntl);
+    return cortex_fcntl(fd, cmd, arg, CORTEX_TIME64_NAME("__fcntl_time64", "fcntl"), &orig_fcntl);
 }
 
-// What programs built with 64-bit file offsets call (glibc 2.28 and later)
+#ifndef __USE_FILE_OFFSET64
+// What programs built with 64-bit file offsets call (glibc 2.28 and later). With _FILE_OFFSET_BITS=64
+// (the 32-bit ARM build) the headers already export the definition above under that name.
 int fcntl64(int fd, int cmd, ...) {
     static int (*orig_fcntl64)(int, int, ...) = NULL;
     va_list ap;
@@ -202,17 +207,6 @@ int fcntl64(int fd, int cmd, ...) {
     void *arg = va_arg(ap, void *);
     va_end(ap);
     return cortex_fcntl(fd, cmd, arg, "fcntl64", &orig_fcntl64);
-}
-
-#if !defined(__LP64__)
-// And with a 64-bit time_t on a 32-bit system, as all of Ubuntu's armhf packages are built
-int __fcntl_time64(int fd, int cmd, ...) {
-    static int (*orig_fcntl_time64)(int, int, ...) = NULL;
-    va_list ap;
-    va_start(ap, cmd);
-    void *arg = va_arg(ap, void *);
-    va_end(ap);
-    return cortex_fcntl(fd, cmd, arg, "__fcntl_time64", &orig_fcntl_time64);
 }
 #endif
 
@@ -232,6 +226,7 @@ int flock(int fd, int operation) {
         ret = orig_flock(fd, operation);
     }
     if (ret == -1 && errno == EACCES) {
+        if (!orig_fcntl) orig_fcntl = (int (*)(int, int, ...))dlsym(RTLD_NEXT, CORTEX_TIME64_NAME("__fcntl_time64", "fcntl"));
         if (!orig_fcntl) orig_fcntl = (int (*)(int, int, ...))dlsym(RTLD_NEXT, "fcntl");
         int shadow = orig_fcntl ? memfd_lock_shadow(fd, orig_fcntl) : -1;
         if (shadow >= 0) return orig_flock(shadow, operation);
