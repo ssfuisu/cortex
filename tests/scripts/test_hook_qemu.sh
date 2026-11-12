@@ -709,6 +709,7 @@ mkdir -p "$work/root/etc/alternatives"
 rm -f "$work/root/etc/alternatives/lnk-test"
 ln -s "$work/root/usr/bin/lnk-target" "$work/root/etc/alternatives/lnk-test"
 prog link_sizes <<'EOC'
+#include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -739,6 +740,10 @@ int main(int argc, char **argv) {
     printf("small buffer: %zd %.*s\n", r, (int)(r > 0 ? r : 0), small);
     r = readlinkat(AT_FDCWD, "/tmp/long-link", small, 20);
     printf("smaller than the target: %zd %.*s\n", r, (int)(r > 0 ? r : 0), small);
+    errno = 0;
+    r = readlink("/tmp/long-link", small, 0);
+    int err = errno;
+    printf("no buffer: %zd %s\n", r, err == EINVAL ? "EINVAL" : "other");
     return 0;
 }
 EOC
@@ -748,9 +753,43 @@ out=$(run "$work/link_sizes" "$work/root")
 want="first: lstat 19 fstatat 19 readlink 19
 replaced: lstat 34 readlink 34
 small buffer: 53 /usr/share/doc/a-name-that-makes-the-real-target-long
-smaller than the target: 20 /usr/share/doc/a-nam"
+smaller than the target: 20 /usr/share/doc/a-nam
+no buffer: -1 EINVAL"
 check "lstat() and readlink() report the rewritten target: again after the link is replaced, whole in a small buffer" test "$out" = "$want"
 [ "$out" = "$want" ] || echo "$out" | sed 's/^/        /'
+
+# A link of /proc points elsewhere while it stays the same inode (dup2() gives fd/N another file): its
+# size is never kept. Its raw size is 64, which the hook reads only with a rootfs path shorter than
+# that, as on a phone: the root is given by a short name here.
+prog fd_link_size <<'EOC'
+#include <fcntl.h>
+#include <stdio.h>
+#include <sys/stat.h>
+#include <unistd.h>
+int main(void) {
+    char fdlink[64], buf[4096];
+    int one = open("/etc/alternatives", O_RDONLY | O_DIRECTORY);
+    int two = open("/usr/share/doc", O_RDONLY | O_DIRECTORY);
+    if (one < 0 || two < 0) return 2;
+    snprintf(fdlink, sizeof(fdlink), "/proc/self/fd/%d", one);
+    struct stat st;
+    lstat(fdlink, &st);
+    lstat(fdlink, &st);
+    dup2(two, one);
+    lstat(fdlink, &st);
+    ssize_t r = readlink(fdlink, buf, sizeof(buf));
+    printf("after dup2: lstat %s readlink\n", (ssize_t)st.st_size == r ? "agrees with" : "differs from");
+    return 0;
+}
+EOC
+mkdir -p "$work/root/usr/share/doc"
+short_root="/tmp/cxr$$"
+ln -sfn "$work/root" "$short_root"
+out=$( (cd "$work" && env -i CORTEX_ROOT="$short_root" HOME="$work" timeout 60 qemu-aarch64 "$cross/ld-linux-aarch64.so.1" \
+  --preload "$work/hook.so" --library-path "$cross" "$work/fd_link_size" 2>&1 | grep -v "cannot be preloaded") )
+rm -f "$short_root"
+check "lstat() of a /proc fd link follows dup2() (its size is not kept)" test "$out" = "after dup2: lstat agrees with readlink"
+[ "$out" = "after dup2: lstat agrees with readlink" ] || echo "        got: $out"
 
 # A library loaded with RTLD_DEEPBIND (every PHP extension) looks for libc's functions in libc
 # before the hook: its calls were not seen, so it opened Android's files instead of Ubuntu's

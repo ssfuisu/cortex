@@ -312,6 +312,11 @@ static ssize_t readlink_into(char *buf, size_t bufsiz, const char *full, ssize_t
 
 // Hook readlink
 ssize_t readlink(const char *pathname, char *buf, size_t bufsiz) {
+    // as the kernel answers it (the target is read into a buffer of the hook's own below)
+    if (bufsiz == 0) {
+        errno = EINVAL;
+        return -1;
+    }
     if (is_proc_self_exe(pathname)) {
         ssize_t exe_len = handle_proc_self_exe(buf, bufsiz);
         if (exe_len >= 0) return exe_len;
@@ -335,6 +340,11 @@ ssize_t readlink(const char *pathname, char *buf, size_t bufsiz) {
 
 // Hook readlinkat
 ssize_t readlinkat(int dirfd, const char *pathname, char *buf, size_t bufsiz) {
+    // as the kernel answers it (the target is read into a buffer of the hook's own below)
+    if (bufsiz == 0) {
+        errno = EINVAL;
+        return -1;
+    }
     if (is_proc_self_exe(pathname)) {
         ssize_t exe_len = handle_proc_self_exe(buf, bufsiz);
         if (exe_len >= 0) return exe_len;
