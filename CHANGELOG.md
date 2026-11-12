@@ -4,6 +4,31 @@ What changed in each version of Cortex Terminal, newest first. The release workf
 of a GitHub release from the section of its version here. Older versions are described on the
 [GitHub releases](https://github.com/ssfuisu/cortex/releases) page.
 
+## 1.27.6 (2026-11-12)
+
+### Fixed
+
+- **Selecting text on the desktop replaced what had been copied on the phone.** The X server sent
+  Android not only what a program copied (the CLIPBOARD) but also every piece of text that was only
+  selected (the PRIMARY), so a drag of the mouse over a word in a terminal or an editor wiped the
+  phone's clipboard. Only what is copied goes to Android now; text copied on the phone still pastes
+  on the desktop with Ctrl+V and with the middle button.
+- **`readlink` printed long link targets cut off.** A target that Cortex rewrites is longer as the
+  phone stores it (it starts with the app's own directory), and a program that read it into a small
+  buffer got it cut off before it was rewritten, shorter than the buffer, so it took that for the
+  whole target: coreutils' `readlink`, which starts with 64 bytes, printed
+  `/usr/share/postgresql/16/man/man7/ALTER_TEXT_SEA`. Into a buffer smaller than that the phone's own
+  path could even come out. The target is now read whole and rewritten before it is cut to the
+  buffer, as Linux does.
+
+### Changed
+
+- **lstat() of a link is faster.** The size of a link that Cortex rewrites (those of
+  /etc/alternatives, long absolute ones) was found by reading the link again at every lstat() and
+  fstatat(): ls -l, cp -a, tar and find paid that for each of them. The size is now kept while the
+  link stays the same. Measured on an x86 machine, lstat() of /etc/alternatives/awk went from about
+  1,190 ns to 735 ns (530 ns without Cortex). The benchmark has a test for it: `lstat_alt_link`.
+
 ## 1.27.5.1 (2026-11-11)
 
 ### Fixed

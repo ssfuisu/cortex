@@ -369,8 +369,10 @@ cmd_start() {
     # -rfbport -1: no TCP port, the Unix socket only (mode 0600: this app's user alone). setsid: a
     # session of its own, so that the end of the terminal that started it (the app runs this command
     # on a pseudo-terminal of its own) sends it no SIGHUP, which makes an X server reset.
+    # -SendPrimary=0: only what is copied (the CLIPBOARD) goes to Android's clipboard. Text that is
+    # only selected (the PRIMARY) replaced what had been copied on the phone, at every selection.
     setsid Xvnc ":$display" -geometry "$size" -depth 24 -rfbunixpath "$SOCKET" -rfbunixmode 0600 -rfbport -1 \
-        -SecurityTypes None -nolisten tcp -AlwaysShared -AcceptSetDesktopSize -dpi 120 \
+        -SecurityTypes None -nolisten tcp -AlwaysShared -AcceptSetDesktopSize -dpi 120 -SendPrimary=0 \
         </dev/null >>"$LOG" 2>&1 9>&- &
     pid=$!
     echo "$pid" >"$STATE/xvnc.pid"

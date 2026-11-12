@@ -90,6 +90,15 @@ static void t_lstat_file(long n, const char *root) {
     for (long i = 0; i < n; i++) { if (lstat(p, &st) != 0) die("lstat", p); sink += (unsigned long long)st.st_size; }
 }
 
+static void t_lstat_alt_link(long n, const char *root) {
+    char p[PATH_MAX]; path_of(p, root, "/etc/alternatives/awk"); /* -> /usr/bin/mawk: a link the hook rewrites */
+    struct stat st;
+    for (long i = 0; i < n; i++) {
+        if (lstat(p, &st) != 0 || !S_ISLNK(st.st_mode)) die("lstat(alternatives link)", p);
+        sink += (unsigned long long)st.st_size;
+    }
+}
+
 static void t_lstat_link(long n, const char *root) {
     char p[PATH_MAX]; path_of(p, root, "/bin"); /* a symlink to usr/bin on Ubuntu 24.04 */
     struct stat st;
@@ -275,7 +284,7 @@ static void t_spawn_host(long n, const char *root) {
 
 static const struct { const char *name; test_fn fn; } TESTS[] = {
     { "compute", t_compute }, { "stat", t_stat }, { "stat_deep", t_stat_deep }, { "stat_miss", t_stat_miss },
-    { "stat_miss_usrbin", t_stat_miss_usrbin }, { "lstat_file", t_lstat_file }, { "lstat_link", t_lstat_link },
+    { "stat_miss_usrbin", t_stat_miss_usrbin }, { "lstat_file", t_lstat_file }, { "lstat_link", t_lstat_link }, { "lstat_alt_link", t_lstat_alt_link },
     { "access", t_access }, { "open", t_open }, { "openat_rel", t_openat_rel }, { "fopen", t_fopen },
     { "readlink", t_readlink }, { "readdir", t_readdir }, { "realpath", t_realpath }, { "getcwd", t_getcwd },
     { "write_null", t_write_null }, { "dup_close", t_dup_close }, { "sigprocmask", t_sigprocmask },

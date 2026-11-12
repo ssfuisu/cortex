@@ -122,7 +122,7 @@ Measured on one 8-core Android phone (Linux 4.14, one big core, median of 9 inte
 | `write()`, `dup()` + `close()`, `getcwd()`, `sigprocmask()` | up to +21 ns | up to +21 ns |
 | Computation without system calls | 0 | 0 |
 
-`lstat()` of a symbolic link stays expensive because the library reads the link to report its size the way Ubuntu does.
+`lstat()` of a symbolic link stays the most expensive of these because the library reads the link to report its size the way Ubuntu does. Since 1.27.6 it reads each link once and keeps the size while the link stays the same (on an x86 machine, `lstat()` of `/etc/alternatives/awk` went from about 1,190 ns to 735 ns; 530 ns without the library).
 
 **Starting a program** (what a shell does for every command): the library made 19 system calls before the program started and now makes 7, no longer changes the permissions of `ld.so` each time, and lists the library directories that hold nearly every library first, so a program no longer pays two failed lookups per library (`apt-cache` made 34 of them, `bash` 4, now none). Starting a program through the library takes 769 µs instead of 903 µs; starting `ld.so` by hand without the library takes 491 µs.
 

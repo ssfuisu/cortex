@@ -867,8 +867,8 @@ else
 fi
 XARGS="$(cat "$DR/tmp/xvnc-args" 2>/dev/null)"
 if [[ "$XARGS" == *"-rfbunixmode 0600"* && "$XARGS" == *"-rfbport -1"* && "$XARGS" == *"-nolisten tcp"* && \
-      "$XARGS" == *"-rfbunixpath $DR/tmp/.cortex-desktop/vnc.sock"* ]]; then
-    pass "the X server listens on no network port, only on a socket of the app's user"
+      "$XARGS" == *"-rfbunixpath $DR/tmp/.cortex-desktop/vnc.sock"* && "$XARGS" == *"-SendPrimary=0"* ]]; then
+    pass "the X server listens on no network port, only on a socket of the app's user; selected text stays on the desktop"
 else
     fail "Xvnc arguments: $XARGS"
 fi

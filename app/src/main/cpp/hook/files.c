@@ -493,6 +493,86 @@ int stat(const char *pathname, struct stat *statbuf) {
     return ret;
 }
 
+// ---- the size lstat() reports for a link ---------------------------------------------------
+// The size of a link is the length of its target, and the hook reports it as readlink() returns
+// the target: rewritten. Finding that out read the link a second time, on every lstat() of a link
+// that can be rewritten (those of /etc/alternatives, long absolute ones): ls -l, cp -a, tar and
+// find did that for each of them. A link's target cannot change while the link exists (a new
+// target is a new link), so the size is kept, by the link's inode, the time it was made, its own
+// size and the path it was asked for by. No lock: each place has a sequence number that is odd
+// while it is written, and a reader that sees it change takes nothing (a fork can happen at any
+// moment, and a child must never wait for a lock that another thread held).
+#define LINK_SIZE_SLOTS 128
+
+static struct link_size_slot {
+    uint32_t seq;
+    uint64_t dev, ino, path_hash;
+    int64_t ctime_sec;
+    int64_t ctime_nsec;
+    long long raw, size;
+} g_link_sizes[LINK_SIZE_SLOTS];
+
+static uint64_t link_path_hash(int dirfd, const char *path) {
+    uint64_t h = 1469598103934665603ULL ^ (uint64_t)(int64_t)dirfd; // FNV-1a
+    for (const unsigned char *p = (const unsigned char *)path; p && *p; p++) h = (h ^ *p) * 1099511628211ULL;
+    return h;
+}
+
+static struct link_size_slot *link_size_slot_for(const struct stat *st, uint64_t path_hash) {
+    uint64_t mix = (uint64_t)st->st_ino * 0x9E3779B97F4A7C15ULL ^ path_hash;
+    return &g_link_sizes[(mix >> 32) % LINK_SIZE_SLOTS];
+}
+
+// The size kept for this link, or -1
+static long long link_size_cached(const struct stat *st, uint64_t path_hash) {
+    struct link_size_slot *slot = link_size_slot_for(st, path_hash);
+    uint32_t before = __atomic_load_n(&slot->seq, __ATOMIC_ACQUIRE);
+    if (before == 0 || (before & 1)) return -1;
+    int match = slot->dev == (uint64_t)st->st_dev && slot->ino == (uint64_t)st->st_ino && slot->path_hash == path_hash &&
+                slot->ctime_sec == (int64_t)st->st_ctim.tv_sec && slot->ctime_nsec == (int64_t)st->st_ctim.tv_nsec &&
+                slot->raw == (long long)st->st_size;
+    long long size = slot->size;
+    __atomic_thread_fence(__ATOMIC_ACQUIRE);
+    if (__atomic_load_n(&slot->seq, __ATOMIC_RELAXED) != before) return -1;
+    return match ? size : -1;
+}
+
+static void link_size_keep(const struct stat *st, uint64_t path_hash, long long size) {
+    struct link_size_slot *slot = link_size_slot_for(st, path_hash);
+    uint32_t seq = __atomic_load_n(&slot->seq, __ATOMIC_RELAXED);
+    // another thread writes it: this one is not kept
+    if ((seq & 1) || !__atomic_compare_exchange_n(&slot->seq, &seq, seq + 1, 0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) return;
+    __atomic_thread_fence(__ATOMIC_RELEASE);
+    slot->dev = (uint64_t)st->st_dev;
+    slot->ino = (uint64_t)st->st_ino;
+    slot->path_hash = path_hash;
+    slot->ctime_sec = (int64_t)st->st_ctim.tv_sec;
+    slot->ctime_nsec = (int64_t)st->st_ctim.tv_nsec;
+    slot->raw = (long long)st->st_size;
+    slot->size = size;
+    __atomic_store_n(&slot->seq, seq + 2, __ATOMIC_RELEASE);
+}
+
+// statbuf (of a link at pathname, which dirfd and target reach) with the size of the rewritten target
+static void link_size_as_read(int dirfd, const char *pathname, const char *target, struct stat *statbuf) {
+    uint64_t hash = link_path_hash(dirfd, pathname);
+    long long kept = link_size_cached(statbuf, hash);
+    if (kept >= 0) {
+        statbuf->st_size = (off_t)kept;
+        return;
+    }
+    static ssize_t (*orig_readlinkat)(int, const char *, char *, size_t) = NULL;
+    if (!orig_readlinkat) orig_readlinkat = (ssize_t (*)(int, const char *, char *, size_t))dlsym(RTLD_NEXT, "readlinkat");
+    char link_buf[PATH_MAX];
+    ssize_t llen = orig_readlinkat ? orig_readlinkat(dirfd, target, link_buf, sizeof(link_buf) - 1) : -1;
+    if (llen <= 0) return;
+    ssize_t post_len = postprocess_readlink(pathname, link_buf, llen, sizeof(link_buf));
+    if (post_len > 0) {
+        link_size_keep(statbuf, hash, (long long)post_len);
+        statbuf->st_size = post_len;
+    }
+}
+
 // Hook lstat
 int lstat(const char *pathname, struct stat *statbuf) {
     static int (*orig_lstat)(const char *, struct stat *) = NULL;
@@ -510,16 +590,7 @@ int lstat(const char *pathname, struct stat *statbuf) {
     }
     if (ret == 0 && statbuf && S_ISLNK(statbuf->st_mode) && g_cortex_root[0] != '\0' && target &&
         readlink_result_may_change(pathname, (long long)statbuf->st_size)) {
-        char link_buf[PATH_MAX];
-        static ssize_t (*orig_readlink)(const char *, char *, size_t) = NULL;
-        if (!orig_readlink) orig_readlink = (ssize_t (*)(const char *, char *, size_t))dlsym(RTLD_NEXT, "readlink");
-        ssize_t llen = orig_readlink ? orig_readlink(target, link_buf, sizeof(link_buf) - 1) : -1;
-        if (llen > 0) {
-            ssize_t post_len = postprocess_readlink(pathname, link_buf, llen, sizeof(link_buf));
-            if (post_len > 0) {
-                statbuf->st_size = post_len;
-            }
-        }
+        link_size_as_read(AT_FDCWD, pathname, target, statbuf);
     }
     if (ret == 0) apply_stat_emulation(statbuf);
     return ret;
@@ -542,16 +613,7 @@ int fstatat(int dirfd, const char *pathname, struct stat *statbuf, int flags) {
     }
     if (ret == 0 && statbuf && (flags & AT_SYMLINK_NOFOLLOW) && S_ISLNK(statbuf->st_mode) && g_cortex_root[0] != '\0' && target &&
         readlink_result_may_change(pathname, (long long)statbuf->st_size)) {
-        char link_buf[PATH_MAX];
-        static ssize_t (*orig_readlinkat)(int, const char *, char *, size_t) = NULL;
-        if (!orig_readlinkat) orig_readlinkat = (ssize_t (*)(int, const char *, char *, size_t))dlsym(RTLD_NEXT, "readlinkat");
-        ssize_t llen = orig_readlinkat ? orig_readlinkat(dirfd, target, link_buf, sizeof(link_buf) - 1) : -1;
-        if (llen > 0) {
-            ssize_t post_len = postprocess_readlink(pathname, link_buf, llen, sizeof(link_buf));
-            if (post_len > 0) {
-                statbuf->st_size = post_len;
-            }
-        }
+        link_size_as_read(dirfd, pathname, target, statbuf);
     }
     if (ret == 0) apply_stat_emulation(statbuf);
     return ret;
