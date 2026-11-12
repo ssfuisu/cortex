@@ -237,11 +237,16 @@ static void clear_dns_redirect(int fd) {
     pthread_mutex_unlock(&g_dns_redirect_mutex);
 }
 
+// memfd_locks.c: a memfd whose locks are on a file of the hook's gives them up when it is closed
+static int g_memfd_locks_used;
+static void memfd_lock_closing(int fd);
+
 int close(int fd) {
     static int (*orig_close)(int) = NULL;
     if (!orig_close) orig_close = (int (*)(int))dlsym(RTLD_NEXT, "close");
     // The ARM translator's memory file (privileged.c): left open, as if it were closed
     if (g_kept_fd_count > 0 && is_kept_fd(fd)) return 0;
+    if (__atomic_load_n(&g_memfd_locks_used, __ATOMIC_RELAXED)) memfd_lock_closing(fd);
     clear_dns_redirect(fd);
     set_chosen_port_fd(fd, 0);
     return orig_close ? orig_close(fd) : -1;

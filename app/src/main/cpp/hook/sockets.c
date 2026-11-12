@@ -201,6 +201,38 @@ static int real_scm_credentials(const struct msghdr *msg, struct msghdr *mod, ch
     return 1;
 }
 
+// On 32-bit ARM this library is built, as all of Ubuntu's armhf packages are, with a 64-bit time_t:
+// the headers then give getsockopt(), recvmmsg() and fcntl() other names (__getsockopt64...), and
+// the functions here are those. The one to pass a call on to is the one of the same name: the plain
+// one takes the old layout of a timeout.
+#if defined(__USE_TIME_BITS64) && !defined(__LP64__)
+#define CORTEX_TIME64_NAME(name64, name) name64
+#else
+#define CORTEX_TIME64_NAME(name64, name) name
+#endif
+
+// The other end of a Unix socket as the kernel names it (SO_PEERCRED, a received SCM_CREDENTIALS)
+// is the app's real user, while every program here sees itself as root (getuid() is 0). A server
+// that compares the two refuses its own user: dbus-daemon closed every connection to the session
+// bus, and XFCE stopped at "Unable to contact settings server: The connection is closed". The
+// app's own ids are shown as the ids programs see for themselves; any other id is left as it is.
+static void peer_cred_as_seen_here(struct ucred *cred) {
+    if (cred->uid == (uid_t)call_orig_syscall(CORTEX_NR_REAL_GETUID, 0, 0, 0, 0, 0, 0)) cred->uid = getuid();
+    if (cred->gid == (gid_t)call_orig_syscall(CORTEX_NR_REAL_GETGID, 0, 0, 0, 0, 0, 0)) cred->gid = getgid();
+}
+
+// The SCM_CREDENTIALS of a message that came in, shown the same way
+static void received_creds_as_seen_here(struct msghdr *msg) {
+    if (!msg || !msg->msg_control || msg->msg_controllen < sizeof(struct cmsghdr)) return;
+    for (struct cmsghdr *c = CMSG_FIRSTHDR(msg); c; c = CMSG_NXTHDR(msg, c)) {
+        if (c->cmsg_level != SOL_SOCKET || c->cmsg_type != SCM_CREDENTIALS || c->cmsg_len < CMSG_LEN(sizeof(struct ucred))) continue;
+        struct ucred cred;
+        memcpy(&cred, CMSG_DATA(c), sizeof(cred));
+        peer_cred_as_seen_here(&cred);
+        memcpy(CMSG_DATA(c), &cred, sizeof(cred));
+    }
+}
+
 ssize_t sendmsg(int sockfd, const struct msghdr *msg, int flags) {
     static ssize_t (*orig_sendmsg)(int, const struct msghdr *, int) = NULL;
     if (!orig_sendmsg) orig_sendmsg = (ssize_t (*)(int, const struct msghdr *, int))dlsym(RTLD_NEXT, "sendmsg");
@@ -256,8 +288,44 @@ ssize_t recvmsg(int sockfd, struct msghdr *msg, int flags) {
         restore_dns_source(sockfd, (struct sockaddr *)msg->msg_name, cap, &msg->msg_namelen);
         errno = saved_errno;
     }
+    if (ret >= 0) received_creds_as_seen_here(msg);
     return ret;
 }
+
+int recvmmsg(int sockfd, struct mmsghdr *msgvec, unsigned int vlen, int flags, struct timespec *timeout) {
+    static int (*orig_recvmmsg)(int, struct mmsghdr *, unsigned int, int, struct timespec *) = NULL;
+    if (!orig_recvmmsg) orig_recvmmsg = (int (*)(int, struct mmsghdr *, unsigned int, int, struct timespec *))dlsym(RTLD_NEXT, CORTEX_TIME64_NAME("__recvmmsg64", "recvmmsg"));
+    if (!orig_recvmmsg) {
+        errno = ENOSYS;
+        return -1;
+    }
+    int ret = orig_recvmmsg(sockfd, msgvec, vlen, flags, timeout);
+    for (int i = 0; i < ret && msgvec; i++) received_creds_as_seen_here(&msgvec[i].msg_hdr);
+    return ret;
+}
+
+static void peer_cred_option_as_seen_here(int ret, int level, int optname, void *optval, socklen_t *optlen) {
+    if (ret == 0 && level == SOL_SOCKET && optname == SO_PEERCRED && optval && optlen && *optlen >= sizeof(struct ucred)) {
+        struct ucred cred;
+        memcpy(&cred, optval, sizeof(cred));
+        peer_cred_as_seen_here(&cred);
+        memcpy(optval, &cred, sizeof(cred));
+    }
+}
+
+int getsockopt(int sockfd, int level, int optname, void *optval, socklen_t *optlen) {
+    static int (*orig_getsockopt)(int, int, int, void *, socklen_t *) = NULL;
+    if (!orig_getsockopt) orig_getsockopt = (int (*)(int, int, int, void *, socklen_t *))dlsym(RTLD_NEXT, CORTEX_TIME64_NAME("__getsockopt64", "getsockopt"));
+    if (!orig_getsockopt) orig_getsockopt = (int (*)(int, int, int, void *, socklen_t *))dlsym(RTLD_NEXT, "getsockopt");
+    if (!orig_getsockopt) {
+        errno = ENOSYS;
+        return -1;
+    }
+    int ret = orig_getsockopt(sockfd, level, optname, optval, optlen);
+    peer_cred_option_as_seen_here(ret, level, optname, optval, optlen);
+    return ret;
+}
+
 
 int getpeername(int sockfd, struct sockaddr *addr, socklen_t *addrlen) {
     static int (*orig_getpeername)(int, struct sockaddr *, socklen_t *) = NULL;

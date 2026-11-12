@@ -23,10 +23,10 @@ DEFAULT_SIZE="1280x720"
 
 LIGHT_PACKAGES="tigervnc-standalone-server tigervnc-tools dbus-x11 xauth x11-xserver-utils x11-utils
 xfonts-base fonts-dejavu-core openbox obconf python3-xdg tint2 pcmanfm lxterminal mousepad lxappearance
-adwaita-icon-theme-full pulseaudio pulseaudio-utils xdg-utils"
+adwaita-icon-theme-full librsvg2-common pulseaudio pulseaudio-utils xdg-utils"
 XFCE_PACKAGES="tigervnc-standalone-server tigervnc-tools dbus-x11 xauth x11-xserver-utils x11-utils
 xfonts-base fonts-dejavu-core xfce4 xfce4-terminal thunar mousepad
-adwaita-icon-theme-full pulseaudio pulseaudio-utils xdg-utils"
+adwaita-icon-theme-full librsvg2-common pulseaudio pulseaudio-utils xdg-utils"
 
 die() {
     echo "cortex-desktop: $*" >&2
@@ -98,6 +98,39 @@ free_display() {
     return 1
 }
 
+# The real program behind one that Cortex does not run when packages are installed (its stand-in
+# does nothing, and the hook answers for a program of that name itself)
+real_tool() {
+    if [ -x "$R/usr/bin/$1.distrib" ]; then
+        echo "$R/usr/bin/$1.distrib"
+    elif [ -x "$R/usr/bin/$1" ] && mkdir -p "$STATE" && ln -sf "$R/usr/bin/$1" "$STATE/$1.real" 2>/dev/null; then
+        echo "$STATE/$1.real"
+    else
+        return 1
+    fi
+}
+
+# The databases of file types (/usr/share/mime) and of the programs that open them. Cortex leaves
+# them out when packages are installed: they take time and a terminal has no use for them. But GTK
+# cannot load a single icon without the first (XFCE's panel ended at once, its desktop stayed
+# black), and a file manager does not know what opens a file without the second. They are built
+# here: the first (a few seconds) when it is missing or a package added to or took from it (the
+# directory of its sources changed: a file dpkg unpacks keeps the date it has in the package, so the
+# files' own dates say nothing), the second (a moment) every time.
+refresh_databases() {
+    local dir real
+    dir="$R/usr/share/mime"
+    if [ -d "$dir/packages" ] && { [ ! -f "$dir/mime.cache" ] || [ -n "$(find "$dir/packages" -newer "$dir/mime.cache" -print -quit 2>/dev/null)" ]; }; then
+        if real="$(real_tool update-mime-database)"; then
+            "$real" "$dir" >/dev/null 2>&1 || echo "cortex-desktop: update-mime-database failed" >&2
+        fi
+    fi
+    dir="$R/usr/share/applications"
+    if [ -d "$dir" ] && real="$(real_tool update-desktop-database)"; then
+        "$real" "$dir" >/dev/null 2>&1 || echo "cortex-desktop: update-desktop-database failed" >&2
+    fi
+}
+
 installed_kind() {
     local kind
     kind="$(conf_value DESKTOP)"
@@ -133,6 +166,7 @@ cmd_install() {
     as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends $packages ||
         die "the packages could not be installed"
     if [ "$firefox" = 1 ]; then install_firefox || echo "cortex-desktop: Firefox was not installed (see above)." >&2; fi
+    refresh_databases
     set_conf DESKTOP "$kind"
     echo "The desktop is installed. Open it from the app's menu (Desktop), or run: cortex-desktop start"
 }
@@ -254,19 +288,53 @@ show_mounts=0
 EOF
 }
 
+# Ends the desktop's PulseAudio. "pulseaudio --kill" does not find it here: it looks for a process
+# named pulseaudio, and Cortex's programs run as ld.so with their name as an argument. So it was
+# never stopped, and every start of the desktop left one more behind, the new one without its socket
+# (the old one still held it). Ours are known by the pid kept at their start and by their socket.
+stop_audio() {
+    local pid i theirs="module-native-protocol-unix socket=$STATE/pulse.sock"
+    pid="$(cat "$STATE/pulse.pid" 2>/dev/null)"
+    pid_is "$pid" pulseaudio && kill "$pid" 2>/dev/null
+    command -v pkill >/dev/null 2>&1 && pkill -f "$theirs" 2>/dev/null
+    # all of them gone before the socket is taken away: one that ends later removes it as it goes,
+    # which would be the next one's
+    for i in $(seq 1 30); do
+        if ! pid_is "$pid" pulseaudio && ! { command -v pgrep >/dev/null 2>&1 && pgrep -f "$theirs" >/dev/null 2>&1; }; then break; fi
+        sleep 0.1
+    done
+    if pid_is "$pid" pulseaudio; then kill -9 "$pid" 2>/dev/null; fi
+    command -v pkill >/dev/null 2>&1 && pkill -9 -f "$theirs" 2>/dev/null
+    rm -f "$STATE/pulse.pid" "$STATE/pulse.server" "$STATE/pulse.sock"
+}
+
 start_audio() {
     command -v pulseaudio >/dev/null 2>&1 || return 0
-    local fifo="$STATE/audio.fifo"
+    local fifo="$STATE/audio.fifo" pid i
     [ -p "$fifo" ] || { rm -f "$fifo"; mkfifo -m 600 "$fifo" 2>/dev/null; } || return 0
-    pulseaudio --kill >/dev/null 2>&1
+    stop_audio
     # No shared memory between PulseAudio and its programs (they talk over the socket), no realtime
-    # priority (Android does not give it), and one output: the pipe the app reads and plays
-    pulseaudio --daemonize=yes --exit-idle-time=-1 --disallow-exit --disable-shm=yes \
+    # priority (Android does not give it), and one output: the pipe the app reads and plays. Not as
+    # its own daemon and without its pid file (see stop_audio): in a session of its own, like the X server.
+    setsid pulseaudio --daemonize=no --use-pid-file=no --exit-idle-time=-1 --disallow-exit --disable-shm=yes \
         --realtime=no --high-priority=no --log-target=file:"$LOG_DIR/pulseaudio.log" -n \
         -L "module-native-protocol-unix socket=$STATE/pulse.sock auth-anonymous=1" \
         -L "module-pipe-sink file=$fifo format=s16le rate=44100 channels=2 sink_name=android" \
-        -L "module-always-sink" >/dev/null 2>&1 || return 0
-    echo "unix:$STATE/pulse.sock" >"$STATE/pulse.server"
+        -L "module-always-sink" </dev/null >/dev/null 2>&1 9>&- &
+    pid=$!
+    echo "$pid" >"$STATE/pulse.pid"
+    # its socket is there within a moment; a desktop without sound is still a desktop
+    for i in $(seq 1 50); do
+        [ -S "$STATE/pulse.sock" ] && break
+        pid_alive "$pid" || break
+        sleep 0.1
+    done
+    if [ -S "$STATE/pulse.sock" ]; then
+        echo "unix:$STATE/pulse.sock" >"$STATE/pulse.server"
+    else
+        # not one that runs on without anyone knowing its socket
+        stop_audio
+    fi
 }
 
 cmd_start() {
@@ -325,21 +393,43 @@ cmd_start() {
     start_audio
     if ! start_session "$display"; then
         stop_processes
+        stop_audio
         die "the desktop did not start (log: $LOG)"
     fi
     echo "The desktop is running: DISPLAY=:$display (programs started from the terminal open on it)."
 }
 
+# XFCE's window manager blends the windows together itself (shadows, transparency) unless told
+# otherwise, and without a GPU the CPU does that for every change on the screen. Off the first time;
+# the file is the user's from then on (Settings > Window Manager Tweaks > Compositor).
+ensure_xfce_defaults() {
+    local dir="${HOME}/.config/xfce4/xfconf/xfce-perchannel-xml"
+    [ -e "$dir/xfwm4.xml" ] && return 0
+    mkdir -p "$dir" || return 0
+    cat >"$dir/xfwm4.xml" <<'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+
+<channel name="xfwm4" version="1.0">
+  <property name="general" type="empty">
+    <property name="use_compositing" type="bool" value="false"/>
+  </property>
+</channel>
+EOF
+}
+
 # The desktop's session on the X server of display $1; fails when it ends at once
 start_session() {
     local display="$1" pulse="" current="openbox"
-    [ "$(conf_value DESKTOP)" = xfce ] || ensure_openbox_autostart
+    refresh_databases
+    if [ "$(conf_value DESKTOP)" = xfce ]; then ensure_xfce_defaults; else ensure_openbox_autostart; fi
     [ -f "$STATE/pulse.server" ] && pulse="$(cat "$STATE/pulse.server")"
     [ "$(conf_value DESKTOP)" = xfce ] && current="XFCE"
     (
         cd "$HOME" || exit 1
         unset SESSION_MANAGER DBUS_SESSION_BUS_ADDRESS
-        export DISPLAY=":$display" XDG_SESSION_TYPE=x11 XDG_CURRENT_DESKTOP="$current"
+        # NO_AT_BRIDGE: there is no accessibility bus here, and every GTK program waited for it and
+        # wrote a warning
+        export DISPLAY=":$display" XDG_SESSION_TYPE=x11 XDG_CURRENT_DESKTOP="$current" NO_AT_BRIDGE=1
         [ -n "$pulse" ] && export PULSE_SERVER="$pulse"
         # shellcheck disable=SC2046
         exec setsid dbus-launch --exit-with-session $(session_command)
@@ -375,8 +465,8 @@ cmd_stop() {
     take_lock
     local stopped=0
     stop_processes && stopped=1
-    command -v pulseaudio >/dev/null 2>&1 && pulseaudio --kill >/dev/null 2>&1
-    rm -f "$STATE/pulse.server" "$SOCKET"
+    stop_audio
+    rm -f "$SOCKET"
     if [ "$stopped" = 1 ]; then echo "The desktop was stopped."; else echo "The desktop was not running."; fi
 }
 

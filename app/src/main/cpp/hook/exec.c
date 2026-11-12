@@ -139,11 +139,13 @@ static int run_execve(orig_execve_f_type f, const char *path, char *const argv[]
     return f(path, argv, envp);
 }
 
-// ldconfig does nothing in Cortex (its cache is for paths that ld.so opens without the hook), but the
+// ldconfig writes no cache in Cortex (its cache is for paths that ld.so opens without the hook), but the
 // exec code reads /etc/ld.so.conf(.d) again when /etc/ld.so.cache changes: "sudo ldconfig" after an
 // edit of a .conf file marks it changed, as the real ldconfig would by writing it.
 static void ldconfig_mark_cache(void) {
     if (g_cortex_root[0] == '\0') return;
+    // what the real one does for its cache: the libraries are read (their RUNPATH), see runpath_conf_refresh()
+    runpath_conf_refresh();
     char path[PATH_MAX];
     size_t n = cortex_append(path, sizeof(path), 0, g_cortex_root, g_cortex_root_len);
     cortex_append(path, sizeof(path), n, "/etc/ld.so.cache", 16);

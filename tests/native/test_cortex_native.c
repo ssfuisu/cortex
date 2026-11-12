@@ -1946,6 +1946,12 @@ static void test_readlink_result_may_change(void) {
     ASSERT_EQ(readlink_result_may_change("/usr/bin/awk", 21), 1, "an absolute link may point into the rootfs path");
     ASSERT_EQ(readlink_result_may_change("/usr/bin/awk", (long long)g_cortex_root_len), 1, "a link as long as the rootfs path");
     ASSERT_EQ(readlink_result_may_change("/usr/bin/x", 14), 0, "shorter than ../alternatives and the rootfs path");
+    ASSERT_EQ(readlink_result_may_change("/usr/lib/libssl.so.3", 15), 0, "libssl.so.3.0.0: no way into /etc/alternatives from outside /etc");
+    ASSERT_EQ(readlink_result_may_change("/usr/x", 18), 0, "one short of ../etc/alternatives");
+    ASSERT_EQ(readlink_result_may_change("/usr/x", 19), 1, "../etc/alternatives from one directory below /");
+    ASSERT_EQ(readlink_result_may_change("/etc/x", 15), 1, "a link in /etc is read from 15 characters on");
+    ASSERT_EQ(readlink_result_may_change("/usr/../etc/foo/x", 15), 1, "a path with .. may be in /etc");
+    ASSERT_EQ(readlink_result_may_change("//etc/foo/x", 15), 1, "and so may one with doubled slashes");
     ASSERT_EQ(readlink_result_may_change("/etc/foo/x", 15), 1, "../alternatives from next to /etc/alternatives may be normalized");
     ASSERT_EQ(readlink_result_may_change("/usr/bin/x", 19), 1, "../etc/alternatives may be normalized");
     ASSERT_EQ(readlink_result_may_change("/etc/alternatives/awk", 2), 1, "any ../ link in /etc/alternatives");

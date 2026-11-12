@@ -925,6 +925,78 @@ else
     fail "cortex-desktop start --size without a value"
 fi
 desktop_ stop >/dev/null
+# The databases GTK needs (file types, the programs that open them) are built by the real programs
+# behind Cortex's stand-ins when they are missing or a package added to them, and only then
+printf '#!/bin/bash\necho "$*" > "$CORTEX_DESKTOP_ROOT/tmp/session-args"\necho "NO_AT_BRIDGE=${NO_AT_BRIDGE:-}" > "$CORTEX_DESKTOP_ROOT/tmp/session-env"\nexec -a dbus-launch sleep 300\n' > "$DBIN/dbus-launch"
+mkdir -p "$DR/usr/bin" "$DR/usr/share/mime/packages" "$DR/usr/share/applications"
+echo "<mime-info/>" > "$DR/usr/share/mime/packages/freedesktop.org.xml"
+echo "[Desktop Entry]" > "$DR/usr/share/applications/thunar.desktop"
+printf '#!/bin/sh\nexit 0\n' > "$DR/usr/bin/update-mime-database"
+printf '#!/bin/sh\necho run >> "$1/../../../tmp/mime-runs"\necho cache > "$1/mime.cache"\n' > "$DR/usr/bin/update-mime-database.distrib"
+printf '#!/bin/sh\necho run >> "$1/../../../tmp/desktop-runs"\necho cache > "$1/mimeinfo.cache"\n' > "$DR/usr/bin/update-desktop-database"
+chmod +x "$DR/usr/bin/update-mime-database" "$DR/usr/bin/update-mime-database.distrib" "$DR/usr/bin/update-desktop-database"
+echo "DESKTOP=xfce" > "$DR/etc/cortex/desktop.conf"
+desktop_ start >/dev/null 2>&1
+sleep 0.5
+if [ -f "$DR/usr/share/mime/mime.cache" ] && [ -f "$DR/usr/share/applications/mimeinfo.cache" ] \
+    && [ "$(wc -l < "$DR/tmp/mime-runs")" = 1 ] && [ "$(wc -l < "$DR/tmp/desktop-runs")" = 1 ]; then
+    pass "cortex-desktop start builds the file type and program databases with the real programs"
+else
+    fail "cortex-desktop databases: $(ls "$DR/usr/share/mime" "$DR/usr/share/applications" 2>&1 | tr '\n' ' ')"
+fi
+XFWM="$TEST_TMP/desktop_home/.config/xfce4/xfconf/xfce-perchannel-xml/xfwm4.xml"
+if grep -q "exit-with-session startxfce4" "$DR/tmp/session-args" 2>/dev/null \
+    && grep -q 'name="use_compositing" type="bool" value="false"' "$XFWM" 2>/dev/null \
+    && grep -q "NO_AT_BRIDGE=1" "$DR/tmp/session-env" 2>/dev/null; then
+    pass "cortex-desktop starts XFCE without the compositor and the accessibility bus"
+else
+    fail "cortex-desktop XFCE session: $(cat "$DR/tmp/session-args" "$DR/tmp/session-env" 2>/dev/null)"
+fi
+desktop_ stop >/dev/null
+echo "mine" > "$XFWM"
+desktop_ start >/dev/null 2>&1
+desktop_ stop >/dev/null
+RUNS_SAME="$(wc -l < "$DR/tmp/mime-runs")"
+sleep 1.1
+echo "<mime-info/>" > "$DR/usr/share/mime/packages/gimp.xml"
+desktop_ start >/dev/null 2>&1
+if [ "$RUNS_SAME" = 1 ] && [ "$(wc -l < "$DR/tmp/mime-runs")" = 2 ] && [ "$(wc -l < "$DR/tmp/desktop-runs")" = 3 ] \
+    && [ "$(cat "$XFWM")" = "mine" ]; then
+    pass "the file types are read again only after a package added to them, the user's XFCE settings stay"
+else
+    fail "cortex-desktop database refresh: $RUNS_SAME then $(wc -l < "$DR/tmp/mime-runs") mime runs, $(wc -l < "$DR/tmp/desktop-runs") desktop runs, xfwm4.xml: $(cat "$XFWM")"
+fi
+desktop_ stop >/dev/null
+# Sound: one PulseAudio of the desktop's own, known by its pid and its socket ("pulseaudio --kill"
+# finds none in Cortex), ended with the desktop; one left behind by an older version goes as well
+cat > "$DBIN/pulseaudio" <<'EOS'
+#!/bin/bash
+sock=""
+for a in "$@"; do case "$a" in *socket=*) sock="${a#*socket=}"; sock="${sock%% *}" ;; esac; done
+exec -a pulseaudio python3 -c 'import socket, sys, time
+s = socket.socket(socket.AF_UNIX); s.bind(sys.argv[1]); s.listen(1); time.sleep(300)' "$sock" "$@"
+EOS
+(exec -a pulseaudio python3 -c 'import time; time.sleep(300)' -L "module-native-protocol-unix socket=$DR/tmp/.cortex-desktop/pulse.sock auth-anonymous=1") &
+STRAY_PID=$!
+desktop_ start >/dev/null 2>&1
+PULSE_PID="$(cat "$DR/tmp/.cortex-desktop/pulse.pid" 2>/dev/null)"
+sleep 0.3
+if kill -0 "$PULSE_PID" 2>/dev/null && [ "$(cat "$DR/tmp/.cortex-desktop/pulse.server")" = "unix:$DR/tmp/.cortex-desktop/pulse.sock" ] \
+    && { ! kill -0 "$STRAY_PID" 2>/dev/null || grep -q '^State:[[:space:]]*Z' "/proc/$STRAY_PID/status"; }; then
+    pass "cortex-desktop starts one PulseAudio of its own and ends one left behind"
+else
+    fail "cortex-desktop sound: pid '$PULSE_PID', server '$(cat "$DR/tmp/.cortex-desktop/pulse.server" 2>/dev/null)'"
+    kill "$STRAY_PID" 2>/dev/null
+fi
+desktop_ stop >/dev/null
+sleep 0.3
+if { ! kill -0 "$PULSE_PID" 2>/dev/null || grep -q '^State:[[:space:]]*Z' "/proc/$PULSE_PID/status"; } \
+    && [ ! -e "$DR/tmp/.cortex-desktop/pulse.sock" ] && [ ! -e "$DR/tmp/.cortex-desktop/pulse.server" ]; then
+    pass "cortex-desktop stop ends its PulseAudio"
+else
+    fail "cortex-desktop stop left PulseAudio $PULSE_PID running"
+    kill "$PULSE_PID" 2>/dev/null
+fi
 pkill -f "$DR/tmp/.cortex-desktop/vnc.sock" 2>/dev/null
 
 echo "=== 7. Checking translations ==="

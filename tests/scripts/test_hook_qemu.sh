@@ -444,6 +444,38 @@ rm -f "$work/root/etc/ld.so.cache"
 run "$work/run_ldconfig" >/dev/null
 check "ldconfig marks /etc/ld.so.cache changed" test -e "$work/root/etc/ld.so.cache"
 
+# The RUNPATH of a library the program needs (fio: librbd.so.1 names /usr/lib/<arch>/ceph, where its
+# libceph-common.so.2 is). The exec does not read the libraries: their RUNPATH directories are in a
+# file of /etc/ld.so.conf.d, written when it is missing and when ldconfig runs.
+rp_conf="$work/root/etc/ld.so.conf.d/zz-cortex-runpath.conf"
+mkdir -p "$work/root/usr/lib/aarch64-linux-gnu/ceph" "$work/root/usr/lib/aarch64-linux-gnu/origin/sub"
+build_chain() { # name, the directory of the inner library, the RUNPATH the outer one names it by
+  echo "int $1_inner(void) { return 5; }" | aarch64-linux-gnu-gcc -shared -fPIC -w -Wl,-soname,lib$1inner.so.2 \
+    -o "$2/lib$1inner.so.2" -x c - || { echo "lib$1inner did not build"; exit 1; }
+  printf 'int %s_inner(void);\nint %s_outer(void) { return %s_inner() + 1; }\n' "$1" "$1" "$1" |
+    aarch64-linux-gnu-gcc -shared -fPIC -w -Wl,-soname,lib$1outer.so.1 -o "$work/root/usr/lib/aarch64-linux-gnu/lib$1outer.so.1" \
+      -x c - -x none "$2/lib$1inner.so.2" "-Wl,--enable-new-dtags,-rpath,$3" || { echo "lib$1outer did not build"; exit 1; }
+  printf '#include <stdio.h>\nint %s_outer(void);\nint main(void) { printf("%s %%d\\n", %s_outer()); return 0; }\n' "$1" "$1" "$1" |
+    aarch64-linux-gnu-gcc -O2 -w -o "$work/root/usr/bin/use_$1" -x c - -x none "$work/root/usr/lib/aarch64-linux-gnu/lib$1outer.so.1" \
+      -Wl,--allow-shlib-undefined || { echo "use_$1 did not build"; exit 1; }
+}
+build_chain rbd "$work/root/usr/lib/aarch64-linux-gnu/ceph" /usr/lib/aarch64-linux-gnu/ceph
+rm -f "$rp_conf"
+out=$(run "$work/start_private" /usr/bin/use_rbd)
+check "a program finds what one of its libraries has in that library's RUNPATH" test "$out" = "rbd 6"
+[ "$out" = "rbd 6" ] || echo "        got: $out"
+check "the directory is listed in /etc/ld.so.conf.d, and only what is not searched already" \
+  sh -c 'grep -qx "/usr/lib/aarch64-linux-gnu/ceph" "$1" && ! grep -q "android\|conflib" "$1"' sh "$rp_conf"
+# one installed later counts after ldconfig, as on Linux
+build_chain late "$work/root/usr/lib/aarch64-linux-gnu/origin/sub" /usr/lib/aarch64-linux-gnu/origin/sub
+before=$(run "$work/start_private" /usr/bin/use_late)
+run "$work/run_ldconfig" >/dev/null
+out=$(run "$work/start_private" /usr/bin/use_late)
+check "ldconfig reads the libraries again: one installed since is found after it" \
+  sh -c '[ "$1" != "late 6" ] && [ "$2" = "late 6" ] && grep -qx "/usr/lib/aarch64-linux-gnu/origin/sub" "$3" && grep -qx "/usr/lib/aarch64-linux-gnu/ceph" "$3"' \
+  sh "$before" "$out" "$rp_conf"
+[ "$out" = "late 6" ] || echo "        got: $out (before ldconfig: $before)"
+
 # System V shared memory (X's MIT-SHM): Android's seccomp filter blocks it, the hook keeps the segments
 # in files. One process makes a segment, another one (started anew, so nothing is inherited) attaches it.
 mkdir -p "$work/root/usr/lib" && cp "$work/hook.so" "$work/root/usr/lib/libcortex-hook.so" # children get the hook too
@@ -566,19 +598,67 @@ out=$(run "$work/load_plugin")
 check "dlopen() of a library whose dependency is in its RUNPATH" test "$out" = "plugin 100"
 [ "$out" = "plugin 100" ] || echo "        got: $out"
 
+# The RUNPATH of a dependency: a plugin without one needs a library that ld.so finds, which needs
+# another in its own RUNPATH (XFCE's PulseAudio plugin: libpulse.so.0, then libpulsecommon). And a
+# library asked for by its name alone (dlopen("libpulse.so.0"), as Firefox and SDL do).
+mkdir -p "$work/root/usr/lib/aarch64-linux-gnu/deepdeps" "$work/root/usr/lib/mid"
+echo 'int deep_value(void) { return 40; }' | aarch64-linux-gnu-gcc -shared -fPIC -w -Wl,-soname,libdeep.so.1 \
+  -o "$work/root/usr/lib/aarch64-linux-gnu/deepdeps/libdeep.so.1" -x c - || { echo "libdeep did not build"; exit 1; }
+printf 'int deep_value(void);\nint mid_value(void) { return deep_value() + 1; }\n' |
+  aarch64-linux-gnu-gcc -shared -fPIC -w -Wl,-soname,libmid.so.1 -o "$work/root/usr/lib/mid/libmid.so.1" -x c - -x none \
+    "$work/root/usr/lib/aarch64-linux-gnu/deepdeps/libdeep.so.1" \
+    -Wl,--enable-new-dtags,-rpath,/usr/lib/aarch64-linux-gnu/deepdeps || { echo "libmid did not build"; exit 1; }
+printf 'int mid_value(void);\nint plugin_value(void) { return mid_value() + 1; }\n' |
+  aarch64-linux-gnu-gcc -shared -fPIC -w -o "$work/root/usr/lib/plugins/plugin2.so" -x c - -x none \
+    "$work/root/usr/lib/mid/libmid.so.1" || { echo "plugin2 did not build"; exit 1; }
+prog load_plugin2 <<'EOC'
+#include <dlfcn.h>
+#include <stdio.h>
+#include <string.h>
+int main(int argc, char **argv) {
+    void *h = dlopen(argv[1], RTLD_NOW);
+    if (!h) {
+        const char *e = dlerror();
+        printf("dlopen failed: %s\n", e && strstr(e, "cannot open shared object file") ? "cannot open shared object file" : (e ? e : "no message"));
+        return 1;
+    }
+    int (*f)(void) = (int (*)(void))dlsym(h, argv[2]);
+    printf("%s %d\n", argv[2], f ? f() : -1);
+    return 0;
+}
+EOC
+run_mid() { # the directory to start in, then the library and the function
+  local dir=$1
+  shift
+  (cd "$dir" && env -i CORTEX_ROOT="$work/root" HOME="$work" timeout 60 qemu-aarch64 "$cross/ld-linux-aarch64.so.1" \
+    --preload "$work/hook.so" --library-path "$cross:$work/root/usr/lib/mid" "$work/load_plugin2" "$@" 2>&1 | grep -v "cannot be preloaded")
+}
+out="$(run_mid "$work" /usr/lib/plugins/plugin2.so plugin_value); $(run_mid "$work" libmid.so.1 mid_value)"
+out="$out; $(run_mid "$work/root/usr/lib" ./plugins/plugin2.so plugin_value); $(run_mid "$work" libnothere.so.9 x)"
+want="plugin_value 42; mid_value 41; plugin_value 42; dlopen failed: cannot open shared object file"
+check "dlopen() finds what a dependency has in its own RUNPATH: by path, by name, by a relative path" test "$out" = "$want"
+[ "$out" = "$want" ] || echo "        got: $out"
+
 # Credentials over a Unix socket (SCM_CREDENTIALS) go out as the process's real ones: getuid() is
-# root's 0 here, and the kernel refuses ids that are not the sender's (PulseAudio's clients failed)
+# root's 0 here, and the kernel refuses ids that are not the sender's (PulseAudio's clients failed).
+# What comes in (SCM_CREDENTIALS, SO_PEERCRED) is shown as the ids a program sees for itself: a
+# server that compares its peer with getuid() refused its own user (dbus-daemon, so XFCE's settings)
 prog send_creds <<'EOC'
 #define _GNU_SOURCE
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
 #include <sys/socket.h>
+#include <sys/syscall.h>
 int main(void) {
     int sv[2];
     if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv) != 0) return 2;
     int on = 1;
     setsockopt(sv[1], SOL_SOCKET, SO_PASSCRED, &on, sizeof(on));
+    struct ucred peer = { 0, 12345, 12345 };
+    socklen_t peer_len = sizeof(peer);
+    if (getsockopt(sv[0], SOL_SOCKET, SO_PEERCRED, &peer, &peer_len) == 0)
+        printf("peer ids %u %u, mine %u %u\n", (unsigned)peer.uid, (unsigned)peer.gid, (unsigned)getuid(), (unsigned)getgid());
     struct ucred cred = { getpid(), getuid(), getgid() };
     char ctrl[CMSG_SPACE(sizeof(cred))];
     char byte = 'x';
@@ -616,10 +696,130 @@ int main(void) {
 }
 EOC
 out=$(run "$work/send_creds")
-# the ids the kernel knows (this shell's: the hook emulates root only inside); as root they are both
-# 0 and the rewrite cannot be told apart, CI runs the tests as a user
-check "SCM_CREDENTIALS are sent with the real ids" sh -c 'echo "$1" | grep -q "sendmsg sent" && echo "$1" | grep -q "received pid mine" && echo "$1" | grep -q "received ids $2 $3"' sh "$out" "$(id -u)" "$(id -g)"
-echo "$out" | grep -q "received pid mine" || echo "$out" | sed 's/^/        /'
+# The kernel takes only the sender's real ids (this shell's: the hook emulates root only inside), so
+# a message that went out had them; as root they are 0 as well and the rewrite cannot be told apart,
+# CI runs the tests as a user
+check "SCM_CREDENTIALS are sent with the real ids" sh -c 'echo "$1" | grep -q "sendmsg sent" && echo "$1" | grep -q "received pid mine"' sh "$out"
+check "the peer of a Unix socket has the ids the program sees for itself" sh -c 'echo "$1" | grep -q "peer ids 0 0, mine 0 0" && echo "$1" | grep -q "received ids 0 0"' sh "$out"
+echo "$out" | grep -q "received ids 0 0" || echo "$out" | sed 's/^/        /'
+
+# A library loaded with RTLD_DEEPBIND (every PHP extension) looks for libc's functions in libc
+# before the hook: its calls were not seen, so it opened Android's files instead of Ubuntu's
+echo marker > "$work/root/etc/deepbind-marker"
+printf '#include <unistd.h>\nint plugin_sees(void) { return access("/etc/deepbind-marker", F_OK) == 0; }\n' |
+  aarch64-linux-gnu-gcc -shared -fPIC -w -o "$work/root/usr/lib/plugins/deepbind.so" -x c - || { echo "deepbind.so did not build"; exit 1; }
+prog load_deepbind <<'EOC'
+#define _GNU_SOURCE
+#include <dlfcn.h>
+#include <stdio.h>
+int main(void) {
+    void *h = dlopen("/usr/lib/plugins/deepbind.so", RTLD_NOW | RTLD_DEEPBIND);
+    if (!h) { printf("dlopen failed: %s\n", dlerror()); return 1; }
+    int (*f)(void) = (int (*)(void))dlsym(h, "plugin_sees");
+    printf("deepbind plugin %s\n", f && f() ? "sees Ubuntu's file" : "does not see Ubuntu's file");
+    return 0;
+}
+EOC
+out=$(run "$work/load_deepbind")
+check "a library loaded with RTLD_DEEPBIND still goes through the hook (PHP's extensions)" test "$out" = "deepbind plugin sees Ubuntu's file"
+[ "$out" = "deepbind plugin sees Ubuntu's file" ] || echo "        got: $out"
+
+# Locks on a memfd: Android's SELinux policy refuses them (EACCES), and PHP keeps its opcache lock in
+# one ("php -S": Cannot create lock - Permission denied). CORTEX_MEMFD_LOCKS=deny makes the hook act
+# as on Android; the lock is then taken on a file of its own, which a forked child shares.
+prog memfd_lock <<'EOC'
+#define _GNU_SOURCE
+#include <errno.h>
+#include <fcntl.h>
+#include <stdio.h>
+#include <string.h>
+#include <sys/file.h>
+#include <sys/mman.h>
+#include <sys/wait.h>
+#include <unistd.h>
+static int try_lock(int fd) { // 1: taken, 0: someone else holds it
+    struct flock try = { .l_type = F_WRLCK, .l_whence = SEEK_SET, .l_start = 0, .l_len = 1 };
+    return fcntl(fd, F_SETLK, &try) == 0;
+}
+int main(void) {
+    int fd = memfd_create("opcache_lock", MFD_CLOEXEC);
+    if (fd < 0) { perror("memfd_create"); return 2; }
+    struct flock lock = { .l_type = F_WRLCK, .l_whence = SEEK_SET, .l_start = 0, .l_len = 1 };
+    int rc = fcntl(fd, F_SETLKW, &lock);
+    printf("lock %d %s\n", rc, rc ? strerror(errno) : "taken");
+    fflush(stdout);
+    pid_t pid = fork();
+    if (pid == 0) {
+        int held = !try_lock(fd);
+        struct flock who = { .l_type = F_WRLCK, .l_whence = SEEK_SET, .l_start = 0, .l_len = 1 };
+        int asked = fcntl(fd, F_GETLK, &who);
+        printf("child: %s, holder %s\n", held ? "refused" : "got it too", asked == 0 && who.l_type == F_WRLCK && who.l_pid == getppid() ? "is the parent" : "unknown");
+        fflush(stdout);
+        _exit(0);
+    }
+    int status = 0;
+    waitpid(pid, &status, 0);
+    lock.l_type = F_UNLCK;
+    rc = fcntl(fd, F_SETLK, &lock);
+    printf("unlock %d\n", rc);
+
+    // forked before either of them locked it: both still meet on the same lock
+    int early = memfd_create("early", MFD_CLOEXEC);
+    int to_child[2], to_parent[2];
+    if (pipe(to_child) != 0 || pipe(to_parent) != 0) return 3;
+    fflush(stdout);
+    pid = fork();
+    if (pid == 0) {
+        char c;
+        int mine = try_lock(early);
+        if (write(to_parent[1], "x", 1) != 1 || read(to_child[0], &c, 1) != 1) _exit(1);
+        _exit(mine ? 0 : 7);
+    }
+    char c;
+    if (read(to_parent[0], &c, 1) != 1) return 4;
+    int parent_got = try_lock(early); // the child holds it now
+    // through a second descriptor of the memfd it is the same lock
+    int alias = dup(early);
+    int alias_got = try_lock(alias);
+    if (write(to_child[1], "x", 1) != 1) return 5;
+    waitpid(pid, &status, 0);
+    printf("early fork: child %s, parent %s, alias %s\n", WIFEXITED(status) && WEXITSTATUS(status) == 0 ? "locked" : "failed",
+           parent_got ? "got it too" : "refused", alias_got ? "got it too" : "refused");
+
+    // closing the memfd gives its locks up, as closing a file does
+    int closing = memfd_create("closing", MFD_CLOEXEC);
+    int copy = dup(closing);
+    rc = try_lock(closing);
+    close(copy);
+    fflush(stdout);
+    pid = fork();
+    if (pid == 0) _exit(try_lock(closing) ? 0 : 7);
+    waitpid(pid, &status, 0);
+    printf("after close: locked %d, child %s\n", rc, WIFEXITED(status) && WEXITSTATUS(status) == 0 ? "locked" : "refused");
+
+    int other = memfd_create("second", MFD_CLOEXEC);
+    rc = flock(other, LOCK_EX | LOCK_NB);
+    int rc2 = flock(other, LOCK_UN);
+    printf("flock %d %d\n", rc, rc2);
+    // a file that is not a memfd is not touched, and a refusal of another kind stays one
+    rc = fcntl(-1, F_SETLK, &lock);
+    int bad = errno;
+    printf("bad fd %d %s\n", rc, bad == EBADF ? "EBADF" : "other");
+    return 0;
+}
+EOC
+mkdir -p "$work/root/tmp"
+out=$( (cd "$work" && env -i CORTEX_ROOT="$work/root" HOME="$work" CORTEX_MEMFD_LOCKS=deny timeout 60 qemu-aarch64 "$cross/ld-linux-aarch64.so.1" \
+  --preload "$work/hook.so" --library-path "$cross" "$work/memfd_lock" 2>&1 | grep -v "cannot be preloaded") )
+want="lock 0 taken
+child: refused, holder is the parent
+unlock 0
+early fork: child locked, parent refused, alias refused
+after close: locked 1, child locked
+flock 0 0
+bad fd -1 EBADF"
+check "a memfd can be locked where Android refuses it: children share the lock, closing gives it up" test "$out" = "$want"
+[ "$out" = "$want" ] || echo "$out" | sed 's/^/        /'
 
 echo
 echo "$passed passed, $failed failed"
