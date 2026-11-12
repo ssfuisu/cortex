@@ -298,8 +298,25 @@ int renameat2(int olddirfd, const char *oldpath, int newdirfd, const char *newpa
     return ret;
 }
 
+// A target the hook rewrites is longer as the kernel stores it (it starts with the rootfs path). Read
+// straight into a small buffer, it was cut off before it was rewritten, and the shorter result told
+// the caller it had all of it: coreutils' readlink, which starts with 64 bytes, printed
+// "/usr/share/postgresql/16/man/man7/ALTER_TEXT_SEA". A buffer smaller than any path is filled from
+// one that is not, and cut off afterwards, as the kernel does it (the whole size: the caller asks again).
+static ssize_t readlink_into(char *buf, size_t bufsiz, const char *full, ssize_t len) {
+    if (len < 0) return len;
+    size_t n = (size_t)len < bufsiz ? (size_t)len : bufsiz;
+    memcpy(buf, full, n);
+    return (ssize_t)n;
+}
+
 // Hook readlink
 ssize_t readlink(const char *pathname, char *buf, size_t bufsiz) {
+    // as the kernel answers it (the target is read into a buffer of the hook's own below)
+    if (bufsiz == 0) {
+        errno = EINVAL;
+        return -1;
+    }
     if (is_proc_self_exe(pathname)) {
         ssize_t exe_len = handle_proc_self_exe(buf, bufsiz);
         if (exe_len >= 0) return exe_len;
@@ -308,17 +325,26 @@ ssize_t readlink(const char *pathname, char *buf, size_t bufsiz) {
     if (!orig_readlink) orig_readlink = (ssize_t (*)(const char *, char *, size_t))dlsym(RTLD_NEXT, "readlink");
     char pbuf[PATH_MAX];
     const char *target = rewrite_path(pathname, pbuf, sizeof(pbuf));
-    ssize_t ret = orig_readlink ? orig_readlink(target, buf, bufsiz) : -1;
+    char full[PATH_MAX];
+    char *into = bufsiz < sizeof(full) ? full : buf;
+    size_t into_size = bufsiz < sizeof(full) ? sizeof(full) : bufsiz;
+    ssize_t ret = orig_readlink ? orig_readlink(target, into, into_size) : -1;
     if (ret < 0 && errno == ENOENT) {
         char alt[PATH_MAX];
         const char *retry = usrmerge_retry_path(target, alt, sizeof(alt));
-        if (retry) ret = orig_readlink(retry, buf, bufsiz);
+        if (retry) ret = orig_readlink(retry, into, into_size);
     }
-    return postprocess_readlink(pathname, buf, ret, bufsiz);
+    ret = postprocess_readlink(pathname, into, ret, into_size);
+    return into == buf ? ret : readlink_into(buf, bufsiz, full, ret);
 }
 
 // Hook readlinkat
 ssize_t readlinkat(int dirfd, const char *pathname, char *buf, size_t bufsiz) {
+    // as the kernel answers it (the target is read into a buffer of the hook's own below)
+    if (bufsiz == 0) {
+        errno = EINVAL;
+        return -1;
+    }
     if (is_proc_self_exe(pathname)) {
         ssize_t exe_len = handle_proc_self_exe(buf, bufsiz);
         if (exe_len >= 0) return exe_len;
@@ -327,13 +353,17 @@ ssize_t readlinkat(int dirfd, const char *pathname, char *buf, size_t bufsiz) {
     if (!orig_readlinkat) orig_readlinkat = (ssize_t (*)(int, const char *, char *, size_t))dlsym(RTLD_NEXT, "readlinkat");
     char pbuf[PATH_MAX];
     const char *target = (pathname && pathname[0] == '/') ? rewrite_path(pathname, pbuf, sizeof(pbuf)) : pathname;
-    ssize_t ret = orig_readlinkat ? orig_readlinkat(dirfd, target, buf, bufsiz) : -1;
+    char full[PATH_MAX];
+    char *into = bufsiz < sizeof(full) ? full : buf;
+    size_t into_size = bufsiz < sizeof(full) ? sizeof(full) : bufsiz;
+    ssize_t ret = orig_readlinkat ? orig_readlinkat(dirfd, target, into, into_size) : -1;
     if (ret < 0 && errno == ENOENT && pathname && pathname[0] == '/') {
         char alt[PATH_MAX];
         const char *retry = usrmerge_retry_path(target, alt, sizeof(alt));
-        if (retry) ret = orig_readlinkat(dirfd, retry, buf, bufsiz);
+        if (retry) ret = orig_readlinkat(dirfd, retry, into, into_size);
     }
-    return postprocess_readlink(pathname, buf, ret, bufsiz);
+    ret = postprocess_readlink(pathname, into, ret, into_size);
+    return into == buf ? ret : readlink_into(buf, bufsiz, full, ret);
 }
 
 // Fortified readlink variants used by dpkg / update-alternatives
