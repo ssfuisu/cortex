@@ -1,11 +1,14 @@
 # Cortex Terminal
 
-> Free, open-source Android terminal app that runs real Ubuntu 24.04 LTS (glibc 2.39, apt) natively on unrooted devices. No root, no PRoot, no containers, no virtual machine. A native alternative to Termux + proot-distro. Apache-2.0.
+> Free, open-source Android terminal app that runs Ubuntu 24.04 LTS's own programs (glibc 2.39, apt) on unrooted devices through an LD_PRELOAD library, the technique of fakechroot and fakeroot, rewritten for Android. No ptrace (not PRoot), no virtual machine, no root. An alternative to Termux + proot-distro. Apache-2.0.
 
-Cortex runs Linux programs directly on the Android kernel. A small preloaded library redirects file paths such as /usr and /etc to the app's private storage and emulates root-only details such as the user id. Packages come from the Ubuntu 24.04 archive via apt. The cortex-api command gives programs Android features (notifications, clipboard, opening links and files in Android apps, sharing, battery state). On rooted phones an optional root mode runs sessions as real root in a chroot of the same Ubuntu. APKs exist for arm64-v8a and armeabi-v7a (Android 7.0+). The interface supports 50 languages. An optional X11 desktop (Openbox or XFCE, and Firefox) can be installed from the app and is shown inside it; Ubuntu's Xvnc runs on a private Unix socket and everything is drawn by the CPU (no GPU, no Wayland).
+Cortex runs Ubuntu's unmodified binaries directly on the Android kernel. A preloaded library inside each program maps file paths such as /usr and /etc to the app's private storage, emulates root-only details such as the user id, and handles what Android's seccomp filter forbids; statically linked programs are patched once before their first start (static C/C++, Go 1.19+). Not supported without root: systemd, real other users, ports below 1024, mount, containers. Packages come from the Ubuntu 24.04 archive via apt. The cortex-api command gives programs Android features (notifications, clipboard, opening links and files in Android apps, sharing, battery state). On rooted phones an optional root mode runs sessions as real root in a chroot of the same Ubuntu. APKs exist for arm64-v8a and armeabi-v7a (Android 7.0+). The interface supports 50 languages. An optional X11 desktop (Openbox or XFCE, and Firefox) can be installed from the app and is shown inside it; Ubuntu's Xvnc runs on a private Unix socket and everything is drawn by the CPU (no GPU, no Wayland).
 
 ## Links
 - [Source code](https://github.com/ssfuisu/cortex): repository, issues and README
 - [Latest APK](https://github.com/ssfuisu/cortex/releases/latest): Cortex-arm64-v8a-signed.apk and Cortex-armeabi-v7a-signed.apk
 - [Website](https://ssfuisu.github.io/cortex/): overview, comparison with Termux and proot-distro, FAQ
+- [Package compatibility](https://ssfuisu.github.io/cortex/compat.html): nightly results of installing and testing common packages
+- [Security](https://github.com/ssfuisu/cortex/blob/main/SECURITY.md): sandbox, permissions, verifying a download
+- [Containers](https://github.com/ssfuisu/cortex/blob/main/docs/containers.md): Podman and Docker in root mode
 - [Telegram](https://t.me/ratzgn): contact the developer

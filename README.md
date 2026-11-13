@@ -20,6 +20,8 @@
   <a href="https://github.com/ssfuisu/cortex/releases/latest"><b>Download</b></a> ·
   <a href="#how-it-actually-works">How it works</a> ·
   <a href="#what-is-real-and-what-is-emulated">Real vs emulated</a> ·
+  <a href="https://ssfuisu.github.io/cortex/compat.html">Package tests</a> ·
+  <a href="SECURITY.md">Security</a> ·
   <a href="CHANGELOG.md">Changelog</a> ·
   <a href="https://github.com/ssfuisu/cortex/issues">Issues</a> ·
   <a href="https://t.me/ratzgn">Telegram</a>
@@ -97,7 +99,7 @@ The library is about 10,000 lines of C in [`app/src/main/cpp/hook`](app/src/main
 ## Install
 
 1. Download from [Releases](https://github.com/ssfuisu/cortex/releases/latest): `Cortex-arm64-v8a-signed.apk` for nearly every phone, `Cortex-armeabi-v7a-signed.apk` for 32-bit ARM.
-2. Optional: check the signature as described in [`signing/README.md`](signing/README.md).
+2. Optional: check where it comes from. From 1.27.7 on every APK is built on GitHub from the tagged source, `gh attestation verify Cortex-arm64-v8a-signed.apk --repo ssfuisu/cortex` proves it, and `SHA256SUMS.txt` is next to it. The signing key is in [`signing/README.md`](signing/README.md).
 3. Install and open it. Ubuntu is unpacked on the first start, then you get a shell.
 
 Android 7.0 or newer. Like Termux, the app targets API level 28, the last one that lets an app run programs from its own data directory.
@@ -169,14 +171,43 @@ Programs run at native speed. The library only costs something on calls that tak
 
 Run [`tests/bench/run-micro.sh`](tests/bench/run-micro.sh) inside Cortex to measure your own phone.
 
+**Comparing with proot-distro yourself.** [`tests/bench/compare.sh`](tests/bench/compare.sh) runs the same tests anywhere (starting programs, creating, listing and reading files, `tar`, `find`, pure CPU, Python start-up, a compile, `apt-cache`) and prints a table. Run it in Cortex and in proot-distro on the same phone:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ssfuisu/cortex/main/tests/bench/compare.sh | bash
+```
+
+It also says what it detected it runs in, so the two tables can't get mixed up.
+
 ## Root mode
 
 On a rooted phone (Magisk, KernelSU, APatch), *Settings > Root mode* runs new sessions as real root in a chroot of the same Ubuntu files. The library is not loaded there. Mounts, real owners, hard links, set-user-ID programs and low ports work as on a PC. Each session gets its own mount namespace, so nothing is mounted for Android or other apps. Turning it off gives the files back to the app.
 
+Containers need root mode. Since 1.27.7 it also mounts the phone's cgroups at `/sys/fs/cgroup`, and [docs/containers.md](docs/containers.md) has the steps for Podman and Docker, including the iptables setting many Android kernels need.
+
+## Is it safe for the phone?
+
+In normal mode Cortex is an ordinary app: everything you run in it runs as the app's own Android user, in the app sandbox. It can't change Android, the system or other apps' private data, it can't brick anything, and uninstalling removes everything in the app's own storage. Programs only *think* they are root. The one thing to keep in mind: once you allow storage access, commands can change and delete your files in `/sdcard`, and uninstalling doesn't undo that. [SECURITY.md](SECURITY.md) explains every permission the app asks for and what the app itself connects to (Ubuntu's mirrors and GitHub's release API, nothing else).
+
 ## FAQ
 
+**What do people actually use it for?**
+Programming on the phone or tablet (Python, Node.js, C, Rust, Go, git), small servers and bots (nginx, Redis, MariaDB, a Telegram bot), SSH into Cortex from a computer with `cortex-sshd`, scripts that use the phone through `cortex-api`, and the occasional desktop program on the built-in X11 desktop.
+
 **Will every Ubuntu package work?**
-Most command-line software does, and a nightly job installs and runs a set of common packages on an emulator. What needs the things in the list above (systemd services, other users, raw devices) does not work in normal mode.
+Most command-line software does. Every night a job installs a set of common packages on an emulator and tests each one, the [latest results](https://ssfuisu.github.io/cortex/compat.html) are public, failures included. What needs the things in the list above (systemd services, other users, raw devices) does not work in normal mode.
+
+**Can I run Docker or Podman?**
+Only in root mode, see [docs/containers.md](docs/containers.md). Containers need namespaces, mounts and cgroups, and Android never gives those to an app.
+
+**Is there a GUI?**
+Yes, as an add-on: *Desktop* in the menu installs Openbox or XFCE (and Firefox if you want) and shows it inside the app. It's drawn by the CPU, no GPU, so it suits editors and browsing more than games.
+
+**Does it work on 32-bit phones?**
+Yes, `Cortex-armeabi-v7a-signed.apk` is Ubuntu's armhf. Every change builds it and installs and sets it up on an emulator, but the emulator can't run 32-bit Ubuntu programs, so the in-terminal tests only run for 64-bit. Reports from 32-bit phones help.
+
+**Why does Go need special code?**
+Go programs don't use the C library, they make their system calls themselves, so a preloaded library never sees them. Before a Go 1.19+ program starts for the first time, Cortex adds a small piece of code to it that does the same path mapping.
 
 **Do single-file downloads work?**
 Static C and C++ programs do, and Go programs built with Go 1.19 or newer. Older or 32-bit Go programs run but see Android's files instead of Ubuntu's.

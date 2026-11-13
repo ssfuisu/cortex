@@ -26,6 +26,9 @@ permissions:
   contents: read
   actions: read
 
+# The nightly run of the latest release also updates docs/compat.json, which the website's
+# compatibility page shows (see "Publish the results on the website").
+
 concurrency:
   group: package-compatibility
   cancel-in-progress: false
@@ -35,6 +38,9 @@ jobs:
     name: Packages on the emulator (API 34, arm64-v8a)
     runs-on: ubuntu-24.04
     timeout-minutes: 180
+    permissions:
+      contents: write
+      actions: read
     steps:
       - name: Checkout Source Code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -67,6 +73,7 @@ jobs:
           sudo udevadm trigger --name-match=kvm
 
       - name: Install and try the packages on the emulator
+        id: emulator
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         env:
           E2E_COMPAT_ONLY: ${{ inputs.only }}
@@ -92,3 +99,33 @@ jobs:
           name: package-compatibility
           path: e2e-out
           retention-days: 30
+
+      # Only the scheduled run of the latest release: a run with a chosen release, some packages
+      # or a dry run's APKs is not what the page describes. The commit only touches docs/ and
+      # skips CI.
+      - name: Publish the results on the website
+        # A run that timed out leaves part of the list: only a finished one replaces the page's
+        if: always() && steps.emulator.outcome == 'success' && github.event_name == 'schedule' && github.ref == 'refs/heads/main'
+        run: |
+          set -euo pipefail
+          RESULTS=e2e-out/cortex-e2e/results.txt
+          if [ ! -e e2e-out/cortex-e2e/done ] || [ ! -s "$RESULTS" ] || ! grep -q '^\(PASS\|FAIL\) ' "$RESULTS"; then
+            echo "No complete results to publish."
+            exit 0
+          fi
+          python3 tests/e2e/compat-json.py "$RESULTS" "$(cat tag.txt)" "$(date -u +%F)" > docs/compat.json
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/compat.json
+          # Not a commit a day: only when a result or the release changed (the date alone does not)
+          if ! git diff --cached -U0 | grep '^[-+] ' | grep -vq '"date"'; then
+            echo "The results did not change."
+            exit 0
+          fi
+          git commit -m "Package compatibility of $(cat tag.txt) [skip ci]"
+          for i in 1 2 3; do
+            git pull --rebase --quiet origin main && git push origin HEAD:main && exit 0
+            sleep $((i * 10))
+          done
+          echo "Could not push the results." >&2
+          exit 1

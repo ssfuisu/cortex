@@ -1,0 +1,211 @@
+{
+ "version": "v1.27.6",
+ "date": "2026-11-13",
+ "where": "Android 14 emulator (API 34), arm64-v8a APK",
+ "packages": [
+  {
+   "name": "python3",
+   "ok": true,
+   "seconds": 37,
+   "why": ""
+  },
+  {
+   "name": "python3-venv-pip",
+   "ok": true,
+   "seconds": 129,
+   "why": ""
+  },
+  {
+   "name": "nodejs-npm",
+   "ok": true,
+   "seconds": 269,
+   "why": ""
+  },
+  {
+   "name": "c-gcc",
+   "ok": true,
+   "seconds": 49,
+   "why": ""
+  },
+  {
+   "name": "cpp-g++",
+   "ok": true,
+   "seconds": 4,
+   "why": ""
+  },
+  {
+   "name": "cmake",
+   "ok": true,
+   "seconds": 29,
+   "why": ""
+  },
+  {
+   "name": "rust",
+   "ok": true,
+   "seconds": 26,
+   "why": ""
+  },
+  {
+   "name": "go",
+   "ok": false,
+   "seconds": 16,
+   "why": "the test failed: $ printf \"package main\\nimport \\\"fmt\\\"\\nfunc main() { fmt.Println(\\\"hello from Go\\\") }\\n\" > h.go && go run h.go Error running /data/user/0/org.cortex.terminal/files/cortex/bin/go: Unable to get realpath of go exit status 255"
+  },
+  {
+   "name": "java",
+   "ok": false,
+   "seconds": 30,
+   "why": "the test failed: # bash: line 1: 13043 Aborted javac H.java exit status 134"
+  },
+  {
+   "name": "php",
+   "ok": true,
+   "seconds": 274,
+   "why": ""
+  },
+  {
+   "name": "ruby",
+   "ok": true,
+   "seconds": 15,
+   "why": ""
+  },
+  {
+   "name": "perl",
+   "ok": true,
+   "seconds": 2,
+   "why": ""
+  },
+  {
+   "name": "lua",
+   "ok": true,
+   "seconds": 6,
+   "why": ""
+  },
+  {
+   "name": "git",
+   "ok": true,
+   "seconds": 9,
+   "why": ""
+  },
+  {
+   "name": "curl-https",
+   "ok": true,
+   "seconds": 6,
+   "why": ""
+  },
+  {
+   "name": "wget",
+   "ok": true,
+   "seconds": 7,
+   "why": ""
+  },
+  {
+   "name": "jq",
+   "ok": true,
+   "seconds": 7,
+   "why": ""
+  },
+  {
+   "name": "sqlite3",
+   "ok": true,
+   "seconds": 6,
+   "why": ""
+  },
+  {
+   "name": "zip-unzip",
+   "ok": true,
+   "seconds": 7,
+   "why": ""
+  },
+  {
+   "name": "xz-zstd",
+   "ok": true,
+   "seconds": 6,
+   "why": ""
+  },
+  {
+   "name": "rsync",
+   "ok": true,
+   "seconds": 8,
+   "why": ""
+  },
+  {
+   "name": "openssh-client",
+   "ok": true,
+   "seconds": 10,
+   "why": ""
+  },
+  {
+   "name": "htop",
+   "ok": true,
+   "seconds": 7,
+   "why": ""
+  },
+  {
+   "name": "ripgrep",
+   "ok": true,
+   "seconds": 6,
+   "why": ""
+  },
+  {
+   "name": "vim",
+   "ok": true,
+   "seconds": 12,
+   "why": ""
+  },
+  {
+   "name": "neovim",
+   "ok": true,
+   "seconds": 13,
+   "why": ""
+  },
+  {
+   "name": "tmux",
+   "ok": true,
+   "seconds": 11,
+   "why": ""
+  },
+  {
+   "name": "zsh",
+   "ok": true,
+   "seconds": 15,
+   "why": ""
+  },
+  {
+   "name": "fish",
+   "ok": true,
+   "seconds": 16,
+   "why": ""
+  },
+  {
+   "name": "redis",
+   "ok": true,
+   "seconds": 18,
+   "why": ""
+  },
+  {
+   "name": "nginx",
+   "ok": true,
+   "seconds": 20,
+   "why": ""
+  },
+  {
+   "name": "mariadb",
+   "ok": true,
+   "seconds": 44,
+   "why": ""
+  },
+  {
+   "name": "postgresql-client",
+   "ok": true,
+   "seconds": 31,
+   "why": ""
+  },
+  {
+   "name": "postgresql",
+   "ok": false,
+   "seconds": 86,
+   "why": "the test failed: psql: error: connection to server on socket \"/var/run/postgresql/.s.PGSQL.5432\" failed: No such file or directory Is the server running locally and accepting connections on that socket? exit status 2"
+  }
+ ]
+}

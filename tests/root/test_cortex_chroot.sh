@@ -84,7 +84,9 @@ test -c /dev/null && echo x > /dev/null && echo "devnull=ok"
 test -c /dev/ptmx && echo "ptmx=ok"
 echo "fd=$(readlink /dev/fd)"
 echo shared > /dev/shm/cortex-test && echo "shm=written"
-echo "mounts=$(grep -c . /proc/self/mounts)"
+echo "mounts=$(grep -vc " /sys/fs/cgroup" /proc/self/mounts)"
+echo "cgroupfs=$(stat -fc %T /sys/fs/cgroup)"
+if test -e /sys/fs/cgroup/cgroup.controllers; then echo "pids=$(grep -o pids /sys/fs/cgroup/cgroup.controllers)"; else echo "pids=$(test -e /sys/fs/cgroup/pids/tasks && echo pids)"; fi
 ')"
 check "enter runs as root" "$(echo "$OUT" | grep '^uid=')" "uid=0"
 check "the session has its own hostname" "$(echo "$OUT" | grep '^host=')" "host=cortex-android"
@@ -99,6 +101,12 @@ check "/dev/fd links to /proc/self/fd" "$(echo "$OUT" | grep '^fd=')" "fd=/proc/
 check "/dev/shm can be written" "$(echo "$OUT" | grep '^shm=')" "shm=written"
 check "/dev/shm is ROOT/tmp/shm, shared with normal mode" "$(cat "$ROOT/tmp/shm/cortex-test" 2>/dev/null)" "shared"
 check "the chroot sees only its own mounts (/ proc sys dev pts shm data)" "$(echo "$OUT" | grep '^mounts=')" "mounts=7"
+# cgroup2 bound in when the host has it at /sys/fs/cgroup, a tmpfs of v1 hierarchies otherwise
+if [ "$(stat -fc %T /sys/fs/cgroup)" = cgroup2fs ]; then CGROUPFS=cgroup2fs; else CGROUPFS=tmpfs; fi
+check "/sys/fs/cgroup is laid out as on Ubuntu ($CGROUPFS)" "$(echo "$OUT" | grep '^cgroupfs=')" "cgroupfs=$CGROUPFS"
+if awk '$1 == "pids" && $4 == 1 { found = 1 } END { exit !found }' /proc/cgroups; then
+    check "the pids controller is there for container tools" "$(echo "$OUT" | grep '^pids=')" "pids=pids"
+fi
 check "/ and /tmp are open to other users in the chroot" "$(stat -c %a "$ROOT" "$ROOT/tmp" | tr '\n' ' ')" "755 1777 "
 check "nothing is mounted outside the session" "$(grep -c " $ROOT" /proc/self/mounts)" "0"
 

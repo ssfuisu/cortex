@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Cortex Terminal: Ubuntu 24.04 on Android without root or PRoot</title>
-<meta name="description" content="Free open-source Android terminal that runs real Ubuntu 24.04 (glibc 2.39, apt) natively. No root, no PRoot, no containers, no VM. A Termux alternative.">
+<meta name="description" content="Free open-source Android terminal that runs Ubuntu 24.04's own programs (glibc 2.39, apt) through an LD_PRELOAD library, like fakechroot rewritten for Android. No root, no ptrace, no VM.">
 <link rel="canonical" href="https://ssfuisu.github.io/cortex/">
 <meta name="theme-color" content="#0f1020">
 <!-- Google Search Console: paste the verification tag here, e.g.
@@ -13,15 +13,15 @@
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Cortex Terminal">
 <meta property="og:title" content="Cortex Terminal: Ubuntu 24.04 on Android without root or PRoot">
-<meta property="og:description" content="Real Ubuntu 24.04 LTS (glibc 2.39, apt) running natively on Android. No root, no PRoot, no containers, no VM.">
+<meta property="og:description" content="Ubuntu 24.04 LTS (glibc 2.39, apt) on Android through an LD_PRELOAD library. No root, no ptrace, no VM.">
 <meta property="og:url" content="https://ssfuisu.github.io/cortex/">
 <meta property="og:image" content="https://ssfuisu.github.io/cortex/social-preview.png">
 <meta property="og:image:width" content="1280">
 <meta property="og:image:height" content="640">
-<meta property="og:image:alt" content="Cortex Terminal: native Ubuntu 24.04 on Android. No root, no PRoot, no VM.">
+<meta property="og:image:alt" content="Cortex Terminal: Ubuntu 24.04 on Android. No root, no ptrace, no VM.">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Cortex Terminal: Ubuntu 24.04 on Android">
-<meta name="twitter:description" content="Real Ubuntu 24.04 LTS with glibc and apt, running natively on Android. No root, no PRoot, no VM.">
+<meta name="twitter:description" content="Ubuntu 24.04 LTS with glibc and apt on Android, through an LD_PRELOAD library. No root, no ptrace, no VM.">
 <meta name="twitter:image" content="https://ssfuisu.github.io/cortex/social-preview.png">
 <link rel="icon" type="image/png" href="icon.png">
 <link rel="apple-touch-icon" href="icon.png">
@@ -32,7 +32,7 @@
   "@type": "SoftwareApplication",
   "name": "Cortex Terminal",
   "alternateName": "Cortex",
-  "description": "Free, open-source Android terminal that runs real Ubuntu 24.04 LTS (glibc 2.39, apt) natively on unrooted devices, without PRoot, containers or a virtual machine.",
+  "description": "Free, open-source Android terminal that runs Ubuntu 24.04 LTS's own programs (glibc 2.39, apt) on unrooted devices through an LD_PRELOAD library that maps paths, without ptrace or a virtual machine.",
   "applicationCategory": "DeveloperApplication",
   "operatingSystem": "Android 7.0+",
   "url": "https://ssfuisu.github.io/cortex/",
@@ -50,7 +50,7 @@
   "@type": "FAQPage",
   "mainEntity": [
     { "@type": "Question", "name": "Does Cortex need root?", "acceptedAnswer": { "@type": "Answer", "text": "No. Cortex runs on unrooted Android devices. On a rooted phone, an optional root mode runs sessions as real root." } },
-    { "@type": "Question", "name": "Does Cortex use PRoot, chroot or a virtual machine?", "acceptedAnswer": { "@type": "Answer", "text": "No PRoot and no virtual machine. Programs run directly on the Android kernel. In normal mode a small preloaded library redirects paths such as /usr and /etc to Cortex's private storage and emulates root-only details like the user id. Only the optional root mode on rooted phones uses a chroot (a real one, without the library)." } },
+    { "@type": "Question", "name": "Does Cortex use PRoot, chroot or a virtual machine?", "acceptedAnswer": { "@type": "Answer", "text": "Not PRoot and not a virtual machine, but not magic either: in normal mode an LD_PRELOAD library, the same technique as fakechroot and fakeroot, maps paths such as /usr and /etc into the app's private storage and covers for what Android forbids an app. Nothing is traced, the system calls go straight to Android's kernel. The optional root mode on rooted phones uses a real chroot, without the library." } },
     { "@type": "Question", "name": "Which Android versions and CPUs does Cortex support?", "acceptedAnswer": { "@type": "Answer", "text": "Android 7.0 and newer, with separate APKs for 64-bit (arm64-v8a) and 32-bit (armeabi-v7a) ARM devices." } },
     { "@type": "Question", "name": "How do I install software in Cortex?", "acceptedAnswer": { "@type": "Answer", "text": "Use apt like on any Ubuntu system, for example: apt update && apt install git python3 build-essential openjdk-17-jdk." } },
     { "@type": "Question", "name": "Is there a desktop or GUI in Cortex?", "acceptedAnswer": { "@type": "Answer", "text": "Yes, as an add-on. The menu's Desktop button installs a light Openbox desktop or XFCE (and Firefox if you want it) and shows it inside the app. It is X11 drawn by the CPU, with no GPU and no Wayland." } }
@@ -280,6 +280,7 @@ footer a:hover{color:var(--accent)}
       <li><a href="#features">Features</a></li>
       <li><a href="#screens">Screenshots</a></li>
       <li><a href="#compare">Compare</a></li>
+      <li><a href="compat.html">Packages</a></li>
       <li><a href="#install">Install</a></li>
       <li><a href="#faq">FAQ</a></li>
     </ul>
@@ -296,10 +297,10 @@ footer a:hover{color:var(--accent)}
   <div class="wrap hero-grid">
     <div>
       <a class="pill" id="release-pill" href="https://github.com/ssfuisu/cortex/releases/latest"><span class="dot"></span><span id="release-text">Latest release on GitHub</span></a>
-      <h1>Ubuntu 24.04 on Android, <span class="grad">natively</span></h1>
-      <p class="lead"><strong>Cortex Terminal</strong> runs real Ubuntu 24.04 LTS (glibc 2.39 and <code>apt</code>) directly on your Android phone or tablet. No root, no PRoot, no containers, no virtual machine. A free, open-source alternative to Termux + proot-distro.</p>
+      <h1>Ubuntu 24.04 on Android, <span class="grad">no tracer, no VM</span></h1>
+      <p class="lead"><strong>Cortex Terminal</strong> runs Ubuntu 24.04's own arm64 programs (glibc 2.39, <code>apt</code>) on your Android phone. A small <code>LD_PRELOAD</code> library, the technique fakechroot uses, maps paths and covers for what Android forbids, inside the program itself. No <code>ptrace</code>, no virtual machine, no root. <a href="https://github.com/ssfuisu/cortex#what-is-real-and-what-is-emulated">What is real and what is emulated</a>.</p>
       <ul class="chips" aria-label="Highlights">
-        <li>No root</li><li>No PRoot</li><li>No containers</li><li>No VM</li><li>Apache-2.0</li><li>50 languages</li>
+        <li>No root</li><li>No ptrace</li><li>No VM</li><li>LD_PRELOAD library</li><li>Apache-2.0</li><li>50 languages</li>
       </ul>
       <div class="cta">
         <a class="btn" href="https://github.com/ssfuisu/cortex/releases/latest">
@@ -332,8 +333,8 @@ footer a:hover{color:var(--accent)}
   <section id="how" class="reveal">
     <div class="center">
       <span class="kicker">How it works</span>
-      <h2>No layer in between</h2>
-      <p class="sub">Ubuntu's programs run on the Android kernel itself. A small preloaded library maps <code>/usr</code>, <code>/etc</code> and friends into the app's private storage, so there is no <code>ptrace</code> stop on every system call and no virtual machine.</p>
+      <h2>One thin layer, in the same process</h2>
+      <p class="sub">Ubuntu's programs run on the Android kernel itself. A preloaded library inside each program maps <code>/usr</code>, <code>/etc</code> and friends into the app's private storage and answers the calls Android forbids an app. It is the same family as fakechroot, written for Android, so there is no <code>ptrace</code> stop and no virtual machine. Static programs never call that library, so Cortex patches them once before their first start.</p>
     </div>
     <div class="flow">
       <div class="lane good">
@@ -350,9 +351,9 @@ footer a:hover{color:var(--accent)}
       </div>
       <div class="lane bad">
         <h3>PRoot</h3>
-        <p class="note">Every system call stops the program and is handled by a second process, then resumed.</p>
+        <p class="note">Every system call that takes a path stops the program and is handled by a second process, then resumed.</p>
         <div class="stack">
-          <div class="node slow"><span class="ico"><svg aria-hidden="true"><use href="#i-keyboard"/></svg></span><div>Your program<small>stopped at each system call</small></div></div>
+          <div class="node slow"><span class="ico"><svg aria-hidden="true"><use href="#i-keyboard"/></svg></span><div>Your program<small>stopped at each call with a path</small></div></div>
           <div class="wire"><i class="packet"></i></div>
           <div class="node slow"><span class="ico"><svg aria-hidden="true"><use href="#i-loop"/></svg></span><div>ptrace stop<small>a context switch to PRoot and back</small></div></div>
           <div class="wire"><i class="packet"></i></div>
@@ -360,7 +361,7 @@ footer a:hover{color:var(--accent)}
           <div class="wire"><i class="packet"></i></div>
           <div class="node slow"><span class="ico"><svg aria-hidden="true"><use href="#i-cpu"/></svg></span><div>Android's Linux kernel<small>after the round trip</small></div></div>
         </div>
-        <div class="speed"><span>Overhead</span><span class="bar"><i></i></span><span>every call</span></div>
+        <div class="speed"><span>Overhead</span><span class="bar"><i></i></span><span>every path call</span></div>
       </div>
     </div>
   </section>
@@ -372,8 +373,8 @@ footer a:hover{color:var(--accent)}
       <p class="sub">A real Ubuntu userland and a terminal made for a phone.</p>
     </div>
     <div class="features">
-      <div class="feat reveal"><div class="ico"><svg aria-hidden="true"><use href="#i-box"/></svg></div><h3>Genuine Ubuntu 24.04 LTS</h3><p>Ubuntu's own <code>.deb</code> packages with glibc 2.39, installed with <code>apt</code> from the official archive.</p></div>
-      <div class="feat reveal"><div class="ico"><svg aria-hidden="true"><use href="#i-zap"/></svg></div><h3>Direct execution</h3><p>Programs run on the Android kernel itself. A small preloaded library maps <code>/usr</code>, <code>/etc</code> and friends into the app's private storage.</p></div>
+      <div class="feat reveal"><div class="ico"><svg aria-hidden="true"><use href="#i-box"/></svg></div><h3>Ubuntu's own packages</h3><p>Ubuntu's own <code>.deb</code> packages with glibc 2.39, installed with <code>apt</code> from the official archive.</p></div>
+      <div class="feat reveal"><div class="ico"><svg aria-hidden="true"><use href="#i-zap"/></svg></div><h3>No tracer</h3><p>Programs run on the Android kernel itself. A preloaded library maps <code>/usr</code>, <code>/etc</code> and friends into the app's private storage, in the program's own process.</p></div>
       <div class="feat reveal"><div class="ico"><svg aria-hidden="true"><use href="#i-code"/></svg></div><h3>Built for developers</h3><p>gcc, git, Python, Java 17, Node.js (apt or nvm) and more. Changed <code>~/.bashrc</code> files are picked up at the next prompt.</p></div>
       <div class="feat reveal"><div class="ico"><svg aria-hidden="true"><use href="#i-phone"/></svg></div><h3>Made for a phone</h3><p>Session tabs and drawer, a key toolbar of your own, fourteen color schemes that theme the whole screen, search, clickable links and image paste.</p></div>
       <div class="feat reveal"><div class="ico"><svg aria-hidden="true"><use href="#i-file"/></svg></div><h3>Go programs just work</h3><p>Single-file Go tools (<code>gh</code>, <code>lazygit</code>, <code>fzf</code>…) see Ubuntu's files and start Ubuntu's programs, with no root.</p></div>
@@ -396,7 +397,7 @@ footer a:hover{color:var(--accent)}
     </div>
     <div class="gallery reveal">
       <div class="track" id="track" tabindex="0" aria-label="Screenshots, scroll sideways">
-        <figure class="phone"><img src="screenshots/cortex-neofetch.jpg" width="1080" height="2400" loading="lazy" alt="neofetch in Cortex Terminal showing Ubuntu 24.04 LTS running natively on an Android phone"><figcaption>neofetch: Ubuntu 24.04 LTS</figcaption></figure>
+        <figure class="phone"><img src="screenshots/cortex-neofetch.jpg" width="1080" height="2400" loading="lazy" alt="neofetch in Cortex Terminal showing Ubuntu 24.04 LTS on an Android phone"><figcaption>neofetch: Ubuntu 24.04 LTS</figcaption></figure>
         <figure class="phone"><img src="screenshots/cortex-keyboard.jpg" width="1080" height="2400" loading="lazy" alt="Cortex Terminal with its session tabs, a command's results and the two rows of keys: ESC, TAB, CTRL, ALT and the arrows"><figcaption>Tabs and the key toolbar</figcaption></figure>
         <figure class="phone"><img src="screenshots/cortex-api.jpg" width="1080" height="2400" loading="lazy" alt="cortex-api in the terminal: the battery state as JSON, the Android clipboard and notify-send"><figcaption>cortex-api</figcaption></figure>
         <figure class="phone"><img src="screenshots/cortex-sessions.jpg" width="1080" height="2400" loading="lazy" alt="The drawer of Cortex Terminal: one card for each session, and the New session button"><figcaption>Sessions</figcaption></figure>
@@ -410,17 +411,19 @@ footer a:hover{color:var(--accent)}
     <div class="center">
       <span class="kicker">Compare</span>
       <h2>Cortex compared</h2>
-      <p class="sub">Pick Cortex when you want Ubuntu's own packages and a genuine glibc without the layers PRoot or a VM add. Termux remains a great choice for its large, Android-specific package set.</p>
+      <p class="sub">Pick Cortex when you want Ubuntu's own packages and glibc without PRoot's tracer or a VM. Termux remains a great choice for its large, Android-specific package set. Don't take our numbers for it: <a href="https://github.com/ssfuisu/cortex/blob/main/tests/bench/compare.sh">this script</a> runs the same tests in Cortex and in proot-distro on your own phone.</p>
     </div>
     <div class="scroll">
     <table>
       <thead><tr><th></th><th class="us">Cortex</th><th>Termux (own packages)</th><th>Termux + proot-distro</th><th>Android Linux Terminal (VM)</th></tr></thead>
       <tbody>
         <tr><th>Needs root</th><td class="us"><span class="yes">No</span></td><td>No</td><td>No</td><td>No</td></tr>
-        <tr><th>How Linux programs run</th><td class="us">Directly on the Android kernel, with path redirection in user space</td><td>Directly, as programs built for Android</td><td>Inside PRoot, a user-space chroot using <code>ptrace</code></td><td>Inside a virtual machine (supported devices only)</td></tr>
+        <tr><th>How Linux programs run</th><td class="us">Directly on the Android kernel, paths mapped by an <code>LD_PRELOAD</code> library (fakechroot's technique, rewritten for Android)</td><td>Directly, as programs built for Android</td><td>Inside PRoot, a user-space chroot using <code>ptrace</code></td><td>Inside a virtual machine (supported devices only)</td></tr>
         <tr><th>C library</th><td class="us">glibc 2.39 (Ubuntu)</td><td>Bionic</td><td>glibc of the chosen distribution</td><td>glibc (Debian)</td></tr>
         <tr><th>Package source</th><td class="us">Ubuntu 24.04 archive via <code>apt</code></td><td>Termux repositories via <code>pkg</code></td><td>The distribution's own <code>apt</code></td><td>Debian <code>apt</code></td></tr>
         <tr><th><code>ptrace</code> system-call overhead</th><td class="us"><span class="yes">None</span></td><td>None</td><td><span class="no">Yes</span></td><td>None (VM overhead instead)</td></tr>
+        <tr><th>Statically linked programs</th><td class="us">Patched once before their first start (static C/C++, Go 1.19+). Others run but see Android's paths</td><td>Built for Android</td><td><span class="yes">Covered</span> by the tracer</td><td>Covered</td></tr>
+        <tr><th>What it cannot do without root</th><td class="us">systemd, real other users, ports below 1024, <code>mount</code>, containers</td><td>The same</td><td>The same</td><td>Little, but only on supported phones</td></tr>
       </tbody>
     </table>
     </div>
@@ -452,18 +455,23 @@ footer a:hover{color:var(--accent)}
     </div>
     <div class="faq">
       <details class="reveal"><summary>Does Cortex need root?</summary><div class="ans"><p>No. It runs on unrooted devices. On a rooted phone, the optional root mode (Settings) runs sessions as real root.</p></div></details>
-      <details class="reveal"><summary>Does it use PRoot, chroot or a virtual machine?</summary><div class="ans"><p>No PRoot and no virtual machine. Programs run directly on the Android kernel. In normal mode a small preloaded library redirects file paths such as <code>/usr</code> and <code>/etc</code> to Cortex's private storage and emulates root-only details like the user id. Only the optional root mode on rooted phones uses a chroot (a real one, without the library).</p></div></details>
+      <details class="reveal"><summary>Is this just PRoot or fakechroot?</summary><div class="ans"><p>Not PRoot: nothing traces the programs. Close to fakechroot: in normal mode an <code>LD_PRELOAD</code> library maps paths such as <code>/usr</code> and <code>/etc</code> into Cortex's private storage and pretends to be root, which is exactly fakechroot's and fakeroot's technique. Cortex doesn't contain their code. It was written for what Android adds: the seccomp filter, no hard links, no SysV shared memory, no exec from app storage on new target levels, and static programs. The optional root mode on rooted phones uses a real chroot, without the library. The <a href="https://github.com/ssfuisu/cortex#what-is-real-and-what-is-emulated">README</a> lists what is real and what is emulated.</p></div></details>
+      <details class="reveal"><summary>Can it break my phone?</summary><div class="ans"><p>No. In normal mode everything runs as the app's own Android user, inside the app sandbox, so it cannot touch Android, the system or other apps' private data. A broken package can break Cortex's own Ubuntu, and clearing the app's data gives you a fresh one. One thing to know: if you allow storage access, programs can change and delete your files in <code>/sdcard</code> like any file manager could, and neither clearing data nor uninstalling undoes that. Uninstalling removes everything in the app's own storage. Root mode is different, a root shell is a root shell. Details and the permission list: <a href="https://github.com/ssfuisu/cortex/blob/main/SECURITY.md">SECURITY.md</a>.</p></div></details>
+      <details class="reveal"><summary>How do I know the APK is the code on GitHub?</summary><div class="ans"><p>From 1.27.7 on, releases are built and signed by GitHub Actions from the tagged source, and each APK has a build attestation: <code>gh attestation verify Cortex-arm64-v8a-signed.apk --repo ssfuisu/cortex</code> shows the workflow and commit it came from. Checksums and the signing key are in <a href="https://github.com/ssfuisu/cortex/blob/main/signing/README.md">signing/README.md</a>.</p></div></details>
+      <details class="reveal"><summary>How much slower is it than PRoot, or than nothing?</summary><div class="ans"><p>Code that doesn't call the kernel runs at full speed. Calls that take a path cost a few hundred nanoseconds more, and starting a program about a quarter of a millisecond. Run <a href="https://github.com/ssfuisu/cortex/blob/main/tests/bench/compare.sh">compare.sh</a> in Cortex and in proot-distro on the same phone and compare for yourself.</p></div></details>
+      <details class="reveal"><summary>Can I run Docker or Podman?</summary><div class="ans"><p>Only in root mode. Containers need namespaces, mounts and cgroups, which Android never gives an app. On a rooted phone root mode sets those up, and <a href="https://github.com/ssfuisu/cortex/blob/main/docs/containers.md">this guide</a> has the steps.</p></div></details>
+      <details class="reveal"><summary>Why does Go need special code?</summary><div class="ans"><p>Go programs don't use the C library, they call the kernel themselves, so a preloaded library never sees their calls. Cortex adds a small piece of code to Go 1.19+ programs before their first start that does the same path mapping. Static C and C++ programs only get their forbidden system calls patched.</p></div></details>
       <details class="reveal"><summary>Which Android versions and CPUs are supported?</summary><div class="ans"><p>Android 7.0 and newer, with separate APKs for 64-bit (arm64-v8a) and 32-bit (armeabi-v7a) ARM devices.</p></div></details>
       <details class="reveal"><summary>How do I install software?</summary><div class="ans"><p>Use <code>apt</code> like on any Ubuntu system. Installers such as <code>nvm</code> also work.</p></div></details>
       <details class="reveal"><summary>Is there a desktop or GUI?</summary><div class="ans"><p>Yes, as an add-on. The menu's <em>Desktop</em> button installs a light Openbox desktop or XFCE, and Firefox if you want it, and shows it inside the app with touch or touchpad control, the keyboard, a shared clipboard and sound. It is X11 drawn by the CPU, with no GPU and no Wayland, so it suits editors and browsing more than games.</p></div></details>
-      <details class="reveal"><summary>Will every Ubuntu package work?</summary><div class="ans"><p>Most command-line tools do. Packages that depend on kernel features Android does not allow for apps, such as systemd services or privileged device access, cannot work.</p></div></details>
+      <details class="reveal"><summary>Will every Ubuntu package work?</summary><div class="ans"><p>Most command-line tools do. Packages that depend on kernel features Android does not allow for apps, such as systemd services or privileged device access, cannot work. A nightly job installs and tests common packages, the latest results are on the <a href="compat.html">compatibility page</a>.</p></div></details>
       <details class="reveal"><summary>Which languages does the app support?</summary><div class="ans"><p>It follows your system language and offers 50 languages in Settings. The translations were made with machine assistance, so corrections are welcome on GitHub.</p></div></details>
       <details class="reveal"><summary>Where do I report problems?</summary><div class="ans"><p>On <a href="https://github.com/ssfuisu/cortex/issues">GitHub Issues</a> or on <a href="https://t.me/ratzgn">Telegram</a>.</p></div></details>
     </div>
   </section>
 
   <div class="final reveal">
-    <h2>Carry a real Ubuntu in your pocket</h2>
+    <h2>Ubuntu in your pocket</h2>
     <p>Free and open source. Download the APK, run <code>apt</code>, and get to work.</p>
     <div class="cta">
       <a class="btn" href="https://github.com/ssfuisu/cortex/releases/latest">Download the APK</a>

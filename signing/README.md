@@ -17,6 +17,22 @@ Run `apksigner verify --verbose --print-certs Cortex-arm64-v8a-signed.apk` (Andr
 
 Releases up to 1.26.29 were signed only with the original key and therefore cannot be authenticated by their signature at all. The only assurance for those is that you downloaded them from the official [releases page](https://github.com/ssfuisu/cortex/releases) over HTTPS.
 
+## Built from this source, not on someone's laptop
+
+From 1.27.7 on, the APKs of a release are built and signed by the [release workflow](../.github/workflows/build-release.yml) on GitHub's servers, from the tagged commit, and GitHub records that as a signed build attestation. With the [GitHub CLI](https://cli.github.com):
+
+```bash
+gh attestation verify Cortex-arm64-v8a-signed.apk --repo ssfuisu/cortex
+```
+
+It prints the workflow, the commit and the run that produced the file. If the file was changed after the build, or built anywhere else, it fails. Every release also has `SHA256SUMS.txt`:
+
+```bash
+sha256sum -c SHA256SUMS.txt --ignore-missing
+```
+
+The attestation says the file you downloaded is exactly what that workflow run built from that commit, so nobody changed it afterwards. It doesn't vouch for what the build itself downloads (the Ubuntu image and packages, which are checked against Ubuntu's keys). The signature says who can update the app.
+
 ## Why there are two keys
 
 The original key's private part and password were committed to this repository, so anyone could produce an APK that Android would accept as a Cortex update. It was replaced:
