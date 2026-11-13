@@ -4,6 +4,19 @@ What changed in each version of Cortex Terminal, newest first. The release workf
 of a GitHub release from the section of its version here. Older versions are described on the
 [GitHub releases](https://github.com/ssfuisu/cortex/releases) page.
 
+## 1.27.7 (2026-11-13)
+
+### Fixed
+
+- **Podman and other container tools found no cgroups in root mode** ([#72](https://github.com/ssfuisu/cortex/issues/72)).
+  The chroot got a fresh `/sys` with nothing mounted on `/sys/fs/cgroup`, and Android keeps its
+  own hierarchies somewhere else (`/dev/cpuset`, `/dev/cpuctl`, `/dev/memcg`, `/acct`), so
+  `podman info` listed no controllers and dropped the PIDs limit. Root mode now lays the phone's
+  cgroups out the way Ubuntu does: the cgroup2 tree when the phone has it at `/sys/fs/cgroup`
+  (Android 12 and later), otherwise one directory per v1 hierarchy, with Android's own hierarchies
+  bound in and the enabled controllers that have none, often `pids`, mounted. All of it stays in the
+  session's own mount namespace.
+
 ## 1.27.6 (2026-11-12)
 
 ### Fixed

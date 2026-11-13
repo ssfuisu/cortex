@@ -31,6 +31,7 @@
 #include <fcntl.h>
 #include <ftw.h>
 #include <limits.h>
+#include <mntent.h>
 #include <sched.h>
 #include <signal.h>
 #include <stdarg.h>
@@ -240,6 +241,192 @@ static int setup_dev(const char *root) {
 }
 
 // ---------------------------------------------------------------------------------------------
+// /sys/fs/cgroup
+
+#define CGROUP_NAMES_MAX 32
+#define CGROUP_NAME_LEN 32
+
+static int path_has_prefix(const char *path, const char *prefix) {
+    size_t n = strlen(prefix);
+    return strncmp(path, prefix, n) == 0 && (path[n] == '\0' || path[n] == '/');
+}
+
+// The enabled controllers the kernel has (/proc/cgroups) and the v1 hierarchy each is in (0 for
+// none).
+static int read_controllers(char names[][CGROUP_NAME_LEN], int *hierarchies, int max) {
+    FILE *f = fopen("/proc/cgroups", "re");
+    if (!f) return 0;
+    char line[256];
+    int count = 0;
+    while (count < max && fgets(line, sizeof(line), f)) {
+        char name[CGROUP_NAME_LEN];
+        int hierarchy, cgroups, enabled;
+        if (line[0] == '#' || sscanf(line, "%31s %d %d %d", name, &hierarchy, &cgroups, &enabled) != 4) continue;
+        if (!enabled) continue;
+        memcpy(names[count], name, sizeof(name));
+        hierarchies[count] = hierarchy;
+        count++;
+    }
+    fclose(f);
+    return count;
+}
+
+static int is_controller(const char *opt, size_t len, char names[][CGROUP_NAME_LEN], int count) {
+    for (int i = 0; i < count; i++) {
+        if (strlen(names[i]) == len && strncmp(names[i], opt, len) == 0) return 1;
+    }
+    return 0;
+}
+
+// The directory a v1 hierarchy gets, named like Ubuntu's: its controllers joined by commas
+// ("cpu,cpuacct") or the name= of a named hierarchy ("systemd").
+static int hierarchy_dir_name(const char *opts, char names[][CGROUP_NAME_LEN], int count, char *out, size_t size) {
+    out[0] = '\0';
+    size_t used = 0;
+    for (const char *p = opts; *p;) {
+        const char *end = strchr(p, ',');
+        size_t len = end ? (size_t)(end - p) : strlen(p);
+        const char *word = p;
+        size_t wlen = len;
+        if (len > 5 && strncmp(p, "name=", 5) == 0) {
+            word = p + 5;
+            wlen = len - 5;
+        } else if (!is_controller(p, len, names, count)) {
+            word = NULL;
+        }
+        if (word && wlen > 0) {
+            if (used + wlen + 2 > size) return -1;
+            if (used) out[used++] = ',';
+            memcpy(out + used, word, wlen);
+            used += wlen;
+            out[used] = '\0';
+        }
+        if (!end) break;
+        p = end + 1;
+    }
+    return used ? 0 : -1;
+}
+
+static int is_mount_point(const char *path) {
+    char parent[PATH_MAX];
+    struct stat st, pst;
+    if (join_path(parent, sizeof(parent), path, "..") != 0 || stat(path, &st) != 0 || stat(parent, &pst) != 0) return 0;
+    return st.st_dev != pst.st_dev;
+}
+
+// Container tools (Podman, Docker, LXC, systemd-nspawn) look for cgroups in /sys/fs/cgroup. The
+// fresh sysfs has nothing mounted there and Android keeps its hierarchies elsewhere (/dev/cpuset,
+// /dev/cpuctl, /dev/memcg, /acct, cgroup2 at /dev/cg2_bpf or at /sys/fs/cgroup), so they are
+// bound in the layout Ubuntu uses. Binding keeps Android's own hierarchies and their options; the
+// enabled controllers in no hierarchy at all (often pids) get one of their own. Everything here
+// stays in the session's mount namespace and is best effort.
+static void setup_cgroups(const char *root) {
+    char base[PATH_MAX];
+    struct stat st;
+    if (join_path(base, sizeof(base), root, "sys/fs/cgroup") != 0 || lstat(base, &st) != 0 || !S_ISDIR(st.st_mode)) {
+        return;
+    }
+    // sysfs was bound from the host with whatever is mounted below it.
+    if (is_mount_point(base)) return;
+
+    char names[CGROUP_NAMES_MAX][CGROUP_NAME_LEN];
+    int hierarchies[CGROUP_NAMES_MAX];
+    int count = read_controllers(names, hierarchies, CGROUP_NAMES_MAX);
+
+    FILE *m = setmntent("/proc/self/mounts", "re");
+    if (!m) return;
+    char v2[PATH_MAX] = "";
+    int v2_is_root = 0;
+    struct mntent *e;
+    while ((e = getmntent(m)) != NULL) {
+        if (strcmp(e->mnt_type, "cgroup2") != 0 || path_has_prefix(e->mnt_dir, root)) continue;
+        if (strcmp(e->mnt_dir, "/sys/fs/cgroup") == 0) {
+            snprintf(v2, sizeof(v2), "%s", e->mnt_dir);
+            v2_is_root = 1;
+            break;
+        }
+        if (!v2[0]) snprintf(v2, sizeof(v2), "%s", e->mnt_dir);
+    }
+    // cgroup v2 at /sys/fs/cgroup on the host (Android 12 and later, most Linux systems): the same
+    // unified layout in the chroot.
+    if (v2_is_root) {
+        endmntent(m);
+        if (bind_mount(v2, base, 0) != 0) warn_msg("binding %s: %s", v2, strerror(errno));
+        return;
+    }
+    if (mount("tmpfs", base, "tmpfs", MS_NOSUID | MS_NODEV | MS_NOEXEC, "mode=755") != 0) {
+        warn_msg("mounting tmpfs on /sys/fs/cgroup: %s", strerror(errno));
+        endmntent(m);
+        return;
+    }
+    rewind(m);
+    while ((e = getmntent(m)) != NULL) {
+        if (strcmp(e->mnt_type, "cgroup") != 0 || path_has_prefix(e->mnt_dir, root)) continue;
+        char name[PATH_MAX], dir[PATH_MAX];
+        if (hierarchy_dir_name(e->mnt_opts, names, count, name, sizeof(name)) != 0) continue;
+        if (join_path(dir, sizeof(dir), base, name) != 0) continue;
+        // The same hierarchy mounted twice on the host.
+        if (lstat(dir, &st) == 0) continue;
+        if (mkdir(dir, 0755) != 0) continue;
+        if (bind_mount(e->mnt_dir, dir, 0) != 0) {
+            warn_msg("binding %s: %s", e->mnt_dir, strerror(errno));
+            rmdir(dir);
+            continue;
+        }
+        // cpu and cpuacct of a "cpu,cpuacct" hierarchy, as on Ubuntu.
+        if (strchr(name, ',')) {
+            char copy[PATH_MAX];
+            snprintf(copy, sizeof(copy), "%s", name);
+            for (char *save = NULL, *tok = strtok_r(copy, ",", &save); tok; tok = strtok_r(NULL, ",", &save)) {
+                char link[PATH_MAX];
+                if (join_path(link, sizeof(link), base, tok) == 0) best_effort(symlink(name, link));
+            }
+        }
+    }
+    endmntent(m);
+    // The hierarchies not mounted where this namespace can see them: the controllers of one
+    // hierarchy are mounted together (the kernel gives back the existing one), a controller in none
+    // gets its own.
+    int done[CGROUP_NAMES_MAX] = {0};
+    for (int i = 0; i < count; i++) {
+        if (done[i]) continue;
+        char opts[PATH_MAX], dir[PATH_MAX];
+        snprintf(opts, sizeof(opts), "%s", names[i]);
+        done[i] = 1;
+        for (int j = i + 1; hierarchies[i] != 0 && j < count; j++) {
+            if (hierarchies[j] != hierarchies[i]) continue;
+            size_t used = strlen(opts);
+            snprintf(opts + used, sizeof(opts) - used, ",%s", names[j]);
+            done[j] = 1;
+        }
+        if (join_path(dir, sizeof(dir), base, names[i]) != 0 || lstat(dir, &st) == 0) continue;
+        char group[PATH_MAX];
+        if (join_path(group, sizeof(group), base, opts) != 0 || lstat(group, &st) == 0 || mkdir(group, 0755) != 0) {
+            continue;
+        }
+        // EBUSY when the controller is in use in the v2 hierarchy: it stays there.
+        if (mount("cgroup", group, "cgroup", MS_NOSUID | MS_NODEV | MS_NOEXEC, opts) != 0) {
+            rmdir(group);
+            continue;
+        }
+        if (strchr(opts, ',')) {
+            for (char *save = NULL, *tok = strtok_r(opts, ",", &save); tok; tok = strtok_r(NULL, ",", &save)) {
+                char link[PATH_MAX];
+                if (join_path(link, sizeof(link), base, tok) == 0) best_effort(symlink(group + strlen(base) + 1, link));
+            }
+        }
+    }
+    if (v2[0]) {
+        char dir[PATH_MAX];
+        if (join_path(dir, sizeof(dir), base, "unified") == 0 && mkdir(dir, 0755) == 0 && bind_mount(v2, dir, 0) != 0) {
+            rmdir(dir);
+        }
+    }
+    // Read-only like Ubuntu's: the hierarchies below stay writable.
+    best_effort(mount(NULL, base, NULL, MS_REMOUNT | MS_NOSUID | MS_NODEV | MS_NOEXEC | MS_RDONLY, "mode=755"));
+}
+
+// ---------------------------------------------------------------------------------------------
 // The session
 
 static int mount_kernel_fs(const char *root, const char *name, const char *type) {
@@ -342,7 +529,7 @@ static int setup_session(const char *root) {
     }
 
     if (mount_kernel_fs(root, "proc", "proc") != 0) return EXIT_MOUNT;
-    mount_kernel_fs(root, "sys", "sysfs");
+    if (mount_kernel_fs(root, "sys", "sysfs") == 0) setup_cgroups(root);
     if (setup_dev(root) != 0) return EXIT_MOUNT;
     setup_sdcard(root);
     setup_data_alias(root);
