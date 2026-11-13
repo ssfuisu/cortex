@@ -22,13 +22,17 @@ median() {
 
 # measure NAME DIVISOR UNIT COMMAND: runs COMMAND RUNS times, prints the median time divided by DIVISOR
 measure() {
-    local name="$1" div="$2" unit="$3" cmd="$4" i t0 t1
+    local name="$1" div="$2" unit="$3" cmd="$4" i t0 t1 samples=""
     for ((i = 0; i < RUNS; i++)); do
         t0=$(now_ns)
-        bash -c "$cmd" > /dev/null 2>&1 || { echo "| $name | failed |"; return; }
+        if ! bash -c "$cmd" > /dev/null 2>&1; then
+            echo "| $name | failed |"
+            return
+        fi
         t1=$(now_ns)
-        echo $(((t1 - t0) / div))
-    done | median | { read -r v; [ "$v" = "-" ] || echo "| $name | $v $unit |"; }
+        samples+="$(((t1 - t0) / div))"$'\n'
+    done
+    echo "| $name | $(printf '%s' "$samples" | median) $unit |"
 }
 
 # What this is running in
@@ -56,7 +60,8 @@ measure "Start a program (\`/bin/true\`, per start)" $((200 * 1000)) "µs" 'for 
 
 # File system calls that take a path: what a build, git or apt does all the time
 mkdir -p "$W/f"
-measure "Create 1000 small files" 1000000 "ms" "cd '$W/f' && for i in \$(seq 1000); do echo \$i > f\$i; done"
+# A new directory each run, so every run creates files (and does not overwrite the last run's)
+measure "Create 1000 small files" 1000000 "ms" "d=\$(mktemp -d '$W/c.XXXXXX') && cd \"\$d\" && for i in \$(seq 1000); do echo \$i > f\$i; done"
 for i in $(seq 1000); do echo "$i" > "$W/f/f$i"; done
 measure "\`stat\` 1000 files (\`ls -l\`)" 1000000 "ms" "ls -l '$W/f'"
 measure "Read 1000 files (\`cat\`)" 1000000 "ms" "cat '$W'/f/* > /dev/null"

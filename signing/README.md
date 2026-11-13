@@ -31,7 +31,7 @@ It prints the workflow, the commit and the run that produced the file. If the fi
 sha256sum -c SHA256SUMS.txt --ignore-missing
 ```
 
-The attestation says where an APK comes from, the signature says who can update it. Both together mean the APK is the code in this repository, nothing added.
+The attestation says the file you downloaded is exactly what that workflow run built from that commit, so nobody changed it afterwards. It doesn't vouch for what the build itself downloads (the Ubuntu image and packages, which are checked against Ubuntu's keys). The signature says who can update the app.
 
 ## Why there are two keys
 

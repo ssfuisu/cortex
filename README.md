@@ -187,7 +187,7 @@ Containers need root mode. Since 1.27.7 it also mounts the phone's cgroups at `/
 
 ## Is it safe for the phone?
 
-In normal mode Cortex is an ordinary app: everything you run in it runs as the app's own Android user, in the app sandbox. It can't change Android, the system or other apps, it can't brick anything, and uninstalling removes all of it. Programs only *think* they are root. [SECURITY.md](SECURITY.md) explains every permission the app asks for and what the app itself connects to (Ubuntu's mirrors and GitHub's release API, nothing else).
+In normal mode Cortex is an ordinary app: everything you run in it runs as the app's own Android user, in the app sandbox. It can't change Android, the system or other apps' private data, it can't brick anything, and uninstalling removes everything in the app's own storage. Programs only *think* they are root. The one thing to keep in mind: once you allow storage access, commands can change and delete your files in `/sdcard`, and uninstalling doesn't undo that. [SECURITY.md](SECURITY.md) explains every permission the app asks for and what the app itself connects to (Ubuntu's mirrors and GitHub's release API, nothing else).
 
 ## FAQ
 

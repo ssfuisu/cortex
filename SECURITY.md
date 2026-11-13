@@ -8,8 +8,9 @@ If you find a security problem in Cortex, please don't open a public issue. Writ
 
 **In normal mode Cortex is an ordinary Android app.** Everything it runs, `apt`, `gcc`, a server you start, runs as the app's own Android user, inside the app sandbox, with the same rights the terminal app itself has. Programs think they are root because the library answers "uid 0", but the kernel still sees the app's user. That means:
 
-- It cannot change Android, the system partition, the bootloader or other apps' data. It cannot brick the phone. The worst a broken package can do is break Cortex's own Ubuntu, and clearing the app's data (or reinstalling it) gives you a fresh one.
-- Uninstalling the app removes everything it unpacked. Nothing is left in the system.
+- It cannot change Android, the system partition, the bootloader or other apps' private data. It cannot brick the phone. A broken package can break Cortex's own Ubuntu, and clearing the app's data (or reinstalling it) gives you a fresh one.
+- Uninstalling the app removes everything in its own storage. Nothing is left in the system.
+- **Shared storage is the exception.** If you allow storage access, programs in Cortex can read, change and delete your files in `/sdcard` (photos, downloads, documents) just like a file manager can. A bad `rm` there is not undone by clearing data or uninstalling, and files programs create there stay after uninstalling.
 - Ubuntu's files live in the app's private storage (`/data/data/org.cortex.terminal`), which other apps cannot read. Your phone's shared storage (`/sdcard`) is only reachable after you allow it.
 - Packages come from Ubuntu's own mirrors and `apt` checks Ubuntu's signatures, the same as on a PC. Cortex ships Ubuntu's keyring and does not add any other package source.
 

@@ -666,6 +666,7 @@ jobs:
             release-apks/Cortex-arm64-v8a-signed.apk \
             release-apks/Cortex-armeabi-v7a-signed.apk \
             release-apks/SHA256SUMS.txt \
+            --target "$(git rev-parse HEAD)" \
             --title "Cortex Release $VERSION" \
             --notes-file release-notes.md \
             $PRERELEASE_FLAG

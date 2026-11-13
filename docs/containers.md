@@ -48,14 +48,14 @@ If networking still fails, `--network=host` skips it entirely and the container 
 podman run --rm --network=host docker.io/library/alpine wget -qO- https://example.com
 ```
 
-**Storage.** If pulling an image fails with an overlay error, use the slower but always working `vfs` driver:
+**Storage.** If pulling an image fails with an overlay error, use the slower but always working `vfs` driver. Changing the driver needs a reset first, and **`podman system reset` deletes every container, image, network and volume Podman has**, so only do this on a fresh setup or after saving what you need. Reset with the old setting, then switch:
 
 ```bash
+podman system reset          # asks before it deletes anything
 cat > /etc/containers/storage.conf <<'EOF'
 [storage]
 driver = "vfs"
 EOF
-podman system reset -f
 ```
 
 ## 3. Docker

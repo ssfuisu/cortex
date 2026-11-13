@@ -73,6 +73,7 @@ jobs:
           sudo udevadm trigger --name-match=kvm
 
       - name: Install and try the packages on the emulator
+        id: emulator
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         env:
           E2E_COMPAT_ONLY: ${{ inputs.only }}
@@ -103,12 +104,13 @@ jobs:
       # or a dry run's APKs is not what the page describes. The commit only touches docs/ and
       # skips CI.
       - name: Publish the results on the website
-        if: always() && github.event_name == 'schedule' && github.ref == 'refs/heads/main'
+        # A run that timed out leaves part of the list: only a finished one replaces the page's
+        if: always() && steps.emulator.outcome == 'success' && github.event_name == 'schedule' && github.ref == 'refs/heads/main'
         run: |
           set -euo pipefail
           RESULTS=e2e-out/cortex-e2e/results.txt
-          if [ ! -s "$RESULTS" ] || ! grep -q '^\(PASS\|FAIL\) ' "$RESULTS"; then
-            echo "No results to publish."
+          if [ ! -e e2e-out/cortex-e2e/done ] || [ ! -s "$RESULTS" ] || ! grep -q '^\(PASS\|FAIL\) ' "$RESULTS"; then
+            echo "No complete results to publish."
             exit 0
           fi
           python3 tests/e2e/compat-json.py "$RESULTS" "$(cat tag.txt)" "$(date -u +%F)" > docs/compat.json

@@ -95,7 +95,7 @@ footer a{color:var(--muted)}
 
   <section class="how">
     <h2>How to read this</h2>
-    <p>The emulator is an x86_64 machine running the arm64 APK through Android's translator, because GitHub has no ARM machines with an emulator. Some failures look like they come from that translator and not from Cortex, they're marked, and stay listed as failures until a phone shows otherwise. Each package is installed on a clean system with <code>--no-install-recommends</code> and tested within 5 minutes.</p>
+    <p>The emulator is an x86_64 machine running the arm64 APK through Android's translator, because GitHub has no ARM machines with an emulator. Some failures look like they come from that translator and not from Cortex, they're marked, and stay listed as failures until a phone shows otherwise. The packages are installed one after another into the same Ubuntu with <code>--no-install-recommends</code>, so a later test can find what an earlier one installed, and each test gets 5 minutes.</p>
     <h2>Something you use isn't here?</h2>
     <p>The list lives in <a href="https://github.com/ssfuisu/cortex/blob/main/tests/e2e/compat.sh">tests/e2e/compat.sh</a>, one line per package. Open an issue or a pull request and it gets tested every night from then on. The logs of every run are in the <a href="https://github.com/ssfuisu/cortex/actions/workflows/compat-nightly.yml">workflow runs</a>.</p>
   </section>
