@@ -39,6 +39,11 @@ jobs:
     # Pinned: GitHub moves "ubuntu-latest" to Ubuntu 26.04 from 2026-10-19, and this job installs
     # Ubuntu-specific cross-compilers. Move to a newer image deliberately, after testing it.
     runs-on: ubuntu-24.04
+    # id-token and attestations: the build provenance of a release's APKs (see "Attest the APKs")
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
 
     steps:
       - name: Checkout Source Code
@@ -573,6 +578,23 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
+      # Anyone can check that a release's APK was built here from this repository's source, by this
+      # workflow, at this commit: gh attestation verify FILE --repo ssfuisu/cortex (signing/README.md)
+      - name: Checksums of the APKs
+        if: github.event_name != 'pull_request' && github.event.inputs.dry_run != 'true' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch')
+        working-directory: release-apks
+        run: |
+          sha256sum Cortex-arm64-v8a-signed.apk Cortex-armeabi-v7a-signed.apk > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Attest the APKs
+        if: github.event_name != 'pull_request' && github.event.inputs.dry_run != 'true' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch')
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            release-apks/Cortex-arm64-v8a-signed.apk
+            release-apks/Cortex-armeabi-v7a-signed.apk
+
       - name: Create GitHub Release
         if: github.event_name != 'pull_request' && github.event.inputs.dry_run != 'true' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch')
         env:
@@ -626,12 +648,14 @@ jobs:
             if grep -q '[^[:space:]]' changes.md; then
               cat changes.md
             else
-              echo "Cortex runs **Ubuntu 24.04 LTS (Noble Numbat)** with **glibc 2.39** natively on Android: no root, no PRoot, no containers, no virtual machine."
+              echo "Cortex runs Ubuntu 24.04 LTS (glibc 2.39) on Android through an \`LD_PRELOAD\` library: no root, no PRoot, no virtual machine."
             fi
             echo
             echo "#### Downloads"
             echo "- \`Cortex-arm64-v8a-signed.apk\`: 64-bit ARM (almost all current phones)"
             echo "- \`Cortex-armeabi-v7a-signed.apk\`: 32-bit ARM"
+            echo
+            echo "\`SHA256SUMS.txt\` has the checksums. Each APK also has a build attestation: \`gh attestation verify Cortex-arm64-v8a-signed.apk --repo ${GITHUB_REPOSITORY}\` shows it was built by this repository's workflow from the tagged source."
             echo
             echo "How to verify a download: [signing/README.md](https://github.com/${GITHUB_REPOSITORY}/blob/main/signing/README.md). All versions: [CHANGELOG.md](https://github.com/${GITHUB_REPOSITORY}/blob/main/CHANGELOG.md)."
           } > release-notes.md
@@ -641,6 +665,7 @@ jobs:
           gh release create "$VERSION" \
             release-apks/Cortex-arm64-v8a-signed.apk \
             release-apks/Cortex-armeabi-v7a-signed.apk \
+            release-apks/SHA256SUMS.txt \
             --title "Cortex Release $VERSION" \
             --notes-file release-notes.md \
             $PRERELEASE_FLAG

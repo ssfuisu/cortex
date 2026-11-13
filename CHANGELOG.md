@@ -17,6 +17,27 @@ of a GitHub release from the section of its version here. Older versions are des
   bound in and the enabled controllers that have none, often `pids`, mounted. All of it stays in the
   session's own mount namespace.
 
+### Added
+
+- **Proof of where an APK comes from.** Releases are now built on GitHub from the tagged source with
+  a build attestation for each APK, so `gh attestation verify Cortex-arm64-v8a-signed.apk --repo
+  ssfuisu/cortex` shows the workflow and commit it came from, and every release has
+  `SHA256SUMS.txt`. How to check both is in `signing/README.md`.
+- **A benchmark you can run next to proot-distro.** `tests/bench/compare.sh` runs the same tests
+  (starting programs, file operations, `tar`, pure CPU, Python, `gcc`, `apt-cache`) in whatever it
+  runs in and prints a table, so Cortex and proot-distro can be compared on the same phone.
+- **The nightly package test results on the website**, failures included, with what is known about
+  each failure: [ssfuisu.github.io/cortex/compat.html](https://ssfuisu.github.io/cortex/compat.html).
+- **`SECURITY.md`**: what the app can and cannot do to a phone, every permission and why, and how to
+  report a problem. **`docs/containers.md`**: Podman and Docker in root mode, including the
+  iptables setting kernels without nftables NAT need.
+
+### Changed
+
+- The website, the README and the release notes say plainly how Cortex works: an `LD_PRELOAD`
+  library, the technique fakechroot and fakeroot use, rewritten for Android, with no `ptrace` and no
+  virtual machine. The old "natively, no containers" wording made it sound like more than that.
+
 ## 1.27.6 (2026-11-12)
 
 ### Fixed

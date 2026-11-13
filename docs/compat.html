@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Package compatibility · Cortex Terminal</title>
+<meta name="description" content="Which Ubuntu 24.04 packages work in Cortex Terminal on Android: every night a job installs common packages with apt on an Android emulator and tests what each is for.">
+<link rel="canonical" href="https://ssfuisu.github.io/cortex/compat.html">
+<meta name="theme-color" content="#0f1020">
+<link rel="icon" type="image/png" href="icon.png">
+<style>
+:root{
+  --bg:#0f1020;--card:rgba(30,32,56,.72);--card-solid:#1e2038;--line:rgba(137,180,250,.16);
+  --text:#f2f3fb;--muted:#a8aecb;--accent:#89b4fa;--ok:#a6e3a1;--bad:#f38ba8;--warn:#f9e2af;
+  --radius:16px
+}
+@media (prefers-color-scheme:light){:root{
+  --bg:#f6f7fc;--card:rgba(255,255,255,.82);--card-solid:#fff;--line:rgba(31,95,214,.16);
+  --text:#161827;--muted:#525876;--accent:#1f5fd6;--ok:#1f7a3a;--bad:#c0305a;--warn:#9a6a00
+}}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;overflow-x:hidden}
+a{color:var(--accent)}
+code{font-family:ui-monospace,"JetBrains Mono","SF Mono",Menlo,Consolas,monospace;font-size:.9em}
+:focus-visible{outline:3px solid var(--accent);outline-offset:3px;border-radius:6px}
+.wrap{max-width:960px;margin:0 auto;padding:0 16px}
+.nav{border-bottom:1px solid var(--line)}
+.nav .wrap{display:flex;align-items:center;gap:12px;height:58px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:800;color:var(--text);text-decoration:none}
+.brand img{width:28px;height:28px;border-radius:8px}
+.nav .back{margin-left:auto;color:var(--muted);text-decoration:none;font-weight:600}
+.nav .back:hover{color:var(--text)}
+h1{font-size:clamp(1.7rem,4.5vw,2.4rem);line-height:1.2;margin:36px 0 10px}
+.lead{color:var(--muted);max-width:680px;margin:0 0 24px}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:0 0 22px}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px}
+.stat b{display:block;font-size:1.6rem;line-height:1.2}
+.stat span{color:var(--muted);font-size:.9rem}
+.stat.ok b{color:var(--ok)}
+.stat.bad b{color:var(--bad)}
+.filters{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 14px}
+.filters button{font:inherit;font-weight:600;font-size:.92rem;color:var(--muted);background:var(--card);border:1px solid var(--line);border-radius:999px;padding:6px 14px;cursor:pointer}
+.filters button[aria-pressed="true"]{color:var(--text);border-color:var(--accent)}
+.list{display:flex;flex-direction:column;gap:8px;margin:0;padding:0;list-style:none}
+.row{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;display:grid;grid-template-columns:24px 1fr auto;gap:4px 12px;align-items:start}
+.row svg{width:22px;height:22px;margin-top:1px}
+.row.ok svg{color:var(--ok)}
+.row.bad svg{color:var(--bad)}
+.row .name{font-weight:700;overflow-wrap:anywhere}
+.row .time{color:var(--muted);font-size:.9rem;white-space:nowrap}
+.row .why{grid-column:2 / -1;color:var(--muted);font-size:.9rem;overflow-wrap:anywhere}
+.row .note{grid-column:2 / -1;font-size:.92rem;border-left:3px solid var(--warn);padding-left:10px}
+.how{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:4px 20px;margin:30px 0}
+.how h2{font-size:1.15rem;margin:16px 0 6px}
+.how p{color:var(--muted);margin:0 0 14px}
+footer{border-top:1px solid var(--line);margin-top:40px;padding:22px 0 40px;color:var(--muted);font-size:.9rem;text-align:center}
+footer a{color:var(--muted)}
+.status{color:var(--muted)}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false"><defs>
+<symbol id="i-ok" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9.5"/><path d="M8 12.5l2.8 2.8L16.5 9.5"/></symbol>
+<symbol id="i-bad" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9.5"/><path d="M9 9l6 6M15 9l-6 6"/></symbol>
+</defs></svg>
+
+<nav class="nav" aria-label="Main">
+  <div class="wrap">
+    <a class="brand" href="./"><img src="icon.png" width="28" height="28" alt="">Cortex</a>
+    <a class="back" href="./">Back to the site</a>
+  </div>
+</nav>
+
+<main class="wrap">
+  <h1>Which packages work</h1>
+  <p class="lead">Every night a job takes the latest release, installs common packages with <code>apt</code> on an Android emulator, one at a time, and runs a short test of what each one is for: a Python script, a compile, a server answering a request. These are the latest results, failures included. The page changes when a result does.</p>
+
+  <div class="stats" id="stats" aria-live="polite">
+    <div class="stat"><b id="s-total">…</b><span>packages tested</span></div>
+    <div class="stat ok"><b id="s-ok">…</b><span>work</span></div>
+    <div class="stat bad"><b id="s-bad">…</b><span>don't</span></div>
+    <div class="stat"><b id="s-ver">…</b><span id="s-date">release tested</span></div>
+  </div>
+
+  <div class="filters" role="group" aria-label="Show">
+    <button type="button" data-f="all" aria-pressed="true">All</button>
+    <button type="button" data-f="bad" aria-pressed="false">Only failures</button>
+    <button type="button" data-f="ok" aria-pressed="false">Only working</button>
+  </div>
+
+  <p class="status" id="status">Loading the latest results…</p>
+  <ul class="list" id="list"></ul>
+  <noscript><p>This list needs JavaScript. The raw results are in <a href="compat.json">compat.json</a>.</p></noscript>
+
+  <section class="how">
+    <h2>How to read this</h2>
+    <p>The emulator is an x86_64 machine running the arm64 APK through Android's translator, because GitHub has no ARM machines with an emulator. Some failures look like they come from that translator and not from Cortex, they're marked, and stay listed as failures until a phone shows otherwise. Each package is installed on a clean system with <code>--no-install-recommends</code> and tested within 5 minutes.</p>
+    <h2>Something you use isn't here?</h2>
+    <p>The list lives in <a href="https://github.com/ssfuisu/cortex/blob/main/tests/e2e/compat.sh">tests/e2e/compat.sh</a>, one line per package. Open an issue or a pull request and it gets tested every night from then on. The logs of every run are in the <a href="https://github.com/ssfuisu/cortex/actions/workflows/compat-nightly.yml">workflow runs</a>.</p>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap"><a href="./">Cortex Terminal</a> · <a href="https://github.com/ssfuisu/cortex">GitHub</a> · <a href="compat.json">compat.json</a></div>
+</footer>
+
+<script>
+(function () {
+  // What we know about a failure: shown under it
+  var NOTES = {
+    "go": "Fails on the test emulator, where Go can't resolve its own path through the arm64 translator. Not confirmed on a real phone.",
+    "java": "The JVM's compiler stops at an internal check on the emulator's arm64 translator. Not confirmed on a real phone.",
+    "postgresql": "A known limit of normal mode: the server won't run as root and needs a real second user (\"Could not change user id\"). Root mode has real users. postgresql-client works."
+  };
+  var list = document.getElementById("list");
+  var status = document.getElementById("status");
+  var data = null;
+  var filter = "all";
+
+  function el(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text != null) e.textContent = text;
+    return e;
+  }
+  function icon(id) {
+    var ns = "http://www.w3.org/2000/svg";
+    var svg = document.createElementNS(ns, "svg");
+    svg.setAttribute("aria-hidden", "true");
+    var use = document.createElementNS(ns, "use");
+    use.setAttribute("href", "#" + id);
+    svg.appendChild(use);
+    return svg;
+  }
+  function render() {
+    list.textContent = "";
+    var shown = 0;
+    data.packages.forEach(function (p) {
+      if (filter === "ok" && !p.ok || filter === "bad" && p.ok) return;
+      shown++;
+      var li = el("li", "row " + (p.ok ? "ok" : "bad"));
+      li.appendChild(icon(p.ok ? "i-ok" : "i-bad"));
+      var name = el("span", "name", p.name);
+      var sr = el("span", null, p.ok ? " (works)" : " (fails)");
+      sr.style.position = "absolute"; sr.style.left = "-9999px";
+      name.appendChild(sr);
+      li.appendChild(name);
+      li.appendChild(el("span", "time", p.seconds + " s"));
+      if (!p.ok && p.why) li.appendChild(el("span", "why", p.why));
+      if (!p.ok && NOTES[p.name]) li.appendChild(el("span", "note", NOTES[p.name]));
+      list.appendChild(li);
+    });
+    status.textContent = shown ? "" : "Nothing to show here.";
+  }
+  function show(d) {
+    data = d;
+    var ok = d.packages.filter(function (p) { return p.ok; }).length;
+    document.getElementById("s-total").textContent = d.packages.length;
+    document.getElementById("s-ok").textContent = ok;
+    document.getElementById("s-bad").textContent = d.packages.length - ok;
+    document.getElementById("s-ver").textContent = d.version || "?";
+    document.getElementById("s-date").textContent = "results as of " + (d.date || "") + (d.where ? ", " + d.where : "");
+    render();
+  }
+  document.querySelectorAll(".filters button").forEach(function (b) {
+    b.addEventListener("click", function () {
+      filter = b.getAttribute("data-f");
+      document.querySelectorAll(".filters button").forEach(function (o) { o.setAttribute("aria-pressed", o === b ? "true" : "false"); });
+      if (data) render();
+    });
+  });
+  // The nightly job commits compat.json to main; GitHub's raw copy is current even before Pages rebuilds
+  function load(urls) {
+    if (!urls.length) { status.textContent = "Couldn't load the results. They're also in compat.json."; return; }
+    fetch(urls[0], { cache: "no-cache" }).then(function (r) {
+      if (!r.ok) throw new Error(r.status);
+      return r.json();
+    }).then(function (d) {
+      if (!d || !d.packages || !d.packages.length) throw new Error("empty");
+      show(d);
+    }).catch(function () { load(urls.slice(1)); });
+  }
+  load(["https://raw.githubusercontent.com/ssfuisu/cortex/main/docs/compat.json", "compat.json"]);
+})();
+</script>
+</body>
+</html>
