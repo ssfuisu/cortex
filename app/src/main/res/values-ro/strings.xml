@@ -20,6 +20,8 @@
     <string name="drawer_new_session">+ Sesiune nouă</string>
     <string name="session_label">Sesiunea %1$d</string>
     <string name="close_session">Închide sesiunea</string>
+    <string name="rename_session">Redenumește sesiunea</string>
+    <string name="rename_session_reset">Resetează</string>
     <string name="exit_confirm_title">Ieși din sesiune</string>
     <string name="exit_confirm_message">Vrei să închizi această sesiune de terminal?</string>
     <string name="search_hint">Caută în terminal…</string>

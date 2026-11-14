@@ -96,11 +96,23 @@ static char **prepare_cortex_env(char *const envp[], const char *real_exe) {
         count++;
     }
 
-    char **new_env = calloc(count + 20, sizeof(char *));
+    char **new_env = calloc(count + 21, sizeof(char *));
     int dst = 0;
+    // The ids the program runs with (ids.c): this process's, whatever the environment it passes
+    // says, first in the block (the other end of a socket finds them there in /proc/PID/environ).
+    // CORTEX_BECOME asks for root or the app's own user once and is not passed on.
+    const char *become = NULL;
+    for (int i = 0; i < count; i++) {
+        if (envp[i][0] == 'C' && strncmp(envp[i], "CORTEX_BECOME=", 14) == 0) become = envp[i] + 14;
+    }
+    char *ids_env = ids_env_for_exec(real_exe, become);
+    if (ids_env) new_env[dst++] = ids_env;
     for (int i = 0; i < count; i++) {
         // If we have an explicit real executable, drop the inherited entry to replace with the fresh target
         if (chosen_real_exe && envp[i][0] == 'C' && strncmp(envp[i], "CORTEX_REAL_EXE=", 16) == 0) {
+            continue;
+        }
+        if (envp[i][0] == 'C' && (strncmp(envp[i], "CORTEX_IDS=", 11) == 0 || strncmp(envp[i], "CORTEX_BECOME=", 14) == 0)) {
             continue;
         }
         new_env[dst++] = envp[i];

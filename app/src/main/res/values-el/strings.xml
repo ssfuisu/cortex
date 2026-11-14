@@ -20,6 +20,8 @@
     <string name="drawer_new_session">+ Νέα συνεδρία</string>
     <string name="session_label">Συνεδρία %1$d</string>
     <string name="close_session">Κλείσιμο συνεδρίας</string>
+    <string name="rename_session">Μετονομασία συνεδρίας</string>
+    <string name="rename_session_reset">Επαναφορά</string>
     <string name="exit_confirm_title">Έξοδος από τη συνεδρία</string>
     <string name="exit_confirm_message">Θέλετε να κλείσετε αυτή τη συνεδρία τερματικού;</string>
     <string name="search_hint">Αναζήτηση στο τερματικό…</string>

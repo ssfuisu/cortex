@@ -4,6 +4,46 @@ What changed in each version of Cortex Terminal, newest first. The release workf
 of a GitHub release from the section of its version here. Older versions are described on the
 [GitHub releases](https://github.com/ssfuisu/cortex/releases) page.
 
+## 1.28.0 (2026-11-14)
+
+### Added
+
+- **Users other than root, for the programs.** Until now every program was root and stayed root:
+  `su postgres`, `runuser` and a server that drops to its own user only pretended to, and `chown`
+  did nothing. Now a process that changes its ids is that user for itself and for everything it
+  starts (also through `env -i`), an ordinary user cannot take root back, set-user-ID programs
+  (`passwd`, `chsh`) run as their owner, and `chown` gives a file an owner every program sees
+  (kept in `/var/lib/cortex/owners`, gone with the file). Files a user makes are that user's. The
+  other end of a Unix socket is the user that process runs as, so peer authentication works.
+  PostgreSQL's own cluster now works in normal mode: `pg_createcluster`, `service postgresql
+  start` and `su postgres -c psql`. The kernel still sees one user, the app's: this changes what
+  the programs see, not what they may do.
+- **`cortex-api no-fakeroot`**: a shell (or one command) where programs run as an ordinary user,
+  `cortex`, instead of root, for tools that refuse root such as Claude Code's
+  `--dangerously-skip-permissions`. `sudo` still works in it, `exit` goes back, and the session's
+  other shells stay root.
+- **Ports below 1024.** Android refuses them to apps, so a server that asks for one gets the port
+  8000 above it (80 is 8080, 443 is 8443) and says so once; a connection to the low port on the
+  phone itself finds it there, so `curl http://localhost` reaches nginx on "80".
+- **Renaming sessions**: a long press on a tab, or on a session in the drawer, gives it a name,
+  shown instead of its number and kept when the sessions come back.
+- **Store metadata** (`fastlane/`) for IzzyOnDroid and F-Droid.
+
+### Fixed
+
+- **32-bit phones: every stat() through the library answered with nonsense.** Ubuntu's armhf
+  programs are built with a 64-bit `time_t` and `off_t`, so their `stat()` is `__stat64_time64`,
+  and the library's function of that name passed the call on to the C library's old 32-bit `stat`,
+  whose `struct stat` is laid out otherwise: a 12345-byte file had a size of 53021371269120. The
+  same went for `lstat`, `fstat`, `fstatat`, `open` (files over 2 GB), `truncate`, `statfs`,
+  `setrlimit`, the `utime` family, `sendmsg` and `recvmsg`. Each now goes to the version of its own
+  name. A test runs it under qemu-arm.
+- **Root could not write its own read-only files.** Root writes a file whatever its mode, the app
+  only one its mode allows, so `cp` over postgresql-common's 0444 apt configuration failed with
+  "Permission denied". A file of the app that its mode closes is opened for root's programs.
+- `getresuid()` and `getresgid()` answered with the app's real ids instead of the ones the programs
+  see.
+
 ## 1.27.7 (2026-11-13)
 
 ### Fixed

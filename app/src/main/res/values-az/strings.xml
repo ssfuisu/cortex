@@ -20,6 +20,8 @@
     <string name="drawer_new_session">+ Yeni sessiya</string>
     <string name="session_label">Sessiya %1$d</string>
     <string name="close_session">Sessiyanı bağla</string>
+    <string name="rename_session">Sessiyanın adını dəyiş</string>
+    <string name="rename_session_reset">Sıfırla</string>
     <string name="exit_confirm_title">Sessiyadan çıx</string>
     <string name="exit_confirm_message">Bu terminal sessiyasını bağlamaq istəyirsiniz?</string>
     <string name="search_hint">Terminalda axtar…</string>

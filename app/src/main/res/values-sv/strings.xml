@@ -20,6 +20,8 @@
     <string name="drawer_new_session">+ Ny session</string>
     <string name="session_label">Session %1$d</string>
     <string name="close_session">Stäng session</string>
+    <string name="rename_session">Byt namn på sessionen</string>
+    <string name="rename_session_reset">Återställ</string>
     <string name="exit_confirm_title">Avsluta session</string>
     <string name="exit_confirm_message">Vill du stänga den här terminalsessionen?</string>
     <string name="search_hint">Sök i terminalen…</string>

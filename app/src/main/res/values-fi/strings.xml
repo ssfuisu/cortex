@@ -20,6 +20,8 @@
     <string name="drawer_new_session">+ Uusi istunto</string>
     <string name="session_label">Istunto %1$d</string>
     <string name="close_session">Sulje istunto</string>
+    <string name="rename_session">Nimeä istunto uudelleen</string>
+    <string name="rename_session_reset">Palauta</string>
     <string name="exit_confirm_title">Poistu istunnosta</string>
     <string name="exit_confirm_message">Haluatko sulkea tämän päätteen istunnon?</string>
     <string name="search_hint">Hae päätteestä…</string>

@@ -11,7 +11,8 @@ import org.cortex.terminal.view.Chrome
 class SessionAdapter(
     private val sessionManager: SessionManager,
     private val onSelect: (Int) -> Unit,
-    private val onClose: (Int) -> Unit
+    private val onClose: (Int) -> Unit,
+    private val onRename: ((Int) -> Unit)? = null
 ) : RecyclerView.Adapter<SessionAdapter.ViewHolder>() {
 
     class ViewHolder(val binding: ItemSessionBinding) : RecyclerView.ViewHolder(binding.root)
@@ -28,8 +29,8 @@ class SessionAdapter(
         val density = context.resources.displayMetrics.density
         val p = Chrome.palette
 
-        binding.sessionLabelText.text = context.getString(R.string.session_label, position + 1)
         val session = synchronized(sessionManager.sessions) { sessionManager.sessions.getOrNull(position) }
+        binding.sessionLabelText.text = session?.customName ?: context.getString(R.string.session_label, position + 1)
         binding.sessionRootBadge.visibility = if (session?.isRoot == true) View.VISIBLE else View.GONE
 
         // The session on screen has the accent around it; the others sit flat on the drawer
@@ -52,6 +53,15 @@ class SessionAdapter(
             if (pos != RecyclerView.NO_POSITION) {
                 onClose(pos)
             }
+        }
+
+        binding.sessionItemRoot.setOnLongClickListener {
+            val pos = holder.bindingAdapterPosition
+            val rename = onRename
+            if (pos == RecyclerView.NO_POSITION || rename == null) return@setOnLongClickListener false
+            it.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+            rename(pos)
+            true
         }
 
         binding.sessionItemRoot.setOnClickListener {

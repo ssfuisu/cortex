@@ -5,24 +5,66 @@
 
 #ifndef CORTEX_HOST_TEST
 
-// Fakeroot identity hooks for APT and DPKG to operate without superuser restrictions
-uid_t getuid(void) { return 0; }
-uid_t geteuid(void) { return 0; }
-gid_t getgid(void) { return 0; }
-gid_t getegid(void) { return 0; }
+// The ids the programs see (ids.c): root's, unless the process changed them (su, runuser, a server
+// that drops to its user) or was started by one that had
+uid_t getuid(void) { return ids_now()->r; }
+uid_t geteuid(void) { return ids_now()->e; }
+gid_t getgid(void) { return ids_now()->gr; }
+gid_t getegid(void) { return ids_now()->ge; }
 
-int setuid(uid_t uid) { (void)uid; return 0; }
-int seteuid(uid_t uid) { (void)uid; return 0; }
-int setgid(gid_t gid) { (void)gid; return 0; }
-int setegid(gid_t gid) { (void)gid; return 0; }
-int setreuid(uid_t ruid, uid_t euid) { (void)ruid; (void)euid; return 0; }
-int setregid(gid_t rgid, gid_t egid) { (void)rgid; (void)egid; return 0; }
-int setresuid(uid_t ruid, uid_t euid, uid_t suid) { (void)ruid; (void)euid; (void)suid; return 0; }
-int setresgid(gid_t rgid, gid_t egid, gid_t sgid) { (void)rgid; (void)egid; (void)sgid; return 0; }
+int getresuid(uid_t *ruid, uid_t *euid, uid_t *suid) {
+    const cortex_ids_t *ids = ids_now();
+    if (ruid) *ruid = ids->r;
+    if (euid) *euid = ids->e;
+    if (suid) *suid = ids->s;
+    return 0;
+}
+int getresgid(gid_t *rgid, gid_t *egid, gid_t *sgid) {
+    const cortex_ids_t *ids = ids_now();
+    if (rgid) *rgid = ids->gr;
+    if (egid) *egid = ids->ge;
+    if (sgid) *sgid = ids->gs;
+    return 0;
+}
+
+int setuid(uid_t uid) { return ids_setuid(0, uid); }
+int seteuid(uid_t uid) {
+    if (uid == (uid_t)-1) {
+        errno = EINVAL;
+        return -1;
+    }
+    return ids_setres(0, (unsigned long)-1, uid, (unsigned long)-1);
+}
+int setgid(gid_t gid) { return ids_setuid(1, gid); }
+int setegid(gid_t gid) {
+    if (gid == (gid_t)-1) {
+        errno = EINVAL;
+        return -1;
+    }
+    return ids_setres(1, (unsigned long)-1, gid, (unsigned long)-1);
+}
+int setreuid(uid_t ruid, uid_t euid) { return ids_setre(0, ruid, euid); }
+int setregid(gid_t rgid, gid_t egid) { return ids_setre(1, rgid, egid); }
+int setresuid(uid_t ruid, uid_t euid, uid_t suid) { return ids_setres(0, ruid, euid, suid); }
+int setresgid(gid_t rgid, gid_t egid, gid_t sgid) { return ids_setres(1, rgid, egid, sgid); }
+// The file system ids follow the effective ones; the call returns the old one, as Linux's does
+int setfsuid(uid_t uid) { (void)uid; return (int)ids_now()->e; }
+int setfsgid(gid_t gid) { (void)gid; return (int)ids_now()->ge; }
 
 int getgroups(int size, gid_t list[]) {
-    if (size > 0 && list != NULL) list[0] = 0;
-    return 1;
+    const cortex_ids_t *ids = ids_now();
+    int n = ids->ngroups > 0 ? ids->ngroups : 1;
+    if (size == 0) return n;
+    if (size < n || !list) {
+        errno = EINVAL;
+        return -1;
+    }
+    if (ids->ngroups > 0) {
+        for (int i = 0; i < n; i++) list[i] = ids->groups[i];
+    } else {
+        list[0] = ids->ge;
+    }
+    return n;
 }
 // What programs built with _FORTIFY_SOURCE call when the buffer's size is known (the check is
 // glibc's): without it the count came from the hook (1) and the list from the kernel (the app's
@@ -32,23 +74,77 @@ int __getgroups_chk(int size, gid_t list[], size_t listlen) {
     if (size > 0 && (size_t)size * sizeof(gid_t) > listlen) __chk_fail();
     return getgroups(size, list);
 }
-int setgroups(size_t size, const gid_t *list) { (void)size; (void)list; return 0; }
-int initgroups(const char *user, gid_t group) { (void)user; (void)group; return 0; }
+int setgroups(size_t size, const gid_t *list) { return ids_setgroups(size, list); }
+
+// The groups a user is in: the given one and those of the rootfs' /etc/group that list the user.
+// (glibc's getgrent() opens /etc/group itself, without this library: Android's.)
+static int user_groups(const char *user, gid_t group, gid_t *groups, int max) {
+    int n = 0;
+    if (max > 0) groups[n++] = group;
+    if (!user || !*user) return n;
+    char path_buf[PATH_MAX];
+    const char *path = rewrite_path("/etc/group", path_buf, sizeof(path_buf));
+    int fd = path ? (int)syscall(SYS_openat, AT_FDCWD, path, O_RDONLY | O_CLOEXEC, 0) : -1;
+    if (fd < 0) return n;
+    static char data[65536];
+    static pthread_mutex_t data_lock = PTHREAD_MUTEX_INITIALIZER;
+    pthread_mutex_lock(&data_lock);
+    ssize_t len = 0, r;
+    while (len < (ssize_t)sizeof(data) - 1 && (r = read(fd, data + len, sizeof(data) - 1 - (size_t)len)) > 0) len += r;
+    syscall(SYS_close, fd);
+    data[len > 0 ? len : 0] = '\0';
+    size_t ulen = strlen(user);
+    for (char *line = data; *line && n < max;) {
+        char *next = strchr(line, '\n');
+        if (next) *next = '\0';
+        // name:password:gid:member,member
+        char *c1 = strchr(line, ':');
+        char *c2 = c1 ? strchr(c1 + 1, ':') : NULL;
+        char *c3 = c2 ? strchr(c2 + 1, ':') : NULL;
+        if (c3) {
+            gid_t gid = (gid_t)strtoul(c2 + 1, NULL, 10);
+            for (char *m = c3 + 1; *m;) {
+                char *comma = strchr(m, ',');
+                size_t mlen = comma ? (size_t)(comma - m) : strlen(m);
+                if (mlen > 0 && m[mlen - 1] == '\r') mlen--;
+                if (mlen == ulen && memcmp(m, user, ulen) == 0) {
+                    int seen = 0;
+                    for (int i = 0; i < n; i++) seen |= groups[i] == gid;
+                    if (!seen) groups[n++] = gid;
+                    break;
+                }
+                if (!comma) break;
+                m = comma + 1;
+            }
+        }
+        if (!next) break;
+        line = next + 1;
+    }
+    pthread_mutex_unlock(&data_lock);
+    return n;
+}
+
+int initgroups(const char *user, gid_t group) {
+    gid_t groups[CORTEX_IDS_MAX_GROUPS];
+    int n = user_groups(user, group, groups, CORTEX_IDS_MAX_GROUPS);
+    return ids_setgroups((size_t)n, groups);
+}
 
 int getgrouplist(const char *user, gid_t group, gid_t *groups, int *ngroups) {
-    (void)user;
     if (!ngroups) {
         errno = EINVAL;
         return -1;
     }
-    if (*ngroups > 0 && groups) {
-        groups[0] = group;
-        *ngroups = 1;
-        return 1;
+    gid_t found[CORTEX_IDS_MAX_GROUPS];
+    int n = user_groups(user, group, found, CORTEX_IDS_MAX_GROUPS);
+    if (*ngroups < n || !groups) {
+        // Too small (a caller asking for the size first): -1 and the number needed, as glibc does.
+        *ngroups = n;
+        return -1;
     }
-    // Too small (a caller asking for the size first): -1 and the number needed, as glibc does.
-    *ngroups = 1;
-    return -1;
+    for (int i = 0; i < n; i++) groups[i] = found[i];
+    *ngroups = n;
+    return n;
 }
 
 #endif /* !CORTEX_HOST_TEST */
@@ -131,7 +227,7 @@ int CORTEX_SHADOW_SYM(lckpwdf)(void) {
     char buf[PATH_MAX];
     const char *target = rewrite_path("/etc/.pwd.lock", buf, sizeof(buf));
     static int (*orig_open)(const char *, int, ...) = NULL;
-    if (!orig_open) orig_open = (int (*)(const char *, int, ...))dlsym(RTLD_NEXT, "open");
+    if (!orig_open) orig_open = (int (*)(const char *, int, ...))cortex_next((void *)open, "open");
     if (orig_open && target) {
         g_pwd_lock_fd = orig_open(target, O_WRONLY | O_CREAT | O_CLOEXEC, 0600);
         if (g_pwd_lock_fd >= 0) {
@@ -181,7 +277,7 @@ static int cortex_lookup_group(const char *search_name, gid_t search_gid, int by
     char path_buf[PATH_MAX];
     const char *grp_path = rewrite_path("/etc/group", path_buf, sizeof(path_buf));
     static int (*orig_open)(const char *, int, ...) = NULL;
-    if (!orig_open) orig_open = (int (*)(const char *, int, ...))dlsym(RTLD_NEXT, "open");
+    if (!orig_open) orig_open = (int (*)(const char *, int, ...))cortex_next((void *)open, "open");
     int fd = (orig_open && grp_path) ? orig_open(grp_path, O_RDONLY | O_CLOEXEC) : -1;
     if (fd >= 0) {
         char file_buf[8192];
@@ -262,6 +358,12 @@ static int cortex_lookup_group(const char *search_name, gid_t search_gid, int by
                 found_gid = 65534;
                 found = 1;
             }
+        } else if (search_gid != 0 && search_gid == real_gid() && ids_app_mode()) {
+            snprintf(found_name, sizeof(found_name), "cortex");
+            snprintf(found_pass, sizeof(found_pass), "x");
+            found_gid = search_gid;
+            snprintf(found_members, sizeof(found_members), "cortex");
+            found = 1;
         } else {
             if (search_gid == 0 || search_gid == real_gid()) {
                 snprintf(found_name, sizeof(found_name), "root");
@@ -355,7 +457,7 @@ static int cortex_lookup_passwd(const char *search_name, uid_t search_uid, int b
     char path_buf[PATH_MAX];
     const char *pwd_path = rewrite_path("/etc/passwd", path_buf, sizeof(path_buf));
     static int (*orig_open)(const char *, int, ...) = NULL;
-    if (!orig_open) orig_open = (int (*)(const char *, int, ...))dlsym(RTLD_NEXT, "open");
+    if (!orig_open) orig_open = (int (*)(const char *, int, ...))cortex_next((void *)open, "open");
     int fd = (orig_open && pwd_path) ? orig_open(pwd_path, O_RDONLY | O_CLOEXEC) : -1;
     if (fd >= 0) {
         char file_buf[8192];
@@ -436,12 +538,14 @@ static int cortex_lookup_passwd(const char *search_name, uid_t search_uid, int b
                 snprintf(found_shell, sizeof(found_shell), "/bin/bash");
                 found = 1;
             } else if (strcmp(search_name, "cortex") == 0) {
+                // The app's own user under "cortex-api no-fakeroot", root's otherwise
+                int app = ids_app_mode();
                 snprintf(found_name, sizeof(found_name), "cortex");
                 snprintf(found_pass, sizeof(found_pass), "x");
-                found_uid = 0;
-                found_gid = 0;
+                found_uid = app ? real_uid() : 0;
+                found_gid = app ? real_gid() : 0;
                 snprintf(found_gecos, sizeof(found_gecos), "Cortex");
-                snprintf(found_dir, sizeof(found_dir), "/home/cortex");
+                snprintf(found_dir, sizeof(found_dir), "%s", app ? "/home" : "/home/cortex");
                 snprintf(found_shell, sizeof(found_shell), "/bin/bash");
                 found = 1;
             } else if (strcmp(search_name, "_ssh") == 0) {
@@ -472,6 +576,16 @@ static int cortex_lookup_passwd(const char *search_name, uid_t search_uid, int b
                 snprintf(found_shell, sizeof(found_shell), "/usr/sbin/nologin");
                 found = 1;
             }
+        } else if (search_uid != 0 && search_uid == real_uid() && ids_app_mode()) {
+            // "cortex-api no-fakeroot": the app's user is an ordinary one, named cortex
+            snprintf(found_name, sizeof(found_name), "cortex");
+            snprintf(found_pass, sizeof(found_pass), "x");
+            found_uid = search_uid;
+            found_gid = real_gid();
+            snprintf(found_gecos, sizeof(found_gecos), "Cortex");
+            snprintf(found_dir, sizeof(found_dir), "/home");
+            snprintf(found_shell, sizeof(found_shell), "/bin/bash");
+            found = 1;
         } else {
             if (search_uid == 0 || search_uid == real_uid()) {
                 snprintf(found_name, sizeof(found_name), "root");
@@ -541,7 +655,7 @@ static int cortex_lookup_shadow(const char *name, struct spwd *sp, char *buf, si
     char path_buf[PATH_MAX];
     const char *path = rewrite_path("/etc/shadow", path_buf, sizeof(path_buf));
     static int (*orig_open)(const char *, int, ...) = NULL;
-    if (!orig_open) orig_open = (int (*)(const char *, int, ...))dlsym(RTLD_NEXT, "open");
+    if (!orig_open) orig_open = (int (*)(const char *, int, ...))cortex_next((void *)open, "open");
     int fd = (orig_open && path) ? orig_open(path, O_RDONLY | O_CLOEXEC) : -1;
     if (fd < 0) return ENOENT;
     FILE *f = fdopen(fd, "r");

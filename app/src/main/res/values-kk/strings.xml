@@ -20,6 +20,8 @@
     <string name="drawer_new_session">+ Жаңа сеанс</string>
     <string name="session_label">Сеанс %1$d</string>
     <string name="close_session">Сеансты жабу</string>
+    <string name="rename_session">Сеанс атауын өзгерту</string>
+    <string name="rename_session_reset">Қалпына келтіру</string>
     <string name="exit_confirm_title">Сеанстан шығу</string>
     <string name="exit_confirm_message">Осы терминал сеансын жапқыңыз келе ме?</string>
     <string name="search_hint">Терминалдан іздеу…</string>

@@ -20,6 +20,8 @@
     <string name="drawer_new_session">+ Új munkamenet</string>
     <string name="session_label">%1$d. munkamenet</string>
     <string name="close_session">Munkamenet bezárása</string>
+    <string name="rename_session">Munkamenet átnevezése</string>
+    <string name="rename_session_reset">Visszaállítás</string>
     <string name="exit_confirm_title">Kilépés a munkamenetből</string>
     <string name="exit_confirm_message">Be szeretnéd zárni ezt a terminálmunkamenetet?</string>
     <string name="search_hint">Keresés a terminálban…</string>

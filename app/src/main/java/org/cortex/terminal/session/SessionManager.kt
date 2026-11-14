@@ -53,7 +53,7 @@ class SessionManager(private val context: Context) {
                         target.clear()
                         return@execute
                     }
-                    val saved = snapshot.map { SessionStore.Saved(it.currentDirectory(), it.transcript()) }
+                    val saved = snapshot.map { SessionStore.Saved(it.currentDirectory(), it.transcript(), it.customName) }
                     target.save(SessionStore.State(saved, current.coerceAtLeast(0)))
                 } catch (e: Exception) {
                     Log.w(TAG, "Could not keep the sessions: ${e.message}")
@@ -73,6 +73,7 @@ class SessionManager(private val context: Context) {
         val state = target.load() ?: return false
         for (saved in state.sessions) {
             newSession(rows, cols, widthPx, heightPx, startDirectory = saved.directory, restoredOutput = saved.output)
+                .customName = saved.name
         }
         switchTo(state.current)
         return true
@@ -151,6 +152,14 @@ class SessionManager(private val context: Context) {
         saveState()
     }
 
+    /** Gives the session at [index] a name of its own (blank: back to its number), and keeps it. */
+    fun rename(index: Int, name: String?) {
+        val session = synchronized(sessions) { sessions.getOrNull(index) } ?: return
+        session.customName = name?.trim()?.take(MAX_NAME_LENGTH)?.takeIf { it.isNotEmpty() }
+        notifySessionChanged(currentSession)
+        saveState()
+    }
+
     fun removeSession(session: TerminalSession) {
         val sessionToNotify: TerminalSession?
         synchronized(sessions) {
@@ -200,5 +209,8 @@ class SessionManager(private val context: Context) {
     companion object {
         private const val TAG = "SessionManager"
         const val PREF_RESTORE_SESSIONS = "restore_sessions"
+
+        /** A session's name fits a tab */
+        const val MAX_NAME_LENGTH = 32
     }
 }

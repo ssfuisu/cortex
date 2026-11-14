@@ -20,6 +20,8 @@
     <string name="drawer_new_session">+ 新規セッション</string>
     <string name="session_label">セッション %1$d</string>
     <string name="close_session">セッションを閉じる</string>
+    <string name="rename_session">セッション名を変更</string>
+    <string name="rename_session_reset">リセット</string>
     <string name="exit_confirm_title">セッションを終了</string>
     <string name="exit_confirm_message">このターミナルセッションを閉じますか？</string>
     <string name="search_hint">ターミナル内を検索…</string>

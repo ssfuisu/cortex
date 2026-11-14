@@ -20,6 +20,8 @@
     <string name="drawer_new_session">+ Kipindi kipya</string>
     <string name="session_label">Kipindi %1$d</string>
     <string name="close_session">Funga kipindi</string>
+    <string name="rename_session">Badilisha jina la kipindi</string>
+    <string name="rename_session_reset">Weka upya</string>
     <string name="exit_confirm_title">Toka kwenye Kipindi</string>
     <string name="exit_confirm_message">Je, unataka kufunga kipindi hiki cha terminal?</string>
     <string name="search_hint">Tafuta kwenye terminal…</string>

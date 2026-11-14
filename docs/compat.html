@@ -111,7 +111,7 @@ footer a{color:var(--muted)}
   var NOTES = {
     "go": "Fails on the test emulator, where Go can't resolve its own path through the arm64 translator. Not confirmed on a real phone.",
     "java": "The JVM's compiler stops at an internal check on the emulator's arm64 translator. Not confirmed on a real phone.",
-    "postgresql": "A known limit of normal mode: the server won't run as root and needs a real second user (\"Could not change user id\"). Root mode has real users. postgresql-client works."
+    "postgresql": "Before 1.28.0 normal mode had no users other than root and the server refuses root (\"Could not change user id\"). 1.28.0 emulates other users; this line goes green once the nightly test runs on it."
   };
   var list = document.getElementById("list");
   var status = document.getElementById("status");

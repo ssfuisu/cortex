@@ -20,6 +20,8 @@
     <string name="drawer_new_session">+ નવું સત્ર</string>
     <string name="session_label">સત્ર %1$d</string>
     <string name="close_session">સત્ર બંધ કરો</string>
+    <string name="rename_session">સત્રનું નામ બદલો</string>
+    <string name="rename_session_reset">રીસેટ કરો</string>
     <string name="exit_confirm_title">સત્રમાંથી બહાર નીકળો</string>
     <string name="exit_confirm_message">શું તમે આ ટર્મિનલ સત્ર બંધ કરવા માંગો છો?</string>
     <string name="search_hint">ટર્મિનલમાં શોધો…</string>

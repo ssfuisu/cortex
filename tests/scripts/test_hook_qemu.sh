@@ -909,6 +909,161 @@ bad fd -1 EBADF"
 check "a memfd can be locked where Android refuses it: children share the lock, closing gives it up" test "$out" = "$want"
 [ "$out" = "$want" ] || echo "$out" | sed 's/^/        /'
 
+# Users other than root (ids.c): a process that changes its ids is that user for itself and for the
+# programs it starts, an ordinary user cannot take root back, and chown() gives a file an owner the
+# other processes see. PostgreSQL needs all of it (pg_createcluster, then the server as postgres).
+prog ids_child <<'EOC'
+#include <stdio.h>
+#include <unistd.h>
+int main(void) {
+    printf("child uid=%u euid=%u gid=%u\n", (unsigned)getuid(), (unsigned)geteuid(), (unsigned)getgid());
+    return 0;
+}
+EOC
+prog ids_main <<'EOC'
+#define _GNU_SOURCE
+#include <errno.h>
+#include <fcntl.h>
+#include <grp.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <sys/wait.h>
+#include <unistd.h>
+static void start(char *const *env) {
+    pid_t pid = fork();
+    if (pid == 0) {
+        char *args[] = { "ids_child", NULL };
+        execve("/bin/ids_child", args, env);
+        _exit(3);
+    }
+    waitpid(pid, NULL, 0);
+}
+int main(void) {
+    struct stat st;
+    setvbuf(stdout, NULL, _IONBF, 0);
+    printf("start uid=%u\n", (unsigned)getuid());
+    int fd = open("/tmp/owned", O_CREAT | O_WRONLY | O_TRUNC, 0644);
+    close(fd);
+    chown("/tmp/owned", 65534, 65534);
+    stat("/tmp/owned", &st);
+    printf("chown: %u:%u\n", (unsigned)st.st_uid, (unsigned)st.st_gid);
+    rename("/tmp/owned", "/tmp/owned2");
+    stat("/tmp/owned2", &st);
+    printf("renamed: %u:%u\n", (unsigned)st.st_uid, (unsigned)st.st_gid);
+    unlink("/tmp/owned2");
+    fd = open("/tmp/owned2", O_CREAT | O_WRONLY | O_TRUNC, 0644);
+    close(fd);
+    stat("/tmp/owned2", &st);
+    printf("made again: %u:%u\n", (unsigned)st.st_uid, (unsigned)st.st_gid);
+    gid_t g = 65534;
+    if (setgroups(1, &g) || setgid(65534) || seteuid(65534)) printf("drop failed\n");
+    printf("seteuid: uid=%u euid=%u\n", (unsigned)getuid(), (unsigned)geteuid());
+    if (seteuid(0)) printf("seteuid back failed\n");
+    if (setuid(65534)) printf("setuid failed\n");
+    printf("setuid: uid=%u euid=%u\n", (unsigned)getuid(), (unsigned)geteuid());
+    errno = 0;
+    int r = setuid(0);
+    printf("setuid(0) again: %d %s\n", r, errno == EPERM ? "EPERM" : "other");
+    fd = open("/tmp/mine", O_CREAT | O_WRONLY | O_TRUNC, 0644);
+    close(fd);
+    stat("/tmp/mine", &st);
+    printf("made by nobody: %u:%u\n", (unsigned)st.st_uid, (unsigned)st.st_gid);
+    errno = 0;
+    r = chown("/tmp/owned2", 65534, -1);
+    printf("chown of root's file: %d %s\n", r, errno == EPERM ? "EPERM" : "other");
+    unlink("/tmp/mine");
+    unlink("/tmp/owned2");
+    char *empty[] = { NULL };
+    start(empty);
+    char *forged[] = { "CORTEX_IDS=0,0,0:0,0,0", NULL };
+    start(forged);
+    char *become[] = { "CORTEX_BECOME=root", NULL };
+    start(become);
+    return 0;
+}
+EOC
+cp "$work/ids_child" "$work/root/bin/ids_child"
+out=$(run "$work/ids_main")
+want="start uid=0
+chown: 65534:65534
+renamed: 65534:65534
+made again: 0:0
+seteuid: uid=0 euid=65534
+setuid: uid=65534 euid=65534
+setuid(0) again: -1 EPERM
+made by nobody: 65534:65534
+chown of root's file: -1 EPERM
+child uid=65534 euid=65534 gid=65534
+child uid=65534 euid=65534 gid=65534
+child uid=0 euid=0 gid=0"
+check "a process becomes another user, keeps it across exec, and chown gives files owners" test "$out" = "$want"
+[ "$out" = "$want" ] || echo "$out" | sed 's/^/        /'
+
+# A port below 1024 is root's and Android refuses it to an app: the server gets the port 8000 above
+# it, and a connection to the low port on this phone reaches it. (Run as root, the port is free.)
+prog low_port <<'EOC'
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <stdio.h>
+#include <string.h>
+#include <sys/socket.h>
+#include <unistd.h>
+int main(void) {
+    int s = socket(AF_INET, SOCK_STREAM, 0);
+    int one = 1;
+    setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
+    struct sockaddr_in a;
+    memset(&a, 0, sizeof(a));
+    a.sin_family = AF_INET;
+    a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    a.sin_port = htons(81);
+    if (bind(s, (struct sockaddr *)&a, sizeof(a)) != 0) { perror("bind"); return 1; }
+    listen(s, 1);
+    socklen_t len = sizeof(a);
+    getsockname(s, (struct sockaddr *)&a, &len);
+    int port = ntohs(a.sin_port);
+    int c = socket(AF_INET, SOCK_STREAM, 0);
+    a.sin_port = htons(81);
+    int r = connect(c, (struct sockaddr *)&a, sizeof(a));
+    printf("port %s, connect %d\n", port == 81 || port == 8081 ? "81 or 8081" : "other", r);
+    return 0;
+}
+EOC
+out=$(run "$work/low_port" 2>&1 | grep -v "^cortex: port")
+check "a server on a port below 1024 gets one 8000 above it, and a connection to the low port reaches it" test "$out" = "port 81 or 8081, connect 0"
+[ "$out" = "port 81 or 8081, connect 0" ] || echo "        got: $out"
+
+# 32-bit ARM: Ubuntu builds with a 64-bit time_t and off_t, so a program's stat() is
+# __stat64_time64, and the hook's function of that name must call the C library's of that name: it
+# called the old 32-bit stat, whose struct stat is laid out otherwise (a 12345-byte file had a size
+# of 53021371269120, and dpkg and every other program saw nonsense).
+armcross=/usr/arm-linux-gnueabihf/lib
+if command -v arm-linux-gnueabihf-gcc >/dev/null 2>&1 && command -v qemu-arm >/dev/null 2>&1 && [ -e "$armcross/ld-linux-armhf.so.3" ]; then
+  arm-linux-gnueabihf-gcc -std=gnu11 -shared -fPIC -O3 -w -o "$work/hook-arm.so" "$here/app/src/main/cpp/cortex-hook.c" -ldl
+  arm-linux-gnueabihf-gcc -std=gnu11 -O2 -w -o "$work/stat32" -x c - <<'EOC'
+#include <fcntl.h>
+#include <stdio.h>
+#include <sys/stat.h>
+#include <unistd.h>
+int main(void) {
+    struct stat a, b, c, d;
+    int fd = open("f32", O_RDONLY);
+    int r = stat("f32", &a) | lstat("f32", &b) | fstat(fd, &c) | fstatat(AT_FDCWD, "f32", &d, 0);
+    printf("%d %lld %lld %lld %lld\n", r, (long long)a.st_size, (long long)b.st_size, (long long)c.st_size, (long long)d.st_size);
+    return 0;
+}
+EOC
+  head -c 12345 /dev/zero > "$work/f32"
+  out=$(cd "$work" && env -i CORTEX_ROOT="$work/root" HOME="$work" timeout 60 qemu-arm "$armcross/ld-linux-armhf.so.3" \
+    --preload "$work/hook-arm.so" --library-path "$armcross" "$work/stat32" 2>&1 | grep -v "cannot be preloaded")
+  check "32-bit ARM: stat(), lstat(), fstat() and fstatat() give the 64-bit layout the program has" test "$out" = "0 12345 12345 12345 12345"
+  [ "$out" = "0 12345 12345 12345 12345" ] || echo "        got: $out"
+else
+  echo "  skip  32-bit ARM checks (no arm-linux-gnueabihf-gcc or qemu-arm)"
+fi
+
 echo
 echo "$passed passed, $failed failed"
 [ "$failed" = 0 ]

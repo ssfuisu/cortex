@@ -216,7 +216,8 @@ class MainActivity : AppCompatActivity() {
                 sessionManager.switchTo(index)
                 drawerLayout.closeDrawer(GravityCompat.START)
             },
-            onClose = { index -> closeSession(index) }
+            onClose = { index -> closeSession(index) },
+            onRename = { index -> renameSession(index) }
         )
 
         sessionRecyclerView.layoutManager = LinearLayoutManager(this)
@@ -226,6 +227,7 @@ class MainActivity : AppCompatActivity() {
         binding.sessionTabs.onSelect = { index -> sessionManager.switchTo(index) }
         binding.sessionTabs.onClose = { index -> closeSession(index) }
         binding.sessionTabs.onNew = { createNewSession() }
+        binding.sessionTabs.onRename = { index -> renameSession(index) }
         // The directories shown in the drawer are those of the moment it opens
         drawerLayout.addDrawerListener(object : DrawerLayout.SimpleDrawerListener() {
             private var shown = false
@@ -381,6 +383,49 @@ class MainActivity : AppCompatActivity() {
     }
 
     /** Ends session [index], after asking when it is the last one (that ends Cortex). */
+    /** A long press on a session's tab or card: a name of its own, shown instead of its number. */
+    private fun renameSession(index: Int) {
+        val session = synchronized(sessionManager.sessions) { sessionManager.sessions.getOrNull(index) } ?: return
+        val input = android.widget.EditText(this).apply {
+            setText(session.customName ?: "")
+            hint = getString(R.string.session_label, index + 1)
+            setSingleLine()
+            filters = arrayOf(android.text.InputFilter.LengthFilter(SessionManager.MAX_NAME_LENGTH))
+            imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_DONE
+            selectAll()
+        }
+        val pad = (20 * resources.displayMetrics.density).toInt()
+        val box = android.widget.FrameLayout(this).apply {
+            setPadding(pad, pad / 2, pad, 0)
+            addView(input)
+        }
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(R.string.rename_session)
+            .setView(box)
+            .setPositiveButton(R.string.ok) { _, _ ->
+                sessionManager.rename(index, input.text.toString())
+                refreshTabs()
+                sessionAdapter.notifyDataSetChanged()
+            }
+            .setNeutralButton(R.string.rename_session_reset) { _, _ ->
+                sessionManager.rename(index, null)
+                refreshTabs()
+                sessionAdapter.notifyDataSetChanged()
+            }
+            .setNegativeButton(R.string.cancel, null)
+            .showInChrome()
+        input.setOnEditorActionListener { _, actionId, _ ->
+            if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_DONE) {
+                dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.performClick()
+                true
+            } else {
+                false
+            }
+        }
+        input.requestFocus()
+        dialog.window?.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE)
+    }
+
     private fun closeSession(index: Int) {
         val session = sessionManager.sessions.getOrNull(index) ?: return
         if (sessionManager.sessions.size > 1) {
@@ -410,7 +455,7 @@ class MainActivity : AppCompatActivity() {
         val active: Int
         synchronized(sessionManager.sessions) {
             tabs = sessionManager.sessions.mapIndexed { i, s ->
-                SessionTabsView.Tab(getString(R.string.session_label, i + 1), s.isRoot)
+                SessionTabsView.Tab(s.customName ?: getString(R.string.session_label, i + 1), s.isRoot, s.customName)
             }
             active = sessionManager.currentSessionIndex
         }
