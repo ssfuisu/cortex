@@ -20,6 +20,8 @@
     <string name="drawer_new_session">+ Phiên mới</string>
     <string name="session_label">Phiên %1$d</string>
     <string name="close_session">Đóng phiên</string>
+    <string name="rename_session">Đổi tên phiên</string>
+    <string name="rename_session_reset">Đặt lại</string>
     <string name="exit_confirm_title">Thoát phiên</string>
     <string name="exit_confirm_message">Bạn có muốn đóng phiên terminal này không?</string>
     <string name="search_hint">Tìm trong terminal…</string>

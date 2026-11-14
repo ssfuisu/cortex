@@ -20,6 +20,8 @@
     <string name="drawer_new_session">+ 新增工作階段</string>
     <string name="session_label">工作階段 %1$d</string>
     <string name="close_session">關閉工作階段</string>
+    <string name="rename_session">重新命名工作階段</string>
+    <string name="rename_session_reset">重設</string>
     <string name="exit_confirm_title">結束工作階段</string>
     <string name="exit_confirm_message">要關閉這個終端機工作階段嗎？</string>
     <string name="search_hint">在終端機中搜尋…</string>

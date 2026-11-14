@@ -1,0 +1,5 @@
+- su, runuser and servers that drop to their own user now really become that user, and chown gives files owners: PostgreSQL's own cluster works without root
+- cortex-api no-fakeroot: a shell where programs run as an ordinary user, for tools that refuse to run as root
+- A server asking for a port below 1024 gets the port 8000 above it (80 is 8080), and localhost:80 reaches it
+- Long press on a session tab to rename it
+- Root (as programs see it) can write its own read-only files, as on Linux

@@ -31,6 +31,21 @@ static void cortex_sigsys_handler(int sig, siginfo_t *info, void *ctx) {
 
     int sys_nr = info->si_syscall;
     long ret_val = is_sigsys_synthetic_success_syscall(sys_nr) ? 0 : -ENOSYS;
+    // The id calls of code that makes them itself (not through glibc's functions, which are this
+    // library's): the ids the programs see change as they asked
+    if (ret_val == 0) {
+#if defined(__aarch64__)
+        long a0 = (long)uctx->uc_mcontext.regs[0], a1 = (long)uctx->uc_mcontext.regs[1], a2 = (long)uctx->uc_mcontext.regs[2];
+#elif defined(__arm__)
+        long a0 = (long)uctx->uc_mcontext.arm_r0, a1 = (long)uctx->uc_mcontext.arm_r1, a2 = (long)uctx->uc_mcontext.arm_r2;
+#else
+        long a0 = 0, a1 = 0, a2 = 0;
+#endif
+        int saved_errno = errno;
+        long r = sigsys_id_call(sys_nr, a0, a1, a2);
+        if (r != LONG_MIN) ret_val = r < 0 ? -errno : r;
+        errno = saved_errno;
+    }
 
 #if defined(__aarch64__)
     uctx->uc_mcontext.regs[0] = (uint64_t)ret_val;

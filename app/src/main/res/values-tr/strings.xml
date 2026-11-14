@@ -20,6 +20,8 @@
     <string name="drawer_new_session">+ Yeni oturum</string>
     <string name="session_label">Oturum %1$d</string>
     <string name="close_session">Oturumu kapat</string>
+    <string name="rename_session">Oturumu yeniden adlandır</string>
+    <string name="rename_session_reset">Sıfırla</string>
     <string name="exit_confirm_title">Oturumdan çık</string>
     <string name="exit_confirm_message">Bu terminal oturumunu kapatmak istiyor musunuz?</string>
     <string name="search_hint">Terminalde ara…</string>

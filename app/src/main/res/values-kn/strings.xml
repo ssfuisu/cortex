@@ -20,6 +20,8 @@
     <string name="drawer_new_session">+ ಹೊಸ ಸೆಷನ್</string>
     <string name="session_label">ಸೆಷನ್ %1$d</string>
     <string name="close_session">ಸೆಷನ್ ಮುಚ್ಚಿ</string>
+    <string name="rename_session">ಸೆಷನ್ ಮರುಹೆಸರಿಸಿ</string>
+    <string name="rename_session_reset">ಮರುಹೊಂದಿಸಿ</string>
     <string name="exit_confirm_title">ಸೆಷನ್‌ನಿಂದ ನಿರ್ಗಮಿಸಿ</string>
     <string name="exit_confirm_message">ನೀವು ಈ ಟರ್ಮಿನಲ್ ಸೆಷನ್ ಅನ್ನು ಮುಚ್ಚಲು ಬಯಸುವಿರಾ?</string>
     <string name="search_hint">ಟರ್ಮಿನಲ್‌ನಲ್ಲಿ ಹುಡುಕಿ…</string>

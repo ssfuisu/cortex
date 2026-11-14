@@ -20,6 +20,8 @@
     <string name="drawer_new_session">+ نشست جدید</string>
     <string name="session_label">نشست %1$d</string>
     <string name="close_session">بستن نشست</string>
+    <string name="rename_session">تغییر نام نشست</string>
+    <string name="rename_session_reset">بازنشانی</string>
     <string name="exit_confirm_title">خروج از نشست</string>
     <string name="exit_confirm_message">آیا می‌خواهید این نشست ترمینال را ببندید؟</string>
     <string name="search_hint">جستجو در ترمینال…</string>

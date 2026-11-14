@@ -1168,6 +1168,85 @@ static void test_app_files_owned_by_root(void) {
     g_app_gid = saved_gid;
 }
 
+// The ids of other users (ids.c): the rules of the kernel for who may change to what, as perl's
+// "$< = $> = $uid ... $> = 0" in pg_createcluster uses them, and the owners chown() records
+static void test_ids_and_owners(void) {
+    cortex_ids_t saved = g_ids;
+    int saved_loaded = g_ids_loaded;
+    __atomic_store_n(&g_ids_loaded, 1, __ATOMIC_RELEASE);
+
+    cortex_ids_t p;
+    char buf[256];
+    ASSERT_EQ(ids_parse("1,2,3:4,5,6:7,8", &p), 0, "ids parse");
+    ASSERT_TRUE(p.r == 1 && p.e == 2 && p.s == 3 && p.gr == 4 && p.ge == 5 && p.gs == 6 && p.ngroups == 2 && p.groups[1] == 8, "every field");
+    ASSERT_TRUE(ids_format(&p, buf, sizeof(buf)) > 0 && strcmp(buf, "1,2,3:4,5,6:7,8") == 0, "and back");
+    ASSERT_TRUE(ids_parse("1,2:3,4,5", &p) != 0 && ids_parse("a,b,c:1,2,3", &p) != 0 && ids_parse("", &p) != 0, "malformed values are refused");
+
+    memset(&g_ids, 0, sizeof(g_ids));
+    ASSERT_EQ(ids_setre(0, 1000, (unsigned long)(uid_t)-1), 0, "root sets its real id");
+    ASSERT_TRUE(g_ids.r == 1000 && g_ids.e == 0 && g_ids.s == 0, "the saved id stays root's");
+    ASSERT_EQ(ids_setre(0, (unsigned long)(uid_t)-1, 1000), 0, "and its effective one");
+    ASSERT_TRUE(g_ids.e == 1000 && g_ids.s == 0, "to the real one: the saved id is kept");
+    ASSERT_EQ(ids_setres(0, (unsigned long)-1, 0, (unsigned long)-1), 0, "root comes back through the saved id");
+    ASSERT_TRUE(g_ids.e == 0, "euid 0 again");
+
+    ASSERT_EQ(ids_setuid(0, 1000), 0, "setuid() as root");
+    ASSERT_TRUE(g_ids.r == 1000 && g_ids.e == 1000 && g_ids.s == 1000, "sets all three");
+    errno = 0;
+    ASSERT_TRUE(ids_setuid(0, 0) == -1 && errno == EPERM, "and there is no way back");
+    errno = 0;
+    ASSERT_TRUE(ids_setres(0, 5, 5, 5) == -1 && errno == EPERM, "nor to another user");
+    gid_t one = 7;
+    errno = 0;
+    ASSERT_TRUE(ids_setgroups(1, &one) == -1 && errno == EPERM, "only root sets the groups");
+
+    // The ids a program is started with
+    memset(&g_ids, 0, sizeof(g_ids));
+    char *env = ids_env_for_exec(NULL, NULL);
+    ASSERT_TRUE(env == NULL, "root's are the default: no variable");
+    g_ids.r = g_ids.e = g_ids.s = 26;
+    env = ids_env_for_exec(NULL, NULL);
+    ASSERT_TRUE(env && strcmp(env, "CORTEX_IDS=26,26,26:0,0,0") == 0, "another user's are passed on");
+    free(env);
+    ASSERT_TRUE(ids_env_for_exec(NULL, "root") == NULL, "CORTEX_BECOME=root makes it root");
+
+    // A recorded owner
+    char root[PATH_MAX], file[PATH_MAX];
+    snprintf(root, sizeof(root), "%s/cortex_owners_%d", get_test_tmp_dir(), getpid());
+    rm_rf(root);
+    mkdir(root, 0755);
+    char saved_root[PATH_MAX];
+    size_t saved_len = g_cortex_root_len;
+    memcpy(saved_root, g_cortex_root, saved_len);
+    saved_root[saved_len] = '\0';
+    cortex_set_root(root, strlen(root));
+    snprintf(file, sizeof(file), "%s/f", root);
+    int fd = open(file, O_CREAT | O_WRONLY, 0644);
+    close(fd);
+    memset(&g_ids, 0, sizeof(g_ids));
+    ASSERT_EQ(fake_chown(AT_FDCWD, file, 26, 27, 0), 0, "root gives a file away");
+    struct stat st;
+    ASSERT_EQ(stat(file, &st), 0, "stat");
+    uid_t u = st.st_uid;
+    gid_t g = st.st_gid;
+    present_owner(&u, &g, (uint64_t)st.st_dev, (uint64_t)st.st_ino);
+    ASSERT_TRUE(u == 26 && g == 27, "the new owner is seen");
+    uint64_t d = 0, i = 0;
+    ASSERT_TRUE(ow_key_at(AT_FDCWD, file, &d, &i), "the name has a record");
+    ow_forget(d, i);
+    u = st.st_uid;
+    g = st.st_gid;
+    present_owner(&u, &g, (uint64_t)st.st_dev, (uint64_t)st.st_ino);
+    ASSERT_TRUE(u == 0 && g == 0, "removed with the file: root's again");
+    ASSERT_EQ(fake_chown(AT_FDCWD, file, 0, 0, 0), 0, "a chown to root records nothing");
+    ASSERT_TRUE(!ow_key_at(AT_FDCWD, file, &d, &i), "no record");
+
+    cortex_set_root(saved_root, saved_len);
+    rm_rf(root);
+    g_ids = saved;
+    __atomic_store_n(&g_ids_loaded, saved_loaded, __ATOMIC_RELEASE);
+}
+
 static void test_listening_port_report(void) {
     const char *tmp = get_test_tmp_dir();
     char root[PATH_MAX], dir[PATH_MAX], file[PATH_MAX];
@@ -2454,6 +2533,7 @@ int main(void) {
     test_emulated_hardlinks_shared();
     test_close_ranges_keep_translator_files();
     test_app_files_owned_by_root();
+    test_ids_and_owners();
     test_listening_port_report();
     test_dns_helpers();
     test_runpath_reaches_ld_so();

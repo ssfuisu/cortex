@@ -20,6 +20,8 @@
     <string name="drawer_new_session">+ เซสชันใหม่</string>
     <string name="session_label">เซสชัน %1$d</string>
     <string name="close_session">ปิดเซสชัน</string>
+    <string name="rename_session">เปลี่ยนชื่อเซสชัน</string>
+    <string name="rename_session_reset">รีเซ็ต</string>
     <string name="exit_confirm_title">ออกจากเซสชัน</string>
     <string name="exit_confirm_message">ต้องการปิดเซสชันเทอร์มินัลนี้หรือไม่</string>
     <string name="search_hint">ค้นหาในเทอร์มินัล…</string>

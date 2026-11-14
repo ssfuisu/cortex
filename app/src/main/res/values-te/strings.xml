@@ -20,6 +20,8 @@
     <string name="drawer_new_session">+ కొత్త సెషన్</string>
     <string name="session_label">సెషన్ %1$d</string>
     <string name="close_session">సెషన్‌ను మూసివేయి</string>
+    <string name="rename_session">సెషన్ పేరు మార్చండి</string>
+    <string name="rename_session_reset">రీసెట్ చేయండి</string>
     <string name="exit_confirm_title">సెషన్ నుండి నిష్క్రమించు</string>
     <string name="exit_confirm_message">మీరు ఈ టెర్మినల్ సెషన్‌ను మూసివేయాలనుకుంటున్నారా?</string>
     <string name="search_hint">టెర్మినల్‌లో శోధించు…</string>

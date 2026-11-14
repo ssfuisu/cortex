@@ -20,6 +20,8 @@
     <string name="drawer_new_session">+ Sesi baharu</string>
     <string name="session_label">Sesi %1$d</string>
     <string name="close_session">Tutup sesi</string>
+    <string name="rename_session">Namakan semula sesi</string>
+    <string name="rename_session_reset">Tetapkan semula</string>
     <string name="exit_confirm_title">Keluar daripada Sesi</string>
     <string name="exit_confirm_message">Adakah anda mahu menutup sesi terminal ini?</string>
     <string name="search_hint">Cari dalam terminal…</string>

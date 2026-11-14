@@ -20,6 +20,8 @@
     <string name="drawer_new_session">+ Nová relace</string>
     <string name="session_label">Relace %1$d</string>
     <string name="close_session">Zavřít relaci</string>
+    <string name="rename_session">Přejmenovat relaci</string>
+    <string name="rename_session_reset">Obnovit</string>
     <string name="exit_confirm_title">Ukončit relaci</string>
     <string name="exit_confirm_message">Chcete zavřít tuto relaci terminálu?</string>
     <string name="search_hint">Hledat v terminálu…</string>

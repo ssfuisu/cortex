@@ -20,6 +20,8 @@
     <string name="drawer_new_session">+ Sessió nova</string>
     <string name="session_label">Sessió %1$d</string>
     <string name="close_session">Tanca la sessió</string>
+    <string name="rename_session">Canvia el nom de la sessió</string>
+    <string name="rename_session_reset">Restableix</string>
     <string name="exit_confirm_title">Surt de la sessió</string>
     <string name="exit_confirm_message">Voleu tancar aquesta sessió del terminal?</string>
     <string name="search_hint">Cerca al terminal…</string>

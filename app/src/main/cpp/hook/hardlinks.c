@@ -445,20 +445,20 @@ static void load_app_ids(void) {
     __atomic_store_n(&g_app_uid, uid, __ATOMIC_RELAXED);
 }
 
-static void present_owner_as_root(uid_t *uid, gid_t *gid) {
-    if (__atomic_load_n(&g_app_uid, __ATOMIC_RELAXED) == (uid_t)-1) load_app_ids();
-    uid_t app_uid = __atomic_load_n(&g_app_uid, __ATOMIC_RELAXED);
-    gid_t app_gid = __atomic_load_n(&g_app_gid, __ATOMIC_RELAXED);
-    if (app_uid == (uid_t)-1) return;
-    if (uid && *uid == app_uid) *uid = 0;
-    if (gid && *gid == app_gid) *gid = 0;
+// The owner a program sees (ids.c): root's for the app's files unless recorded otherwise
+static void present_owner(uid_t *uid, gid_t *gid, uint64_t dev, uint64_t ino);
+
+__attribute__((unused)) static void present_owner_as_root(uid_t *uid, gid_t *gid) {
+    present_owner(uid, gid, 0, 0);
 }
 
-// What the stat() family returns: emulated hard links as real ones, the app's files as root's.
+// What the stat() family returns: emulated hard links as real ones, the app's files as root's
+// (or as the owner chown() gave them).
 static void apply_stat_emulation(struct stat *st) {
     if (!st) return;
+    uint64_t dev = (uint64_t)st->st_dev, ino = (uint64_t)st->st_ino;
     apply_emulated_hardlink(st);
-    present_owner_as_root(&st->st_uid, &st->st_gid);
+    present_owner(&st->st_uid, &st->st_gid, dev, ino);
 }
 
 static int real_fstatat(int dirfd, const char *path, struct stat *st, int flags) {
@@ -466,7 +466,7 @@ static int real_fstatat(int dirfd, const char *path, struct stat *st, int flags)
     return fstatat(dirfd, path, st, flags);
 #else
     static int (*orig_fstatat)(int, const char *, struct stat *, int) = NULL;
-    if (!orig_fstatat) orig_fstatat = (int (*)(int, const char *, struct stat *, int))dlsym(RTLD_NEXT, "fstatat");
+    if (!orig_fstatat) orig_fstatat = (int (*)(int, const char *, struct stat *, int))cortex_next((void *)fstatat, "fstatat");
     return orig_fstatat ? orig_fstatat(dirfd, path, st, flags) : fstatat(dirfd, path, st, flags);
 #endif
 }
@@ -500,7 +500,7 @@ static int cortex_emulate_hardlinkat(int olddirfd, const char *rold, int newdirf
     }
 #else
     static int (*orig_fstatat)(int, const char *, struct stat *, int) = NULL;
-    if (!orig_fstatat) orig_fstatat = (int (*)(int, const char *, struct stat *, int))dlsym(RTLD_NEXT, "fstatat");
+    if (!orig_fstatat) orig_fstatat = (int (*)(int, const char *, struct stat *, int))cortex_next((void *)fstatat, "fstatat");
     if (orig_fstatat) {
         if (orig_fstatat(olddirfd, rold, &st, 0) != 0) return -1;
     } else {
@@ -526,7 +526,7 @@ static int cortex_emulate_hardlinkat(int olddirfd, const char *rold, int newdirf
             unlinkat(newdirfd, rnew, 0);
         } else if (strstr(rnew, ".lock")) {
             static int (*orig_openat)(int, const char *, int, ...) = NULL;
-            if (!orig_openat) orig_openat = (int (*)(int, const char *, int, ...))dlsym(RTLD_NEXT, "openat");
+            if (!orig_openat) orig_openat = (int (*)(int, const char *, int, ...))cortex_next((void *)openat, "openat");
             int rfd = orig_openat ? orig_openat(newdirfd, rnew, O_RDONLY | O_CLOEXEC)
                                   : openat(newdirfd, rnew, O_RDONLY | O_CLOEXEC);
             if (rfd >= 0) {
@@ -552,7 +552,7 @@ static int cortex_emulate_hardlinkat(int olddirfd, const char *rold, int newdirf
     int fd_old = openat(olddirfd, rold, O_RDONLY | O_CLOEXEC);
 #else
     static int (*orig_openat)(int, const char *, int, ...) = NULL;
-    if (!orig_openat) orig_openat = (int (*)(int, const char *, int, ...))dlsym(RTLD_NEXT, "openat");
+    if (!orig_openat) orig_openat = (int (*)(int, const char *, int, ...))cortex_next((void *)openat, "openat");
     int fd_new = orig_openat ? orig_openat(newdirfd, rnew, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, st.st_mode & 0777)
                              : openat(newdirfd, rnew, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, st.st_mode & 0777);
     if (fd_new < 0) return -1;
@@ -603,7 +603,7 @@ static int cortex_emulate_hardlinkat(int olddirfd, const char *rold, int newdirf
     memset(&st_new, 0, sizeof(st_new));
 #ifndef CORTEX_HOST_TEST
     static int (*orig_fstat)(int, struct stat *) = NULL;
-    if (!orig_fstat) orig_fstat = (int (*)(int, struct stat *))dlsym(RTLD_NEXT, "fstat");
+    if (!orig_fstat) orig_fstat = (int (*)(int, struct stat *))cortex_next((void *)fstat, "fstat");
     if (orig_fstat) orig_fstat(fd_new, &st_new);
     else fstat(fd_new, &st_new);
 #else

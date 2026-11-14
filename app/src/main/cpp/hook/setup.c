@@ -80,6 +80,8 @@ static void init_cortex_hook(void) {
 // time it was read.
 __attribute__((constructor(103))) static void init_cortex_hook_early(void) {
     init_cortex_hook();
+    // The ids this program was started with, before it can clear its environment (env -i)
+    ids_load();
 }
 
 void tzset(void) {

@@ -60,11 +60,29 @@
 #endif
 #endif
 
+// The function the hook passes a call on to: the C library's of the same name. On 32-bit ARM, Ubuntu
+// builds everything with a 64-bit time_t and off_t, and the headers give this library's functions
+// the names of those versions (stat() is __stat64_time64): the one to call is that one. The plain
+// name is the old 32-bit version, whose struct stat is laid out otherwise, so a stat() answered
+// with nonsense (a size of 53021371269120 for a 12345-byte file).
+static void *cortex_next(void *own, const char *name) {
+#if !defined(__LP64__)
+    Dl_info info;
+    if (own && dladdr(own, &info) && info.dli_sname && info.dli_saddr == own) {
+        void *next = dlsym(RTLD_NEXT, info.dli_sname);
+        if (next) return next;
+    }
+#endif
+    (void)own;
+    return dlsym(RTLD_NEXT, name);
+}
+
 // The hook is one translation unit split into parts by topic, in this order (later parts use
 // the static functions of earlier ones).
 #include "hook/syscalls.c"
 #include "hook/paths.c"
 #include "hook/hardlinks.c"
+#include "hook/ids.c"
 #include "hook/signals.c"
 #include "hook/setup.c"
 #include "hook/files.c"

@@ -20,6 +20,8 @@
     <string name="drawer_new_session">+ Новий сеанс</string>
     <string name="session_label">Сеанс %1$d</string>
     <string name="close_session">Закрити сеанс</string>
+    <string name="rename_session">Перейменувати сеанс</string>
+    <string name="rename_session_reset">Скинути</string>
     <string name="exit_confirm_title">Вихід із сеансу</string>
     <string name="exit_confirm_message">Закрити цей сеанс термінала?</string>
     <string name="search_hint">Пошук у терміналі…</string>

@@ -23,10 +23,15 @@ class SessionTabsView @JvmOverloads constructor(
     defStyleAttr: Int = 0
 ) : LinearLayout(context, attrs, defStyleAttr) {
 
-    /** [title] is what a screen reader says ("Session 2"); the tab itself shows the number. */
-    class Tab(val title: String, val isRoot: Boolean)
+    /**
+     * [title] is what a screen reader says ("Session 2"); the tab itself shows the number, or the
+     * [name] the user gave the session.
+     */
+    class Tab(val title: String, val isRoot: Boolean, val name: String? = null)
 
     var onSelect: ((Int) -> Unit)? = null
+    /** A long press on a tab: rename its session */
+    var onRename: ((Int) -> Unit)? = null
     var onClose: ((Int) -> Unit)? = null
     var onNew: (() -> Unit)? = null
 
@@ -67,7 +72,7 @@ class SessionTabsView @JvmOverloads constructor(
     /** Shows these tabs, the one at [activeIndex] being the session on screen. */
     fun update(newTabs: List<Tab>, activeIndex: Int) {
         val unchanged = activeIndex == active && newTabs.size == tabs.size &&
-            newTabs.indices.all { newTabs[it].title == tabs[it].title && newTabs[it].isRoot == tabs[it].isRoot }
+            newTabs.indices.all { newTabs[it].title == tabs[it].title && newTabs[it].isRoot == tabs[it].isRoot && newTabs[it].name == tabs[it].name }
         tabs = newTabs
         val activeChanged = activeIndex != active
         active = activeIndex
@@ -129,9 +134,22 @@ class SessionTabsView @JvmOverloads constructor(
                 if (index != active) it.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                 onSelect?.invoke(index)
             }
+            setOnLongClickListener {
+                val listener = onRename ?: return@setOnLongClickListener false
+                it.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                listener(index)
+                true
+            }
         }
-        // The number of the session, and nothing else
-        row.addView(text((index + 1).toString(), 14f, if (isActive) p.accent else p.textDim, true))
+        // The number of the session, or the name the user gave it
+        val label = tab.name ?: (index + 1).toString()
+        row.addView(text(label, 14f, if (isActive) p.accent else p.textDim, true).apply {
+            if (tab.name != null) {
+                maxWidth = dp(150)
+                maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
+            }
+        })
         if (tab.isRoot) {
             row.addView(text(context.getString(R.string.session_root_badge), 9f, p.danger, true).apply {
                 setPadding(dp(6), 0, 0, 0)

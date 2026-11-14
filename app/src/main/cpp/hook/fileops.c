@@ -115,6 +115,8 @@ int unlink(const char *pathname) {
     dev_t hl_dev = 0;
     ino_t hl_ino = 0;
     int hardlinked = lookup_emulated_hardlink_at(AT_FDCWD, target, &hl_dev, &hl_ino);
+    uint64_t ow_dev = 0, ow_ino = 0;
+    int owned = ow_key_at(AT_FDCWD, target, &ow_dev, &ow_ino);
     int ret = orig_unlink(target);
     if (ret != 0 && refused_in_repaired_dir(AT_FDCWD, target)) {
         // The name could not be looked up while its directory was closed
@@ -122,6 +124,7 @@ int unlink(const char *pathname) {
         ret = orig_unlink(target);
     }
     if (ret == 0 && hardlinked) unregister_emulated_hardlink(hl_dev, hl_ino);
+    if (ret == 0 && owned) ow_forget(ow_dev, ow_ino);
     return ret;
 }
 
@@ -138,12 +141,15 @@ int unlinkat(int dirfd, const char *pathname, int flags) {
         unlink_mapped_unix_socket(target);
         hardlinked = lookup_emulated_hardlink_at(dirfd, target, &hl_dev, &hl_ino);
     }
+    uint64_t ow_dev = 0, ow_ino = 0;
+    int owned = ow_key_at(dirfd, target, &ow_dev, &ow_ino);
     int ret = orig_unlinkat ? orig_unlinkat(dirfd, target, flags) : -1;
     if (ret != 0 && orig_unlinkat && refused_in_repaired_dir(dirfd, target)) {
         hardlinked = target ? lookup_emulated_hardlink_at(dirfd, target, &hl_dev, &hl_ino) : 0;
         ret = orig_unlinkat(dirfd, target, flags);
     }
     if (ret == 0 && hardlinked) unregister_emulated_hardlink(hl_dev, hl_ino);
+    if (ret == 0 && owned) ow_forget(ow_dev, ow_ino);
     return ret;
 }
 
@@ -153,8 +159,11 @@ int rmdir(const char *pathname) {
     if (!orig_rmdir) orig_rmdir = (int (*)(const char *))dlsym(RTLD_NEXT, "rmdir");
     char buf[PATH_MAX];
     const char *target = rewrite_path(pathname, buf, sizeof(buf));
+    uint64_t ow_dev = 0, ow_ino = 0;
+    int owned = ow_key_at(AT_FDCWD, target, &ow_dev, &ow_ino);
     int ret = orig_rmdir(target);
     if (ret != 0 && refused_in_repaired_dir(AT_FDCWD, target)) ret = orig_rmdir(target);
+    if (ret == 0 && owned) ow_forget(ow_dev, ow_ino);
     return ret;
 }
 
@@ -173,6 +182,7 @@ int mkdir(const char *pathname, mode_t mode) {
     const char *target = rewrite_path(pathname, buf, sizeof(buf));
     int ret = orig_mkdir(target, mode | NEW_DIR_OWNER_RIGHTS);
     if (ret != 0 && refused_in_repaired_dir(AT_FDCWD, target)) ret = orig_mkdir(target, mode | NEW_DIR_OWNER_RIGHTS);
+    if (ret == 0) ow_record_new_at(AT_FDCWD, target, AT_SYMLINK_NOFOLLOW);
     return ret;
 }
 
@@ -184,6 +194,7 @@ int mkdirat(int dirfd, const char *pathname, mode_t mode) {
     const char *target = (pathname && pathname[0] == '/') ? rewrite_path(pathname, buf, sizeof(buf)) : pathname;
     int ret = orig_mkdirat(dirfd, target, mode | NEW_DIR_OWNER_RIGHTS);
     if (ret != 0 && refused_in_repaired_dir(dirfd, target)) ret = orig_mkdirat(dirfd, target, mode | NEW_DIR_OWNER_RIGHTS);
+    if (ret == 0) ow_record_new_at(dirfd, target, AT_SYMLINK_NOFOLLOW);
     return ret;
 }
 
@@ -226,6 +237,8 @@ int rename(const char *oldpath, const char *newpath) {
     dev_t hl_dev = 0;
     ino_t hl_ino = 0;
     int hardlinked = lookup_emulated_hardlink_at(AT_FDCWD, target_new, &hl_dev, &hl_ino);
+    uint64_t ow_dev = 0, ow_ino = 0;
+    int owned = ow_key_at(AT_FDCWD, target_new, &ow_dev, &ow_ino);
     int ret = orig_rename(target_old, target_new);
     if (ret != 0 && errno == EACCES) {
         // Both directories: the old name is taken out of one, the new put in the other
@@ -239,6 +252,7 @@ int rename(const char *oldpath, const char *newpath) {
         }
     }
     if (ret == 0 && hardlinked) unregister_emulated_hardlink(hl_dev, hl_ino);
+    if (ret == 0 && owned) ow_forget(ow_dev, ow_ino);
     return ret;
 }
 
@@ -253,6 +267,8 @@ int renameat(int olddirfd, const char *oldpath, int newdirfd, const char *newpat
     dev_t hl_dev = 0;
     ino_t hl_ino = 0;
     int hardlinked = lookup_emulated_hardlink_at(newdirfd, target_new, &hl_dev, &hl_ino);
+    uint64_t ow_dev = 0, ow_ino = 0;
+    int owned = ow_key_at(newdirfd, target_new, &ow_dev, &ow_ino);
     int ret = orig_renameat(olddirfd, target_old, newdirfd, target_new);
     if (ret != 0 && errno == EACCES) {
         int refused = errno;
@@ -265,6 +281,7 @@ int renameat(int olddirfd, const char *oldpath, int newdirfd, const char *newpat
         }
     }
     if (ret == 0 && hardlinked) unregister_emulated_hardlink(hl_dev, hl_ino);
+    if (ret == 0 && owned) ow_forget(ow_dev, ow_ino);
     return ret;
 }
 
@@ -283,6 +300,8 @@ int renameat2(int olddirfd, const char *oldpath, int newdirfd, const char *newpa
     ino_t hl_ino = 0;
     // RENAME_EXCHANGE keeps both files, so nothing is replaced.
     int hardlinked = !(flags & RENAME_EXCHANGE) && lookup_emulated_hardlink_at(newdirfd, target_new, &hl_dev, &hl_ino);
+    uint64_t ow_dev = 0, ow_ino = 0;
+    int owned = !(flags & RENAME_EXCHANGE) && ow_key_at(newdirfd, target_new, &ow_dev, &ow_ino);
     int ret = orig_renameat2(olddirfd, target_old, newdirfd, target_new, flags);
     if (ret != 0 && errno == EACCES) {
         int refused = errno;
@@ -295,6 +314,7 @@ int renameat2(int olddirfd, const char *oldpath, int newdirfd, const char *newpa
         }
     }
     if (ret == 0 && hardlinked) unregister_emulated_hardlink(hl_dev, hl_ino);
+    if (ret == 0 && owned) ow_forget(ow_dev, ow_ino);
     return ret;
 }
 
@@ -479,6 +499,7 @@ int symlink(const char *target, const char *linkpath) {
     const char *newtarget = (target && target[0] == '/') ? rewrite_path(target, tbuf, sizeof(tbuf)) : target;
     int ret = orig_symlink ? orig_symlink(newtarget, newlink) : -1;
     if (ret != 0 && orig_symlink && refused_in_repaired_dir(AT_FDCWD, newlink)) ret = orig_symlink(newtarget, newlink);
+    if (ret == 0) ow_record_new_at(AT_FDCWD, newlink, AT_SYMLINK_NOFOLLOW);
     return ret;
 }
 
@@ -491,6 +512,7 @@ int symlinkat(const char *target, int newdirfd, const char *linkpath) {
     const char *newtarget = (target && target[0] == '/') ? rewrite_path(target, tbuf, sizeof(tbuf)) : target;
     int ret = orig_symlinkat ? orig_symlinkat(newtarget, newdirfd, newlink) : -1;
     if (ret != 0 && orig_symlinkat && refused_in_repaired_dir(newdirfd, newlink)) ret = orig_symlinkat(newtarget, newdirfd, newlink);
+    if (ret == 0) ow_record_new_at(newdirfd, newlink, AT_SYMLINK_NOFOLLOW);
     return ret;
 }
 
@@ -517,7 +539,7 @@ int link(const char *oldpath, const char *newpath) {
 // Hook utime / utimes / lutimes / futimesat / utimensat
 int utime(const char *filename, const struct utimbuf *times) {
     static int (*orig_utime)(const char *, const struct utimbuf *) = NULL;
-    if (!orig_utime) orig_utime = (int (*)(const char *, const struct utimbuf *))dlsym(RTLD_NEXT, "utime");
+    if (!orig_utime) orig_utime = (int (*)(const char *, const struct utimbuf *))cortex_next((void *)utime, "utime");
     char buf[PATH_MAX];
     const char *target = rewrite_path(filename, buf, sizeof(buf));
     return orig_utime ? orig_utime(target, times) : -1;
@@ -525,7 +547,7 @@ int utime(const char *filename, const struct utimbuf *times) {
 
 int utimes(const char *filename, const struct timeval times[2]) {
     static int (*orig_utimes)(const char *, const struct timeval[2]) = NULL;
-    if (!orig_utimes) orig_utimes = (int (*)(const char *, const struct timeval[2]))dlsym(RTLD_NEXT, "utimes");
+    if (!orig_utimes) orig_utimes = (int (*)(const char *, const struct timeval[2]))cortex_next((void *)utimes, "utimes");
     char buf[PATH_MAX];
     const char *target = rewrite_path(filename, buf, sizeof(buf));
     return orig_utimes ? orig_utimes(target, times) : -1;
@@ -533,7 +555,7 @@ int utimes(const char *filename, const struct timeval times[2]) {
 
 int lutimes(const char *filename, const struct timeval times[2]) {
     static int (*orig_lutimes)(const char *, const struct timeval[2]) = NULL;
-    if (!orig_lutimes) orig_lutimes = (int (*)(const char *, const struct timeval[2]))dlsym(RTLD_NEXT, "lutimes");
+    if (!orig_lutimes) orig_lutimes = (int (*)(const char *, const struct timeval[2]))cortex_next((void *)lutimes, "lutimes");
     char buf[PATH_MAX];
     const char *target = rewrite_path(filename, buf, sizeof(buf));
     return orig_lutimes ? orig_lutimes(target, times) : -1;
@@ -541,7 +563,7 @@ int lutimes(const char *filename, const struct timeval times[2]) {
 
 int futimesat(int dirfd, const char *pathname, const struct timeval times[2]) {
     static int (*orig_futimesat)(int, const char *, const struct timeval[2]) = NULL;
-    if (!orig_futimesat) orig_futimesat = (int (*)(int, const char *, const struct timeval[2]))dlsym(RTLD_NEXT, "futimesat");
+    if (!orig_futimesat) orig_futimesat = (int (*)(int, const char *, const struct timeval[2]))cortex_next((void *)futimesat, "futimesat");
     char buf[PATH_MAX];
     const char *target = (pathname && pathname[0] == '/') ? rewrite_path(pathname, buf, sizeof(buf)) : pathname;
     return orig_futimesat ? orig_futimesat(dirfd, target, times) : -1;
@@ -549,7 +571,7 @@ int futimesat(int dirfd, const char *pathname, const struct timeval times[2]) {
 
 int utimensat(int dirfd, const char *pathname, const struct timespec times[2], int flags) {
     static int (*orig_utimensat)(int, const char *, const struct timespec[2], int) = NULL;
-    if (!orig_utimensat) orig_utimensat = (int (*)(int, const char *, const struct timespec[2], int))dlsym(RTLD_NEXT, "utimensat");
+    if (!orig_utimensat) orig_utimensat = (int (*)(int, const char *, const struct timespec[2], int))cortex_next((void *)utimensat, "utimensat");
     char buf[PATH_MAX];
     const char *target = (pathname && pathname[0] == '/') ? rewrite_path(pathname, buf, sizeof(buf)) : pathname;
     return orig_utimensat ? orig_utimensat(dirfd, target, times, flags) : -1;
@@ -558,7 +580,7 @@ int utimensat(int dirfd, const char *pathname, const struct timespec times[2], i
 // Hook truncate
 int truncate(const char *path, off_t length) {
     static int (*orig_truncate)(const char *, off_t) = NULL;
-    if (!orig_truncate) orig_truncate = (int (*)(const char *, off_t))dlsym(RTLD_NEXT, "truncate");
+    if (!orig_truncate) orig_truncate = (int (*)(const char *, off_t))cortex_next((void *)truncate, "truncate");
     char buf[PATH_MAX];
     const char *target = rewrite_path(path, buf, sizeof(buf));
     return orig_truncate(target, length);
@@ -567,7 +589,7 @@ int truncate(const char *path, off_t length) {
 // Hook statfs / statfs64 / statvfs / statvfs64
 int statfs(const char *path, struct statfs *buf) {
     static int (*orig_statfs)(const char *, struct statfs *) = NULL;
-    if (!orig_statfs) orig_statfs = (int (*)(const char *, struct statfs *))dlsym(RTLD_NEXT, "statfs");
+    if (!orig_statfs) orig_statfs = (int (*)(const char *, struct statfs *))cortex_next((void *)statfs, "statfs");
     char pbuf[PATH_MAX];
     const char *target = rewrite_path(path, pbuf, sizeof(pbuf));
     return orig_statfs ? orig_statfs(target, buf) : -1;
@@ -575,7 +597,7 @@ int statfs(const char *path, struct statfs *buf) {
 
 int statvfs(const char *path, struct statvfs *buf) {
     static int (*orig_statvfs)(const char *, struct statvfs *) = NULL;
-    if (!orig_statvfs) orig_statvfs = (int (*)(const char *, struct statvfs *))dlsym(RTLD_NEXT, "statvfs");
+    if (!orig_statvfs) orig_statvfs = (int (*)(const char *, struct statvfs *))cortex_next((void *)statvfs, "statvfs");
     char pbuf[PATH_MAX];
     const char *target = rewrite_path(path, pbuf, sizeof(pbuf));
     return orig_statvfs ? orig_statvfs(target, buf) : -1;
@@ -666,7 +688,7 @@ int scandir(const char *dirp, struct dirent ***namelist,
                                int (*)(const struct dirent **, const struct dirent **)) = NULL;
     if (!orig_scandir) orig_scandir = (int (*)(const char *, struct dirent ***,
                                int (*)(const struct dirent *),
-                               int (*)(const struct dirent **, const struct dirent **)))dlsym(RTLD_NEXT, "scandir");
+                               int (*)(const struct dirent **, const struct dirent **)))cortex_next((void *)scandir, "scandir");
     char buf[PATH_MAX];
     const char *target = rewrite_path(dirp, buf, sizeof(buf));
     return orig_scandir ? orig_scandir(target, namelist, filter, compar) : -1;

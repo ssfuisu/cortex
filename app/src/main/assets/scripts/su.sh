@@ -24,6 +24,9 @@ unset CORTEX_INVOKED_AS
 # the app's user as root). The command is run as it is; "-u USER" goes through runuser.
 sudo_direct() {
     local target_user="" login=0
+    # A shell that runs as another user (su USER, cortex-api no-fakeroot) becomes root for what it
+    # starts, as sudo would make it: the preloaded library takes the request and does not pass it on
+    export CORTEX_BECOME=root
     while [ "$#" -gt 0 ]; do
         case "$1" in
             -u|--user) target_user="${2:-}"; shift; [ "$#" -gt 0 ] && shift ;;
@@ -58,6 +61,7 @@ sudo_direct() {
 # su, su -, su -c CMD, su USER, su - USER, su USER -c CMD, su -s SHELL.
 su_direct() {
     local login=0 command="" have_command=0 target_user="" shell_path=""
+    export CORTEX_BECOME=root
     local shell_args=()
     # Android's su starts with -c and hands what follows the command to the shell ("su -c CMD ARG..."),
     # where Ubuntu's su takes the user name there

@@ -20,6 +20,8 @@
     <string name="drawer_new_session">+ הפעלה חדשה</string>
     <string name="session_label">הפעלה %1$d</string>
     <string name="close_session">סגירת הפעלה</string>
+    <string name="rename_session">שינוי שם הסשן</string>
+    <string name="rename_session_reset">איפוס</string>
     <string name="exit_confirm_title">יציאה מההפעלה</string>
     <string name="exit_confirm_message">לסגור את הפעלת המסוף הזו?</string>
     <string name="search_hint">חיפוש במסוף…</string>

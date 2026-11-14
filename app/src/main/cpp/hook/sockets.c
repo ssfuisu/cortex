@@ -94,6 +94,87 @@ int listen(int sockfd, int backlog) {
     return ret;
 }
 
+// Ports below 1024 are root's, and Android gives an app no way to them (EACCES). A server that asks
+// for one gets the port 8000 above it instead (80 is 8080, 443 is 8443, 22 is 8022, as cortex-sshd
+// already uses), and says so once on its error output; a connection on this phone to the low port
+// that finds nothing there tries the moved one, so "curl http://localhost" reaches nginx.
+#define CORTEX_LOW_PORT_OFFSET 8000
+
+static int moved_low_port(int port) {
+    return port > 0 && port < 1024 ? port + CORTEX_LOW_PORT_OFFSET : 0;
+}
+
+// The address with its port moved (0 when it is not a low IP port)
+static socklen_t with_moved_port(const struct sockaddr *addr, socklen_t addrlen, struct sockaddr_storage *out, int *from, int *to) {
+    if (!addr || addrlen > (socklen_t)sizeof(*out)) return 0;
+    if (addr->sa_family == AF_INET && addrlen >= (socklen_t)sizeof(struct sockaddr_in)) {
+        int port = ntohs(((const struct sockaddr_in *)addr)->sin_port);
+        int moved = moved_low_port(port);
+        if (!moved) return 0;
+        memcpy(out, addr, addrlen);
+        ((struct sockaddr_in *)out)->sin_port = htons((uint16_t)moved);
+        *from = port;
+        *to = moved;
+        return addrlen;
+    }
+    if (addr->sa_family == AF_INET6 && addrlen >= (socklen_t)sizeof(struct sockaddr_in6)) {
+        int port = ntohs(((const struct sockaddr_in6 *)addr)->sin6_port);
+        int moved = moved_low_port(port);
+        if (!moved) return 0;
+        memcpy(out, addr, addrlen);
+        ((struct sockaddr_in6 *)out)->sin6_port = htons((uint16_t)moved);
+        *from = port;
+        *to = moved;
+        return addrlen;
+    }
+    return 0;
+}
+
+static int is_loopback_addr(const struct sockaddr *addr, socklen_t addrlen) {
+    if (addr->sa_family == AF_INET && addrlen >= (socklen_t)sizeof(struct sockaddr_in))
+        return (ntohl(((const struct sockaddr_in *)addr)->sin_addr.s_addr) >> 24) == 127;
+    if (addr->sa_family == AF_INET6 && addrlen >= (socklen_t)sizeof(struct sockaddr_in6)) {
+        const struct in6_addr *a = &((const struct sockaddr_in6 *)addr)->sin6_addr;
+        if (IN6_IS_ADDR_LOOPBACK(a)) return 1;
+        return IN6_IS_ADDR_V4MAPPED(a) && a->s6_addr[12] == 127;
+    }
+    return 0;
+}
+
+// $CORTEX_ROOT/run/cortex/moved-ports/PORT: a server of this phone listens on PORT + 8000
+static int moved_port_path(int port, char *path, size_t size) {
+    init_cortex_hook();
+    if (g_cortex_root_len == 0) return 0;
+    int n = snprintf(path, size, "%.*s/run/cortex/moved-ports/%d", (int)g_cortex_root_len, g_cortex_root, port);
+    return n > 0 && (size_t)n < size;
+}
+
+static void remember_moved_port(int port) {
+    char path[PATH_MAX];
+    if (!moved_port_path(port, path, sizeof(path))) return;
+    char dir[PATH_MAX];
+    snprintf(dir, sizeof(dir), "%s", path);
+    char *slash = strrchr(dir, '/');
+    if (slash) {
+        *slash = '\0';
+        // run/cortex is the app's; a rootfs without it gets it here
+        for (char *p = dir + g_cortex_root_len + 1; *p; p++) {
+            if (*p != '/') continue;
+            *p = '\0';
+            syscall(SYS_mkdirat, AT_FDCWD, dir, 0755);
+            *p = '/';
+        }
+        syscall(SYS_mkdirat, AT_FDCWD, dir, 0755);
+    }
+    int fd = (int)syscall(SYS_openat, AT_FDCWD, path, O_WRONLY | O_CREAT | O_CLOEXEC, 0644);
+    if (fd >= 0) syscall(SYS_close, fd);
+}
+
+static int low_port_was_moved(int port) {
+    char path[PATH_MAX];
+    return moved_port_path(port, path, sizeof(path)) && syscall(SYS_faccessat, AT_FDCWD, path, F_OK, 0) == 0;
+}
+
 int bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen) {
     static int (*orig_bind)(int, const struct sockaddr *, socklen_t) = NULL;
     if (!orig_bind) orig_bind = (int (*)(int, const struct sockaddr *, socklen_t))dlsym(RTLD_NEXT, "bind");
@@ -109,6 +190,25 @@ int bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen) {
         }
     }
     int ret = orig_bind ? orig_bind(sockfd, addr, addrlen) : -1;
+    if (ret != 0 && errno == EACCES && addr && orig_bind) {
+        struct sockaddr_storage moved;
+        int from = 0, to = 0;
+        socklen_t moved_len = with_moved_port(addr, addrlen, &moved, &from, &to);
+        if (moved_len && orig_bind(sockfd, (struct sockaddr *)&moved, moved_len) == 0) {
+            remember_moved_port(from);
+            static int told = 0;
+            if (!__atomic_exchange_n(&told, 1, __ATOMIC_RELAXED)) {
+                char msg[160];
+                int n = snprintf(msg, sizeof(msg), "cortex: port %d is reserved on Android, listening on %d instead\n", from, to);
+                if (n > 0) syscall(SYS_write, 2, msg, (size_t)n);
+            }
+            addr = (struct sockaddr *)&moved;
+            addrlen = moved_len;
+            ret = 0;
+        } else {
+            errno = EACCES;
+        }
+    }
     if (ret == 0 && addr) {
         int saved_errno = errno;
         int chosen = 0;
@@ -147,6 +247,15 @@ int connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen) {
             errno = saved_errno;
         }
         return ret;
+    }
+    // A low port on this phone that a server here asked for: it is on the moved one (the server
+    // left $CORTEX_ROOT/run/cortex/moved-ports/PORT). Nothing of Cortex can be on the low port
+    // itself, so the connection goes straight to the moved one, blocking or not (curl).
+    if (addr && orig_connect && is_loopback_addr(addr, addrlen)) {
+        struct sockaddr_storage moved;
+        int from = 0, to = 0;
+        socklen_t moved_len = with_moved_port(addr, addrlen, &moved, &from, &to);
+        if (moved_len && low_port_was_moved(from)) return orig_connect(sockfd, (struct sockaddr *)&moved, moved_len);
     }
     return orig_connect ? orig_connect(sockfd, addr, addrlen) : -1;
 }
@@ -216,9 +325,19 @@ static int real_scm_credentials(const struct msghdr *msg, struct msghdr *mod, ch
 // that compares the two refuses its own user: dbus-daemon closed every connection to the session
 // bus, and XFCE stopped at "Unable to contact settings server: The connection is closed". The
 // app's own ids are shown as the ids programs see for themselves; any other id is left as it is.
+// The ids are the other process's own, as it sees them (ids.c): root's, or the user it runs as (psql
+// started by "su postgres" is postgres to the server's peer authentication).
 static void peer_cred_as_seen_here(struct ucred *cred) {
-    if (cred->uid == (uid_t)call_orig_syscall(CORTEX_NR_REAL_GETUID, 0, 0, 0, 0, 0, 0)) cred->uid = getuid();
-    if (cred->gid == (gid_t)call_orig_syscall(CORTEX_NR_REAL_GETGID, 0, 0, 0, 0, 0, 0)) cred->gid = getgid();
+    int is_app_uid = cred->uid == (uid_t)call_orig_syscall(CORTEX_NR_REAL_GETUID, 0, 0, 0, 0, 0, 0);
+    int is_app_gid = cred->gid == (gid_t)call_orig_syscall(CORTEX_NR_REAL_GETGID, 0, 0, 0, 0, 0, 0);
+    if (!is_app_uid && !is_app_gid) return;
+    cortex_ids_t peer;
+    if (ids_of_pid(cred->pid, &peer) != 0) {
+        // The process is gone: it is shown as this one sees itself, as before
+        peer = *ids_now();
+    }
+    if (is_app_uid) cred->uid = peer.e;
+    if (is_app_gid) cred->gid = peer.ge;
 }
 
 // The SCM_CREDENTIALS of a message that came in, shown the same way
@@ -235,7 +354,7 @@ static void received_creds_as_seen_here(struct msghdr *msg) {
 
 ssize_t sendmsg(int sockfd, const struct msghdr *msg, int flags) {
     static ssize_t (*orig_sendmsg)(int, const struct msghdr *, int) = NULL;
-    if (!orig_sendmsg) orig_sendmsg = (ssize_t (*)(int, const struct msghdr *, int))dlsym(RTLD_NEXT, "sendmsg");
+    if (!orig_sendmsg) orig_sendmsg = (ssize_t (*)(int, const struct msghdr *, int))cortex_next((void *)sendmsg, "sendmsg");
     struct msghdr cred_msg;
     char cred_ctrl[512] __attribute__((aligned(8)));
     if (real_scm_credentials(msg, &cred_msg, cred_ctrl, sizeof(cred_ctrl))) msg = &cred_msg;
@@ -279,7 +398,7 @@ ssize_t __recvfrom_chk(int sockfd, void *buf, size_t len, size_t buflen, int fla
 
 ssize_t recvmsg(int sockfd, struct msghdr *msg, int flags) {
     static ssize_t (*orig_recvmsg)(int, struct msghdr *, int) = NULL;
-    if (!orig_recvmsg) orig_recvmsg = (ssize_t (*)(int, struct msghdr *, int))dlsym(RTLD_NEXT, "recvmsg");
+    if (!orig_recvmsg) orig_recvmsg = (ssize_t (*)(int, struct msghdr *, int))cortex_next((void *)recvmsg, "recvmsg");
 
     socklen_t cap = msg ? msg->msg_namelen : 0;
     ssize_t ret = orig_recvmsg ? orig_recvmsg(sockfd, msg, flags) : -1;

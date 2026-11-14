@@ -20,6 +20,8 @@
     <string name="drawer_new_session">+ Нова сесија</string>
     <string name="session_label">Сесија %1$d</string>
     <string name="close_session">Затвори сесију</string>
+    <string name="rename_session">Преименуј сесију</string>
+    <string name="rename_session_reset">Ресетуј</string>
     <string name="exit_confirm_title">Изађи из сесије</string>
     <string name="exit_confirm_message">Желите ли да затворите ову сесију терминала?</string>
     <string name="search_hint">Претражи терминал…</string>

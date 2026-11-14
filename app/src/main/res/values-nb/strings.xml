@@ -20,6 +20,8 @@
     <string name="drawer_new_session">+ Ny økt</string>
     <string name="session_label">Økt %1$d</string>
     <string name="close_session">Lukk økten</string>
+    <string name="rename_session">Gi nytt navn til økten</string>
+    <string name="rename_session_reset">Tilbakestill</string>
     <string name="exit_confirm_title">Avslutt økten</string>
     <string name="exit_confirm_message">Vil du lukke denne terminaløkten?</string>
     <string name="search_hint">Søk i terminalen…</string>

@@ -38,6 +38,10 @@ class TerminalSession(
         private set
     var title = "Cortex"
 
+    /** The name the user gave this session (a long press on its tab); null: its number. */
+    @Volatile
+    var customName: String? = null
+
     /** 1-based position of this session in the drawer, for notification texts. */
     var numberProvider: (() -> Int)? = null
 

@@ -105,10 +105,48 @@ void *dlmopen(Lmid_t lmid, const char *filename, int flags) {
     return orig_dlmopen ? orig_dlmopen(lmid, target, dlopen_flags_for_hook(flags)) : NULL;
 }
 
+// Root reads and writes a file whatever its mode; the app only one its mode lets it. A file of the
+// app that its mode closes to it (dpkg and cp keep 0444 and 0400 files as they are) is opened by
+// root's programs by opening its mode for the moment it takes, and putting it back: cp over
+// postgresql-common's 0444 apt configuration failed with "Permission denied".
+static int open_as_root_after_refusal(int dirfd, const char *target, int flags, mode_t mode, int has_mode) {
+    if (!target || ids_now()->e != 0) {
+        errno = EACCES;
+        return -1;
+    }
+    struct stat st;
+    ids_load_app();
+    if (ow_real_fstatat(dirfd, target, &st, 0) != 0 || st.st_uid != g_app_uid || !S_ISREG(st.st_mode)) {
+        errno = EACCES;
+        return -1;
+    }
+    mode_t need = 0;
+    int acc = flags & O_ACCMODE;
+    if (acc != O_WRONLY) need |= S_IRUSR;
+    if (acc != O_RDONLY || (flags & O_TRUNC)) need |= S_IWUSR;
+    if ((st.st_mode & need) == need) {
+        errno = EACCES;
+        return -1;
+    }
+    mode_t old = st.st_mode & 07777;
+    if (syscall(SYS_fchmodat, dirfd, target, old | need, 0) != 0) {
+        errno = EACCES;
+        return -1;
+    }
+    int fd = has_mode ? (int)syscall(SYS_openat, dirfd, target, flags, mode) : (int)syscall(SYS_openat, dirfd, target, flags, 0);
+    int saved_errno = errno;
+    // Put the mode back on the file that was opened (the name may have been replaced since); only
+    // when nothing was opened, through the name
+    if (fd >= 0) syscall(SYS_fchmod, fd, old);
+    else syscall(SYS_fchmodat, dirfd, target, old, 0);
+    errno = saved_errno;
+    return fd;
+}
+
 // Hook open
 int open(const char *pathname, int flags, ...) {
     static int (*orig_open)(const char *, int, ...) = NULL;
-    if (!orig_open) orig_open = (int (*)(const char *, int, ...))dlsym(RTLD_NEXT, "open");
+    if (!orig_open) orig_open = (int (*)(const char *, int, ...))cortex_next((void *)open, "open");
     init_cortex_hook();
     char exe_buf[PATH_MAX];
     if (is_proc_self_exe(pathname)) {
@@ -125,17 +163,22 @@ int open(const char *pathname, int flags, ...) {
         va_start(args, flags);
         mode_t mode = va_arg(args, mode_t);
         va_end(args);
+        int is_new = (flags & O_CREAT) && ids_records_new_files() && ow_name_is_new(AT_FDCWD, target);
         int fd = orig_open(target, flags, mode);
         if (fd < 0 && (flags & O_CREAT) && refused_in_repaired_dir(AT_FDCWD, target)) fd = orig_open(target, flags, mode);
+        if (fd < 0 && errno == EACCES) fd = open_as_root_after_refusal(AT_FDCWD, target, flags, mode, 1);
+        if (fd >= 0 && is_new) ow_record_new_at(fd, NULL, 0);
         return fd;
     }
-    return orig_open(target, flags);
+    int fd = orig_open(target, flags);
+    if (fd < 0 && errno == EACCES) fd = open_as_root_after_refusal(AT_FDCWD, target, flags, 0, 0);
+    return fd;
 }
 
 // Hook openat
 int openat(int dirfd, const char *pathname, int flags, ...) {
     static int (*orig_openat)(int, const char *, int, ...) = NULL;
-    if (!orig_openat) orig_openat = (int (*)(int, const char *, int, ...))dlsym(RTLD_NEXT, "openat");
+    if (!orig_openat) orig_openat = (int (*)(int, const char *, int, ...))cortex_next((void *)openat, "openat");
     init_cortex_hook();
     char exe_buf[PATH_MAX];
     if (is_proc_self_exe(pathname)) {
@@ -152,11 +195,16 @@ int openat(int dirfd, const char *pathname, int flags, ...) {
         va_start(args, flags);
         mode_t mode = va_arg(args, mode_t);
         va_end(args);
+        int is_new = (flags & O_CREAT) && ids_records_new_files() && ow_name_is_new(dirfd, target);
         int fd = orig_openat(dirfd, target, flags, mode);
         if (fd < 0 && (flags & O_CREAT) && refused_in_repaired_dir(dirfd, target)) fd = orig_openat(dirfd, target, flags, mode);
+        if (fd < 0 && errno == EACCES) fd = open_as_root_after_refusal(dirfd, target, flags, mode, 1);
+        if (fd >= 0 && is_new) ow_record_new_at(fd, NULL, 0);
         return fd;
     }
-    return orig_openat(dirfd, target, flags);
+    int fd = orig_openat(dirfd, target, flags);
+    if (fd < 0 && errno == EACCES) fd = open_as_root_after_refusal(dirfd, target, flags, 0, 0);
+    return fd;
 }
 
 // Hook creat
@@ -281,16 +329,33 @@ int fchmodat2(int dirfd, const char *pathname, mode_t mode, int flags) {
 // Hook fopen
 FILE *fopen(const char *pathname, const char *mode) {
     static FILE *(*orig_fopen)(const char *, const char *) = NULL;
-    if (!orig_fopen) orig_fopen = (FILE *(*)(const char *, const char *))dlsym(RTLD_NEXT, "fopen");
+    if (!orig_fopen) orig_fopen = (FILE *(*)(const char *, const char *))cortex_next((void *)fopen, "fopen");
     char buf[PATH_MAX];
     const char *target = rewrite_path(pathname, buf, sizeof(buf));
-    return orig_fopen(target, mode);
+    int is_new = mode && (mode[0] == 'w' || mode[0] == 'a') && ids_records_new_files() && ow_name_is_new(AT_FDCWD, target);
+    FILE *f = orig_fopen(target, mode);
+    if (!f && errno == EACCES && mode) {
+        // As open() does for root: fopen()'s own open is glibc's, so the descriptor is made here
+        int flags = O_RDONLY;
+        if (mode[0] == 'w') flags = O_WRONLY | O_CREAT | O_TRUNC;
+        else if (mode[0] == 'a') flags = O_WRONLY | O_CREAT | O_APPEND;
+        if (strchr(mode, '+')) flags = (flags & ~O_ACCMODE) | O_RDWR;
+        int fd = open_as_root_after_refusal(AT_FDCWD, target, flags | O_CLOEXEC * (strchr(mode, 'e') != NULL), 0666, 1);
+        if (fd >= 0) {
+            f = fdopen(fd, mode);
+            if (!f) close(fd);
+        } else {
+            errno = EACCES;
+        }
+    }
+    if (f && is_new) ow_record_new_at(fileno(f), NULL, 0);
+    return f;
 }
 
 // Hook freopen
 FILE *freopen(const char *pathname, const char *mode, FILE *stream) {
     static FILE *(*orig_freopen)(const char *, const char *, FILE *) = NULL;
-    if (!orig_freopen) orig_freopen = (FILE *(*)(const char *, const char *, FILE *))dlsym(RTLD_NEXT, "freopen");
+    if (!orig_freopen) orig_freopen = (FILE *(*)(const char *, const char *, FILE *))cortex_next((void *)freopen, "freopen");
     char buf[PATH_MAX];
     const char *target = rewrite_path(pathname, buf, sizeof(buf));
     return orig_freopen(target, mode, stream);
@@ -306,13 +371,13 @@ ssize_t write(int fd, const void *buf, size_t count) {
 // Hook mkstemp
 int mkstemp(char *template) {
     static int (*orig_mkstemp)(char *) = NULL;
-    if (!orig_mkstemp) orig_mkstemp = (int (*)(char *))dlsym(RTLD_NEXT, "mkstemp");
+    if (!orig_mkstemp) orig_mkstemp = (int (*)(char *))cortex_next((void *)mkstemp, "mkstemp");
     if (!template) { errno = EINVAL; return -1; }
 
     char buf[PATH_MAX];
     const char *target = rewrite_path(template, buf, sizeof(buf));
     if (target == template) {
-        return orig_mkstemp ? orig_mkstemp(template) : -1;
+        { int nfd = orig_mkstemp ? orig_mkstemp(template) : -1; if (nfd >= 0) ow_record_new_at(nfd, NULL, 0); return nfd; }
     }
 
     char tmp_buf[PATH_MAX];
@@ -321,6 +386,7 @@ int mkstemp(char *template) {
 
     int fd = orig_mkstemp ? orig_mkstemp(tmp_buf) : -1;
     if (fd >= 0) {
+        ow_record_new_at(fd, NULL, 0);
         size_t orig_len = strlen(template);
         size_t tmp_len = strlen(tmp_buf);
         if (orig_len >= 6 && tmp_len >= 6) {
@@ -333,13 +399,13 @@ int mkstemp(char *template) {
 // Hook mkostemp
 int mkostemp(char *template, int flags) {
     static int (*orig_mkostemp)(char *, int) = NULL;
-    if (!orig_mkostemp) orig_mkostemp = (int (*)(char *, int))dlsym(RTLD_NEXT, "mkostemp");
+    if (!orig_mkostemp) orig_mkostemp = (int (*)(char *, int))cortex_next((void *)mkostemp, "mkostemp");
     if (!template) { errno = EINVAL; return -1; }
 
     char buf[PATH_MAX];
     const char *target = rewrite_path(template, buf, sizeof(buf));
     if (target == template) {
-        return orig_mkostemp ? orig_mkostemp(template, flags) : -1;
+        { int nfd = orig_mkostemp ? orig_mkostemp(template, flags) : -1; if (nfd >= 0) ow_record_new_at(nfd, NULL, 0); return nfd; }
     }
 
     char tmp_buf[PATH_MAX];
@@ -348,6 +414,7 @@ int mkostemp(char *template, int flags) {
 
     int fd = orig_mkostemp ? orig_mkostemp(tmp_buf, flags) : -1;
     if (fd >= 0) {
+        ow_record_new_at(fd, NULL, 0);
         size_t orig_len = strlen(template);
         size_t tmp_len = strlen(tmp_buf);
         if (orig_len >= 6 && tmp_len >= 6) {
@@ -360,13 +427,13 @@ int mkostemp(char *template, int flags) {
 // Hook mkstemps
 int mkstemps(char *template, int suffixlen) {
     static int (*orig_mkstemps)(char *, int) = NULL;
-    if (!orig_mkstemps) orig_mkstemps = (int (*)(char *, int))dlsym(RTLD_NEXT, "mkstemps");
+    if (!orig_mkstemps) orig_mkstemps = (int (*)(char *, int))cortex_next((void *)mkstemps, "mkstemps");
     if (!template) { errno = EINVAL; return -1; }
 
     char buf[PATH_MAX];
     const char *target = rewrite_path(template, buf, sizeof(buf));
     if (target == template) {
-        return orig_mkstemps ? orig_mkstemps(template, suffixlen) : -1;
+        { int nfd = orig_mkstemps ? orig_mkstemps(template, suffixlen) : -1; if (nfd >= 0) ow_record_new_at(nfd, NULL, 0); return nfd; }
     }
 
     char tmp_buf[PATH_MAX];
@@ -375,6 +442,7 @@ int mkstemps(char *template, int suffixlen) {
 
     int fd = orig_mkstemps ? orig_mkstemps(tmp_buf, suffixlen) : -1;
     if (fd >= 0) {
+        ow_record_new_at(fd, NULL, 0);
         size_t orig_len = strlen(template);
         size_t tmp_len = strlen(tmp_buf);
         if (orig_len >= (size_t)(suffixlen + 6) && tmp_len >= (size_t)(suffixlen + 6)) {
@@ -387,13 +455,13 @@ int mkstemps(char *template, int suffixlen) {
 // Hook mkostemps
 int mkostemps(char *template, int suffixlen, int flags) {
     static int (*orig_mkostemps)(char *, int, int) = NULL;
-    if (!orig_mkostemps) orig_mkostemps = (int (*)(char *, int, int))dlsym(RTLD_NEXT, "mkostemps");
+    if (!orig_mkostemps) orig_mkostemps = (int (*)(char *, int, int))cortex_next((void *)mkostemps, "mkostemps");
     if (!template) { errno = EINVAL; return -1; }
 
     char buf[PATH_MAX];
     const char *target = rewrite_path(template, buf, sizeof(buf));
     if (target == template) {
-        return orig_mkostemps ? orig_mkostemps(template, suffixlen, flags) : -1;
+        { int nfd = orig_mkostemps ? orig_mkostemps(template, suffixlen, flags) : -1; if (nfd >= 0) ow_record_new_at(nfd, NULL, 0); return nfd; }
     }
 
     char tmp_buf[PATH_MAX];
@@ -402,6 +470,7 @@ int mkostemps(char *template, int suffixlen, int flags) {
 
     int fd = orig_mkostemps ? orig_mkostemps(tmp_buf, suffixlen, flags) : -1;
     if (fd >= 0) {
+        ow_record_new_at(fd, NULL, 0);
         size_t orig_len = strlen(template);
         size_t tmp_len = strlen(tmp_buf);
         if (orig_len >= (size_t)(suffixlen + 6) && tmp_len >= (size_t)(suffixlen + 6)) {
@@ -480,7 +549,7 @@ DIR *opendir(const char *name) {
 // Hook stat
 int stat(const char *pathname, struct stat *statbuf) {
     static int (*orig_stat)(const char *, struct stat *) = NULL;
-    if (!orig_stat) orig_stat = (int (*)(const char *, struct stat *))dlsym(RTLD_NEXT, "stat");
+    if (!orig_stat) orig_stat = (int (*)(const char *, struct stat *))cortex_next((void *)stat, "stat");
     char buf[PATH_MAX];
     const char *target = rewrite_path(pathname, buf, sizeof(buf));
     int ret = orig_stat ? orig_stat(target, statbuf) : -1;
@@ -565,7 +634,7 @@ static int link_is_procs(const struct stat *st, const char *target) {
     uint64_t dev = __atomic_load_n(&proc_dev, __ATOMIC_RELAXED);
     if (dev == 0) {
         static int (*orig_lstat)(const char *, struct stat *) = NULL;
-        if (!orig_lstat) orig_lstat = (int (*)(const char *, struct stat *))dlsym(RTLD_NEXT, "lstat");
+        if (!orig_lstat) orig_lstat = (int (*)(const char *, struct stat *))cortex_next((void *)lstat, "lstat");
         struct stat p;
         if (!orig_lstat || orig_lstat("/proc/self", &p) != 0) return 1; // not known: not kept
         dev = (uint64_t)p.st_dev + 1;
@@ -598,7 +667,7 @@ static void link_size_as_read(int dirfd, const char *pathname, const char *targe
 // Hook lstat
 int lstat(const char *pathname, struct stat *statbuf) {
     static int (*orig_lstat)(const char *, struct stat *) = NULL;
-    if (!orig_lstat) orig_lstat = (int (*)(const char *, struct stat *))dlsym(RTLD_NEXT, "lstat");
+    if (!orig_lstat) orig_lstat = (int (*)(const char *, struct stat *))cortex_next((void *)lstat, "lstat");
     char buf[PATH_MAX];
     const char *target = rewrite_path(pathname, buf, sizeof(buf));
     int ret = orig_lstat ? orig_lstat(target, statbuf) : -1;
@@ -621,7 +690,7 @@ int lstat(const char *pathname, struct stat *statbuf) {
 // Hook fstatat
 int fstatat(int dirfd, const char *pathname, struct stat *statbuf, int flags) {
     static int (*orig_fstatat)(int, const char *, struct stat *, int) = NULL;
-    if (!orig_fstatat) orig_fstatat = (int (*)(int, const char *, struct stat *, int))dlsym(RTLD_NEXT, "fstatat");
+    if (!orig_fstatat) orig_fstatat = (int (*)(int, const char *, struct stat *, int))cortex_next((void *)fstatat, "fstatat");
     char buf[PATH_MAX];
     const char *target = (pathname && pathname[0] == '/') ? rewrite_path(pathname, buf, sizeof(buf)) : pathname;
     int ret = orig_fstatat ? orig_fstatat(dirfd, target, statbuf, flags) : -1;
@@ -644,7 +713,7 @@ int fstatat(int dirfd, const char *pathname, struct stat *statbuf, int flags) {
 // Hook fstat
 int fstat(int fd, struct stat *statbuf) {
     static int (*orig_fstat)(int, struct stat *) = NULL;
-    if (!orig_fstat) orig_fstat = (int (*)(int, struct stat *))dlsym(RTLD_NEXT, "fstat");
+    if (!orig_fstat) orig_fstat = (int (*)(int, struct stat *))cortex_next((void *)fstat, "fstat");
     int ret = orig_fstat ? orig_fstat(fd, statbuf) : -1;
     if (ret == 0) apply_stat_emulation(statbuf);
     return ret;
@@ -710,6 +779,23 @@ int statx(int dirfd, const char *pathname, int flags, unsigned int mask, struct 
     char buf[PATH_MAX];
     const char *target = (pathname && pathname[0] == '/') ? rewrite_path(pathname, buf, sizeof(buf)) : pathname;
     int ret = orig_statx ? orig_statx(dirfd, target, flags, mask, statxbuf) : -1;
+    // The file as the kernel names it, before an emulated link changes its inode number: the key of
+    // a recorded owner
+    uint64_t ow_dev = 0, ow_ino = 0;
+    if (ret == 0 && statxbuf && ow_maybe_any()) {
+        ow_dev = (uint64_t)makedev(statxbuf->stx_dev_major, statxbuf->stx_dev_minor);
+        if (statxbuf->stx_mask & STATX_INO) {
+            ow_ino = statxbuf->stx_ino;
+        } else {
+            int saved_errno = errno;
+            struct stat st;
+            if (ow_real_fstatat(dirfd, target, &st, flags & (AT_SYMLINK_NOFOLLOW | AT_EMPTY_PATH | AT_NO_AUTOMOUNT)) == 0) {
+                ow_dev = (uint64_t)st.st_dev;
+                ow_ino = (uint64_t)st.st_ino;
+            }
+            errno = saved_errno;
+        }
+    }
     if (ret == 0 && statxbuf && hardlinks_maybe_any()) {
         const unsigned int needed = STATX_INO | STATX_NLINK | STATX_MTIME;
         struct statx full;
@@ -740,7 +826,8 @@ int statx(int dirfd, const char *pathname, int flags, unsigned int mask, struct 
     if (ret == 0 && statxbuf) {
         uid_t uid = (uid_t)statxbuf->stx_uid;
         gid_t gid = (gid_t)statxbuf->stx_gid;
-        present_owner_as_root((statxbuf->stx_mask & STATX_UID) ? &uid : NULL, (statxbuf->stx_mask & STATX_GID) ? &gid : NULL);
+        present_owner((statxbuf->stx_mask & STATX_UID) ? &uid : NULL, (statxbuf->stx_mask & STATX_GID) ? &gid : NULL,
+                      ow_dev, ow_ino);
         statxbuf->stx_uid = (uint32_t)uid;
         statxbuf->stx_gid = (uint32_t)gid;
     }

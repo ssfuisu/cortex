@@ -1,0 +1,1 @@
+Ubuntu 24.04 with apt on Android, through a preload library. No root, no VM.

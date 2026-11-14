@@ -20,6 +20,8 @@
     <string name="drawer_new_session">+ Nieuwe sessie</string>
     <string name="session_label">Sessie %1$d</string>
     <string name="close_session">Sessie sluiten</string>
+    <string name="rename_session">Sessie hernoemen</string>
+    <string name="rename_session_reset">Herstellen</string>
     <string name="exit_confirm_title">Sessie afsluiten</string>
     <string name="exit_confirm_message">Wil je deze terminalsessie sluiten?</string>
     <string name="search_hint">Zoeken in terminal…</string>

@@ -10,8 +10,11 @@ import java.io.File
  */
 class SessionStore(private val file: File) {
 
-    /** [directory]: where the shell was, null when unknown. [output]: the end of what it showed. */
-    data class Saved(val directory: String?, val output: String)
+    /**
+     * [directory]: where the shell was, null when unknown. [output]: the end of what it showed.
+     * [name]: the name the user gave the session, null for none.
+     */
+    data class Saved(val directory: String?, val output: String, val name: String? = null)
 
     data class State(val sessions: List<Saved>, val current: Int)
 
@@ -21,6 +24,7 @@ class SessionStore(private val file: File) {
         for (saved in state.sessions) {
             sb.append("session\n")
             saved.directory?.let { sb.append("directory ").append(escape(it)).append('\n') }
+            saved.name?.let { sb.append("name ").append(escape(it)).append('\n') }
             sb.append("output ").append(escape(saved.output)).append('\n')
         }
         FileInstaller.install(file, sb.toString(), 384) // 0600
@@ -39,11 +43,13 @@ class SessionStore(private val file: File) {
         val sessions = mutableListOf<Saved>()
         var directory: String? = null
         var output: String? = null
+        var name: String? = null
         var inSession = false
         fun finish() {
-            if (inSession) sessions += Saved(directory, output ?: "")
+            if (inSession) sessions += Saved(directory, output ?: "", name)
             directory = null
             output = null
+            name = null
         }
         for (line in lines.drop(1)) {
             when {
@@ -53,6 +59,7 @@ class SessionStore(private val file: File) {
                     inSession = true
                 }
                 line.startsWith("directory ") -> directory = unescape(line.removePrefix("directory "))
+                line.startsWith("name ") -> name = unescape(line.removePrefix("name ")).takeIf { it.isNotBlank() }
                 line.startsWith("output ") -> output = unescape(line.removePrefix("output "))
                 line.isEmpty() -> {}
                 else -> return null

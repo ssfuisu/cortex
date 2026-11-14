@@ -20,6 +20,8 @@
     <string name="drawer_new_session">+ नया सेशन</string>
     <string name="session_label">सेशन %1$d</string>
     <string name="close_session">सेशन बंद करें</string>
+    <string name="rename_session">सत्र का नाम बदलें</string>
+    <string name="rename_session_reset">रीसेट करें</string>
     <string name="exit_confirm_title">सेशन से बाहर निकलें</string>
     <string name="exit_confirm_message">क्या आप इस टर्मिनल सेशन को बंद करना चाहते हैं?</string>
     <string name="search_hint">टर्मिनल में खोजें…</string>

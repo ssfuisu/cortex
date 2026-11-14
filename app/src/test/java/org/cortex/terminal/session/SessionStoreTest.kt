@@ -19,8 +19,8 @@ class SessionStoreTest {
         val state = SessionStore.State(
             listOf(
                 SessionStore.Saved("/data/user/0/org.cortex.terminal/files/cortex/home/my project", "\$ make\nok \\ done\r\n"),
-                SessionStore.Saved(null, ""),
-                SessionStore.Saved("/odd\npath", "output\ndirectory x\nsession")
+                SessionStore.Saved(null, "", "build server"),
+                SessionStore.Saved("/odd\npath", "output\ndirectory x\nsession", "name\nwith a line")
             ),
             current = 2
         )

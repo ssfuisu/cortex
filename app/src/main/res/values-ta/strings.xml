@@ -20,6 +20,8 @@
     <string name="drawer_new_session">+ புதிய அமர்வு</string>
     <string name="session_label">அமர்வு %1$d</string>
     <string name="close_session">அமர்வை மூடு</string>
+    <string name="rename_session">அமர்வின் பெயரை மாற்று</string>
+    <string name="rename_session_reset">மீட்டமை</string>
     <string name="exit_confirm_title">அமர்விலிருந்து வெளியேறு</string>
     <string name="exit_confirm_message">இந்த டெர்மினல் அமர்வை மூட விரும்புகிறீர்களா?</string>
     <string name="search_hint">டெர்மினலில் தேடு…</string>

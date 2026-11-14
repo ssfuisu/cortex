@@ -87,14 +87,14 @@ The library is about 10,000 lines of C in [`app/src/main/cpp/hook`](app/src/main
 | **Network** | Sockets and DNS, IPv4 and IPv6 | **Real** |
 | **glibc** | Ubuntu's 2.39 build with three system call sites patched: `set_robust_list` is skipped, `clone3` and `rseq` answer "not available" so glibc uses the older calls. `libc6` is held at this build | **Adapted** |
 | **Paths** | `/` is the app's private directory, mapped in the libc calls | **Emulated** |
-| **Root** | Programs see uid 0 and files owned by root, the kernel sees the app's user | **Emulated** |
+| **Root and other users** | Programs see uid 0 and files owned by root, the kernel sees the app's user. `su`, `runuser` and servers that drop to their user become that user for the programs, and `chown` records owners | **Emulated** |
 | **Forbidden calls** | `setuid` and the other calls Android's seccomp filter forbids are answered by a signal handler instead of killing the program | **Emulated** |
 | **Hard links** | Copies that report a real link count, the same in every process | **Emulated** |
 | **SysV shared memory, memfd locks** | Files of Cortex's own (X11's MIT-SHM, PHP's opcache) | **Emulated** |
 | **Static programs** | Patched once in their file before their first start | **Adapted** |
 | **Maintenance tools** | A few that package installs call (`systemd-sysusers`, `mandb`, `update-mime-database`) are stand-ins that do nothing | **Adapted** |
 
-**What does not work in normal mode**, because an app is not root: systemd as the init system, real other users (a server that refuses to run as root, such as PostgreSQL's own cluster), ports below 1024, set-user-ID programs, `mount`, kernel modules, reading the kernel's network tables (`ss`, `netstat`), and the GPU. On a rooted phone, [root mode](#root-mode) removes most of these.
+**What does not work in normal mode**, because an app is not root: systemd as the init system, `mount`, kernel modules, containers, reading the kernel's network tables (`ss`, `netstat`), and the GPU. Users other than root exist for the programs only (the kernel still sees one user), which is enough for PostgreSQL's own cluster and servers that drop privileges. A server that asks for a port below 1024 gets the port 8000 above it (80 becomes 8080, and `localhost:80` still reaches it). On a rooted phone, [root mode](#root-mode) removes most of these.
 
 ## Install
 
@@ -208,6 +208,12 @@ Yes, `Cortex-armeabi-v7a-signed.apk` is Ubuntu's armhf. Every change builds it a
 
 **Why does Go need special code?**
 Go programs don't use the C library, they make their system calls themselves, so a preloaded library never sees them. Before a Go 1.19+ program starts for the first time, Cortex adds a small piece of code to it that does the same path mapping.
+
+**A tool refuses to run as root (Claude Code's `--dangerously-skip-permissions`, some installers). What now?**
+Run `cortex-api no-fakeroot`. It starts a shell where programs see an ordinary user (`cortex`) instead of root, until you `exit`. `sudo` still works in it, and the session's other tabs stay root. `cortex-api no-fakeroot COMMAND` runs just one command that way.
+
+**Can I name my sessions?**
+Long press a tab (or a session in the drawer) and give it a name. It stays after Android ends the app.
 
 **Do single-file downloads work?**
 Static C and C++ programs do, and Go programs built with Go 1.19 or newer. Older or 32-bit Go programs run but see Android's files instead of Ubuntu's.

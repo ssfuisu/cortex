@@ -1217,7 +1217,7 @@ static int (*g_probe_fstat)(int, struct stat *) = NULL;
 static int probe_fstat(int fd, struct stat *st) {
     int (*f)(int, struct stat *) = __atomic_load_n(&g_probe_fstat, __ATOMIC_RELAXED);
     if (!f) {
-        f = (int (*)(int, struct stat *))dlsym(RTLD_NEXT, "fstat");
+        f = (int (*)(int, struct stat *))cortex_next((void *)fstat, "fstat");
         if (!f) return fstat(fd, st);
         __atomic_store_n(&g_probe_fstat, f, __ATOMIC_RELAXED);
     }

@@ -20,6 +20,8 @@
     <string name="drawer_new_session">+ جلسة جديدة</string>
     <string name="session_label">الجلسة %1$d</string>
     <string name="close_session">إغلاق الجلسة</string>
+    <string name="rename_session">إعادة تسمية الجلسة</string>
+    <string name="rename_session_reset">إعادة الضبط</string>
     <string name="exit_confirm_title">الخروج من الجلسة</string>
     <string name="exit_confirm_message">هل تريد إغلاق جلسة الطرفية هذه؟</string>
     <string name="search_hint">البحث في الطرفية…</string>

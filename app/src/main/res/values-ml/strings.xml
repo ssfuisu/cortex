@@ -20,6 +20,8 @@
     <string name="drawer_new_session">+ പുതിയ സെഷൻ</string>
     <string name="session_label">സെഷൻ %1$d</string>
     <string name="close_session">സെഷൻ അടയ്ക്കുക</string>
+    <string name="rename_session">സെഷന്റെ പേര് മാറ്റുക</string>
+    <string name="rename_session_reset">പുനഃസജ്ജമാക്കുക</string>
     <string name="exit_confirm_title">സെഷനിൽ നിന്ന് പുറത്തുകടക്കുക</string>
     <string name="exit_confirm_message">ഈ ടെർമിനൽ സെഷൻ അടയ്ക്കണോ?</string>
     <string name="search_hint">ടെർമിനലിൽ തിരയുക…</string>

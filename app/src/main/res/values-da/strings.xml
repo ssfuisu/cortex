@@ -20,6 +20,8 @@
     <string name="drawer_new_session">+ Ny session</string>
     <string name="session_label">Session %1$d</string>
     <string name="close_session">Luk session</string>
+    <string name="rename_session">Omdøb session</string>
+    <string name="rename_session_reset">Nulstil</string>
     <string name="exit_confirm_title">Afslut session</string>
     <string name="exit_confirm_message">Vil du lukke denne terminalsession?</string>
     <string name="search_hint">Søg i terminalen…</string>

@@ -121,6 +121,11 @@ export -f hard_links_between_processes
 expect hard-links-shared "links 2 then 1, same inode" hard_links_between_processes
 # The files Cortex makes are root's, the user programs run as (test -O compares the owner with geteuid())
 check own-files bash -c 'f=$(mktemp) && [ -O "$f" ] && [ -G "$f" ] && [ "$(stat -c %u:%g "$f")" = 0:0 ]; s=$?; rm -f "$f"; exit $s'
+# Other users (ids.c): runuser becomes the user, its files are its own, root takes them back with
+# sudo; cortex-api no-fakeroot runs as the app's ordinary user; chown gives a file an owner
+expect users-runuser "nobody 65534:65534 root" bash -c 'runuser -u nobody -- bash -c "f=\$(mktemp); echo \$(id -un) \$(stat -c %u:%g \$f) \$(sudo id -un); rm -f \$f"'
+expect users-no-fakeroot "cortex yes root" bash -c 'cortex-api no-fakeroot bash -c "echo \$(id -un) \$([ \$(id -u) -ne 0 ] && echo yes) \$(sudo id -un)"'
+check users-chown bash -c 'f=$(mktemp) && chown nobody:nogroup "$f" && [ "$(stat -c %U:%G "$f")" = nobody:nogroup ]; s=$?; rm -f "$f"; exit $s'
 check sha256sum bash -c 'echo hi | sha256sum | grep -q ^98ea6e4f216f2fb4b69fff9b3a44842c38686ca685f3f55dc48c5d3fb1107be4'
 check shared-storage bash -c 'echo hi > "$0/written-by-ubuntu.txt" && [ "$(cat "$0/written-by-ubuntu.txt")" = hi ]' "$OUT"
 

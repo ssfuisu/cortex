@@ -20,6 +20,8 @@
     <string name="drawer_new_session">+ 新建会话</string>
     <string name="session_label">会话 %1$d</string>
     <string name="close_session">关闭会话</string>
+    <string name="rename_session">重命名会话</string>
+    <string name="rename_session_reset">重置</string>
     <string name="exit_confirm_title">退出会话</string>
     <string name="exit_confirm_message">要关闭此终端会话吗？</string>
     <string name="search_hint">在终端中搜索…</string>
