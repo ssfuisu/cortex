@@ -135,7 +135,10 @@ static int open_as_root_after_refusal(int dirfd, const char *target, int flags, 
     }
     int fd = has_mode ? (int)syscall(SYS_openat, dirfd, target, flags, mode) : (int)syscall(SYS_openat, dirfd, target, flags, 0);
     int saved_errno = errno;
-    syscall(SYS_fchmodat, dirfd, target, old, 0);
+    // Put the mode back on the file that was opened (the name may have been replaced since); only
+    // when nothing was opened, through the name
+    if (fd >= 0) syscall(SYS_fchmod, fd, old);
+    else syscall(SYS_fchmodat, dirfd, target, old, 0);
     errno = saved_errno;
     return fd;
 }
@@ -374,7 +377,7 @@ int mkstemp(char *template) {
     char buf[PATH_MAX];
     const char *target = rewrite_path(template, buf, sizeof(buf));
     if (target == template) {
-        return orig_mkstemp ? orig_mkstemp(template) : -1;
+        { int nfd = orig_mkstemp ? orig_mkstemp(template) : -1; if (nfd >= 0) ow_record_new_at(nfd, NULL, 0); return nfd; }
     }
 
     char tmp_buf[PATH_MAX];
@@ -383,6 +386,7 @@ int mkstemp(char *template) {
 
     int fd = orig_mkstemp ? orig_mkstemp(tmp_buf) : -1;
     if (fd >= 0) {
+        ow_record_new_at(fd, NULL, 0);
         size_t orig_len = strlen(template);
         size_t tmp_len = strlen(tmp_buf);
         if (orig_len >= 6 && tmp_len >= 6) {
@@ -401,7 +405,7 @@ int mkostemp(char *template, int flags) {
     char buf[PATH_MAX];
     const char *target = rewrite_path(template, buf, sizeof(buf));
     if (target == template) {
-        return orig_mkostemp ? orig_mkostemp(template, flags) : -1;
+        { int nfd = orig_mkostemp ? orig_mkostemp(template, flags) : -1; if (nfd >= 0) ow_record_new_at(nfd, NULL, 0); return nfd; }
     }
 
     char tmp_buf[PATH_MAX];
@@ -410,6 +414,7 @@ int mkostemp(char *template, int flags) {
 
     int fd = orig_mkostemp ? orig_mkostemp(tmp_buf, flags) : -1;
     if (fd >= 0) {
+        ow_record_new_at(fd, NULL, 0);
         size_t orig_len = strlen(template);
         size_t tmp_len = strlen(tmp_buf);
         if (orig_len >= 6 && tmp_len >= 6) {
@@ -428,7 +433,7 @@ int mkstemps(char *template, int suffixlen) {
     char buf[PATH_MAX];
     const char *target = rewrite_path(template, buf, sizeof(buf));
     if (target == template) {
-        return orig_mkstemps ? orig_mkstemps(template, suffixlen) : -1;
+        { int nfd = orig_mkstemps ? orig_mkstemps(template, suffixlen) : -1; if (nfd >= 0) ow_record_new_at(nfd, NULL, 0); return nfd; }
     }
 
     char tmp_buf[PATH_MAX];
@@ -437,6 +442,7 @@ int mkstemps(char *template, int suffixlen) {
 
     int fd = orig_mkstemps ? orig_mkstemps(tmp_buf, suffixlen) : -1;
     if (fd >= 0) {
+        ow_record_new_at(fd, NULL, 0);
         size_t orig_len = strlen(template);
         size_t tmp_len = strlen(tmp_buf);
         if (orig_len >= (size_t)(suffixlen + 6) && tmp_len >= (size_t)(suffixlen + 6)) {
@@ -455,7 +461,7 @@ int mkostemps(char *template, int suffixlen, int flags) {
     char buf[PATH_MAX];
     const char *target = rewrite_path(template, buf, sizeof(buf));
     if (target == template) {
-        return orig_mkostemps ? orig_mkostemps(template, suffixlen, flags) : -1;
+        { int nfd = orig_mkostemps ? orig_mkostemps(template, suffixlen, flags) : -1; if (nfd >= 0) ow_record_new_at(nfd, NULL, 0); return nfd; }
     }
 
     char tmp_buf[PATH_MAX];
@@ -464,6 +470,7 @@ int mkostemps(char *template, int suffixlen, int flags) {
 
     int fd = orig_mkostemps ? orig_mkostemps(tmp_buf, suffixlen, flags) : -1;
     if (fd >= 0) {
+        ow_record_new_at(fd, NULL, 0);
         size_t orig_len = strlen(template);
         size_t tmp_len = strlen(tmp_buf);
         if (orig_len >= (size_t)(suffixlen + 6) && tmp_len >= (size_t)(suffixlen + 6)) {

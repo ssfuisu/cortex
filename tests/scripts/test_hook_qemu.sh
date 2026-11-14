@@ -1005,6 +1005,8 @@ check "a process becomes another user, keeps it across exec, and chown gives fil
 # it, and a connection to the low port on this phone reaches it. (Run as root, the port is free.)
 prog low_port <<'EOC'
 #include <arpa/inet.h>
+#include <errno.h>
+#include <poll.h>
 #include <netinet/in.h>
 #include <stdio.h>
 #include <string.h>
@@ -1027,13 +1029,22 @@ int main(void) {
     int c = socket(AF_INET, SOCK_STREAM, 0);
     a.sin_port = htons(81);
     int r = connect(c, (struct sockaddr *)&a, sizeof(a));
-    printf("port %s, connect %d\n", port == 81 || port == 8081 ? "81 or 8081" : "other", r);
+    // A non-blocking client (curl) learns the result later, from SO_ERROR
+    int n = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
+    int nr = connect(n, (struct sockaddr *)&a, sizeof(a));
+    struct pollfd p = { n, POLLOUT, 0 };
+    poll(&p, 1, 5000);
+    int err = -1;
+    socklen_t el = sizeof(err);
+    getsockopt(n, SOL_SOCKET, SO_ERROR, &err, &el);
+    printf("port %s, connect %d, non-blocking %s\n", port == 81 || port == 8081 ? "81 or 8081" : "other", r,
+           (nr == 0 || errno == EINPROGRESS) && err == 0 ? "connected" : "refused");
     return 0;
 }
 EOC
 out=$(run "$work/low_port" 2>&1 | grep -v "^cortex: port")
-check "a server on a port below 1024 gets one 8000 above it, and a connection to the low port reaches it" test "$out" = "port 81 or 8081, connect 0"
-[ "$out" = "port 81 or 8081, connect 0" ] || echo "        got: $out"
+check "a server on a port below 1024 gets one 8000 above it, and a connection to the low port reaches it" test "$out" = "port 81 or 8081, connect 0, non-blocking connected"
+[ "$out" = "port 81 or 8081, connect 0, non-blocking connected" ] || echo "        got: $out"
 
 # 32-bit ARM: Ubuntu builds with a 64-bit time_t and off_t, so a program's stat() is
 # __stat64_time64, and the hook's function of that name must call the C library's of that name: it

@@ -141,6 +141,40 @@ static int is_loopback_addr(const struct sockaddr *addr, socklen_t addrlen) {
     return 0;
 }
 
+// $CORTEX_ROOT/run/cortex/moved-ports/PORT: a server of this phone listens on PORT + 8000
+static int moved_port_path(int port, char *path, size_t size) {
+    init_cortex_hook();
+    if (g_cortex_root_len == 0) return 0;
+    int n = snprintf(path, size, "%.*s/run/cortex/moved-ports/%d", (int)g_cortex_root_len, g_cortex_root, port);
+    return n > 0 && (size_t)n < size;
+}
+
+static void remember_moved_port(int port) {
+    char path[PATH_MAX];
+    if (!moved_port_path(port, path, sizeof(path))) return;
+    char dir[PATH_MAX];
+    snprintf(dir, sizeof(dir), "%s", path);
+    char *slash = strrchr(dir, '/');
+    if (slash) {
+        *slash = '\0';
+        // run/cortex is the app's; a rootfs without it gets it here
+        for (char *p = dir + g_cortex_root_len + 1; *p; p++) {
+            if (*p != '/') continue;
+            *p = '\0';
+            syscall(SYS_mkdirat, AT_FDCWD, dir, 0755);
+            *p = '/';
+        }
+        syscall(SYS_mkdirat, AT_FDCWD, dir, 0755);
+    }
+    int fd = (int)syscall(SYS_openat, AT_FDCWD, path, O_WRONLY | O_CREAT | O_CLOEXEC, 0644);
+    if (fd >= 0) syscall(SYS_close, fd);
+}
+
+static int low_port_was_moved(int port) {
+    char path[PATH_MAX];
+    return moved_port_path(port, path, sizeof(path)) && syscall(SYS_faccessat, AT_FDCWD, path, F_OK, 0) == 0;
+}
+
 int bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen) {
     static int (*orig_bind)(int, const struct sockaddr *, socklen_t) = NULL;
     if (!orig_bind) orig_bind = (int (*)(int, const struct sockaddr *, socklen_t))dlsym(RTLD_NEXT, "bind");
@@ -161,6 +195,7 @@ int bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen) {
         int from = 0, to = 0;
         socklen_t moved_len = with_moved_port(addr, addrlen, &moved, &from, &to);
         if (moved_len && orig_bind(sockfd, (struct sockaddr *)&moved, moved_len) == 0) {
+            remember_moved_port(from);
             static int told = 0;
             if (!__atomic_exchange_n(&told, 1, __ATOMIC_RELAXED)) {
                 char msg[160];
@@ -213,17 +248,16 @@ int connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen) {
         }
         return ret;
     }
-    int ret = orig_connect ? orig_connect(sockfd, addr, addrlen) : -1;
-    if (ret != 0 && errno == ECONNREFUSED && addr && is_loopback_addr(addr, addrlen)) {
-        // Nothing on a low port of this phone: a server here that asked for it is on the moved one
+    // A low port on this phone that a server here asked for: it is on the moved one (the server
+    // left $CORTEX_ROOT/run/cortex/moved-ports/PORT). Nothing of Cortex can be on the low port
+    // itself, so the connection goes straight to the moved one, blocking or not (curl).
+    if (addr && orig_connect && is_loopback_addr(addr, addrlen)) {
         struct sockaddr_storage moved;
         int from = 0, to = 0;
         socklen_t moved_len = with_moved_port(addr, addrlen, &moved, &from, &to);
-        if (moved_len && orig_connect(sockfd, (struct sockaddr *)&moved, moved_len) == 0) return 0;
-        if (moved_len && errno != EINPROGRESS) errno = ECONNREFUSED;
-        else if (moved_len) return -1; // EINPROGRESS: the moved port is being tried
+        if (moved_len && low_port_was_moved(from)) return orig_connect(sockfd, (struct sockaddr *)&moved, moved_len);
     }
-    return ret;
+    return orig_connect ? orig_connect(sockfd, addr, addrlen) : -1;
 }
 
 ssize_t sendto(int sockfd, const void *buf, size_t len, int flags,
@@ -298,7 +332,10 @@ static void peer_cred_as_seen_here(struct ucred *cred) {
     int is_app_gid = cred->gid == (gid_t)call_orig_syscall(CORTEX_NR_REAL_GETGID, 0, 0, 0, 0, 0, 0);
     if (!is_app_uid && !is_app_gid) return;
     cortex_ids_t peer;
-    ids_of_pid(cred->pid, &peer);
+    if (ids_of_pid(cred->pid, &peer) != 0) {
+        // The process is gone: it is shown as this one sees itself, as before
+        peer = *ids_now();
+    }
     if (is_app_uid) cred->uid = peer.e;
     if (is_app_gid) cred->gid = peer.ge;
 }

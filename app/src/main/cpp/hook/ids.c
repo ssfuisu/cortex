@@ -32,6 +32,21 @@ typedef struct {
 
 static cortex_ids_t g_ids;  // all 0: root
 static int g_ids_loaded = 0;
+// Changes of the ids from two threads at once (setuid() and setgid()) are made one after the other.
+// A spin lock: the SIGSYS handler can take it too (no system call is made while it is held, so the
+// handler never runs in a thread that holds it).
+static int g_ids_lock = 0;
+
+static void ids_lock(void) {
+    while (__atomic_exchange_n(&g_ids_lock, 1, __ATOMIC_ACQUIRE)) {
+        while (__atomic_load_n(&g_ids_lock, __ATOMIC_RELAXED)) {
+        }
+    }
+}
+
+static void ids_unlock(void) {
+    __atomic_store_n(&g_ids_lock, 0, __ATOMIC_RELEASE);
+}
 // The app's real user and group (hardlinks.c keeps them: g_app_uid, g_app_gid, -1 until known)
 static void ids_load_app(void) {
     if (__atomic_load_n(&g_app_uid, __ATOMIC_RELAXED) == (uid_t)-1) load_app_ids();
@@ -140,8 +155,7 @@ static int ids_in_groups(const cortex_ids_t *ids, gid_t gid) {
 
 // setresuid() and setresgid() as the kernel does them: the privileged (effective user root) may set
 // any id, the others only one they have (-1 leaves one as it is)
-static int ids_setres(int group, unsigned long r, unsigned long e, unsigned long s) {
-    ids_load();
+static int ids_setres_locked(int group, unsigned long r, unsigned long e, unsigned long s) {
     cortex_ids_t ids = g_ids;
     int privileged = ids.e == 0;
     uid_t *cur = group ? (uid_t *)&ids.gr : &ids.r;
@@ -161,10 +175,20 @@ static int ids_setres(int group, unsigned long r, unsigned long e, unsigned long
     return 0;
 }
 
+static int ids_setres(int group, unsigned long r, unsigned long e, unsigned long s) {
+    ids_load();
+    ids_lock();
+    int ret = ids_setres_locked(group, r, e, s);
+    ids_unlock();
+    return ret;
+}
+
 static int ids_setuid(int group, unsigned long id) {
     ids_load();
-    if (g_ids.e == 0) return ids_setres(group, id, id, id);
-    return ids_setres(group, (unsigned long)-1, id, (unsigned long)-1);
+    ids_lock();
+    int ret = g_ids.e == 0 ? ids_setres_locked(group, id, id, id) : ids_setres_locked(group, (unsigned long)-1, id, (unsigned long)-1);
+    ids_unlock();
+    return ret;
 }
 
 // setreuid(): the real id may become the effective one, the effective one any of the three; the
@@ -172,35 +196,39 @@ static int ids_setuid(int group, unsigned long id) {
 // something other than the old real one
 static int ids_setre(int group, unsigned long r, unsigned long e) {
     ids_load();
+    ids_lock();
+    int ret = 0;
     cortex_ids_t ids = g_ids;
     uid_t *cur = group ? (uid_t *)&ids.gr : &ids.r;
     int privileged = ids.e == 0;
     uid_t old_r = cur[0], old_e = cur[1], old_s = cur[2];
     if (!privileged) {
-        if ((uid_t)r != (uid_t)-1 && (uid_t)r != old_r && (uid_t)r != old_e) {
+        if (((uid_t)r != (uid_t)-1 && (uid_t)r != old_r && (uid_t)r != old_e) ||
+            ((uid_t)e != (uid_t)-1 && (uid_t)e != old_r && (uid_t)e != old_e && (uid_t)e != old_s)) {
             errno = EPERM;
-            return -1;
-        }
-        if ((uid_t)e != (uid_t)-1 && (uid_t)e != old_r && (uid_t)e != old_e && (uid_t)e != old_s) {
-            errno = EPERM;
-            return -1;
+            ret = -1;
         }
     }
-    if ((uid_t)r != (uid_t)-1) cur[0] = (uid_t)r;
-    if ((uid_t)e != (uid_t)-1) cur[1] = (uid_t)e;
-    if ((uid_t)r != (uid_t)-1 || ((uid_t)e != (uid_t)-1 && (uid_t)e != old_r)) cur[2] = cur[1];
-    g_ids = ids;
-    return 0;
+    if (ret == 0) {
+        if ((uid_t)r != (uid_t)-1) cur[0] = (uid_t)r;
+        if ((uid_t)e != (uid_t)-1) cur[1] = (uid_t)e;
+        if ((uid_t)r != (uid_t)-1 || ((uid_t)e != (uid_t)-1 && (uid_t)e != old_r)) cur[2] = cur[1];
+        g_ids = ids;
+    }
+    ids_unlock();
+    return ret;
 }
 
 static int ids_setgroups(size_t n, const gid_t *list) {
     ids_load();
-    if (g_ids.e != 0) {
-        errno = EPERM;
-        return -1;
-    }
     if (n > 0 && !list) {
         errno = EFAULT;
+        return -1;
+    }
+    ids_lock();
+    if (g_ids.e != 0) {
+        ids_unlock();
+        errno = EPERM;
         return -1;
     }
     if (n > CORTEX_IDS_MAX_GROUPS) n = CORTEX_IDS_MAX_GROUPS;
@@ -212,6 +240,7 @@ static int ids_setgroups(size_t n, const gid_t *list) {
         g_ids.ngroups = 1;
         g_ids.groups[0] = g_ids.ge;
     }
+    ids_unlock();
     return 0;
 }
 
@@ -364,9 +393,15 @@ static int ow_maybe_any(void) {
 static int ow_get(uint64_t dev, uint64_t ino, uid_t *uid, gid_t *gid) {
     if (!ow_maybe_any()) return 0;
     cortex_ow_table_t *t = g_ow_table;
-    for (int attempt = 0; attempt < 64; attempt++) {
+    // Writers hold the table for a moment; a sequence that stays odd is one a writer left when it
+    // died (the next writer repairs it): after a while the table is read as it is
+    for (int attempt = 0; attempt < 4096; attempt++) {
         uint32_t seq = __atomic_load_n(&t->seq, __ATOMIC_ACQUIRE);
-        if (seq & 1) continue;
+        int last = attempt == 4095;
+        if ((seq & 1) && !last) {
+            if ((attempt & 63) == 63) sched_yield();
+            continue;
+        }
         int found = 0;
         uint32_t u = 0, g = 0;
         uint32_t i = ow_hash(dev, ino);
@@ -382,7 +417,7 @@ static int ow_get(uint64_t dev, uint64_t ino, uid_t *uid, gid_t *gid) {
             }
         }
         __atomic_thread_fence(__ATOMIC_ACQUIRE);
-        if (__atomic_load_n(&t->seq, __ATOMIC_RELAXED) != seq) continue;
+        if (!last && __atomic_load_n(&t->seq, __ATOMIC_RELAXED) != seq) continue;
         if (found) {
             *uid = (uid_t)u;
             *gid = (gid_t)g;
@@ -401,24 +436,32 @@ static int ow_lock_file(void) {
     memset(&fl, 0, sizeof(fl));
     fl.l_type = F_WRLCK;
     fl.l_whence = SEEK_SET;
-    while (fcntl(fd, F_SETLKW, &fl) != 0 && errno == EINTR) {
+    for (;;) {
+        if (fcntl(fd, F_SETLKW, &fl) == 0) return fd;
+        if (errno != EINTR) break;
     }
-    return fd;
+    syscall(SYS_close, fd);
+    return -1;
 }
 
 // Records the owner of a file (root's, 0:0, removes the record); with set = 0 only removes it
 static void ow_put(uint64_t dev, uint64_t ino, uid_t uid, gid_t gid, int set) {
     if (set && uid == 0 && gid == 0) set = 0;
-    if (!set) {
-        uid_t u;
-        gid_t g;
-        if (!ow_get(dev, ino, &u, &g)) return; // nothing to remove: no lock, no table
-    }
+    // Nothing to remove without a table or records: no lock
+    if (!set && !ow_maybe_any()) return;
     cortex_ow_table_t *t = ow_table(set);
     if (!t) return;
     int saved_errno = errno;
     pthread_mutex_lock(&g_ow_lock);
     int fd = ow_lock_file();
+    if (fd < 0) {
+        // Without the lock other processes could write at the same time: the change is not made
+        pthread_mutex_unlock(&g_ow_lock);
+        errno = saved_errno;
+        return;
+    }
+    // A writer that died while it wrote left the sequence odd: make it even again
+    if (t->seq & 1) __atomic_store_n(&t->seq, t->seq + 1, __ATOMIC_RELEASE);
     __atomic_store_n(&t->seq, t->seq + 1, __ATOMIC_RELEASE);
     __atomic_thread_fence(__ATOMIC_SEQ_CST);
     uint32_t i = ow_hash(dev, ino);
@@ -475,7 +518,7 @@ static void ow_put(uint64_t dev, uint64_t ino, uid_t uid, gid_t gid, int set) {
     }
     __atomic_thread_fence(__ATOMIC_SEQ_CST);
     __atomic_store_n(&t->seq, t->seq + 1, __ATOMIC_RELEASE);
-    if (fd >= 0) syscall(SYS_close, fd);
+    syscall(SYS_close, fd);
     pthread_mutex_unlock(&g_ow_lock);
     errno = saved_errno;
 }
@@ -583,10 +626,14 @@ static void ow_forget(uint64_t dev, uint64_t ino) {
     ow_put(dev, ino, 0, 0, 0);
 }
 
-// Whether a name does not exist yet (an open with O_CREAT then makes it)
+// Whether what an open of a name with O_CREAT opens does not exist yet (a dangling symbolic link
+// is followed, as open() follows it)
 static int ow_name_is_new(int dirfd, const char *path) {
     struct stat st;
-    return path && ow_real_fstatat(dirfd, path, &st, AT_SYMLINK_NOFOLLOW) != 0 && errno == ENOENT;
+    int saved_errno = errno;
+    int is_new = path && ow_real_fstatat(dirfd, path, &st, 0) != 0 && errno == ENOENT;
+    errno = saved_errno;
+    return is_new;
 }
 
 // --- At exec ---------------------------------------------------------------------------------
@@ -606,7 +653,9 @@ static int ids_for_exec(const char *path, const char *become, cortex_ids_t *out)
         ids_set_app(out);
         return 0;
     }
-    if (ids_are_root(out)) return 1;
+    // Root's set-user-ID programs change nothing for root; only a file given to another user does,
+    // and there are none while no owner is recorded
+    if (ids_are_root(out) && !ow_maybe_any()) return 1;
     if (path && !ids_app_mode()) {
         struct stat st;
         if (ow_presented_at(AT_FDCWD, path, 0, &st) == 0 && S_ISREG(st.st_mode)) {
@@ -663,7 +712,37 @@ static int ids_of_pid(pid_t pid, cortex_ids_t *out) {
 
 // An id call that reached the SIGSYS handler (Android's filter refuses them to apps): what the
 // call returns (-1 with errno), or LONG_MIN for another call
+// An id of an old 16-bit call (32-bit ARM's calls without "32"): 0xffff is -1
+__attribute__((unused)) static long ids_arg16(long a) {
+    return (a & 0xffff) == 0xffff ? -1L : (a & 0xffff);
+}
+
 __attribute__((unused)) static long sigsys_id_call(int nr, long a0, long a1, long a2) {
+#if defined(__NR_setuid32) && defined(__NR_setuid)
+    switch (nr) {
+    case __NR_setuid:
+    case __NR_setgid:
+    case __NR_setreuid:
+    case __NR_setregid:
+    case __NR_setresuid:
+    case __NR_setresgid:
+    case __NR_setfsuid:
+    case __NR_setfsgid:
+        a0 = ids_arg16(a0);
+        a1 = ids_arg16(a1);
+        a2 = ids_arg16(a2);
+        break;
+    case __NR_setgroups: {
+        // 16-bit ids in the list
+        gid_t list[CORTEX_IDS_MAX_GROUPS];
+        size_t n = (size_t)a0 > CORTEX_IDS_MAX_GROUPS ? CORTEX_IDS_MAX_GROUPS : (size_t)a0;
+        for (size_t i = 0; i < n; i++) list[i] = ((const uint16_t *)a1)[i];
+        return ids_setgroups(n, list);
+    }
+    default:
+        break;
+    }
+#endif
     switch (nr) {
 #if defined(__NR_setresuid)
     case __NR_setresuid:

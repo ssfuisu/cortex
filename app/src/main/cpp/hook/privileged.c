@@ -682,71 +682,39 @@ long syscall(long number, ...) {
     }
 #endif
 
-    // The ids, as the functions of identity.c answer them (ids.c)
+    // The ids, as the functions of identity.c answer them (ids.c). 32-bit ARM also has the old
+    // calls with 16-bit ids (without "32"): their ids and -1 are 16 bits wide.
+#if defined(__NR_getresuid32) && defined(__NR_getresuid)
+    if (number == __NR_getresuid || number == __NR_getresgid) {
+        uint16_t *out[3] = {(uint16_t *)arg1, (uint16_t *)arg2, (uint16_t *)arg3};
+        uid_t r, e, sv;
+        if (number == __NR_getresuid) getresuid(&r, &e, &sv);
+        else getresgid((gid_t *)&r, (gid_t *)&e, (gid_t *)&sv);
+        uid_t v[3] = {r, e, sv};
+        for (int i = 0; i < 3; i++) {
+            if (out[i]) *out[i] = (uint16_t)(v[i] > 0xfffe ? 0xfffe : v[i]);
+        }
+        return 0;
+    }
+#endif
+#if defined(__NR_getgroups32) && defined(__NR_getgroups)
+    if (number == __NR_getgroups) {
+        gid_t groups[CORTEX_IDS_MAX_GROUPS];
+        int n = getgroups(CORTEX_IDS_MAX_GROUPS, groups);
+        if (n < 0 || (int)arg1 == 0) return n;
+        if ((int)arg1 < n) {
+            errno = EINVAL;
+            return -1;
+        }
+        for (int i = 0; i < n; i++) ((uint16_t *)arg2)[i] = (uint16_t)groups[i];
+        return n;
+    }
+#endif
+    {
+        long r = sigsys_id_call(number, arg1, arg2, arg3);
+        if (r != LONG_MIN) return r;
+    }
     switch (number) {
-#if defined(__NR_setresuid)
-    case __NR_setresuid:
-#endif
-#if defined(__NR_setresuid32)
-    case __NR_setresuid32:
-#endif
-        return ids_setres(0, (unsigned long)(uid_t)arg1, (unsigned long)(uid_t)arg2, (unsigned long)(uid_t)arg3);
-#if defined(__NR_setresgid)
-    case __NR_setresgid:
-#endif
-#if defined(__NR_setresgid32)
-    case __NR_setresgid32:
-#endif
-        return ids_setres(1, (unsigned long)(gid_t)arg1, (unsigned long)(gid_t)arg2, (unsigned long)(gid_t)arg3);
-#if defined(__NR_setuid)
-    case __NR_setuid:
-#endif
-#if defined(__NR_setuid32)
-    case __NR_setuid32:
-#endif
-        return ids_setuid(0, (unsigned long)(uid_t)arg1);
-#if defined(__NR_setgid)
-    case __NR_setgid:
-#endif
-#if defined(__NR_setgid32)
-    case __NR_setgid32:
-#endif
-        return ids_setuid(1, (unsigned long)(gid_t)arg1);
-#if defined(__NR_setreuid)
-    case __NR_setreuid:
-#endif
-#if defined(__NR_setreuid32)
-    case __NR_setreuid32:
-#endif
-        return ids_setre(0, (unsigned long)(uid_t)arg1, (unsigned long)(uid_t)arg2);
-#if defined(__NR_setregid)
-    case __NR_setregid:
-#endif
-#if defined(__NR_setregid32)
-    case __NR_setregid32:
-#endif
-        return ids_setre(1, (unsigned long)(gid_t)arg1, (unsigned long)(gid_t)arg2);
-#if defined(__NR_setgroups)
-    case __NR_setgroups:
-#endif
-#if defined(__NR_setgroups32)
-    case __NR_setgroups32:
-#endif
-        return ids_setgroups((size_t)arg1, (const gid_t *)arg2);
-#if defined(__NR_setfsuid)
-    case __NR_setfsuid:
-#endif
-#if defined(__NR_setfsuid32)
-    case __NR_setfsuid32:
-#endif
-        return (long)ids_now()->e;
-#if defined(__NR_setfsgid)
-    case __NR_setfsgid:
-#endif
-#if defined(__NR_setfsgid32)
-    case __NR_setfsgid32:
-#endif
-        return (long)ids_now()->ge;
 #if defined(__NR_getuid)
     case __NR_getuid:
 #endif
