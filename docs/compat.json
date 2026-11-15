@@ -1,72 +1,72 @@
 {
- "version": "v1.27.7",
- "date": "2026-11-14",
+ "version": "v1.28.0",
+ "date": "2026-11-15",
  "where": "Android 14 emulator (API 34), arm64-v8a APK",
  "packages": [
   {
    "name": "python3",
    "ok": true,
-   "seconds": 35,
+   "seconds": 31,
    "why": ""
   },
   {
    "name": "python3-venv-pip",
    "ok": true,
-   "seconds": 129,
+   "seconds": 118,
    "why": ""
   },
   {
    "name": "nodejs-npm",
    "ok": true,
-   "seconds": 253,
+   "seconds": 256,
    "why": ""
   },
   {
    "name": "c-gcc",
    "ok": true,
-   "seconds": 47,
+   "seconds": 46,
    "why": ""
   },
   {
    "name": "cpp-g++",
    "ok": true,
-   "seconds": 6,
+   "seconds": 5,
    "why": ""
   },
   {
    "name": "cmake",
    "ok": true,
-   "seconds": 29,
+   "seconds": 27,
    "why": ""
   },
   {
    "name": "rust",
    "ok": true,
-   "seconds": 23,
+   "seconds": 22,
    "why": ""
   },
   {
    "name": "go",
    "ok": false,
-   "seconds": 17,
+   "seconds": 16,
    "why": "the test failed: $ printf \"package main\\nimport \\\"fmt\\\"\\nfunc main() { fmt.Println(\\\"hello from Go\\\") }\\n\" > h.go && go run h.go Error running /data/user/0/org.cortex.terminal/files/cortex/bin/go: Unable to get realpath of go exit status 255"
   },
   {
    "name": "java",
    "ok": false,
    "seconds": 28,
-   "why": "the test failed: # bash: line 1: 13041 Aborted javac H.java exit status 134"
+   "why": "the test failed: # bash: line 1: 12966 Aborted javac H.java exit status 134"
   },
   {
    "name": "php",
    "ok": true,
-   "seconds": 267,
+   "seconds": 256,
    "why": ""
   },
   {
    "name": "ruby",
    "ok": true,
-   "seconds": 14,
+   "seconds": 15,
    "why": ""
   },
   {
@@ -90,7 +90,7 @@
   {
    "name": "curl-https",
    "ok": true,
-   "seconds": 6,
+   "seconds": 7,
    "why": ""
   },
   {
@@ -102,13 +102,13 @@
   {
    "name": "jq",
    "ok": true,
-   "seconds": 6,
+   "seconds": 7,
    "why": ""
   },
   {
    "name": "sqlite3",
    "ok": true,
-   "seconds": 5,
+   "seconds": 6,
    "why": ""
   },
   {
@@ -126,7 +126,7 @@
   {
    "name": "rsync",
    "ok": true,
-   "seconds": 8,
+   "seconds": 9,
    "why": ""
   },
   {
@@ -150,7 +150,7 @@
   {
    "name": "vim",
    "ok": true,
-   "seconds": 11,
+   "seconds": 12,
    "why": ""
   },
   {
@@ -162,13 +162,13 @@
   {
    "name": "tmux",
    "ok": true,
-   "seconds": 10,
+   "seconds": 11,
    "why": ""
   },
   {
    "name": "zsh",
    "ok": true,
-   "seconds": 14,
+   "seconds": 13,
    "why": ""
   },
   {
@@ -186,26 +186,26 @@
   {
    "name": "nginx",
    "ok": true,
-   "seconds": 20,
+   "seconds": 19,
    "why": ""
   },
   {
    "name": "mariadb",
    "ok": true,
-   "seconds": 45,
+   "seconds": 42,
    "why": ""
   },
   {
    "name": "postgresql-client",
    "ok": true,
-   "seconds": 31,
+   "seconds": 30,
    "why": ""
   },
   {
    "name": "postgresql",
    "ok": false,
-   "seconds": 87,
-   "why": "the test failed: psql: error: connection to server on socket \"/var/run/postgresql/.s.PGSQL.5432\" failed: No such file or directory Is the server running locally and accepting connections on that socket? exit status 2"
+   "seconds": 83,
+   "why": "the test failed: Examine the log output. ...fail! exit status 1"
   }
  ]
 }
