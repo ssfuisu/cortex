@@ -248,4 +248,7 @@
     <string name="setup_terminal_only">Terminal sahaja</string>
     <string name="setup_switch">Tukar</string>
     <string name="setup_no_space">Ruang kosong %1$s diperlukan, %2$s yang ada.</string>
+    <string name="pref_gpu_title">Pecutan GPU</string>
+    <string name="pref_gpu_summary">Percubaan. OpenGL program Linux berjalan pada GPU telefon ini</string>
+    <string name="pref_gpu_summary_device">Percubaan. Peranti ini: %1$s</string>
 </resources>

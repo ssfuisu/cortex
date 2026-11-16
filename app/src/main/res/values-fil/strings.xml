@@ -248,4 +248,7 @@
     <string name="setup_terminal_only">Terminal lang</string>
     <string name="setup_switch">Lumipat</string>
     <string name="setup_no_space">Kailangan ng %1$s na bakanteng espasyo, %2$s ang bakante.</string>
+    <string name="pref_gpu_title">GPU acceleration</string>
+    <string name="pref_gpu_summary">Experimental. Tumatakbo sa GPU ng teleponong ito ang OpenGL ng mga Linux program</string>
+    <string name="pref_gpu_summary_device">Experimental. Itong device: %1$s</string>
 </resources>

@@ -248,4 +248,7 @@
     <string name="setup_terminal_only">Só o terminal</string>
     <string name="setup_switch">Trocar</string>
     <string name="setup_no_space">São necessários %1$s livres, há %2$s livres.</string>
+    <string name="pref_gpu_title">Aceleração por GPU</string>
+    <string name="pref_gpu_summary">Experimental. O OpenGL dos programas Linux roda na GPU do celular</string>
+    <string name="pref_gpu_summary_device">Experimental. Este aparelho: %1$s</string>
 </resources>

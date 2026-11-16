@@ -248,4 +248,7 @@
     <string name="setup_terminal_only">Chỉ terminal</string>
     <string name="setup_switch">Chuyển</string>
     <string name="setup_no_space">Cần %1$s dung lượng trống, hiện còn %2$s.</string>
+    <string name="pref_gpu_title">Tăng tốc GPU</string>
+    <string name="pref_gpu_summary">Thử nghiệm. OpenGL của chương trình Linux chạy trên GPU của máy này</string>
+    <string name="pref_gpu_summary_device">Thử nghiệm. Thiết bị này: %1$s</string>
 </resources>

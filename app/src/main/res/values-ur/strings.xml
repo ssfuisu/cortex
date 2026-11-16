@@ -248,4 +248,7 @@
     <string name="setup_terminal_only">صرف ٹرمینل</string>
     <string name="setup_switch">بدلیں</string>
     <string name="setup_no_space">%1$s خالی جگہ چاہیے، %2$s خالی ہے۔</string>
+    <string name="pref_gpu_title">GPU ایکسلریشن</string>
+    <string name="pref_gpu_summary">تجرباتی۔ Linux پروگراموں کا OpenGL اس فون کے GPU پر چلتا ہے</string>
+    <string name="pref_gpu_summary_device">تجرباتی۔ یہ آلہ: %1$s</string>
 </resources>

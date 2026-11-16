@@ -248,4 +248,7 @@
     <string name="setup_terminal_only">Kun terminal</string>
     <string name="setup_switch">Skift</string>
     <string name="setup_no_space">Der skal bruges %1$s fri plads, %2$s er fri.</string>
+    <string name="pref_gpu_title">GPU-acceleration</string>
+    <string name="pref_gpu_summary">Eksperimentel. Linux-programmers OpenGL kører på telefonens GPU</string>
+    <string name="pref_gpu_summary_device">Eksperimentel. Denne enhed: %1$s</string>
 </resources>

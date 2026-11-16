@@ -97,6 +97,17 @@ class SettingsActivity : AppCompatActivity() {
                     org.cortex.terminal.runtime.DistroSetup.DESKTOPS.firstOrNull { it.kind == kind }?.name ?: kind)
             }
             findPreference<Preference>("desktop_remove")?.isVisible = kind != null
+            // GPU acceleration: only in an APK that has the server; the summary names the phone's GPU
+            findPreference<Preference>("gpu_acceleration")?.let { pref ->
+                pref.isVisible = org.cortex.terminal.desktop.GpuAcceleration.available(context)
+                val app = context.applicationContext
+                Thread {
+                    val name = org.cortex.terminal.desktop.GpuAcceleration.renderer(app)
+                    activity?.runOnUiThread {
+                        if (isAdded && name != null) pref.summary = getString(R.string.pref_gpu_summary_device, name)
+                    }
+                }.start()
+            }
             val distro = org.cortex.terminal.runtime.DistroInstaller.active(context)
             findPreference<Preference>("distro")?.summary = getString(R.string.pref_distro_summary, distro?.label ?: "Ubuntu 24.04 LTS")
         }
@@ -196,6 +207,12 @@ class SettingsActivity : AppCompatActivity() {
 
             // The desktop (X11): opened, installed (in a new session, where apt's progress can be read)
             // or removed
+            findPreference<Preference>("gpu_acceleration")?.setOnPreferenceChangeListener { _, _ ->
+                // after the setting is stored: the server starts or stops as it says
+                val app = requireContext().applicationContext
+                view?.post { Thread { org.cortex.terminal.desktop.GpuAcceleration.sync(app) }.start() }
+                true
+            }
             findPreference<Preference>("distro")?.setOnPreferenceClickListener {
                 startActivity(android.content.Intent(requireActivity(), org.cortex.terminal.setup.SetupActivity::class.java)
                     .putExtra(org.cortex.terminal.setup.SetupActivity.EXTRA_MANAGE, true))

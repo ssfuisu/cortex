@@ -248,4 +248,7 @@
     <string name="setup_terminal_only">מסוף בלבד</string>
     <string name="setup_switch">החלף</string>
     <string name="setup_no_space">נדרש מקום פנוי של %1$s, פנויים %2$s.</string>
+    <string name="pref_gpu_title">האצת GPU</string>
+    <string name="pref_gpu_summary">ניסיוני. ה-OpenGL של תוכנות לינוקס רץ על ה-GPU של הטלפון</string>
+    <string name="pref_gpu_summary_device">ניסיוני. המכשיר הזה: %1$s</string>
 </resources>

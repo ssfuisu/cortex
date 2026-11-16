@@ -146,6 +146,8 @@ object Environment {
         }
         // The library makes the first program the app's own user (ids.c), and everything it starts
         if (user) envList.add("CORTEX_BECOME=app")
+        // OpenGL on the phone's GPU while that setting is on and its server runs
+        envList.addAll(org.cortex.terminal.desktop.GpuAcceleration.environment(context))
 
         return envList.toTypedArray()
     }

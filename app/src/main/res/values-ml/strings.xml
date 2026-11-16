@@ -248,4 +248,7 @@
     <string name="setup_terminal_only">ടെർമിനൽ മാത്രം</string>
     <string name="setup_switch">മാറുക</string>
     <string name="setup_no_space">%1$s ഒഴിവുള്ള സ്ഥലം വേണം, %2$s ഒഴിവുണ്ട്.</string>
+    <string name="pref_gpu_title">GPU ആക്സിലറേഷൻ</string>
+    <string name="pref_gpu_summary">പരീക്ഷണാത്മകം. Linux പ്രോഗ്രാമുകളുടെ OpenGL ഈ ഫോണിന്റെ GPU-വിൽ പ്രവർത്തിക്കും</string>
+    <string name="pref_gpu_summary_device">പരീക്ഷണാത്മകം. ഈ ഉപകരണം: %1$s</string>
 </resources>

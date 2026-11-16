@@ -248,4 +248,7 @@
     <string name="setup_terminal_only">শুধু টার্মিনাল</string>
     <string name="setup_switch">বদলান</string>
     <string name="setup_no_space">%1$s খালি জায়গা লাগবে, খালি আছে %2$s।</string>
+    <string name="pref_gpu_title">GPU ত্বরণ</string>
+    <string name="pref_gpu_summary">পরীক্ষামূলক। Linux প্রোগ্রামের OpenGL এই ফোনের GPU-তে চলে</string>
+    <string name="pref_gpu_summary_device">পরীক্ষামূলক। এই ডিভাইস: %1$s</string>
 </resources>

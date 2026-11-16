@@ -248,4 +248,7 @@
     <string name="setup_terminal_only">फक्त टर्मिनल</string>
     <string name="setup_switch">बदला</string>
     <string name="setup_no_space">%1$s मोकळी जागा हवी, %2$s मोकळी आहे.</string>
+    <string name="pref_gpu_title">GPU प्रवेग</string>
+    <string name="pref_gpu_summary">प्रायोगिक. Linux प्रोग्रामचे OpenGL या फोनच्या GPU वर चालते</string>
+    <string name="pref_gpu_summary_device">प्रायोगिक. हे डिव्हाइस: %1$s</string>
 </resources>

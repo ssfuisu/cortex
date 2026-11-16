@@ -248,4 +248,7 @@
     <string name="setup_terminal_only">Yalnız terminal</string>
     <string name="setup_switch">Keç</string>
     <string name="setup_no_space">%1$s boş yer lazımdır, %2$s boşdur.</string>
+    <string name="pref_gpu_title">GPU sürətləndirməsi</string>
+    <string name="pref_gpu_summary">Sınaq. Linux proqramlarının OpenGL-i bu telefonun GPU-sunda işləyir</string>
+    <string name="pref_gpu_summary_device">Sınaq. Bu cihaz: %1$s</string>
 </resources>

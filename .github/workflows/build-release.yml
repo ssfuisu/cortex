@@ -82,6 +82,20 @@ jobs:
           export PATH=$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH
           sdkmanager --install "ndk;26.1.10909125" "cmake;3.22.1"
 
+      - name: Cache the GPU server (virglrenderer for Android)
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: cache-virgl
+        with:
+          path: app/src/main/jniLibs/*/libvirgl_test_server.so
+          key: virgl-android-v1-${{ hashFiles('scripts/build-virgl-android.sh', 'gpu/patches/**') }}
+
+      - name: Build the GPU server (virglrenderer for Android)
+        if: steps.cache-virgl.outputs.cache-hit != 'true'
+        run: |
+          python3 -m pip install --user --quiet "meson==1.5.2" "ninja==1.11.1.1"
+          export PATH="$HOME/.local/bin:$PATH"
+          ANDROID_NDK_HOME=/usr/local/lib/android/sdk/ndk/26.1.10909125 bash scripts/build-virgl-android.sh app/src/main/jniLibs
+
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
         with:
@@ -548,6 +562,9 @@ jobs:
           }
           check_assets release-apks/Cortex-arm64-v8a-signed.apk arm64 arm
           check_assets release-apks/Cortex-armeabi-v7a-signed.apk arm arm64
+          # The GPU server of each architecture, in its native library directory
+          unzip -l release-apks/Cortex-arm64-v8a-signed.apk | grep -q "lib/arm64-v8a/libvirgl_test_server.so" || { echo "ERROR: no GPU server in the arm64 APK"; exit 1; }
+          unzip -l release-apks/Cortex-armeabi-v7a-signed.apk | grep -q "lib/armeabi-v7a/libvirgl_test_server.so" || { echo "ERROR: no GPU server in the armv7 APK"; exit 1; }
 
           echo "Final optimized APK sizes:"
           ls -lh release-apks/

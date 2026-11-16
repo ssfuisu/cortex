@@ -248,4 +248,7 @@
     <string name="setup_terminal_only">Samo terminal</string>
     <string name="setup_switch">Prebaci</string>
     <string name="setup_no_space">Potrebno je %1$s slobodnog prostora, slobodno je %2$s.</string>
+    <string name="pref_gpu_title">GPU ubrzanje</string>
+    <string name="pref_gpu_summary">Eksperimentalno. OpenGL Linux programa radi na GPU-u telefona</string>
+    <string name="pref_gpu_summary_device">Eksperimentalno. Ovaj uređaj: %1$s</string>
 </resources>

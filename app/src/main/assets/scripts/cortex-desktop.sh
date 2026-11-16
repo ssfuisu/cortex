@@ -37,11 +37,11 @@ base_packages() {
             local icons=adwaita-icon-theme
             [ "$DISTRO_ID" = ubuntu-24.04 ] && icons=adwaita-icon-theme-full
             echo "tigervnc-standalone-server tigervnc-tools dbus-x11 xauth x11-xserver-utils x11-utils xfonts-base
-fonts-dejavu-core $icons librsvg2-common pulseaudio pulseaudio-utils xdg-utils" ;;
-        pacman) echo "tigervnc xorg-xauth dbus pulseaudio xdg-utils adwaita-icon-theme ttf-dejavu" ;;
-        dnf) echo "tigervnc-server-minimal xorg-x11-xauth dbus-x11 pulseaudio pulseaudio-utils xdg-utils adwaita-icon-theme dejavu-sans-fonts" ;;
-        zypper) echo "xorg-x11-Xvnc dbus-1-daemon xauth pulseaudio pulseaudio-utils xdg-utils adwaita-icon-theme dejavu-fonts" ;;
-        xbps) echo "tigervnc xauth dbus-x11 pulseaudio xdg-utils adwaita-icon-theme dejavu-fonts-ttf" ;;
+fonts-dejavu-core $icons librsvg2-common pulseaudio pulseaudio-utils xdg-utils libgl1-mesa-dri mesa-utils" ;;
+        pacman) echo "tigervnc xorg-xauth dbus pulseaudio xdg-utils adwaita-icon-theme ttf-dejavu mesa mesa-utils" ;;
+        dnf) echo "tigervnc-server-minimal xorg-x11-xauth dbus-x11 pulseaudio pulseaudio-utils xdg-utils adwaita-icon-theme dejavu-sans-fonts mesa-dri-drivers glx-utils" ;;
+        zypper) echo "xorg-x11-Xvnc dbus-1-daemon xauth pulseaudio pulseaudio-utils xdg-utils adwaita-icon-theme dejavu-fonts Mesa-dri Mesa-demo-x" ;;
+        xbps) echo "tigervnc xauth dbus-x11 pulseaudio xdg-utils adwaita-icon-theme dejavu-fonts-ttf mesa-dri glxinfo" ;;
     esac
 }
 
@@ -555,6 +555,10 @@ start_session() {
         # wrote a warning
         export DISPLAY=":$display" XDG_SESSION_TYPE=x11 XDG_CURRENT_DESKTOP="$current" NO_AT_BRIDGE=1
         [ -n "$pulse" ] && export PULSE_SERVER="$pulse"
+        # GPU acceleration (Settings): OpenGL goes to the app's virgl server through Mesa's virpipe
+        if [ -f "$R/etc/cortex/gpu.conf" ] && [ -S "$R/tmp/.virgl_test" ]; then
+            export GALLIUM_DRIVER=virpipe MESA_GL_VERSION_OVERRIDE="${MESA_GL_VERSION_OVERRIDE:-4.0}"
+        fi
         # shellcheck disable=SC2046
         exec setsid dbus-launch --exit-with-session $(session_command)
     ) </dev/null >>"$LOG" 2>&1 9>&- &

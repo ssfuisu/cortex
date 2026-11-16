@@ -248,4 +248,7 @@
     <string name="setup_terminal_only">టెర్మినల్ మాత్రమే</string>
     <string name="setup_switch">మార్చు</string>
     <string name="setup_no_space">%1$s ఖాళీ స్థలం కావాలి, %2$s ఖాళీగా ఉంది.</string>
+    <string name="pref_gpu_title">GPU త్వరణం</string>
+    <string name="pref_gpu_summary">ప్రయోగాత్మకం. Linux ప్రోగ్రామ్‌ల OpenGL ఈ ఫోన్ GPU పై నడుస్తుంది</string>
+    <string name="pref_gpu_summary_device">ప్రయోగాత్మకం. ఈ పరికరం: %1$s</string>
 </resources>

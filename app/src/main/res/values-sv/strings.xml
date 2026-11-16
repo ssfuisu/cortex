@@ -248,4 +248,7 @@
     <string name="setup_terminal_only">Bara terminal</string>
     <string name="setup_switch">Byt</string>
     <string name="setup_no_space">Det behövs %1$s ledigt utrymme, %2$s är ledigt.</string>
+    <string name="pref_gpu_title">GPU-acceleration</string>
+    <string name="pref_gpu_summary">Experimentell. Linuxprogrammens OpenGL körs på telefonens GPU</string>
+    <string name="pref_gpu_summary_device">Experimentell. Den här enheten: %1$s</string>
 </resources>

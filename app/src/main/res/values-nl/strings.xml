@@ -248,4 +248,7 @@
     <string name="setup_terminal_only">Alleen terminal</string>
     <string name="setup_switch">Wisselen</string>
     <string name="setup_no_space">Er is %1$s vrije ruimte nodig, %2$s is vrij.</string>
+    <string name="pref_gpu_title">GPU-versnelling</string>
+    <string name="pref_gpu_summary">Experimenteel. OpenGL van Linux-programma\'s draait op de GPU van de telefoon</string>
+    <string name="pref_gpu_summary_device">Experimenteel. Dit apparaat: %1$s</string>
 </resources>

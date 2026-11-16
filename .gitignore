@@ -21,3 +21,4 @@ __pycache__/
 *.p12
 *.pfx
 app/src/main/cpp/gosys/gosys_blob.h
+app/src/main/jniLibs/*/libvirgl_test_server.so

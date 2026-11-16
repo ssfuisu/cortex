@@ -248,4 +248,7 @@
     <string name="setup_terminal_only">Μόνο τερματικό</string>
     <string name="setup_switch">Εναλλαγή</string>
     <string name="setup_no_space">Χρειάζονται %1$s ελεύθερου χώρου, ελεύθερα είναι %2$s.</string>
+    <string name="pref_gpu_title">Επιτάχυνση GPU</string>
+    <string name="pref_gpu_summary">Πειραματικό. Το OpenGL των προγραμμάτων Linux τρέχει στη GPU του κινητού</string>
+    <string name="pref_gpu_summary_device">Πειραματικό. Αυτή η συσκευή: %1$s</string>
 </resources>

@@ -248,4 +248,7 @@
     <string name="setup_terminal_only">الطرفية فقط</string>
     <string name="setup_switch">تبديل</string>
     <string name="setup_no_space">يلزم %1$s من المساحة الحرة، والمتاح %2$s.</string>
+    <string name="pref_gpu_title">تسريع وحدة معالجة الرسومات</string>
+    <string name="pref_gpu_summary">تجريبي. يعمل OpenGL لبرامج لينكس على وحدة الرسومات في هذا الهاتف</string>
+    <string name="pref_gpu_summary_device">تجريبي. هذا الجهاز: %1$s</string>
 </resources>

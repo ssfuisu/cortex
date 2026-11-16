@@ -67,6 +67,11 @@
         <Preference
             app:key="desktop_open"
             app:title="@string/pref_desktop_open_title" />
+        <SwitchPreferenceCompat
+            app:defaultValue="false"
+            app:key="gpu_acceleration"
+            app:summary="@string/pref_gpu_summary"
+            app:title="@string/pref_gpu_title" />
         <Preference
             app:key="desktop_install"
             app:summary="@string/pref_desktop_install_summary"

@@ -250,6 +250,8 @@ class DesktopActivity : AppCompatActivity() {
         val (w, h) = viewDesktopSize()
         thread(name = "Cortex-DesktopStart") {
             var error: String? = null
+            // the GPU server before the desktop, which looks for its socket as it starts
+            GpuAcceleration.sync(app)
             if (!DesktopAddon.isRunning(app)) {
                 val result = DesktopAddon.run(app, "cortex-desktop start --size ${w}x$h")
                 if (result.exitCode != 0 || !DesktopAddon.isRunning(app)) {

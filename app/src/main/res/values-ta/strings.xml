@@ -248,4 +248,7 @@
     <string name="setup_terminal_only">டெர்மினல் மட்டும்</string>
     <string name="setup_switch">மாற்று</string>
     <string name="setup_no_space">%1$s இடம் தேவை, %2$s மட்டுமே காலியாக உள்ளது.</string>
+    <string name="pref_gpu_title">GPU முடுக்கம்</string>
+    <string name="pref_gpu_summary">சோதனை நிலை. Linux நிரல்களின் OpenGL இந்தப் போனின் GPU-வில் இயங்கும்</string>
+    <string name="pref_gpu_summary_device">சோதனை நிலை. இந்தச் சாதனம்: %1$s</string>
 </resources>

@@ -643,6 +643,12 @@ class MainActivity : AppCompatActivity() {
         kotlin.concurrent.thread(name = "Cortex-StartupMaintenance") {
             val started = android.os.SystemClock.uptimeMillis()
             ExtraKeysConfig(Environment.getHomeDir(app)).writeExample()
+            // the GPU server, when that setting is on (programs in the terminal use it too)
+            try {
+                org.cortex.terminal.desktop.GpuAcceleration.sync(app)
+            } catch (e: Exception) {
+                android.util.Log.e("MainActivity", "GPU server", e)
+            }
             try {
                 BootstrapManager.initializeFileSystem(app)
             } catch (e: Exception) {

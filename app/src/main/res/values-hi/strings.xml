@@ -248,4 +248,7 @@
     <string name="setup_terminal_only">सिर्फ़ टर्मिनल</string>
     <string name="setup_switch">बदलें</string>
     <string name="setup_no_space">%1$s खाली जगह चाहिए, %2$s खाली है।</string>
+    <string name="pref_gpu_title">GPU त्वरण</string>
+    <string name="pref_gpu_summary">प्रायोगिक। Linux प्रोग्राम का OpenGL इस फ़ोन के GPU पर चलता है</string>
+    <string name="pref_gpu_summary_device">प्रायोगिक। यह डिवाइस: %1$s</string>
 </resources>

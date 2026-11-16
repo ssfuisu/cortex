@@ -248,4 +248,7 @@
     <string name="setup_terminal_only">Terminal seul</string>
     <string name="setup_switch">Changer</string>
     <string name="setup_no_space">Il faut %1$s d\'espace libre, %2$s sont disponibles.</string>
+    <string name="pref_gpu_title">Accélération GPU</string>
+    <string name="pref_gpu_summary">Expérimental. L\'OpenGL des programmes Linux tourne sur le GPU du téléphone</string>
+    <string name="pref_gpu_summary_device">Expérimental. Cet appareil : %1$s</string>
 </resources>

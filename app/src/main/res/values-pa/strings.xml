@@ -248,4 +248,7 @@
     <string name="setup_terminal_only">ਸਿਰਫ਼ ਟਰਮੀਨਲ</string>
     <string name="setup_switch">ਬਦਲੋ</string>
     <string name="setup_no_space">%1$s ਖਾਲੀ ਥਾਂ ਚਾਹੀਦੀ ਹੈ, %2$s ਖਾਲੀ ਹੈ।</string>
+    <string name="pref_gpu_title">GPU ਤੇਜ਼ੀ</string>
+    <string name="pref_gpu_summary">ਪ੍ਰਯੋਗਾਤਮਕ। Linux ਪ੍ਰੋਗਰਾਮਾਂ ਦਾ OpenGL ਇਸ ਫ਼ੋਨ ਦੇ GPU \'ਤੇ ਚੱਲਦਾ ਹੈ</string>
+    <string name="pref_gpu_summary_device">ਪ੍ਰਯੋਗਾਤਮਕ। ਇਹ ਡਿਵਾਈਸ: %1$s</string>
 </resources>

@@ -248,4 +248,7 @@
     <string name="setup_terminal_only">Само терминал</string>
     <string name="setup_switch">Превключи</string>
     <string name="setup_no_space">Нужни са %1$s свободно място, свободни са %2$s.</string>
+    <string name="pref_gpu_title">GPU ускорение</string>
+    <string name="pref_gpu_summary">Експериментално. OpenGL на Linux програмите работи на GPU на телефона</string>
+    <string name="pref_gpu_summary_device">Експериментално. Това устройство: %1$s</string>
 </resources>
