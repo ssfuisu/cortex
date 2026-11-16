@@ -68,43 +68,58 @@ object UserAccount {
 
     fun gid(): Int = Process.myUid()
 
-    /** /etc/passwd with the user's line: the app's uid, [name], the shared home */
+    /**
+     * /etc/passwd with the user's line: the app's uid, [name], the shared home. It stays where it is
+     * when it is there already, so that a second run changes nothing.
+     */
     fun withPasswdEntry(passwd: String, name: String, home: String): String {
         val uid = uid()
         val line = "$name:x:$uid:${gid()}:Cortex:$home:/bin/bash"
-        // Earlier releases had "cortex:x:0:0:" (cortex was root); a renamed user leaves its old line
-        val kept = passwd.lineSequence()
-            .filter { it.isNotEmpty() }
-            .filterNot { l ->
-                val f = l.split(':')
-                f.size >= 3 && (f[0] == name || (f[2] == uid.toString() && f[0] != "root") || (f[0] == DEFAULT_NAME && f[2] == "0"))
+        val out = mutableListOf<String>()
+        var placed = false
+        for (l in passwd.lineSequence()) {
+            if (l.isEmpty()) continue
+            val f = l.split(':')
+            if (f.size >= 3 && f[0] == name) {
+                if (!placed) out += line
+                placed = true
+                continue
             }
-            .toList()
-        return (kept + line).joinToString("\n", postfix = "\n")
+            // Earlier releases had "cortex:x:0:0:" (cortex was root); a renamed user leaves its old line
+            if (f.size >= 3 && ((f[2] == uid.toString() && f[0] != "root") || (f[0] == DEFAULT_NAME && f[2] == "0"))) continue
+            out += l
+        }
+        if (!placed) out += line
+        return out.joinToString("\n", postfix = "\n")
     }
 
-    /** /etc/group with the user's own group and the user in sudo (and a sudo group if missing) */
+    /** /etc/group with the user's own group, and the user in sudo, wheel, adm and users (a sudo group if missing) */
     fun withGroupEntries(group: String, name: String): String {
         val gid = gid()
-        val lines = group.lineSequence().filter { it.isNotEmpty() }
-            .filterNot { l ->
-                val f = l.split(':')
-                f.size >= 3 && (f[0] == name || (f[2] == gid.toString() && f[0] != "root") || (f[0] == DEFAULT_NAME && f[2] == "0"))
+        val own = "$name:x:$gid:"
+        val out = mutableListOf<String>()
+        var placed = false
+        for (l in group.lineSequence()) {
+            if (l.isEmpty()) continue
+            val f = l.split(':').toMutableList()
+            if (f.size >= 3 && f[0] == name) {
+                if (!placed) out += own
+                placed = true
+                continue
             }
-            .map { l ->
-                val f = l.split(':').toMutableList()
-                if (f.size >= 4 && f[0] in setOf("sudo", "wheel", "adm", "users")) {
-                    val members = f[3].split(',').filter { it.isNotEmpty() && it != DEFAULT_NAME || it == name }.toMutableList()
-                    if (name !in members) members += name
-                    f[3] = members.joinToString(",")
-                    f.joinToString(":")
-                } else {
-                    l
-                }
+            if (f.size >= 3 && ((f[2] == gid.toString() && f[0] != "root") || (f[0] == DEFAULT_NAME && f[2] == "0"))) continue
+            if (f.size >= 4 && f[0] in setOf("sudo", "wheel", "adm", "users")) {
+                val members = f[3].split(',').filter { it.isNotEmpty() && it != DEFAULT_NAME || it == name }.toMutableList()
+                if (name !in members) members += name
+                f[3] = members.joinToString(",")
+                out += f.joinToString(":")
+            } else {
+                out += l
             }
-            .toMutableList()
-        if (lines.none { it.startsWith("sudo:") }) lines += "sudo:x:27:$name"
-        lines += "$name:x:$gid:"
-        return lines.joinToString("\n", postfix = "\n")
+        }
+        if (out.none { it.startsWith("sudo:") }) out += "sudo:x:27:$name"
+        if (!placed) out += own
+        return out.joinToString("\n", postfix = "\n")
     }
+
 }

@@ -298,6 +298,7 @@ object BootstrapManager {
         val started = android.os.SystemClock.uptimeMillis()
 
         val tmpTar = File(context.cacheDir, "bootstrap.tar")
+        root.mkdirs()
         return try {
             // Clean up any non-symlink directories in root from previous runs that conflict with Debian UsrMerge
             listOf("bin", "sbin", "lib", "lib64").forEach { sub ->
@@ -1131,7 +1132,6 @@ object BootstrapManager {
             if (!groupText.contains("root:x:0:")) {
                 groupText = "root:x:0:\n" + groupText
             }
-            groupText = UserAccount.withGroupEntries(groupText, userName)
             if (!groupText.contains("_ssh:")) {
                 groupText += "_ssh:x:100:\n"
             }
@@ -1139,7 +1139,8 @@ object BootstrapManager {
                 groupText += "ssh:x:101:\n"
             }
             val baseGroup = BaseUsers.mergeGroup(groupText, master("group.master"))
-            groupText = baseGroup.text
+            // the user after the system's groups, so that it is in adm the first time too
+            groupText = UserAccount.withGroupEntries(baseGroup.text, userName)
             FileInstaller.install(groupFile, groupText, 420)
 
             val shadowFile = File(etcDir, "shadow")

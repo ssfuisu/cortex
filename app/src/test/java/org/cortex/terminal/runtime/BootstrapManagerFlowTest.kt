@@ -32,6 +32,8 @@ class BootstrapManagerFlowTest {
 
     @Before
     fun setUp() {
+        // what the app logs (an exception the code catches) is in the test's output
+        org.robolectric.shadows.ShadowLog.stream = System.out
         context = ApplicationProvider.getApplicationContext()
         root = Environment.getCortexRoot(context)
         home = Environment.getHomeDir(context)
@@ -141,13 +143,15 @@ class BootstrapManagerFlowTest {
 
         val passwd = read("etc/passwd").lines()
         assertEquals("root:x:0:0:root:${home.absolutePath}:/bin/bash", passwd[0])
-        assertTrue(passwd.contains("cortex:x:0:0:Cortex:${home.absolutePath}:/bin/bash"))
+        // the terminal's user: the app's own uid, an admin through sudo
+        assertTrue(passwd.contains("cortex:x:${UserAccount.uid()}:${UserAccount.gid()}:Cortex:${home.absolutePath}:/bin/bash"))
+        assertFalse(passwd.any { it.startsWith("cortex:x:0:") })
         assertTrue(read("etc/group").startsWith("root:x:0:\n"))
         // The system users and groups of every Ubuntu, which packages' scripts use (chown redis:adm,
         // setpriv --reuid=man): once there, with locked shadow entries
         assertTrue(passwd.contains("man:x:6:12:man:/var/cache/man:/usr/sbin/nologin"))
         assertTrue(passwd.contains("www-data:x:33:33:www-data:/var/www:/usr/sbin/nologin"))
-        assertTrue(read("etc/group").lines().containsAll(listOf("adm:x:4:", "man:x:12:", "nogroup:x:65534:")))
+        assertTrue(read("etc/group").lines().containsAll(listOf("adm:x:4:cortex", "man:x:12:", "nogroup:x:65534:", "sudo:x:27:cortex")))
         assertTrue(read("etc/shadow").lines().contains("man:*:19700:0:99999:7:::"))
         assertTrue(read("etc/gshadow").lines().contains("adm:*::"))
 
