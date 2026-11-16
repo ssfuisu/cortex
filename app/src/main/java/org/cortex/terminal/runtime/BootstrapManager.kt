@@ -291,8 +291,8 @@ object BootstrapManager {
         context: Context,
         open: () -> InputStream,
         fallbackOpen: (() -> InputStream)? = null,
-        onProgress: ((Int) -> Unit)? = null,
-        bundled: Boolean = true
+        bundled: Boolean = true,
+        onProgress: ((Int) -> Unit)? = null
     ): Boolean {
         val root = Environment.getCortexRoot(context)
         val started = android.os.SystemClock.uptimeMillis()
