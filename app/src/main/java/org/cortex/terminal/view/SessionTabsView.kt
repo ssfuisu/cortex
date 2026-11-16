@@ -132,7 +132,7 @@ class SessionTabsView @JvmOverloads constructor(
         val row = LinearLayout(context).apply {
             orientation = HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(if (isActive) 8 else 10), 0, dp(if (isActive) 4 else 10), 0)
+            setPadding(dp(if (isActive) 8 else 12), 0, dp(if (isActive) 4 else 12), 0)
             background = Chrome.ripple(
                 if (isActive) {
                     Chrome.rounded(p.accentSoft, radius, Chrome.withAlpha(p.accent, 115), hairline)
