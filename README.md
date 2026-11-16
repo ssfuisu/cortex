@@ -94,7 +94,7 @@ The library is about 10,000 lines of C in [`app/src/main/cpp/hook`](app/src/main
 | **Static programs** | Patched once in their file before their first start | **Adapted** |
 | **Maintenance tools** | A few that package installs call (`systemd-sysusers`, `mandb`, `update-mime-database`) are stand-ins that do nothing | **Adapted** |
 
-**What does not work in normal mode**, because an app is not root: systemd as the init system, `mount`, kernel modules, containers, reading the kernel's network tables (`ss`, `netstat`), and the GPU. Users other than root exist for the programs only (the kernel still sees one user), which is enough for PostgreSQL's own cluster and servers that drop privileges. A server that asks for a port below 1024 gets the port 8000 above it (80 becomes 8080, and `localhost:80` still reaches it). On a rooted phone, [root mode](#root-mode) removes most of these.
+**What does not work in normal mode**, because an app is not root: systemd as the init system, `mount`, kernel modules, containers, reading the kernel's network tables (`ss`, `netstat`), and direct access to the GPU (OpenGL can go to it through the experimental virgl acceleration). Users other than root exist for the programs only (the kernel still sees one user), which is enough for PostgreSQL's own cluster and servers that drop privileges. A server that asks for a port below 1024 gets the port 8000 above it (80 becomes 8080, and `localhost:80` still reaches it). On a rooted phone, [root mode](#root-mode) removes most of these.
 
 ## Install
 
@@ -148,7 +148,9 @@ cortex-desktop install xfce                      # optional desktop, also from t
 <td valign="top">
 
 **Desktop and remote**
-- X11 desktop (Openbox or XFCE, optional Firefox) shown inside the app, with touch and touchpad modes, shared clipboard and sound
+- X11 desktop (XFCE, LXQt, MATE, KDE Plasma or Openbox, optional Firefox) shown inside the app, with touch and touchpad modes, shared clipboard and sound
+- Experimental GPU acceleration: OpenGL of Linux programs runs on the phone's GPU through virglrenderer
+- Other distributions besides the built-in Ubuntu 24.04: Ubuntu 26.04, Debian 13, Kali, Arch Linux ARM, Fedora 44, openSUSE Tumbleweed and Void, picked in the setup on the first start
 - Drawn by the CPU over a private socket, no network port
 - `cortex-sshd`: OpenSSH on port 8022 to use Cortex from a computer
 
@@ -201,7 +203,10 @@ Most command-line software does. Every night a job installs a set of common pack
 Only in root mode, see [docs/containers.md](docs/containers.md). Containers need namespaces, mounts and cgroups, and Android never gives those to an app.
 
 **Is there a GUI?**
-Yes, as an add-on: *Desktop* in the menu installs Openbox or XFCE (and Firefox if you want) and shows it inside the app. It's drawn by the CPU, no GPU, so it suits editors and browsing more than games.
+Yes, as an add-on: *Desktop* in the menu installs XFCE, LXQt, MATE, KDE Plasma or Openbox (and Firefox if you want) and shows it inside the app. By default it's drawn by the CPU, which suits editors and browsing. Settings › GPU acceleration (experimental) sends OpenGL to the phone's GPU through virglrenderer, so 3D programs draw on the GPU instead of the CPU. It's experimental: not every program likes it yet, and Vulkan is not there.
+
+**Can I use something other than Ubuntu?**
+Yes. The setup on the first start offers Ubuntu 24.04 (built in), Ubuntu 26.04, Debian 13, Kali, Arch Linux ARM, Fedora 44, openSUSE Tumbleweed and Void. The downloads are built by a GitHub workflow from the images of images.linuxcontainers.org and checked against their SHA-256 before they are unpacked. Settings › Linux distribution adds another one or switches. Each keeps its own `/home`. The nightly package test still runs on Ubuntu 24.04 only.
 
 **Does it work on 32-bit phones?**
 Yes, `Cortex-armeabi-v7a-signed.apk` is Ubuntu's armhf. Every change builds it and installs and sets it up on an emulator, but the emulator can't run 32-bit Ubuntu programs, so the in-terminal tests only run for 64-bit. Reports from 32-bit phones help.
@@ -209,8 +214,8 @@ Yes, `Cortex-armeabi-v7a-signed.apk` is Ubuntu's armhf. Every change builds it a
 **Why does Go need special code?**
 Go programs don't use the C library, they make their system calls themselves, so a preloaded library never sees them. Before a Go 1.19+ program starts for the first time, Cortex adds a small piece of code to it that does the same path mapping.
 
-**A tool refuses to run as root (Claude Code's `--dangerously-skip-permissions`, some installers). What now?**
-Run `cortex-api no-fakeroot`. It starts a shell where programs see an ordinary user (`cortex`) instead of root, until you `exit`. `sudo` still works in it, and the session's other tabs stay root. `cortex-api no-fakeroot COMMAND` runs just one command that way.
+**Am I root in the terminal?**
+No, since 1.28.1 you are your own user (`cortex` unless you named it otherwise in the setup), so tools that refuse root (Claude Code's `--dangerously-skip-permissions`, some installers) just work. For root work use `sudo`, which asks for the password from the setup. Settings › Sessions run as root brings back the old behaviour.
 
 **Can I name my sessions?**
 Long press a tab (or a session in the drawer) and give it a name. It stays after Android ends the app.

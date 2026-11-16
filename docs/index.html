@@ -55,8 +55,9 @@
     { "@type": "Question", "name": "Is Cortex just PRoot or fakechroot?", "acceptedAnswer": { "@type": "Answer", "text": "Not PRoot: nothing traces the programs. Close to fakechroot: in normal mode an LD_PRELOAD library, the same technique as fakechroot and fakeroot, maps paths such as /usr and /etc into the app's private storage and covers for what Android forbids an app. The system calls go straight to Android's kernel. The optional root mode on rooted phones uses a real chroot, without the library." } },
     { "@type": "Question", "name": "Which Android versions and CPUs does Cortex support?", "acceptedAnswer": { "@type": "Answer", "text": "Android 7.0 and newer, with separate APKs for 64-bit (arm64-v8a) and 32-bit (armeabi-v7a) ARM devices." } },
     { "@type": "Question", "name": "How do I install software in Cortex?", "acceptedAnswer": { "@type": "Answer", "text": "Use apt like on any Ubuntu system, for example: apt install git python3 build-essential." } },
-    { "@type": "Question", "name": "A tool refuses to run as root. What now?", "acceptedAnswer": { "@type": "Answer", "text": "Run cortex-api no-fakeroot: a shell where programs see an ordinary user instead of root, until you exit. sudo still works in it." } },
-    { "@type": "Question", "name": "Is there a desktop or GUI in Cortex?", "acceptedAnswer": { "@type": "Answer", "text": "Yes, as an add-on. The menu's Desktop button installs a light Openbox desktop or XFCE (and Firefox if you want it) and shows it inside the app. It is X11 drawn by the CPU, with no GPU and no Wayland." } }
+    { "@type": "Question", "name": "A tool refuses to run as root. What now?", "acceptedAnswer": { "@type": "Answer", "text": "Since 1.28.1 the terminal runs as your own user, not root, so such tools just work. Use sudo with the password from the setup for root work." } },
+    { "@type": "Question", "name": "Can I use a distribution other than Ubuntu?", "acceptedAnswer": { "@type": "Answer", "text": "Yes. The setup on the first start offers Ubuntu 24.04 (built in), Ubuntu 26.04, Debian 13, Kali, Arch Linux ARM, Fedora 44, openSUSE Tumbleweed and Void. Settings, Linux distribution adds another one or switches." } },
+    { "@type": "Question", "name": "Is there a desktop or GUI in Cortex?", "acceptedAnswer": { "@type": "Answer", "text": "Yes, as an add-on. The menu's Desktop button installs XFCE, LXQt, MATE, KDE Plasma or a light Openbox desktop (and Firefox if you want it) and shows it inside the app. It is X11, drawn by the CPU unless the experimental GPU acceleration is on. No Wayland." } }
   ]
 }
 </script>
@@ -440,7 +441,7 @@ footer a:hover{color:var(--ink)}
           <li>systemd as the init system</li>
           <li><code>mount</code>, kernel modules, containers (root mode has them)</li>
           <li>Reading the kernel's network tables (<code>ss</code>, <code>netstat</code>)</li>
-          <li>The GPU</li>
+          <li>Vulkan and direct GPU access (OpenGL has an experimental GPU path)</li>
         </ul>
       </div>
     </div>
@@ -497,7 +498,7 @@ footer a:hover{color:var(--ink)}
           <li><b>cortex-api</b>Notifications, clipboard, sharing, battery, vibration, speech.</li>
           <li><b>Your files</b><code>/sdcard</code> in the shell, your home in Android's Files app.</li>
           <li><b>Local servers</b>A notification opens <code>npm run dev</code> in the browser.</li>
-          <li><b>no-fakeroot</b>A shell as an ordinary user, for tools that refuse root.</li>
+          <li><b>Your own user</b><code>cortex@localhost</code>, with <code>sudo</code> for root work.</li>
         </ul>
       </div>
       <div>
@@ -571,10 +572,11 @@ footer a:hover{color:var(--ink)}
       <details><summary>Is this just PRoot or fakechroot?</summary><div class="ans"><p>Not PRoot: nothing traces the programs. Close to fakechroot: an <code>LD_PRELOAD</code> library maps <code>/usr</code> and <code>/etc</code> into the app's storage and pretends to be root, which is fakechroot's and fakeroot's technique. Cortex doesn't contain their code. It was written for what Android adds: the seccomp filter, no hard links, no SysV shared memory, no exec from app storage on new target levels, and static programs.</p></div></details>
       <details><summary>Can it break my phone?</summary><div class="ans"><p>No. Everything runs as the app's own Android user, inside the app sandbox, so it cannot touch Android, the system or other apps' private data. If you allow storage access, programs can change your files in <code>/sdcard</code> like a file manager could. Root mode is different: a root shell is a root shell. See <a href="https://github.com/ssfuisu/cortex/blob/main/SECURITY.md">SECURITY.md</a>.</p></div></details>
       <details><summary>How do I know the APK is the code on GitHub?</summary><div class="ans"><p>Releases are built and signed by GitHub Actions from the tagged source, and each APK has a build attestation: <code>gh attestation verify</code> shows the workflow and commit it came from. Checksums and the signing key are in <a href="https://github.com/ssfuisu/cortex/blob/main/signing/README.md">signing/README.md</a>.</p></div></details>
-      <details><summary>A tool refuses to run as root. What now?</summary><div class="ans"><p>Run <code>cortex-api no-fakeroot</code>: a shell where programs see an ordinary user instead of root, until you <code>exit</code>. <code>sudo</code> still works in it. Handy for Claude Code's <code>--dangerously-skip-permissions</code> and similar tools.</p></div></details>
+      <details><summary>A tool refuses to run as root. What now?</summary><div class="ans"><p>Nothing to do since 1.28.1: the terminal runs as your own user (<code>cortex@localhost</code>), so Claude Code's <code>--dangerously-skip-permissions</code> and similar tools just work. Root work goes through <code>sudo</code>, with the password you set in the setup.</p></div></details>
+      <details><summary>Can I use a distribution other than Ubuntu?</summary><div class="ans"><p>Yes. The setup on the first start offers Ubuntu 24.04 (built in), Ubuntu 26.04, Debian 13, Kali, Arch Linux ARM, Fedora 44, openSUSE Tumbleweed and Void. The downloads are built from the images of images.linuxcontainers.org by a GitHub workflow, and the app checks each one against its SHA-256 before unpacking it. <b>Settings › Linux distribution</b> adds another one or switches, and each keeps its own <code>/home</code>.</p></div></details>
       <details><summary>Can I run Docker or Podman?</summary><div class="ans"><p>Only in root mode on a rooted phone. Containers need namespaces, mounts and cgroups, which Android never gives an app. <a href="https://github.com/ssfuisu/cortex/blob/main/docs/containers.md">This guide</a> has the steps.</p></div></details>
       <details><summary>Why does Go need special code?</summary><div class="ans"><p>Go programs don't use the C library, they make their system calls themselves, so a preloaded library never sees them. Cortex adds a small piece of code to Go 1.19+ programs before their first start that does the same path mapping.</p></div></details>
-      <details><summary>Is there a desktop or GUI?</summary><div class="ans"><p>Yes, as an add-on. The menu's <em>Desktop</em> button installs Openbox or XFCE, and Firefox if you want, and shows it inside the app with touch or touchpad control, a shared clipboard and sound. It is X11 drawn by the CPU, so it suits editors and browsing more than games.</p></div></details>
+      <details><summary>Is there a desktop or GUI?</summary><div class="ans"><p>Yes, as an add-on. The menu's <em>Desktop</em> button installs XFCE, LXQt, MATE, KDE Plasma or Openbox, and Firefox if you want, and shows it inside the app with touch or touchpad control, a shared clipboard and sound. It is X11, drawn by the CPU by default. <b>Settings › GPU acceleration</b> (experimental) sends OpenGL to the phone's GPU through virglrenderer.</p></div></details>
       <details><summary>Which phones are supported?</summary><div class="ans"><p>Android 7.0 and newer, with APKs for 64-bit (arm64-v8a) and 32-bit (armeabi-v7a) ARM. Like Termux, the app targets API level 28, the last one that lets an app run programs from its own storage.</p></div></details>
       <details><summary>Where do I report problems?</summary><div class="ans"><p><em>Settings › Send a bug report</em> writes a file with the versions and logs. Attach it to a <a href="https://github.com/ssfuisu/cortex/issues">GitHub issue</a> or send it on <a href="https://t.me/ratzgn">Telegram</a>.</p></div></details>
     </div>

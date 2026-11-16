@@ -1,0 +1,5 @@
+- A setup on the first start: pick Ubuntu, Debian, Kali, Arch, Fedora, openSUSE or Void, a desktop and your user
+- The terminal runs as your own user (cortex@localhost), root work goes through sudo
+- Desktops: XFCE, LXQt, MATE, KDE Plasma and Openbox on every distribution
+- Experimental GPU acceleration for OpenGL (virglrenderer)
+- No more low-port notices in every tool

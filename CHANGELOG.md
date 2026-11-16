@@ -4,6 +4,42 @@ What changed in each version of Cortex Terminal, newest first. The release workf
 of a GitHub release from the section of its version here. Older versions are described on the
 [GitHub releases](https://github.com/ssfuisu/cortex/releases) page.
 
+## 1.28.1 (2026-11-16)
+
+### Added
+
+- **A setup on the first start.** Four steps: pick a Linux, pick a desktop, set up your user, and
+  watch it install. Ubuntu 24.04 is built in and needs no network. Ubuntu 26.04, Debian 13, Kali,
+  Arch Linux ARM, Fedora 44, openSUSE Tumbleweed and Void Linux are downloads (Ubuntu 26.04 and
+  Debian 13 on 32-bit phones too). Each download is checked against the SHA-256 in the catalog
+  before anything is unpacked. Settings › Linux distribution installs another one or switches
+  between the ones you have. Each keeps its own /home, and a long press deletes one you no longer
+  want.
+- **Your own user.** The terminal runs as `cortex@localhost` (the prompt is purple) and no longer
+  as root. Root work goes through `sudo`, which asks for the password you set in the setup and
+  remembers it for 15 minutes in that terminal. `su` and `tsu` still give Android's root on a rooted
+  phone. Settings › Sessions run as root brings the old behaviour back.
+- **More desktops.** `cortex-desktop install` takes `xfce`, `lxqt`, `mate`, `kde` or `light`
+  (Openbox), on every distribution, with each package manager's own package names.
+- **GPU acceleration (experimental).** Settings › GPU acceleration shows the phone's GPU and runs
+  virglrenderer on it. Linux programs in the desktop and in the terminal then draw their OpenGL
+  through Mesa's virpipe driver on the real GPU instead of the CPU.
+
+### Changed
+
+- `cortex-api no-fakeroot` is gone. What it did is now the default.
+- A server on a port below 1024 still gets the port 8000 above it, but no longer prints a notice
+  in every tool. `CORTEX_PORT_NOTICE=1` brings it back.
+
+### Fixed
+
+- **rpm saw no database** (Fedora, openSUSE): rpm finds its configuration with `glob()`, which
+  looked outside the rootfs. It now looks inside, and `/lib64` and `/usr/lib64` are in the library
+  path.
+- **A glibc update no longer breaks the system.** pacman, dnf, zypper and xbps update glibc like
+  any other package, and the new `ld.so` used to kill the next program. It is now patched before
+  the first program starts through it.
+
 ## 1.28.0 (2026-11-14)
 
 ### Added
