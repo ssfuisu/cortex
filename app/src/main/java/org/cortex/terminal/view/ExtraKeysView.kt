@@ -56,12 +56,13 @@ class ExtraKeysView @JvmOverloads constructor(
         fun barHeightDp(rows: Int): Int = rows * ROW_HEIGHT_DP + 2 * PADDING_DP
     }
 
-    /** [modifier]: CTRL or ALT, whose buttons show when they are on. */
+    /** [modifier]: CTRL or ALT, whose buttons show when they are on. [functional]: special action key vs character key. */
     private class KeyButton(
         val label: String,
         val repeats: Boolean,
         val action: () -> Any?,
-        val modifier: ExtraKeysLayout.Special? = null
+        val modifier: ExtraKeysLayout.Special? = null,
+        val functional: Boolean = false
     )
 
     var terminalView: TerminalView? = null
@@ -78,8 +79,8 @@ class ExtraKeysView @JvmOverloads constructor(
     private var ctrlButton: Button? = null
     private var altButton: Button? = null
 
-    /** Every key shown, to be drawn again when the color scheme changes. */
-    private val keyButtons = mutableListOf<Button>()
+    /** Every key shown, and whether it is a functional/special key, to be drawn again on theme change. */
+    private val keyButtons = mutableListOf<Pair<Button, Boolean>>()
 
     private fun dp(v: Float): Float = v * resources.displayMetrics.density
 
@@ -104,7 +105,9 @@ class ExtraKeysView @JvmOverloads constructor(
         ctrlButton = null
         altButton = null
         for (row in rows) {
-            addView(createRow(row.map { key -> KeyButton(key.label, keyRepeats(key), actionFor(key), modifierOf(key)) }))
+            addView(createRow(row.map { key ->
+                KeyButton(key.label, keyRepeats(key), actionFor(key), modifierOf(key), key is ExtraKeysLayout.SpecialKey)
+            }))
         }
         rowCount = rows.size
         updateModifierStyles()
@@ -179,7 +182,7 @@ class ExtraKeysView @JvmOverloads constructor(
                 maxLines = 1
                 ellipsize = android.text.TextUtils.TruncateAt.END
                 typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
-                styleKey(this, false)
+                styleKey(this, false, key.functional)
                 isAllCaps = false
                 gravity = Gravity.CENTER
                 setPadding(0, 0, 0, 0)
@@ -263,7 +266,7 @@ class ExtraKeysView @JvmOverloads constructor(
             if (key.modifier == ExtraKeysLayout.Special.CTRL) ctrlButton = btn
             if (key.modifier == ExtraKeysLayout.Special.ALT) altButton = btn
 
-            keyButtons.add(btn)
+            keyButtons.add(btn to key.functional)
             rowLayout.addView(btn)
         }
 
@@ -351,12 +354,13 @@ class ExtraKeysView @JvmOverloads constructor(
         updateModifierStyles()
     }
 
-    /** A key in the colors of the scheme: flat and a little lighter than the bar, or the accent when it is on. */
-    private fun styleKey(btn: Button, on: Boolean) {
+    /** A key in the colors of the scheme: tactile keycap, functionally toned or glowing when active. */
+    private fun styleKey(btn: Button, on: Boolean, functional: Boolean = true) {
         val p = Chrome.palette
         val radius = dp(9f)
         val stroke = dp(1f).toInt().coerceAtLeast(1)
-        btn.background = if (on) Chrome.activeKeyBackground(p, radius, stroke) else Chrome.keyBackground(p, radius, stroke)
+        val fill = if (functional) p.card else p.raised
+        btn.background = if (on) Chrome.activeKeyBackground(p, radius, stroke) else Chrome.keyBackground(p, radius, stroke, fill)
         btn.setTextColor(if (on) p.onAccent else p.text)
     }
 
@@ -369,15 +373,15 @@ class ExtraKeysView @JvmOverloads constructor(
     /** Draws the keys again in the colors of the scheme now in use. */
     fun applyPalette() {
         setBackgroundColor(Chrome.palette.bar)
-        for (btn in keyButtons) styleKey(btn, false)
+        for ((btn, functional) in keyButtons) styleKey(btn, false, functional)
         updateModifierStyles()
     }
 
     fun updateModifierStyles() {
         val view = terminalView ?: return
 
-        ctrlButton?.let { btn -> styleKey(btn, view.isCtrlPressed) }
-        altButton?.let { btn -> styleKey(btn, view.isAltPressed) }
+        ctrlButton?.let { btn -> styleKey(btn, view.isCtrlPressed, true) }
+        altButton?.let { btn -> styleKey(btn, view.isAltPressed, true) }
     }
 
     override fun onDetachedFromWindow() {

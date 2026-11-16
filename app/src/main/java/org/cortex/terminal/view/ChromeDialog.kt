@@ -1,14 +1,15 @@
 package org.cortex.terminal.view
 
 import android.content.DialogInterface
+import android.graphics.Typeface
 import android.graphics.drawable.InsetDrawable
+import android.util.TypedValue
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 
 /**
- * Dialogs in the interface's colors: a rounded card of the bar's color with a hairline outline, like the
- * drawer, and a title, message and buttons that read on it. The theme's own dialog is a plain gray
- * square, and a view with a card of its own in it (the download of an update) was a card on a card.
+ * Dialogs in the interface's colors: an elevated rounded card with a crisp hairline outline, refined
+ * typography, and pill-tinted action buttons that read cleanly on every color scheme.
  */
 object ChromeDialog {
 
@@ -19,18 +20,46 @@ object ChromeDialog {
     )
 
     /** Gives [dialog] the interface's colors. Call it before the dialog is shown. */
-    fun style(dialog: AlertDialog): AlertDialog {
+    fun style(dialog: AlertDialog, onShown: (() -> Unit)? = null): AlertDialog {
         val p = Chrome.palette
         val density = dialog.context.resources.displayMetrics.density
         val hairline = density.toInt().coerceAtLeast(1)
+        val margin = (16 * density).toInt()
         dialog.window?.setBackgroundDrawable(
-            InsetDrawable(Chrome.rounded(p.bar, 20 * density, p.outline, hairline), (16 * density).toInt())
+            InsetDrawable(Chrome.rounded(p.bar, 24 * density, p.outline, hairline), margin)
         )
         // The title, the message and the buttons are made when the dialog is shown
         dialog.setOnShowListener {
-            dialog.findViewById<TextView>(androidx.appcompat.R.id.alertTitle)?.setTextColor(p.text)
-            dialog.findViewById<TextView>(android.R.id.message)?.setTextColor(p.textDim)
-            for (which in BUTTONS) dialog.getButton(which)?.setTextColor(p.accent)
+            dialog.findViewById<TextView>(androidx.appcompat.R.id.alertTitle)?.apply {
+                setTextColor(p.text)
+                typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
+            }
+            dialog.findViewById<TextView>(android.R.id.message)?.apply {
+                setTextColor(p.textDim)
+                setLineSpacing(0f, 1.2f)
+            }
+            val pillRadius = 12 * density
+            val hPad = (16 * density).toInt()
+            val vPad = (8 * density).toInt()
+            for (which in BUTTONS) {
+                dialog.getButton(which)?.apply {
+                    setTextColor(p.accent)
+                    isAllCaps = false
+                    typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+                    background = if (which == DialogInterface.BUTTON_POSITIVE) {
+                        Chrome.ripple(
+                            Chrome.rounded(p.accentSoft, pillRadius, Chrome.withAlpha(p.accent, 90), hairline),
+                            Chrome.withAlpha(p.accent, 70),
+                            pillRadius
+                        )
+                    } else {
+                        Chrome.ripple(Chrome.rounded(0, pillRadius), Chrome.withAlpha(p.accent, 50), pillRadius)
+                    }
+                    setPadding(hPad, vPad, hPad, vPad)
+                }
+            }
+            onShown?.invoke()
         }
         return dialog
     }

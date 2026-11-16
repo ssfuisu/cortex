@@ -5,6 +5,8 @@ import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
 import android.view.View
+import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
@@ -12,8 +14,7 @@ import org.cortex.terminal.view.Chrome
 
 /**
  * What the first start shows while Ubuntu is unpacked: the mark and name of the app, what is going on
- * and a bar with the share of the archive done so far, in the colors of the terminal's scheme. The bar
- * just moves until the first figure arrives (and for an archive of unknown size).
+ * and a bar with the share of the archive done so far, in the colors of the terminal's scheme.
  */
 class BootstrapDialog(activity: Activity) {
 
@@ -25,10 +26,16 @@ class BootstrapDialog(activity: Activity) {
     init {
         val p = Chrome.palette
         val density = activity.resources.displayMetrics.density
-        view.background = Chrome.rounded(p.bar, 24 * density, p.outline, density.toInt().coerceAtLeast(1))
+        val hairline = density.toInt().coerceAtLeast(1)
+        view.background = Chrome.rounded(p.bar, 24 * density, p.outline, hairline)
+        view.findViewById<FrameLayout>(R.id.bootstrapIconBg).background = Chrome.rounded(
+            p.accentSoft, 12 * density, Chrome.withAlpha(p.accent, 110), hairline
+        )
+        view.findViewById<ImageView>(R.id.bootstrapIcon).setColorFilter(p.accent)
         view.findViewById<TextView>(R.id.bootstrapTitle).setTextColor(p.text)
         view.findViewById<TextView>(R.id.bootstrapMessage).setTextColor(p.textDim)
-        percent.setTextColor(p.textDim)
+        percent.setTextColor(p.accent)
+        percent.background = Chrome.rounded(p.accentSoft, 8 * density, Chrome.withAlpha(p.accent, 100), hairline)
         bar.progressTintList = ColorStateList.valueOf(p.accent)
         bar.progressBackgroundTintList = ColorStateList.valueOf(p.raisedHigh)
         bar.indeterminateTintList = ColorStateList.valueOf(p.accent)

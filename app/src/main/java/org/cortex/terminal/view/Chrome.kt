@@ -3,6 +3,7 @@ package org.cortex.terminal.view
 import android.content.res.ColorStateList
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.LayerDrawable
 import android.graphics.drawable.RippleDrawable
 import android.graphics.drawable.StateListDrawable
 import org.cortex.terminal.emulator.TerminalColor
@@ -39,7 +40,13 @@ object Chrome {
         val danger: Int,
         val dangerSoft: Int,
         /** Whether the scheme is a dark one (light system bar icons). */
-        val dark: Boolean
+        val dark: Boolean,
+        /** Slightly elevated surface for cards inside bars and dialogs. */
+        val card: Int = raised,
+        /** Semantic success and warning colors derived from the scheme's ANSI palette. */
+        val ok: Int = accent,
+        val okSoft: Int = accentSoft,
+        val warn: Int = accent
     )
 
     @Volatile
@@ -60,12 +67,14 @@ object Chrome {
         val raisedHigh = mix(bar, fg, 0.17f)
         val accentSoft = mix(bg, ansi[12], 0.20f)
         val dangerSoft = mix(bg, ansi[9], 0.18f)
+        val card = if (dark) mix(bar, fg, 0.045f) else mix(bar, bg, 0.72f)
+        val okSoft = mix(bg, ansi[10], 0.16f)
 
         // Text must read on every surface it sits on: the lightest of them on a dark scheme, the
-        // darkest on a light one. A scheme with little contrast of its own (Solarized) keeps its
+        // darkest on a light one. A scheme with little contrast of their own (Solarized) keeps its
         // look; only the text of the interface is moved, as far as it needs, away from the surfaces.
         val away = if (dark) WHITE else BLACK
-        val surfaces = listOf(bg, bar, raised, raisedHigh, accentSoft, dangerSoft)
+        val surfaces = listOf(bg, bar, raised, raisedHigh, card, accentSoft, dangerSoft, okSoft)
         val worst = if (dark) surfaces.maxByOrNull { luminance(it) }!! else surfaces.minByOrNull { luminance(it) }!!
         val accent = readable(ansi[12], worst, 3f, away)
         return Palette(
@@ -83,7 +92,11 @@ object Chrome {
             onAccent = onColor(accent),
             danger = readable(ansi[9], worst, 3f, away),
             dangerSoft = dangerSoft,
-            dark = dark
+            dark = dark,
+            card = card,
+            ok = readable(ansi[10], worst, 3f, away),
+            okSoft = okSoft,
+            warn = readable(ansi[11], worst, 3f, away)
         )
     }
 
@@ -168,25 +181,81 @@ object Chrome {
     fun ripple(content: Drawable, rippleColor: Int, radiusPx: Float): RippleDrawable =
         RippleDrawable(ColorStateList.valueOf(rippleColor), content, rounded(WHITE, radiusPx))
 
-    /** A key of the keys bar: flat, a little lighter than the bar. */
-    fun keyBackground(p: Palette, radiusPx: Float, strokePx: Int): Drawable =
-        pressable(
-            rounded(p.raised, radiusPx, p.outline, strokePx),
-            rounded(p.raisedHigh, radiusPx, p.outline, strokePx)
-        )
+    /** A tactile keycap with a subtle bottom lip shadow and ripple feedback. */
+    fun keyBackground(p: Palette, radiusPx: Float, strokePx: Int, fillColor: Int = p.raised): Drawable {
+        val bevel = strokePx.coerceAtLeast(1)
+        val lip = mix(fillColor, BLACK, if (p.dark) 0.42f else 0.14f)
+        val normal = LayerDrawable(
+            arrayOf(
+                rounded(lip, radiusPx),
+                rounded(fillColor, radiusPx, p.outline, strokePx)
+            )
+        ).apply {
+            setLayerInset(1, 0, 0, 0, bevel)
+        }
+        val pressed = rounded(p.raisedHigh, radiusPx, mix(p.outline, p.accent, 0.45f), strokePx)
+        return ripple(pressable(normal, pressed), withAlpha(p.accent, 45), radiusPx)
+    }
 
-    /** A key that is on (CTRL or ALT waiting for a key): the accent. */
+    /** A key that is on (CTRL or ALT waiting for a key): the accent, with tactile depth. */
     fun activeKeyBackground(p: Palette, radiusPx: Float, strokePx: Int): Drawable =
-        pressable(
-            rounded(p.accent, radiusPx, p.accent, strokePx),
-            rounded(mix(p.accent, p.fg, 0.25f), radiusPx, p.accent, strokePx)
+        ripple(
+            pressable(
+                rounded(p.accent, radiusPx, p.accent, strokePx),
+                rounded(mix(p.accent, p.fg, 0.25f), radiusPx, p.accent, strokePx)
+            ),
+            withAlpha(p.onAccent, 70),
+            radiusPx
         )
 
-    /** A button of the drawer: the tonal one, or the filled one with the accent. */
+    /** A button of the drawer or toolbar: the tonal card one, or the filled one with the accent. */
     fun buttonBackground(p: Palette, radiusPx: Float, strokePx: Int, filled: Boolean): Drawable =
         if (filled) {
             ripple(rounded(p.accent, radiusPx), withAlpha(p.onAccent, 70), radiusPx)
         } else {
-            ripple(rounded(p.raised, radiusPx, p.outline, strokePx), withAlpha(p.accent, 70), radiusPx)
+            ripple(rounded(p.card, radiusPx, p.outline, strokePx), withAlpha(p.accent, 70), radiusPx)
         }
+
+    /** Subtle outlined pill badge for status tags and mode chips. */
+    fun chipBackground(fillColor: Int, strokeColor: Int, radiusPx: Float, strokePx: Int): Drawable =
+        rounded(fillColor, radiusPx, strokeColor, strokePx)
+
+    /** Builds a text label with a cleanly vertically centered leading vector icon (API 24+ safe). */
+    fun iconText(
+        context: android.content.Context,
+        iconRes: Int,
+        label: CharSequence,
+        color: Int,
+        iconDp: Int = 16
+    ): CharSequence {
+        val drawable = androidx.appcompat.content.res.AppCompatResources.getDrawable(context, iconRes)?.mutate() ?: return label
+        val size = (iconDp * context.resources.displayMetrics.density).toInt().coerceAtLeast(1)
+        drawable.setBounds(0, 0, size, size)
+        drawable.setTint(color)
+        val span = object : android.text.style.ImageSpan(drawable) {
+            override fun draw(
+                canvas: android.graphics.Canvas,
+                text: CharSequence,
+                start: Int,
+                end: Int,
+                x: Float,
+                top: Int,
+                y: Int,
+                bottom: Int,
+                paint: android.graphics.Paint
+            ) {
+                val fm = paint.fontMetricsInt
+                val centerY = y + (fm.ascent + fm.descent) / 2
+                val transY = centerY - drawable.bounds.height() / 2
+                canvas.save()
+                canvas.translate(x, transY.toFloat())
+                drawable.draw(canvas)
+                canvas.restore()
+            }
+        }
+        return android.text.SpannableStringBuilder("  ").apply {
+            setSpan(span, 0, 1, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            append(label)
+        }
+    }
 }

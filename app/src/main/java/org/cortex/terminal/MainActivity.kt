@@ -247,12 +247,21 @@ class MainActivity : AppCompatActivity() {
             override fun onDrawerSlide(drawerView: View, slideOffset: Float) {
                 if (slideOffset > 0f && !shown) {
                     shown = true
+                    refreshDrawerStatus()
                     sessionAdapter.notifyDataSetChanged()
                 } else if (slideOffset == 0f) {
                     shown = false
                 }
             }
         })
+
+        binding.drawerEnvCard.setOnClickListener {
+            drawerLayout.closeDrawer(GravityCompat.START)
+            startActivity(
+                Intent(this, org.cortex.terminal.setup.SetupActivity::class.java)
+                    .putExtra(org.cortex.terminal.setup.SetupActivity.EXTRA_MANAGE, true)
+            )
+        }
 
         sessionManager.onSessionChanged = { session ->
             runOnUiThread {
@@ -606,22 +615,26 @@ class MainActivity : AppCompatActivity() {
             cornerRadii = floatArrayOf(0f, 0f, corner, corner, corner, corner, 0f, 0f)
             setStroke(hairline, p.outline)
         }
+        binding.drawerBrandBadge.background = Chrome.rounded(p.accentSoft, 10 * density, Chrome.withAlpha(p.accent, 110), hairline)
+        binding.drawerBrandIcon.setColorFilter(p.accent)
         binding.drawerTitle.setTextColor(p.text)
         binding.drawerDivider.setBackgroundColor(p.outline)
         binding.drawerSessionsLabel.setTextColor(p.textFaint)
-        fun roundButton() = Chrome.ripple(
-            Chrome.rounded(p.raised, 22 * density, p.outline, hairline), Chrome.withAlpha(p.accent, 70), 22 * density
+        fun actionTile() = Chrome.ripple(
+            Chrome.rounded(p.card, 12 * density, p.outline, hairline), Chrome.withAlpha(p.accent, 70), 12 * density
         )
-        layoutUpdateBadge.background = roundButton()
-        btnDrawerSettings.background = roundButton()
+        layoutUpdateBadge.background = actionTile()
+        btnDrawerSettings.background = actionTile()
         binding.btnUpdateCheck.imageTintList = ColorStateList.valueOf(p.accent)
         btnDrawerSettings.imageTintList = ColorStateList.valueOf(p.textDim)
-        btnDrawerKeyboard.background = Chrome.buttonBackground(p, 16 * density, hairline, filled = false)
+        btnDrawerKeyboard.background = Chrome.buttonBackground(p, 14 * density, hairline, filled = false)
         btnDrawerKeyboard.setTextColor(p.text)
-        binding.btnDrawerDesktop.background = roundButton()
+        btnDrawerKeyboard.text = Chrome.iconText(this, R.drawable.ic_keyboard, getString(R.string.drawer_keyboard), p.text)
+        binding.btnDrawerDesktop.background = actionTile()
         binding.btnDrawerDesktop.imageTintList = ColorStateList.valueOf(p.textDim)
-        btnDrawerNewSession.background = Chrome.buttonBackground(p, 16 * density, hairline, filled = true)
+        btnDrawerNewSession.background = Chrome.buttonBackground(p, 14 * density, hairline, filled = true)
         btnDrawerNewSession.setTextColor(p.onAccent)
+        refreshDrawerStatus()
         if (::sessionAdapter.isInitialized) sessionAdapter.notifyDataSetChanged()
 
         // The system bars take the bar's color, with icons that can be read on it
@@ -630,6 +643,37 @@ class MainActivity : AppCompatActivity() {
         val controller = WindowCompat.getInsetsController(window, window.decorView)
         controller.isAppearanceLightStatusBars = !p.dark
         controller.isAppearanceLightNavigationBars = !p.dark
+    }
+
+    private fun refreshDrawerStatus() {
+        val p = Chrome.palette
+        val density = resources.displayMetrics.density
+        val hairline = density.toInt().coerceAtLeast(1)
+        val activeDistro = org.cortex.terminal.runtime.DistroInstaller.active(this)
+        val option = activeDistro?.let { org.cortex.terminal.runtime.DistroSetup.option(it.id) }
+        val distroColor = option?.color ?: p.accent
+        val isRoot = org.cortex.terminal.runtime.RootMode.isEnabled(this) ||
+            org.cortex.terminal.runtime.UserAccount.sessionsAsRoot(this)
+        val user = if (isRoot) "root" else org.cortex.terminal.runtime.UserAccount.name(this)
+
+        binding.drawerEnvCard.background = Chrome.ripple(
+            Chrome.rounded(p.card, 14 * density, p.outline, hairline),
+            Chrome.withAlpha(p.accent, 55),
+            14 * density
+        )
+        binding.drawerEnvIconBg.background = Chrome.rounded(
+            Chrome.withAlpha(distroColor, 34),
+            10 * density,
+            Chrome.withAlpha(distroColor, 110),
+            hairline
+        )
+        binding.drawerEnvIcon.setImageResource(option?.icon ?: R.drawable.ic_distro_ubuntu)
+        binding.drawerEnvIcon.setColorFilter(if (p.dark) Chrome.mix(distroColor, Chrome.WHITE, 0.35f) else distroColor)
+        binding.drawerEnvName.text = activeDistro?.label ?: "Ubuntu 24.04 LTS"
+        binding.drawerEnvName.setTextColor(p.text)
+        binding.drawerEnvUser.text = "$user@localhost · ${activeDistro?.pm?.id ?: "apt"}"
+        binding.drawerEnvUser.setTextColor(if (isRoot) p.danger else p.textDim)
+        binding.drawerEnvChevron.setColorFilter(p.textFaint)
     }
 
     /**

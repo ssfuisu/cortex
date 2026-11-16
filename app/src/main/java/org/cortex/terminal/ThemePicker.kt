@@ -9,6 +9,8 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ArrayAdapter
+import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
@@ -18,8 +20,8 @@ import org.cortex.terminal.view.Chrome
 import org.cortex.terminal.view.ChromeDialog
 
 /**
- * The list of color schemes in the settings: each is shown as a small piece of terminal in its own
- * colors (a prompt and the six colors of the palette), so that it can be chosen by looking at it.
+ * The list of color schemes in the settings: each is shown as a miniature terminal preview with
+ * window controls, colored prompt syntax, and palette swatches inside an elevated card.
  */
 object ThemePicker {
 
@@ -27,15 +29,23 @@ object ThemePicker {
         val names = pref.entries.map { it.toString() }
         val ids = pref.entryValues.map { it.toString() }
         val density = context.resources.displayMetrics.density
-        val accent = Chrome.palette.accent
+        val hairline = density.toInt().coerceAtLeast(1)
+        val p = Chrome.palette
 
         val adapter = object : ArrayAdapter<String>(context, 0, names) {
             override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
                 val scheme = TerminalColor.SCHEMES[ids[position]] ?: TerminalColor.SCHEMES.getValue("catppuccin")
                 val selected = ids[position] == pref.value
-                val row = LinearLayout(context).apply {
+
+                val card = LinearLayout(context).apply {
                     orientation = LinearLayout.VERTICAL
-                    setPadding((20 * density).toInt(), (8 * density).toInt(), (20 * density).toInt(), (8 * density).toInt())
+                    background = Chrome.rounded(
+                        if (selected) p.accentSoft else p.card,
+                        14 * density,
+                        if (selected) p.accent else p.outline,
+                        if (selected) (1.5f * density).toInt().coerceAtLeast(1) else hairline
+                    )
+                    setPadding((12 * density).toInt(), (9 * density).toInt(), (12 * density).toInt(), (10 * density).toInt())
                 }
                 val header = LinearLayout(context).apply {
                     orientation = LinearLayout.HORIZONTAL
@@ -43,25 +53,32 @@ object ThemePicker {
                 }
                 header.addView(TextView(context).apply {
                     text = names[position]
-                    textSize = 15f
-                    setTextColor(if (selected) accent else Chrome.palette.text)
+                    textSize = 14.5f
+                    setTextColor(if (selected) p.accent else p.text)
                     typeface = if (selected) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
                 }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
                 if (selected) {
-                    header.addView(TextView(context).apply {
-                        text = "✓"
-                        textSize = 16f
-                        setTextColor(accent)
-                    })
+                    val checkBadge = FrameLayout(context).apply {
+                        background = Chrome.rounded(p.accent, 99 * density)
+                        addView(ImageView(context).apply {
+                            setImageResource(R.drawable.ic_check)
+                            setColorFilter(p.onAccent)
+                            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                        }, FrameLayout.LayoutParams((13 * density).toInt(), (13 * density).toInt(), Gravity.CENTER))
+                    }
+                    header.addView(checkBadge, LinearLayout.LayoutParams((20 * density).toInt(), (20 * density).toInt()))
                 }
-                row.addView(header)
-                row.addView(
-                    SwatchView(context, scheme, selected, accent),
-                    LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (52 * density).toInt()).apply {
-                        topMargin = (6 * density).toInt()
+                card.addView(header)
+                card.addView(
+                    SwatchView(context, scheme, selected, p.accent),
+                    LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (48 * density).toInt()).apply {
+                        topMargin = (7 * density).toInt()
                     }
                 )
-                return row
+                return FrameLayout(context).apply {
+                    setPadding((16 * density).toInt(), (4 * density).toInt(), (16 * density).toInt(), (4 * density).toInt())
+                    addView(card)
+                }
             }
         }
 
@@ -76,10 +93,17 @@ object ThemePicker {
             }
             .setNegativeButton(android.R.string.cancel, null)
             .create()
-        ChromeDialog.style(dialog).show()
+        ChromeDialog.style(dialog) {
+            dialog.listView?.apply {
+                divider = null
+                dividerHeight = 0
+                setPadding(0, (6 * density).toInt(), 0, (6 * density).toInt())
+                clipToPadding = false
+            }
+        }.show()
     }
 
-    /** A scheme as a bit of terminal: its background, a prompt and a command in its text color, and its six colors. */
+    /** Miniature terminal preview card: traffic-light dots, syntax prompt, and palette swatches. */
     private class SwatchView(
         context: Context,
         private val scheme: TerminalColor.ColorScheme,
@@ -90,38 +114,57 @@ object ThemePicker {
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
         private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             typeface = Typeface.MONOSPACE
-            textSize = 13.5f * d
+            textSize = 12.5f * d
         }
         private val rect = RectF()
+        private val swatchRect = RectF()
 
         override fun onDraw(canvas: Canvas) {
-            val inset = 1.5f * d
+            val inset = d
             rect.set(inset, inset, width - inset, height - inset)
-            val radius = 12 * d
+            val radius = 10 * d
             paint.style = Paint.Style.FILL
             paint.color = scheme.bg
             canvas.drawRoundRect(rect, radius, radius, paint)
             paint.style = Paint.Style.STROKE
-            paint.strokeWidth = if (selected) 2.5f * d else d
-            paint.color = if (selected) accent else Chrome.mix(scheme.bg, scheme.fg, 0.22f)
+            paint.strokeWidth = if (selected) 1.5f * d else d
+            paint.color = if (selected) accent else Chrome.mix(scheme.bg, scheme.fg, 0.20f)
             canvas.drawRoundRect(rect, radius, radius, paint)
 
-            val baseline = height / 2f + 5 * d
-            var x = 14 * d
-            textPaint.color = scheme.ansi[2]
-            canvas.drawText("~ $", x, baseline, textPaint)
-            x += textPaint.measureText("~ $ ")
-            textPaint.color = scheme.fg
-            canvas.drawText("ls", x, baseline, textPaint)
-
-            // The six colors of the palette, from the right
+            // Traffic light dots & prompt syntax
             paint.style = Paint.Style.FILL
-            val dot = 6 * d
-            var cx = width - 16 * d
+            val midY = height / 2f
+            val dotR = 3.2f * d
+            var dx = 12 * d
+            for (ansiIdx in intArrayOf(1, 3, 2)) {
+                paint.color = scheme.ansi[ansiIdx]
+                canvas.drawCircle(dx, midY, dotR, paint)
+                dx += 10 * d
+            }
+
+            val baseline = midY + 4.5f * d
+            var x = dx + 4 * d
+            textPaint.color = scheme.ansi[4]
+            canvas.drawText("~", x, baseline, textPaint)
+            x += textPaint.measureText("~ ")
+            textPaint.color = scheme.ansi[2]
+            canvas.drawText("$", x, baseline, textPaint)
+            x += textPaint.measureText("$ ")
+            textPaint.color = scheme.fg
+            canvas.drawText("ls ", x, baseline, textPaint)
+            x += textPaint.measureText("ls ")
+            textPaint.color = scheme.ansi[6]
+            canvas.drawText("-la", x, baseline, textPaint)
+
+            // Crisp pill swatches of the 6 palette colors from the right
+            val chipW = 9 * d
+            val chipH = 16 * d
+            var rx = width - 12 * d
             for (i in 6 downTo 1) {
                 paint.color = scheme.ansi[i]
-                canvas.drawCircle(cx, height / 2f, dot, paint)
-                cx -= dot * 2.7f
+                swatchRect.set(rx - chipW, midY - chipH / 2f, rx, midY + chipH / 2f)
+                canvas.drawRoundRect(swatchRect, 3.5f * d, 3.5f * d, paint)
+                rx -= chipW + 3.5f * d
             }
         }
     }

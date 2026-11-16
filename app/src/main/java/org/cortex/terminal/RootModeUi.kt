@@ -12,9 +12,10 @@ import android.widget.ImageView
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.content.res.AppCompatResources
-import androidx.core.content.ContextCompat
+import com.google.android.material.progressindicator.CircularProgressIndicator
 import org.cortex.terminal.runtime.RootMode
 import org.cortex.terminal.service.CortexService
+import org.cortex.terminal.view.Chrome
 import org.cortex.terminal.view.showInChrome
 import kotlin.concurrent.thread
 
@@ -106,13 +107,31 @@ object RootModeUi {
 /** Spinner with "…" counting while working, then an animated tick or cross with the result. */
 private class RootStatusDialog(private val activity: Activity) {
     private val view: View = activity.layoutInflater.inflate(R.layout.dialog_root_check, null)
-    private val progress: View = view.findViewById(R.id.rootCheckProgress)
+    private val progress: CircularProgressIndicator = view.findViewById(R.id.rootCheckProgress)
     private val icon: ImageView = view.findViewById(R.id.rootCheckIcon)
     private val text: TextView = view.findViewById(R.id.rootCheckText)
     private val detail: TextView = view.findViewById(R.id.rootCheckDetail)
     private val close: Button = view.findViewById(R.id.rootCheckClose)
     private val dialog = AlertDialog.Builder(activity).setView(view).setCancelable(false).create()
     private val handler = Handler(Looper.getMainLooper())
+
+    init {
+        val p = Chrome.palette
+        val density = activity.resources.displayMetrics.density
+        val hairline = density.toInt().coerceAtLeast(1)
+        view.background = Chrome.rounded(p.bar, 24 * density, p.outline, hairline)
+        progress.setIndicatorColor(p.accent)
+        progress.trackColor = p.raisedHigh
+        text.setTextColor(p.text)
+        detail.setTextColor(p.textDim)
+        close.setTextColor(p.accent)
+        close.background = Chrome.ripple(
+            Chrome.rounded(p.accentSoft, 12 * density, Chrome.withAlpha(p.accent, 90), hairline),
+            Chrome.withAlpha(p.accent, 70),
+            12 * density
+        )
+        dialog.window?.setBackgroundDrawable(android.graphics.drawable.InsetDrawable(android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT), (16 * density).toInt()))
+    }
 
     private var baseText = ""
     private var dots = 0
@@ -134,7 +153,7 @@ private class RootStatusDialog(private val activity: Activity) {
     }
 
     fun showSuccess(message: String, onDismissed: () -> Unit) {
-        showResult(message, R.color.cortex_secondary, R.drawable.avd_root_success)
+        showResult(message, Chrome.palette.ok, R.drawable.avd_root_success)
         handler.postDelayed({
             dismiss()
             onDismissed()
@@ -142,7 +161,7 @@ private class RootStatusDialog(private val activity: Activity) {
     }
 
     fun showFailure(message: String, detailText: String, onDismissed: () -> Unit) {
-        showResult(message, R.color.cortex_accent, R.drawable.avd_root_failure)
+        showResult(message, Chrome.palette.danger, R.drawable.avd_root_failure)
         detail.text = detailText
         detail.visibility = View.VISIBLE
         close.visibility = View.VISIBLE
@@ -152,11 +171,11 @@ private class RootStatusDialog(private val activity: Activity) {
         }
     }
 
-    private fun showResult(message: String, colorRes: Int, iconRes: Int) {
+    private fun showResult(message: String, color: Int, iconRes: Int) {
         handler.removeCallbacks(dotTicker)
         if (!dialog.isShowing) dialog.show()
         text.text = message
-        text.setTextColor(ContextCompat.getColor(activity, colorRes))
+        text.setTextColor(color)
         progress.animate().alpha(0f).setDuration(150).withEndAction { progress.visibility = View.INVISIBLE }.start()
 
         val drawable = AppCompatResources.getDrawable(activity, iconRes)

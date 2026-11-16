@@ -2,16 +2,18 @@ package org.cortex.terminal.view
 
 import android.annotation.SuppressLint
 import android.content.Context
-import android.graphics.Color
+import android.graphics.Typeface
 import android.text.Editable
 import android.text.TextWatcher
 import android.util.AttributeSet
 import android.view.Gravity
 import android.view.MotionEvent
+import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import android.widget.ImageButton
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import org.cortex.terminal.R
@@ -29,37 +31,54 @@ class TerminalSearchBar @JvmOverloads constructor(
     var onSwipeRight: (() -> Unit)? = null
     var onRequestClose: (() -> Unit)? = null
 
+    private val inputWrapper: LinearLayout
+    private val searchIcon: ImageView
     private val input: EditText
     private val countText: TextView
     private val iconButtons = mutableListOf<ImageButton>()
 
+    private var hasMatches = false
     private var swipeStartX = 0f
     private var swipeStartY = 0f
     private var swipeConsumed = false
 
+    private fun dp(v: Float): Int = (v * resources.displayMetrics.density).toInt()
+
     init {
         orientation = HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
-        setBackgroundColor(Color.parseColor("#161722"))
-        val pad = (6 * resources.displayMetrics.density).toInt()
-        val horizPad = (10 * resources.displayMetrics.density).toInt()
+        val pad = dp(6f)
+        val horizPad = dp(10f)
         setPadding(horizPad, pad, horizPad, pad)
         visibility = GONE
 
-        val inputHeight = (42 * resources.displayMetrics.density).toInt()
-        input = EditText(context).apply {
+        val inputHeight = dp(42f)
+        inputWrapper = LinearLayout(context).apply {
+            orientation = HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
             layoutParams = LayoutParams(0, inputHeight, 1f).apply {
-                marginEnd = (8 * resources.displayMetrics.density).toInt()
+                marginEnd = dp(8f)
             }
-            setBackgroundResource(R.drawable.search_bar_bg)
-            setTextColor(Color.WHITE)
-            setHintTextColor(Color.parseColor("#6c7086"))
+            setPadding(dp(12f), 0, dp(8f), 0)
+        }
+
+        searchIcon = ImageView(context).apply {
+            setImageResource(R.drawable.ic_search)
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            layoutParams = LayoutParams(dp(18f), dp(18f)).apply {
+                marginEnd = dp(8f)
+            }
+        }
+        inputWrapper.addView(searchIcon)
+
+        input = EditText(context).apply {
+            layoutParams = LayoutParams(0, LayoutParams.MATCH_PARENT, 1f)
+            background = null
             hint = context.getString(R.string.search_hint)
             textSize = 14f
             isSingleLine = true
             imeOptions = EditorInfo.IME_ACTION_SEARCH
-            val inputPad = (14 * resources.displayMetrics.density).toInt()
-            setPadding(inputPad, 0, inputPad, 0)
+            setPadding(0, 0, dp(6f), 0)
             addTextChangedListener(object : TextWatcher {
                 override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
                 override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {
@@ -74,61 +93,42 @@ class TerminalSearchBar @JvmOverloads constructor(
                 } else false
             }
         }
-        addView(input)
+        inputWrapper.addView(input)
 
         countText = TextView(context).apply {
-            layoutParams = LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply {
-                marginEnd = (8 * resources.displayMetrics.density).toInt()
-            }
-            setTextColor(Color.parseColor("#a6adc8"))
-            textSize = 12f
+            typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+            textSize = 11.5f
             text = "0/0"
+            setPadding(dp(8f), dp(3f), dp(8f), dp(3f))
+            layoutParams = LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT)
         }
-        addView(countText)
+        inputWrapper.addView(countText)
+        addView(inputWrapper)
 
-        val btnSize = (48 * resources.displayMetrics.density).toInt()
-        val btnPrev = ImageButton(context).apply {
-            layoutParams = LayoutParams(btnSize, btnSize).apply {
-                marginEnd = (4 * resources.displayMetrics.density).toInt()
-            }
-            iconButtons.add(this)
-            setImageResource(android.R.drawable.arrow_up_float)
-            setBackgroundResource(R.drawable.icon_circle_bg)
-            contentDescription = context.getString(R.string.search_previous)
-            setColorFilter(Color.WHITE)
-            setOnClickListener { onPrev?.invoke() }
-        }
-        addView(btnPrev)
-
-        val btnNext = ImageButton(context).apply {
-            layoutParams = LayoutParams(btnSize, btnSize).apply {
-                marginEnd = (4 * resources.displayMetrics.density).toInt()
-            }
-            iconButtons.add(this)
-            setImageResource(android.R.drawable.arrow_down_float)
-            setBackgroundResource(R.drawable.icon_circle_bg)
-            contentDescription = context.getString(R.string.search_next)
-            setColorFilter(Color.WHITE)
-            setOnClickListener { onNext?.invoke() }
-        }
-        addView(btnNext)
-
-        val btnClose = ImageButton(context).apply {
-            layoutParams = LayoutParams(btnSize, btnSize)
-            iconButtons.add(this)
-            setImageResource(android.R.drawable.ic_menu_close_clear_cancel)
-            setBackgroundResource(R.drawable.icon_circle_bg)
-            contentDescription = context.getString(R.string.search_close)
-            setColorFilter(Color.WHITE)
-            setOnClickListener {
-                if (onRequestClose != null) {
-                    onRequestClose?.invoke()
-                } else {
-                    hide()
+        val btnSize = dp(40f)
+        val iconPad = dp(9f)
+        fun navButton(iconRes: Int, descRes: Int, gapEnd: Int, action: () -> Unit): ImageButton =
+            ImageButton(context).apply {
+                layoutParams = LayoutParams(btnSize, btnSize).apply {
+                    marginEnd = gapEnd
                 }
+                setImageResource(iconRes)
+                scaleType = ImageView.ScaleType.FIT_CENTER
+                setPadding(iconPad, iconPad, iconPad, iconPad)
+                contentDescription = context.getString(descRes)
+                setOnClickListener { action() }
+                iconButtons.add(this)
             }
-        }
-        addView(btnClose)
+
+        addView(navButton(R.drawable.ic_chevron_up, R.string.search_previous, dp(5f)) { onPrev?.invoke() })
+        addView(navButton(R.drawable.ic_chevron_down, R.string.search_next, dp(5f)) { onNext?.invoke() })
+        addView(navButton(R.drawable.ic_close, R.string.search_close, 0) {
+            if (onRequestClose != null) {
+                onRequestClose?.invoke()
+            } else {
+                hide()
+            }
+        })
         applyPalette()
     }
 
@@ -138,16 +138,32 @@ class TerminalSearchBar @JvmOverloads constructor(
         val d = resources.displayMetrics.density
         val hairline = d.toInt().coerceAtLeast(1)
         setBackgroundColor(p.bar)
-        input.background = Chrome.rounded(p.raised, 22 * d, p.outline, hairline)
+        inputWrapper.background = Chrome.rounded(p.card, 21 * d, p.outline, hairline)
+        searchIcon.setColorFilter(p.textDim)
         input.setTextColor(p.text)
         input.setHintTextColor(p.textFaint)
-        countText.setTextColor(p.textDim)
+        applyCountBadgePalette()
         for (b in iconButtons) {
             b.background = Chrome.ripple(
-                Chrome.rounded(p.raised, 24 * d, p.outline, hairline), Chrome.withAlpha(p.accent, 70), 24 * d
+                Chrome.rounded(p.card, 12 * d, p.outline, hairline),
+                Chrome.withAlpha(p.accent, 70),
+                12 * d
             )
             b.setColorFilter(p.text)
         }
+    }
+
+    private fun applyCountBadgePalette() {
+        val p = Chrome.palette
+        val d = resources.displayMetrics.density
+        val hairline = d.toInt().coerceAtLeast(1)
+        countText.setTextColor(if (hasMatches) p.accent else p.textDim)
+        countText.background = Chrome.rounded(
+            if (hasMatches) p.accentSoft else p.raised,
+            8 * d,
+            if (hasMatches) Chrome.withAlpha(p.accent, 110) else p.outline,
+            hairline
+        )
     }
 
     override fun onInterceptTouchEvent(ev: MotionEvent): Boolean {
@@ -226,6 +242,8 @@ class TerminalSearchBar @JvmOverloads constructor(
     fun isShowing(): Boolean = visibility == VISIBLE
 
     fun updateCount(index: Int, total: Int) {
+        hasMatches = total > 0
         countText.text = if (total <= 0) "0/0" else "${index + 1}/$total"
+        applyCountBadgePalette()
     }
 }

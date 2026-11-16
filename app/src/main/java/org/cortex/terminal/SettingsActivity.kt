@@ -122,21 +122,58 @@ class SettingsActivity : AppCompatActivity() {
             super.onDisplayPreferenceDialog(preference)
         }
 
-        /** The choices of a list preference in a dialog of the interface's colors (the library's is a gray one). */
+        /** The choices of a list preference in a card-styled dialog of the interface's colors. */
         private fun showChoice(pref: ListPreference) {
             val context = requireContext()
             val entries = pref.entries ?: return
             val values = pref.entryValues ?: return
             val p = org.cortex.terminal.view.Chrome.palette
+            val density = context.resources.displayMetrics.density
+            val hairline = density.toInt().coerceAtLeast(1)
             val checked = values.indexOfFirst { it.toString() == pref.value }
-            val adapter = object : android.widget.ArrayAdapter<CharSequence>(
-                context, android.R.layout.simple_list_item_single_choice, entries
-            ) {
+            val adapter = object : android.widget.ArrayAdapter<CharSequence>(context, 0, entries) {
                 override fun getView(position: Int, convertView: android.view.View?, parent: android.view.ViewGroup): android.view.View {
-                    val row = super.getView(position, convertView, parent) as android.widget.CheckedTextView
-                    row.setTextColor(p.text)
-                    row.checkMarkTintList = android.content.res.ColorStateList.valueOf(p.accent)
-                    return row
+                    val selected = position == checked
+                    val row = android.widget.LinearLayout(context).apply {
+                        orientation = android.widget.LinearLayout.HORIZONTAL
+                        gravity = android.view.Gravity.CENTER_VERTICAL
+                        setPadding((14 * density).toInt(), (12 * density).toInt(), (14 * density).toInt(), (12 * density).toInt())
+                        background = org.cortex.terminal.view.Chrome.rounded(
+                            if (selected) p.accentSoft else p.card,
+                            12 * density,
+                            if (selected) p.accent else p.outline,
+                            if (selected) (1.5f * density).toInt().coerceAtLeast(1) else hairline
+                        )
+                    }
+                    val label = android.widget.TextView(context).apply {
+                        text = entries[position]
+                        textSize = 14.5f
+                        setTextColor(if (selected) p.text else p.textDim)
+                        typeface = if (selected) android.graphics.Typeface.DEFAULT_BOLD else android.graphics.Typeface.DEFAULT
+                    }
+                    row.addView(label, android.widget.LinearLayout.LayoutParams(0, android.view.ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                    val indicator = android.widget.ImageView(context).apply {
+                        val size = (20 * density).toInt()
+                        layoutParams = android.widget.LinearLayout.LayoutParams(size, size).apply {
+                            marginStart = (10 * density).toInt()
+                        }
+                        importantForAccessibility = android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                        if (selected) {
+                            background = org.cortex.terminal.view.Chrome.rounded(p.accent, 99 * density)
+                            setImageResource(R.drawable.ic_check)
+                            setColorFilter(p.onAccent)
+                            val pad = (3 * density).toInt()
+                            setPadding(pad, pad, pad, pad)
+                        } else {
+                            background = org.cortex.terminal.view.Chrome.rounded(0, 99 * density, p.outline, hairline)
+                        }
+                    }
+                    row.addView(indicator)
+                    val wrapper = android.widget.FrameLayout(context).apply {
+                        setPadding((16 * density).toInt(), (4 * density).toInt(), (16 * density).toInt(), (4 * density).toInt())
+                        addView(row)
+                    }
+                    return wrapper
                 }
             }
             val dialog = androidx.appcompat.app.AlertDialog.Builder(context)
@@ -148,7 +185,14 @@ class SettingsActivity : AppCompatActivity() {
                 }
                 .setNegativeButton(android.R.string.cancel, null)
                 .create()
-            org.cortex.terminal.view.ChromeDialog.style(dialog).show()
+            org.cortex.terminal.view.ChromeDialog.style(dialog) {
+                dialog.listView?.apply {
+                    divider = null
+                    dividerHeight = 0
+                    setPadding(0, (6 * density).toInt(), 0, (6 * density).toInt())
+                    clipToPadding = false
+                }
+            }.show()
         }
 
         override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {

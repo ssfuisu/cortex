@@ -2,20 +2,22 @@ package org.cortex.terminal.view
 
 import android.content.Context
 import android.graphics.Typeface
+import android.text.TextUtils
 import android.util.AttributeSet
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
 import android.view.View
 import android.widget.HorizontalScrollView
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import org.cortex.terminal.R
 
 /**
  * The strip above the terminal with one tab for each session, in the colors of the terminal: the
- * session being shown is a rounded tab in the accent, with a close button; the others are plain text.
- * A button at the end starts a new session. It scrolls sideways when the tabs do not fit.
+ * session being shown is an elevated pill tab with an accent border, terminal glyph, and close button.
+ * A pill button at the end starts a new session.
  */
 class SessionTabsView @JvmOverloads constructor(
     context: Context,
@@ -52,20 +54,24 @@ class SessionTabsView @JvmOverloads constructor(
         scroll.overScrollMode = OVER_SCROLL_NEVER
         strip.orientation = HORIZONTAL
         strip.gravity = Gravity.CENTER_VERTICAL
-        strip.setPadding(dp(6), 0, dp(2), 0)
+        strip.setPadding(dp(8), dp(4), dp(4), dp(4))
         scroll.addView(strip, android.widget.FrameLayout.LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.MATCH_PARENT))
         addView(scroll, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
 
         newButton.text = "+"
-        newButton.setTextSize(TypedValue.COMPLEX_UNIT_SP, 22f)
-        newButton.typeface = Typeface.MONOSPACE
+        newButton.setTextSize(TypedValue.COMPLEX_UNIT_SP, 19f)
+        newButton.typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+        newButton.includeFontPadding = false
         newButton.gravity = Gravity.CENTER
         newButton.contentDescription = context.getString(R.string.drawer_new_session)
         newButton.setOnClickListener {
             it.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
             onNew?.invoke()
         }
-        addView(newButton, LayoutParams(dp(46), LayoutParams.MATCH_PARENT))
+        addView(newButton, LayoutParams(dp(34), dp(30)).apply {
+            marginStart = dp(2)
+            marginEnd = dp(8)
+        })
         applyPalette()
     }
 
@@ -84,9 +90,14 @@ class SessionTabsView @JvmOverloads constructor(
     /** Draws the tabs again in the colors of the scheme now in use. */
     fun applyPalette() {
         val p = Chrome.palette
+        val hairline = dp(1).coerceAtLeast(1)
         setBackgroundColor(p.bar)
         newButton.setTextColor(p.accent)
-        newButton.background = Chrome.ripple(Chrome.rounded(0, dp(8).toFloat()), Chrome.withAlpha(p.accent, 60), dp(8).toFloat())
+        newButton.background = Chrome.ripple(
+            Chrome.rounded(p.card, dp(9).toFloat(), p.outline, hairline),
+            Chrome.withAlpha(p.accent, 65),
+            dp(9).toFloat()
+        )
         rebuild()
     }
 
@@ -116,14 +127,19 @@ class SessionTabsView @JvmOverloads constructor(
 
     private fun tabView(index: Int, tab: Tab, isActive: Boolean): View {
         val p = Chrome.palette
-        val radius = dp(9).toFloat()
+        val hairline = dp(1).coerceAtLeast(1)
+        val radius = dp(10).toFloat()
         val row = LinearLayout(context).apply {
             orientation = HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(10), 0, dp(if (isActive) 3 else 10), 0)
+            setPadding(dp(if (isActive) 8 else 10), 0, dp(if (isActive) 4 else 10), 0)
             background = Chrome.ripple(
-                Chrome.rounded(if (isActive) p.accentSoft else 0, radius),
-                Chrome.withAlpha(p.accent, 50),
+                if (isActive) {
+                    Chrome.rounded(p.accentSoft, radius, Chrome.withAlpha(p.accent, 115), hairline)
+                } else {
+                    Chrome.rounded(Chrome.withAlpha(p.card, 160), radius, Chrome.withAlpha(p.outline, 130), hairline)
+                },
+                Chrome.withAlpha(p.accent, 55),
                 radius
             )
             isClickable = true
@@ -141,35 +157,46 @@ class SessionTabsView @JvmOverloads constructor(
                 true
             }
         }
+        if (isActive) {
+            row.addView(View(context).apply {
+                background = Chrome.rounded(p.accent, dp(2).toFloat())
+            }, LayoutParams(dp(3), dp(14)).apply { marginEnd = dp(6) })
+            row.addView(ImageView(context).apply {
+                setImageResource(R.drawable.ic_terminal)
+                setColorFilter(p.accent)
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            }, LayoutParams(dp(13), dp(13)).apply { marginEnd = dp(5) })
+        }
         // The number of the session, or the name the user gave it
         val label = tab.name ?: (index + 1).toString()
-        row.addView(text(label, 14f, if (isActive) p.accent else p.textDim, true).apply {
+        row.addView(text(label, 13f, if (isActive) p.text else p.textDim, isActive).apply {
             if (tab.name != null) {
-                maxWidth = dp(150)
+                maxWidth = dp(140)
                 maxLines = 1
-                ellipsize = android.text.TextUtils.TruncateAt.END
+                ellipsize = TextUtils.TruncateAt.END
             }
         })
         if (tab.isRoot) {
             row.addView(text(context.getString(R.string.session_root_badge), 9f, p.danger, true).apply {
-                setPadding(dp(6), 0, 0, 0)
-            })
+                background = Chrome.rounded(p.dangerSoft, dp(5).toFloat(), Chrome.withAlpha(p.danger, 140), hairline)
+                setPadding(dp(5), dp(1), dp(5), dp(1))
+            }, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply { marginStart = dp(6) })
         }
         if (isActive) {
-            val close = text("✕", 12f, p.textDim, false).apply {
+            val close = text("✕", 11.5f, p.textDim, false).apply {
                 gravity = Gravity.CENTER
                 contentDescription = context.getString(R.string.close_session)
                 setOnClickListener {
                     it.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                     onClose?.invoke(index)
                 }
-                background = Chrome.ripple(Chrome.rounded(0, dp(8).toFloat()), Chrome.withAlpha(p.danger, 70), dp(8).toFloat())
+                background = Chrome.ripple(Chrome.rounded(0, dp(7).toFloat()), Chrome.withAlpha(p.danger, 75), dp(7).toFloat())
             }
-            row.addView(close, LayoutParams(dp(30), dp(26)).apply { marginStart = dp(2) })
+            row.addView(close, LayoutParams(dp(26), dp(24)).apply { marginStart = dp(3) })
         }
         row.layoutParams = LayoutParams(LayoutParams.WRAP_CONTENT, dp(30)).apply {
-            marginStart = dp(2)
-            marginEnd = dp(2)
+            marginStart = dp(3)
+            marginEnd = dp(3)
         }
         return row
     }

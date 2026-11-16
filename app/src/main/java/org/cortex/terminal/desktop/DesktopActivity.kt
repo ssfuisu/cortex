@@ -3,6 +3,7 @@ package org.cortex.terminal.desktop
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Typeface
 import android.net.LocalSocket
@@ -17,7 +18,9 @@ import android.view.WindowManager
 import android.view.inputmethod.InputMethodManager
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
+import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
@@ -40,6 +43,8 @@ import kotlin.concurrent.thread
 class DesktopActivity : AppCompatActivity() {
 
     private lateinit var desktop: DesktopView
+    private lateinit var statusOverlay: View
+    private lateinit var statusSpinner: ProgressBar
     private lateinit var status: TextView
     private lateinit var statusAction: TextView
     private lateinit var keyBar: View
@@ -89,41 +94,71 @@ class DesktopActivity : AppCompatActivity() {
         desktop.onModifiersUsed = { releaseModifiers() }
         desktop.onViewSizeChanged = { w, h, widthChanged -> if (widthChanged) requestDesktopSize(w, h) }
 
+        val hairline = density.toInt().coerceAtLeast(1)
+        val statusIconBg = FrameLayout(this).apply {
+            background = Chrome.rounded(p.accentSoft, 16 * density, Chrome.withAlpha(p.accent, 110), hairline)
+            addView(ImageView(this@DesktopActivity).apply {
+                setImageResource(R.drawable.ic_desktop)
+                setColorFilter(p.accent)
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            }, FrameLayout.LayoutParams((28 * density).toInt(), (28 * density).toInt(), Gravity.CENTER))
+        }
+        statusSpinner = ProgressBar(this).apply {
+            indeterminateTintList = ColorStateList.valueOf(p.accent)
+            visibility = View.GONE
+        }
         status = TextView(this).apply {
             setTextColor(p.text)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+            typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
             gravity = Gravity.CENTER
-            setPadding((24 * density).toInt(), 0, (24 * density).toInt(), 0)
+            setLineSpacing(0f, 1.25f)
         }
         statusAction = TextView(this).apply {
             setTextColor(p.onAccent)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
-            typeface = Typeface.DEFAULT_BOLD
+            typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
             gravity = Gravity.CENTER
-            setPadding((22 * density).toInt(), (12 * density).toInt(), (22 * density).toInt(), (12 * density).toInt())
-            background = Chrome.buttonBackground(p, 18 * density, 0, filled = true)
+            setPadding((24 * density).toInt(), (12 * density).toInt(), (24 * density).toInt(), (12 * density).toInt())
+            background = Chrome.buttonBackground(p, 14 * density, 0, filled = true)
             visibility = View.GONE
         }
-        val statusBox = LinearLayout(this).apply {
+        val statusCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-            addView(status)
+            gravity = Gravity.CENTER_HORIZONTAL
+            background = Chrome.rounded(Chrome.withAlpha(p.bar, 240), 24 * density, p.outline, hairline)
+            setPadding((26 * density).toInt(), (24 * density).toInt(), (26 * density).toInt(), (24 * density).toInt())
+            addView(statusIconBg, LinearLayout.LayoutParams((54 * density).toInt(), (54 * density).toInt()))
+            addView(statusSpinner, LinearLayout.LayoutParams((30 * density).toInt(), (30 * density).toInt()).apply {
+                topMargin = (14 * density).toInt()
+            })
+            addView(status, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = (14 * density).toInt()
+            })
             addView(statusAction, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 topMargin = (18 * density).toInt()
             })
         }
+        statusOverlay = FrameLayout(this).apply {
+            setBackgroundColor(0x99000000.toInt())
+            val maxW = minOf(resources.displayMetrics.widthPixels - (40 * density).toInt(), (340 * density).toInt())
+            addView(statusCard, FrameLayout.LayoutParams(maxW, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
+            visibility = View.GONE
+        }
 
         keyBar = buildKeyBar(p, density)
+        val divider = View(this).apply { setBackgroundColor(p.outline) }
         val surface = FrameLayout(this).apply {
             setBackgroundColor(Color.BLACK)
             addView(desktop, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-            addView(statusBox, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+            addView(statusOverlay, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         }
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(p.bar)
             addView(surface, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
-            addView(keyBar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (46 * density).toInt()))
+            addView(divider, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, hairline))
+            addView(keyBar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (48 * density).toInt()))
         }
         ViewCompat.setOnApplyWindowInsetsListener(root) { v, insets ->
             val bars = insets.getInsets(WindowInsetsCompat.Type.navigationBars() or WindowInsetsCompat.Type.displayCutout())
@@ -136,43 +171,64 @@ class DesktopActivity : AppCompatActivity() {
     }
 
     private fun buildKeyBar(p: Chrome.Palette, density: Float): View {
+        val hairline = density.toInt().coerceAtLeast(1)
+        val radius = 9 * density
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding((4 * density).toInt(), 0, (4 * density).toInt(), 0)
+            setPadding((6 * density).toInt(), 0, (6 * density).toInt(), 0)
         }
-        fun key(label: String, onClick: (TextView) -> Unit): TextView = TextView(this).apply {
+        fun key(
+            label: CharSequence,
+            bg: android.graphics.drawable.Drawable = Chrome.keyBackground(p, radius, hairline),
+            fg: Int = p.text,
+            onClick: (TextView) -> Unit
+        ): TextView = TextView(this).apply {
             text = label
-            setTextColor(p.text)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
-            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(fg)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f)
+            typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
             gravity = Gravity.CENTER
-            minWidth = (44 * density).toInt()
-            setPadding((10 * density).toInt(), 0, (10 * density).toInt(), 0)
-            background = Chrome.keyBackground(p, 8 * density, 0)
+            minWidth = (42 * density).toInt()
+            setPadding((11 * density).toInt(), 0, (11 * density).toInt(), 0)
+            background = bg
             setOnClickListener { onClick(this) }
             row.addView(this, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, (36 * density).toInt()).apply {
                 marginStart = (3 * density).toInt()
                 marginEnd = (3 * density).toInt()
             })
         }
-        key(getString(R.string.desktop_key_keyboard)) { toggleKeyboard() }
+        fun separator() {
+            row.addView(View(this).apply {
+                background = Chrome.rounded(p.outline, density)
+            }, LinearLayout.LayoutParams(hairline, (20 * density).toInt()).apply {
+                marginStart = (5 * density).toInt()
+                marginEnd = (5 * density).toInt()
+            })
+        }
+
+        key(Chrome.iconText(this, R.drawable.ic_keyboard, getString(R.string.desktop_key_keyboard), p.text, 15)) { toggleKeyboard() }
+        separator()
         key("Esc") { desktop.sendKeysym(XKeySyms.ESCAPE) }
         key("Tab") { desktop.sendKeysym(XKeySyms.TAB) }
         for ((label, sym) in listOf("Ctrl" to XKeySyms.CONTROL_L, "Alt" to XKeySyms.ALT_L, "Super" to XKeySyms.SUPER_L)) {
             modifierKeys[sym] = key(label) { toggleModifier(sym) }
         }
+        separator()
         for ((label, sym) in listOf("←" to XKeySyms.LEFT, "↑" to XKeySyms.UP, "↓" to XKeySyms.DOWN, "→" to XKeySyms.RIGHT)) {
             key(label) { desktop.sendKeysym(sym) }
         }
-        key(mouseLabel()) { view ->
+        separator()
+        val modeBg = Chrome.ripple(Chrome.rounded(p.accentSoft, radius, Chrome.withAlpha(p.accent, 110), hairline), Chrome.withAlpha(p.accent, 65), radius)
+        key(Chrome.iconText(this, R.drawable.ic_touch_app, mouseLabel(), p.accent, 15), modeBg, p.accent) { view ->
             desktop.touchpad = !desktop.touchpad
             PreferenceManager.getDefaultSharedPreferences(this).edit()
                 .putString(DesktopAddon.PREF_MOUSE_MODE, if (desktop.touchpad) "touchpad" else "touch").apply()
-            view.text = mouseLabel()
+            view.text = Chrome.iconText(this, R.drawable.ic_touch_app, mouseLabel(), p.accent, 15)
         }
         key("1:1") { desktop.resetZoom() }
-        key(getString(R.string.desktop_stop)) { stopDesktop() }
+        val stopBg = Chrome.ripple(Chrome.rounded(p.dangerSoft, radius, Chrome.withAlpha(p.danger, 120), hairline), Chrome.withAlpha(p.danger, 70), radius)
+        key(Chrome.iconText(this, R.drawable.ic_power_stop, getString(R.string.desktop_stop), p.danger, 15), stopBg, p.danger) { stopDesktop() }
         return HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false
             setBackgroundColor(p.bar)
@@ -196,9 +252,10 @@ class DesktopActivity : AppCompatActivity() {
     private fun refreshModifiers() {
         val p = Chrome.palette
         val density = resources.displayMetrics.density
+        val hairline = density.toInt().coerceAtLeast(1)
         for ((sym, view) in modifierKeys) {
             val on = sym in held
-            view.background = if (on) Chrome.activeKeyBackground(p, 8 * density, 0) else Chrome.keyBackground(p, 8 * density, 0)
+            view.background = if (on) Chrome.activeKeyBackground(p, 9 * density, hairline) else Chrome.keyBackground(p, 9 * density, hairline)
             view.setTextColor(if (on) p.onAccent else p.text)
         }
     }
@@ -224,7 +281,9 @@ class DesktopActivity : AppCompatActivity() {
         disconnect()
     }
 
-    private fun showStatus(text: String?, action: String? = null, onAction: (() -> Unit)? = null) {
+    private fun showStatus(text: String?, action: String? = null, working: Boolean = false, onAction: (() -> Unit)? = null) {
+        statusOverlay.visibility = if (text == null) View.GONE else View.VISIBLE
+        statusSpinner.visibility = if (text != null && working) View.VISIBLE else View.GONE
         status.text = text ?: ""
         status.visibility = if (text == null) View.GONE else View.VISIBLE
         if (action != null && onAction != null) {
@@ -245,7 +304,7 @@ class DesktopActivity : AppCompatActivity() {
             return
         }
         val gen = ++generation
-        showStatus(getString(R.string.desktop_starting))
+        showStatus(getString(R.string.desktop_starting), working = true)
         val app = applicationContext
         val (w, h) = viewDesktopSize()
         thread(name = "Cortex-DesktopStart") {
@@ -407,7 +466,7 @@ class DesktopActivity : AppCompatActivity() {
 
     private fun stopDesktop() {
         disconnect()
-        showStatus(getString(R.string.desktop_stopping))
+        showStatus(getString(R.string.desktop_stopping), working = true)
         val app = applicationContext
         thread(name = "Cortex-DesktopStop") {
             DesktopAddon.run(app, "cortex-desktop stop", 30_000)

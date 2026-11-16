@@ -17,7 +17,11 @@ on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: "Build, sign and verify the APKs but publish nothing (tests the signing setup)"
+        description: "Build, sign and verify the APKs without creating a GitHub Release"
+        type: boolean
+        default: false
+      publish_release:
+        description: "Publish a GitHub Release (off by default; artifacts are still uploaded)"
         type: boolean
         default: false
       prerelease:
@@ -412,7 +416,7 @@ jobs:
           name: cortex-debug-apk
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 14
 
       - name: Build Release APKs
         if: github.event_name != 'pull_request'
@@ -576,7 +580,7 @@ jobs:
         with:
           name: cortex-release-apks
           path: release-apks/*.apk
-          retention-days: ${{ github.event.inputs.dry_run == 'true' && 1 || 90 }}
+          retention-days: ${{ github.event.inputs.dry_run == 'true' && 14 || 90 }}
 
       # The debug app and UbuntuOnDeviceTest for Firebase Test Lab (device-test.yml), when the
       # repository is set up for it (tests/device/README.md)
@@ -605,7 +609,7 @@ jobs:
           cat SHA256SUMS.txt
 
       - name: Attest the APKs
-        if: github.event_name != 'pull_request' && github.event.inputs.dry_run != 'true' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch')
+        if: github.event_name != 'pull_request' && github.event.inputs.dry_run != 'true' && (startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish_release == 'true'))
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: |
@@ -613,7 +617,7 @@ jobs:
             release-apks/Cortex-armeabi-v7a-signed.apk
 
       - name: Create GitHub Release
-        if: github.event_name != 'pull_request' && github.event.inputs.dry_run != 'true' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch')
+        if: github.event_name != 'pull_request' && github.event.inputs.dry_run != 'true' && (startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish_release == 'true'))
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

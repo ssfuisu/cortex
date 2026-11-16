@@ -356,8 +356,11 @@ object UpdateManager {
 
         // The dialog is the card: its text and bar in the interface's colors
         val p = Chrome.palette
+        val density = activity.resources.displayMetrics.density
+        val hairline = density.toInt().coerceAtLeast(1)
         statusText.setTextColor(p.text)
-        percentText.setTextColor(p.textDim)
+        percentText.setTextColor(p.accent)
+        percentText.background = Chrome.rounded(p.accentSoft, 8 * density, Chrome.withAlpha(p.accent, 100), hairline)
         progressBar.progressTintList = ColorStateList.valueOf(p.accent)
         progressBar.progressBackgroundTintList = ColorStateList.valueOf(p.raisedHigh)
         progressBar.indeterminateTintList = ColorStateList.valueOf(p.accent)
