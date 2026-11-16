@@ -256,7 +256,8 @@ else
 log "Running the tests in the terminal"
 tap_center "$WIDTH" "$HEIGHT"
 sleep 2
-TEST_COMMAND="CORTEX_E2E_EMULATOR=1 CORTEX_E2E_ARCH=$DPKG_ARCH bash /sdcard/Download/cortex-e2e.sh"
+# The terminal's session is the ordinary user (cortex): the tests install packages, as root
+TEST_COMMAND="sudo env CORTEX_E2E_EMULATOR=1 CORTEX_E2E_ARCH=$DPKG_ARCH bash /sdcard/Download/cortex-e2e.sh"
 [ "${E2E_NO_APT:-0}" = 1 ] && TEST_COMMAND="CORTEX_E2E_NO_APT=1 $TEST_COMMAND"
 # Only some of the packages of a compatibility run (a list of names, nothing else gets through)
 if [ -n "${E2E_COMPAT_ONLY:-}" ]; then

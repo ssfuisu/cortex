@@ -184,4 +184,6 @@
     <string name="desktop_retry">Yenidən cəhd et</string>
     <string name="desktop_key_keyboard">Klaviatura</string>
     <string name="desktop_stop">Dayandır</string>
+    <string name="pref_sessions_as_root_title">Sessiyalar root kimi işləsin</string>
+    <string name="pref_sessions_as_root_summary">Yeni sessiyalar istifadəçiniz yerinə root kimi başlayır. Əks halda inzibati işlər üçün sudo istifadə edin.</string>
 </resources>

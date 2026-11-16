@@ -184,4 +184,6 @@
     <string name="desktop_retry">重试</string>
     <string name="desktop_key_keyboard">键盘</string>
     <string name="desktop_stop">停止</string>
+    <string name="pref_sessions_as_root_title">会话以 root 身份运行</string>
+    <string name="pref_sessions_as_root_summary">新会话以 root 而不是你的用户身份启动。否则请用 sudo 进行管理操作。</string>
 </resources>

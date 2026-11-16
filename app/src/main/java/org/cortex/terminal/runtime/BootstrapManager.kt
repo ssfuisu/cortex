@@ -60,7 +60,7 @@ object BootstrapManager {
         ensureNsswitch(root)
         ensureCaCertificates(root, context)
         ensureKeyrings(root, context)
-        ensurePasswd(root, home)
+        ensurePasswd(root, home, context)
         ensureReloadScripts(root, home, context)
         updateTimezone(context, root)
 
@@ -209,7 +209,7 @@ object BootstrapManager {
             ensureMachineId(root)
             // The system users and groups (a package's scripts need them): before the installation is
             // marked as current, so that a session that starts at once can install packages
-            ensurePasswd(root, Environment.getHomeDir(context))
+            ensurePasswd(root, Environment.getHomeDir(context), context)
             ensureEssentialBinaries(root, Environment.getHomeDir(context), context)
             ensureDynamicLinkerSymlinks(root)
             val versionFile = File(root, ".cortex_version")
@@ -1071,7 +1071,7 @@ object BootstrapManager {
         AptConfigurator.ensureKeyrings(root, context)
     }
 
-    private fun ensurePasswd(root: File, home: File) {
+    private fun ensurePasswd(root: File, home: File, context: Context? = null) {
         try {
             val etcDir = File(root, "etc")
             if (!etcDir.exists()) etcDir.mkdirs()
@@ -1083,11 +1083,9 @@ object BootstrapManager {
             } else {
                 passwdText = passwdText.replace(Regex("root:x:0:0:root:[^:]+:/bin/bash"), "root:x:0:0:root:$homePath:/bin/bash")
             }
-            if (!passwdText.contains("cortex:")) {
-                passwdText += "cortex:x:0:0:Cortex:$homePath:/bin/bash\n"
-            } else {
-                passwdText = passwdText.replace(Regex("cortex:x:0:0:Cortex:[^:]+:/bin/bash"), "cortex:x:0:0:Cortex:$homePath:/bin/bash")
-            }
+            // The ordinary user the sessions run as: the app's own uid under its name (UserAccount)
+            val userName = context?.let { UserAccount.name(it) } ?: UserAccount.DEFAULT_NAME
+            passwdText = UserAccount.withPasswdEntry(passwdText, userName, homePath)
             if (!passwdText.contains("_ssh:")) {
                 passwdText += "_ssh:x:100:100:OpenSSH daemon:/run/sshd:/usr/sbin/nologin\n"
             }
@@ -1108,9 +1106,7 @@ object BootstrapManager {
             if (!groupText.contains("root:x:0:")) {
                 groupText = "root:x:0:\n" + groupText
             }
-            if (!groupText.contains("cortex:")) {
-                groupText += "cortex:x:0:\n"
-            }
+            groupText = UserAccount.withGroupEntries(groupText, userName)
             if (!groupText.contains("_ssh:")) {
                 groupText += "_ssh:x:100:\n"
             }
@@ -1124,7 +1120,7 @@ object BootstrapManager {
             val shadowFile = File(etcDir, "shadow")
             var shadowText = if (shadowFile.exists()) shadowFile.readText() else ""
             if (!shadowText.contains("root:")) shadowText = "root:*:19700:0:99999:7:::\n" + shadowText
-            if (!shadowText.contains("cortex:")) shadowText += "cortex:*:19700:0:99999:7:::\n"
+            if (!Regex("(?m)^" + Regex.escape(userName) + ":").containsMatchIn(shadowText)) shadowText += "$userName:*:19700:0:99999:7:::\n"
             if (!shadowText.contains("_ssh:")) shadowText += "_ssh:*:19700:0:99999:7:::\n"
             if (!shadowText.contains("sshd:")) shadowText += "sshd:*:19700:0:99999:7:::\n"
             shadowText = BaseUsers.mergeShadow(shadowText, basePasswd.added, BaseUsers::shadowEntry)
@@ -1133,7 +1129,7 @@ object BootstrapManager {
             val gshadowFile = File(etcDir, "gshadow")
             var gshadowText = if (gshadowFile.exists()) gshadowFile.readText() else ""
             if (!gshadowText.contains("root:")) gshadowText = "root:*::\n" + gshadowText
-            if (!gshadowText.contains("cortex:")) gshadowText += "cortex:*::\n"
+            if (!Regex("(?m)^" + Regex.escape(userName) + ":").containsMatchIn(gshadowText)) gshadowText += "$userName:*::\n"
             if (!gshadowText.contains("_ssh:")) gshadowText += "_ssh:*::\n"
             if (!gshadowText.contains("ssh:")) gshadowText += "ssh:*::\n"
             gshadowText = BaseUsers.mergeShadow(gshadowText, baseGroup.added, BaseUsers::gshadowEntry)

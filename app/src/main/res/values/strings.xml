@@ -217,4 +217,6 @@
     <string name="desktop_retry">Try again</string>
     <string name="desktop_key_keyboard">Keyboard</string>
     <string name="desktop_stop">Stop</string>
+    <string name="pref_sessions_as_root_title">Sessions run as root</string>
+    <string name="pref_sessions_as_root_summary">New sessions start as root instead of your user. Otherwise use sudo for admin work.</string>
 </resources>

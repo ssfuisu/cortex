@@ -47,7 +47,7 @@
 #include <unistd.h>
 
 #define CORTEX_CHROOT_VERSION "1"
-#define HOSTNAME "cortex-android"
+#define HOSTNAME "localhost"
 #define SELINUX_XATTR "security.selinux"
 #define DEV_DEPTH_MAX 8
 

@@ -1042,7 +1042,8 @@ int main(void) {
     return 0;
 }
 EOC
-out=$(run "$work/low_port" 2>&1 | grep -v "^cortex: port")
+# (and says nothing on the program's output)
+out=$(run "$work/low_port" 2>&1)
 check "a server on a port below 1024 gets one 8000 above it, and a connection to the low port reaches it" test "$out" = "port 81 or 8081, connect 0, non-blocking connected"
 [ "$out" = "port 81 or 8081, connect 0, non-blocking connected" ] || echo "        got: $out"
 

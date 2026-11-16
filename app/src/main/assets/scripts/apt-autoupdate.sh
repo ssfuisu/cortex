@@ -13,6 +13,21 @@ case "$name" in
     *) name=apt-get ;;
 esac
 
+# An ordinary user (the terminal's sessions run as one) installs with sudo, as on Ubuntu
+if [ "$(id -u)" != 0 ] && [ -z "${CORTEX_NO_SUDO:-}" ]; then
+    for arg in "$@"; do
+        case "$arg" in
+            install | reinstall | remove | purge | autoremove | update | upgrade | full-upgrade | dist-upgrade | \
+                build-dep | satisfy | clean | autoclean)
+                echo "$name: $arg needs root. Run it with sudo: sudo $name $*" >&2
+                exit 100
+                ;;
+            -*) ;;
+            *) break ;;
+        esac
+    done
+fi
+
 needs_lists=0
 for arg in "$@"; do
     case "$arg" in

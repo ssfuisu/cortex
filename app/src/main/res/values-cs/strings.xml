@@ -184,4 +184,6 @@
     <string name="desktop_retry">Zkusit znovu</string>
     <string name="desktop_key_keyboard">Klávesnice</string>
     <string name="desktop_stop">Zastavit</string>
+    <string name="pref_sessions_as_root_title">Relace běží jako root</string>
+    <string name="pref_sessions_as_root_summary">Nové relace začínají jako root místo vašeho uživatele. Jinak pro správu použijte sudo.</string>
 </resources>

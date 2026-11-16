@@ -184,4 +184,6 @@
     <string name="desktop_retry">ફરી પ્રયાસ કરો</string>
     <string name="desktop_key_keyboard">કીબોર્ડ</string>
     <string name="desktop_stop">રોકો</string>
+    <string name="pref_sessions_as_root_title">સત્રો root તરીકે ચાલે</string>
+    <string name="pref_sessions_as_root_summary">નવા સત્રો તમારા વપરાશકર્તાને બદલે root તરીકે શરૂ થાય છે. નહીં તો વહીવટી કામ માટે sudo વાપરો.</string>
 </resources>

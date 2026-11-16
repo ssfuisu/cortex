@@ -184,4 +184,6 @@
     <string name="desktop_retry">Thử lại</string>
     <string name="desktop_key_keyboard">Bàn phím</string>
     <string name="desktop_stop">Dừng</string>
+    <string name="pref_sessions_as_root_title">Phiên chạy với quyền root</string>
+    <string name="pref_sessions_as_root_summary">Phiên mới bắt đầu với quyền root thay vì người dùng của bạn. Nếu không, hãy dùng sudo cho việc quản trị.</string>
 </resources>

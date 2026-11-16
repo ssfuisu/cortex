@@ -184,4 +184,6 @@
     <string name="desktop_retry">Reîncearcă</string>
     <string name="desktop_key_keyboard">Tastatură</string>
     <string name="desktop_stop">Oprește</string>
+    <string name="pref_sessions_as_root_title">Sesiunile rulează ca root</string>
+    <string name="pref_sessions_as_root_summary">Sesiunile noi pornesc ca root în loc de utilizatorul tău. Altfel folosește sudo pentru administrare.</string>
 </resources>

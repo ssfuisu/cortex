@@ -184,4 +184,6 @@
     <string name="desktop_retry">Torna-ho a provar</string>
     <string name="desktop_key_keyboard">Teclat</string>
     <string name="desktop_stop">Atura</string>
+    <string name="pref_sessions_as_root_title">Les sessions s\'executen com a root</string>
+    <string name="pref_sessions_as_root_summary">Les sessions noves comencen com a root en lloc del vostre usuari. Si no, feu servir sudo per a l\'administració.</string>
 </resources>

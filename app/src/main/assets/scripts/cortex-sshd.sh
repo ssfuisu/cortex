@@ -1,5 +1,7 @@
 #!/bin/bash
 # cortex-sshd: an SSH server in Cortex (Ubuntu's OpenSSH), to use the phone from a computer.
+# The SSH server's keys and its configuration are root's
+if [ "$(id -u)" != 0 ] && [ -z "${CORTEX_CHROOT:-}" ] && [ -z "${CORTEX_NO_SUDO:-}" ]; then exec sudo "$0" "$@"; fi
 #
 #   cortex-sshd [start] [-p PORT]   installs openssh-server the first time, starts it, says how to connect
 #   cortex-sshd stop | restart | status

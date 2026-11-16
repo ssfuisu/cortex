@@ -184,4 +184,6 @@
     <string name="desktop_retry">Ξανά</string>
     <string name="desktop_key_keyboard">Πληκτρολόγιο</string>
     <string name="desktop_stop">Διακοπή</string>
+    <string name="pref_sessions_as_root_title">Οι συνεδρίες τρέχουν ως root</string>
+    <string name="pref_sessions_as_root_summary">Οι νέες συνεδρίες ξεκινούν ως root αντί για τον χρήστη σας. Αλλιώς χρησιμοποιήστε sudo για διαχείριση.</string>
 </resources>

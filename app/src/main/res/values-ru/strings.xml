@@ -184,4 +184,6 @@
     <string name="desktop_retry">Повторить</string>
     <string name="desktop_key_keyboard">Клавиатура</string>
     <string name="desktop_stop">Остановить</string>
+    <string name="pref_sessions_as_root_title">Сеансы от имени root</string>
+    <string name="pref_sessions_as_root_summary">Новые сеансы запускаются от root вместо вашего пользователя. Иначе для администрирования используйте sudo.</string>
 </resources>

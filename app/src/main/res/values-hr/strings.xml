@@ -184,4 +184,6 @@
     <string name="desktop_retry">Pokušaj ponovno</string>
     <string name="desktop_key_keyboard">Tipkovnica</string>
     <string name="desktop_stop">Zaustavi</string>
+    <string name="pref_sessions_as_root_title">Sesije se pokreću kao root</string>
+    <string name="pref_sessions_as_root_summary">Nove sesije počinju kao root umjesto vašeg korisnika. Inače za administraciju koristite sudo.</string>
 </resources>

@@ -237,7 +237,7 @@ object AptConfigurator {
                 "    for s in /etc/cortex/autostart/*; do\n" +
                 "        if [ -f \"\$s\" ]; then\n" +
                 "            sname=\"\$(basename \"\$s\")\"\n" +
-                "            service \"\$sname\" start >/dev/null 2>&1 || true\n" +
+                "            CORTEX_BECOME=root service \"\$sname\" start >/dev/null 2>&1 || true\n" +
                 "        fi\n" +
                 "    done\n" +
                 "fi\n",

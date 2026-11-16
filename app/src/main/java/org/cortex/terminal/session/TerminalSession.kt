@@ -76,7 +76,7 @@ class TerminalSession(
         if (isRunning) return
 
         var shell = BootstrapManager.getInitialShellCommand(context)
-        val env = Environment.buildEnvironment(context)
+        val env = Environment.buildEnvironment(context, asUser = true)
         var ptyEnv = env
         var cwd = Environment.getHomeDir(context).absolutePath
         startDirectory?.let { dir -> if (File(dir).isDirectory) cwd = dir }

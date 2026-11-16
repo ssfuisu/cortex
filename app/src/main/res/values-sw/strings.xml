@@ -184,4 +184,6 @@
     <string name="desktop_retry">Jaribu tena</string>
     <string name="desktop_key_keyboard">Kibodi</string>
     <string name="desktop_stop">Simamisha</string>
+    <string name="pref_sessions_as_root_title">Vipindi vinaendeshwa kama root</string>
+    <string name="pref_sessions_as_root_summary">Vipindi vipya vinaanza kama root badala ya mtumiaji wako. Vinginevyo tumia sudo kwa kazi za usimamizi.</string>
 </resources>

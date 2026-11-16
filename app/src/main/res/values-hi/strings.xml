@@ -184,4 +184,6 @@
     <string name="desktop_retry">फिर कोशिश करें</string>
     <string name="desktop_key_keyboard">कीबोर्ड</string>
     <string name="desktop_stop">रोकें</string>
+    <string name="pref_sessions_as_root_title">सत्र root के रूप में चलें</string>
+    <string name="pref_sessions_as_root_summary">नए सत्र आपके उपयोगकर्ता की जगह root के रूप में शुरू होते हैं। वरना प्रशासनिक काम के लिए sudo इस्तेमाल करें।</string>
 </resources>

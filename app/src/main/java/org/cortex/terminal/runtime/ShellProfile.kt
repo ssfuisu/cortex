@@ -211,10 +211,16 @@ object ShellProfile {
         fi
     """.trimIndent() + "\n"
 
-    /** Keeps the compact Cortex prompt of earlier releases; delete the line for Ubuntu's stock prompt. */
-    internal val CORTEX_PROMPT_LINE =
+    /** The compact prompt of releases up to 1.28.0, replaced in files that still have it as written */
+    internal val OLD_PROMPT_LINE =
         "\n# Cortex keeps its compact prompt; delete this line to get Ubuntu's user@host:dir prompt.\n" +
             "PS1='\\w ${D} '\n"
+
+    /** Cortex's prompt: user@host in purple (root's in red), the directory in blue, as a distro's. */
+    internal val CORTEX_PROMPT_LINE =
+        "\n# Cortex's prompt: user@host in purple (red for root), the directory in blue.\n" +
+            "if [ \"${D}{EUID:-0}\" = 0 ]; then PS1='\\[\\e[1;31m\\]\\u@\\h\\[\\e[0m\\]:\\[\\e[1;34m\\]\\w\\[\\e[0m\\]# '; " +
+            "else PS1='\\[\\e[1;35m\\]\\u@\\h\\[\\e[0m\\]:\\[\\e[1;34m\\]\\w\\[\\e[0m\\]${D} '; fi\n"
 
     /**
      * Creates `~/.profile` and `~/.bashrc` if they do not exist and cleans up what releases
@@ -243,7 +249,11 @@ object ShellProfile {
             }
             if (!target.isFile) return
             val current = target.readText()
-            val migrated = migrateLegacyStartupFile(current, target.name == ".profile")
+            var migrated = migrateLegacyStartupFile(current, target.name == ".profile")
+            // The compact prompt of earlier releases, where it is still as Cortex wrote it
+            if (target.name == ".bashrc" && migrated.contains(OLD_PROMPT_LINE)) {
+                migrated = migrated.replace(OLD_PROMPT_LINE, CORTEX_PROMPT_LINE)
+            }
             if (migrated != current) {
                 writeAtomically(target, migrated)
                 Log.i(TAG, "Migrated legacy Cortex startup content in ${target.name}")

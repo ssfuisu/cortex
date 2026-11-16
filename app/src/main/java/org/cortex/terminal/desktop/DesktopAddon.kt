@@ -74,7 +74,8 @@ object DesktopAddon {
      */
     fun run(context: Context, command: String, timeoutMs: Long = 120_000): Result {
         val shell = BootstrapManager.getInitialShellCommand(context)
-        val env = Environment.buildEnvironment(context)
+        // The desktop is the user's, as the terminal is
+        val env = Environment.buildEnvironment(context, asUser = true)
         val home = Environment.getHomeDir(context).absolutePath
         val process = PtyProcess.create(shell, arrayOf("-l", "-c", command), env, home, 24, 160, 0, 0)
             ?: return Result(-1, "could not start $shell")

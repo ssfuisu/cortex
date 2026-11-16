@@ -1,5 +1,11 @@
 #!/bin/bash
 # Cortex systemctl compatibility shim
+# Starting and stopping services is root's work: an ordinary user's call goes through sudo, as it
+# would on Ubuntu (status needs no root)
+case "${*}" in
+    *status* | *is-active* | *is-enabled* | *--help* | "") ;;
+    *) if [ "$(id -u)" != 0 ] && [ -z "${CORTEX_NO_SUDO:-}" ]; then exec sudo "$0" "$@"; fi ;;
+esac
 ACTION="$1"
 SERVICE="${2%.service}"
 shift 2 2>/dev/null

@@ -184,4 +184,6 @@
     <string name="desktop_retry">Опитай пак</string>
     <string name="desktop_key_keyboard">Клавиатура</string>
     <string name="desktop_stop">Спиране</string>
+    <string name="pref_sessions_as_root_title">Сесиите работят като root</string>
+    <string name="pref_sessions_as_root_summary">Новите сесии започват като root вместо като вашия потребител. Иначе използвайте sudo за администриране.</string>
 </resources>

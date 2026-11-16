@@ -184,4 +184,6 @@
     <string name="desktop_retry">ลองอีกครั้ง</string>
     <string name="desktop_key_keyboard">แป้นพิมพ์</string>
     <string name="desktop_stop">หยุด</string>
+    <string name="pref_sessions_as_root_title">เซสชันทำงานเป็น root</string>
+    <string name="pref_sessions_as_root_summary">เซสชันใหม่เริ่มเป็น root แทนผู้ใช้ของคุณ ไม่เช่นนั้นให้ใช้ sudo สำหรับงานผู้ดูแล</string>
 </resources>

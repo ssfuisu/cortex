@@ -89,7 +89,7 @@ echo "cgroupfs=$(stat -fc %T /sys/fs/cgroup)"
 if test -e /sys/fs/cgroup/cgroup.controllers; then echo "pids=$(grep -o pids /sys/fs/cgroup/cgroup.controllers)"; else echo "pids=$(test -e /sys/fs/cgroup/pids/tasks && echo pids)"; fi
 ')"
 check "enter runs as root" "$(echo "$OUT" | grep '^uid=')" "uid=0"
-check "the session has its own hostname" "$(echo "$OUT" | grep '^host=')" "host=cortex-android"
+check "the session has its own hostname" "$(echo "$OUT" | grep '^host=')" "host=localhost"
 check "HOME is the home directory normal mode uses" "$(echo "$OUT" | grep '^home=')" "home=/home pwd=/home"
 check "the environment is passed and marked" "$(echo "$OUT" | grep '^chroot=')" "chroot=1 term=xterm-test tz=Europe/Istanbul"
 check "the hook is not in the environment" "$(echo "$OUT" | grep '^preload=')" "preload=none libpath=none cortexroot=none"

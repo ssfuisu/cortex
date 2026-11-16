@@ -184,4 +184,6 @@
     <string name="desktop_retry">Cuba lagi</string>
     <string name="desktop_key_keyboard">Papan kekunci</string>
     <string name="desktop_stop">Henti</string>
+    <string name="pref_sessions_as_root_title">Sesi berjalan sebagai root</string>
+    <string name="pref_sessions_as_root_summary">Sesi baharu bermula sebagai root, bukan pengguna anda. Jika tidak, gunakan sudo untuk kerja pentadbiran.</string>
 </resources>

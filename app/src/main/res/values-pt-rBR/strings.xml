@@ -184,4 +184,6 @@
     <string name="desktop_retry">Tentar de novo</string>
     <string name="desktop_key_keyboard">Teclado</string>
     <string name="desktop_stop">Parar</string>
+    <string name="pref_sessions_as_root_title">Sessões rodam como root</string>
+    <string name="pref_sessions_as_root_summary">Novas sessões começam como root em vez do seu usuário. Caso contrário, use sudo para administrar.</string>
 </resources>

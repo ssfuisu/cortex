@@ -184,4 +184,6 @@
     <string name="desktop_retry">다시 시도</string>
     <string name="desktop_key_keyboard">키보드</string>
     <string name="desktop_stop">중지</string>
+    <string name="pref_sessions_as_root_title">세션을 root로 실행</string>
+    <string name="pref_sessions_as_root_summary">새 세션이 사용자 대신 root로 시작됩니다. 아니면 관리 작업에 sudo를 사용하세요.</string>
 </resources>

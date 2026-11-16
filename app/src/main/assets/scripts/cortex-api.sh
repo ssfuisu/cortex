@@ -19,9 +19,6 @@ Usage: cortex-api COMMAND [OPTIONS]
                                  the fastest current one (security updates stay official)
   network                        the phone's addresses (interface and address per line,
                                  Wi-Fi first)
-  no-fakeroot [COMMAND...]       a shell (or COMMAND) where programs run as an ordinary
-                                 user instead of root, for tools that refuse root;
-                                 "exit" goes back, sudo still works
   notification [-t TITLE] [-c TEXT] [-i ID]
                                  show a notification (TEXT from stdin without -c);
                                  prints its ID; showing the same ID again replaces it
@@ -53,23 +50,6 @@ esac
 cmd="$1"
 shift
 
-# Programs see themselves as root because the preloaded library tells them so. In a no-fakeroot
-# shell it tells them the truth instead: they run as the app's own user, named cortex. The library
-# takes CORTEX_BECOME when a program starts and keeps the user for everything started from there,
-# so it ends with this shell (or COMMAND), and the session's other shells stay root.
-if [ "$cmd" = "no-fakeroot" ]; then
-    if [ -n "${CORTEX_CHROOT:-}" ]; then
-        die "root mode runs as real root; use runuser -u USER (after adduser USER) for another user"
-    fi
-    export CORTEX_BECOME=app
-    if [ "$#" -gt 0 ]; then
-        exec "$@"
-    fi
-    if [ -t 2 ]; then
-        echo "Programs here run as an ordinary user (cortex), not root. sudo still works; exit goes back to root." >&2
-    fi
-    exec "${SHELL:-/bin/bash}"
-fi
 
 # Files are sent as absolute paths; the app maps them to Android's view of the rootfs.
 abspath() {

@@ -184,4 +184,6 @@
     <string name="desktop_retry">ਮੁੜ ਕੋਸ਼ਿਸ਼ ਕਰੋ</string>
     <string name="desktop_key_keyboard">ਕੀਬੋਰਡ</string>
     <string name="desktop_stop">ਰੋਕੋ</string>
+    <string name="pref_sessions_as_root_title">ਸੈਸ਼ਨ root ਵਜੋਂ ਚੱਲਣ</string>
+    <string name="pref_sessions_as_root_summary">ਨਵੇਂ ਸੈਸ਼ਨ ਤੁਹਾਡੇ ਵਰਤੋਂਕਾਰ ਦੀ ਥਾਂ root ਵਜੋਂ ਸ਼ੁਰੂ ਹੁੰਦੇ ਹਨ। ਨਹੀਂ ਤਾਂ ਪ੍ਰਬੰਧਕੀ ਕੰਮ ਲਈ sudo ਵਰਤੋ।</string>
 </resources>

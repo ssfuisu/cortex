@@ -184,4 +184,6 @@
     <string name="desktop_retry">לנסות שוב</string>
     <string name="desktop_key_keyboard">מקלדת</string>
     <string name="desktop_stop">עצירה</string>
+    <string name="pref_sessions_as_root_title">הסשנים רצים כ-root</string>
+    <string name="pref_sessions_as_root_summary">סשנים חדשים מתחילים כ-root במקום כמשתמש שלך. אחרת השתמש ב-sudo לניהול.</string>
 </resources>

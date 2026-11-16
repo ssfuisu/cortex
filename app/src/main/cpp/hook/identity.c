@@ -538,7 +538,7 @@ static int cortex_lookup_passwd(const char *search_name, uid_t search_uid, int b
                 snprintf(found_shell, sizeof(found_shell), "/bin/bash");
                 found = 1;
             } else if (strcmp(search_name, "cortex") == 0) {
-                // The app's own user under "cortex-api no-fakeroot", root's otherwise
+                // The app's own user in the terminal's sessions, root's otherwise
                 int app = ids_app_mode();
                 snprintf(found_name, sizeof(found_name), "cortex");
                 snprintf(found_pass, sizeof(found_pass), "x");
@@ -577,7 +577,7 @@ static int cortex_lookup_passwd(const char *search_name, uid_t search_uid, int b
                 found = 1;
             }
         } else if (search_uid != 0 && search_uid == real_uid() && ids_app_mode()) {
-            // "cortex-api no-fakeroot": the app's user is an ordinary one, named cortex
+            // The terminal's user: the app's, an ordinary one, named cortex unless /etc/passwd says
             snprintf(found_name, sizeof(found_name), "cortex");
             snprintf(found_pass, sizeof(found_pass), "x");
             found_uid = search_uid;

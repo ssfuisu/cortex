@@ -184,4 +184,6 @@
     <string name="desktop_retry">Tekrar dene</string>
     <string name="desktop_key_keyboard">Klavye</string>
     <string name="desktop_stop">Durdur</string>
+    <string name="pref_sessions_as_root_title">Oturumlar root olarak çalışsın</string>
+    <string name="pref_sessions_as_root_summary">Yeni oturumlar kullanıcın yerine root olarak açılır. Kapalıyken yönetici işleri için sudo kullan.</string>
 </resources>

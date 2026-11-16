@@ -184,4 +184,6 @@
     <string name="desktop_retry">تلاش دوباره</string>
     <string name="desktop_key_keyboard">صفحه‌کلید</string>
     <string name="desktop_stop">توقف</string>
+    <string name="pref_sessions_as_root_title">نشست‌ها به‌عنوان root اجرا شوند</string>
+    <string name="pref_sessions_as_root_summary">نشست‌های جدید به‌جای کاربر شما با root شروع می‌شوند. در غیر این صورت برای کارهای مدیریتی از sudo استفاده کنید.</string>
 </resources>

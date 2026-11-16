@@ -19,16 +19,57 @@ quote_args() {
 INVOKED_AS="${CORTEX_INVOKED_AS:-$(basename "$0")}"
 unset CORTEX_INVOKED_AS
 
+# The password set up for the terminal's user (/etc/cortex/sudo-password: "salt hash", the hash being
+# sha256 of the salt and the password), asked once every 15 minutes in a terminal, like sudo's. Root
+# and a user without a password are not asked. Everything runs as the app's one Android user, so this
+# keeps mistakes and other people's hands away, not a determined program.
+SUDO_PASSWORD_FILE="${CORTEX_SUDO_PASSWORD_FILE:-/etc/cortex/sudo-password}"
+sudo_stamp() {
+    local tty_name
+    tty_name="$(tty 2>/dev/null || echo notty)"
+    printf '%s/.cache/cortex-sudo/%s' "${HOME:-/tmp}" "${tty_name//\//_}"
+}
+check_password() {
+    local noninteractive="${1:-0}"
+    [ "$(id -u)" = 0 ] && return 0
+    [ -n "${CORTEX_NO_SUDO:-}" ] && return 0
+    [ -s "$SUDO_PASSWORD_FILE" ] || return 0
+    local stamp salt want tries pw got
+    stamp="$(sudo_stamp)"
+    if [ -f "$stamp" ] && [ -n "$(find "$stamp" -mmin -15 2>/dev/null)" ]; then
+        touch "$stamp" 2>/dev/null
+        return 0
+    fi
+    if [ "$noninteractive" = 1 ] || [ ! -t 0 ]; then
+        echo "sudo: a password is required" >&2
+        exit 1
+    fi
+    read -r salt want < "$SUDO_PASSWORD_FILE"
+    for tries in 1 2 3; do
+        printf '[sudo] password for %s: ' "${USER:-$(id -un)}" >&2
+        IFS= read -rs pw
+        echo >&2
+        got="$(printf '%s%s' "$salt" "$pw" | sha256sum | cut -d' ' -f1)"
+        if [ "$got" = "$want" ]; then
+            mkdir -p "${stamp%/*}" 2>/dev/null && touch "$stamp" 2>/dev/null
+            return 0
+        fi
+        echo "Sorry, try again." >&2
+    done
+    echo "sudo: 3 incorrect password attempts" >&2
+    exit 1
+}
+
 # sudo (and "root") where the shell already is root, as far as the programs can tell: real root in
 # root mode, and in normal mode Cortex's own root of the Ubuntu files (the preloaded library presents
 # the app's user as root). The command is run as it is; "-u USER" goes through runuser.
 sudo_direct() {
-    local target_user="" login=0
-    # A shell that runs as another user (su USER, cortex-api no-fakeroot) becomes root for what it
-    # starts, as sudo would make it: the preloaded library takes the request and does not pass it on
-    export CORTEX_BECOME=root
+    local target_user="" login=0 noninteractive=0
     while [ "$#" -gt 0 ]; do
         case "$1" in
+            -k|-K|--reset-timestamp|--remove-timestamp) rm -f "$(sudo_stamp)" 2>/dev/null; [ "$#" -eq 1 ] && exit 0; shift ;;
+            -v|--validate) check_password 0; exit 0 ;;
+            -n|--non-interactive) noninteractive=1; shift ;;
             -u|--user) target_user="${2:-}"; shift; [ "$#" -gt 0 ] && shift ;;
             -u*) target_user="${1#-u}"; shift ;;
             --user=*) target_user="${1#--user=}"; shift ;;
@@ -36,10 +77,19 @@ sudo_direct() {
             -g|--group|-p|--prompt|-C|--close-from|-D|--chdir|-h|--host|-r|--role|-t|--type|-T|--command-timeout)
                 shift; [ "$#" -gt 0 ] && shift ;;
             --) shift; break ;;
-            -*) shift ;; # -E, -H, -n, -S, -k, -s, ...: nothing to do as root
+            -*) shift ;; # -E, -H, -S, -s, ...: nothing to do as root
             *) break ;;
         esac
     done
+    check_password "$noninteractive"
+    # As sudo does: who called it
+    if [ "$(id -u)" != 0 ]; then
+        SUDO_USER="$(id -un)"; SUDO_UID="$(id -u)"; SUDO_GID="$(id -g)"
+        export SUDO_USER SUDO_UID SUDO_GID
+    fi
+    # The terminal's ordinary user becomes root for what sudo starts: the preloaded library takes
+    # the request and does not pass it on (set last: the checks above must run as the caller)
+    export CORTEX_BECOME=root
     if [ -n "$target_user" ] && [ "$target_user" != "root" ] && [ "$target_user" != "0" ]; then
         if [ "$login" = 1 ]; then
             [ "$#" -eq 0 ] && exec runuser -l "$target_user"
@@ -61,6 +111,8 @@ sudo_direct() {
 # su, su -, su -c CMD, su USER, su - USER, su USER -c CMD, su -s SHELL.
 su_direct() {
     local login=0 command="" have_command=0 target_user="" shell_path=""
+    # Root's account is locked, as on Ubuntu's installs: su asks the user's password, as sudo does
+    check_password 0
     export CORTEX_BECOME=root
     local shell_args=()
     # Android's su starts with -c and hands what follows the command to the shell ("su -c CMD ARG..."),
@@ -123,6 +175,13 @@ if [ -n "${CORTEX_CHROOT:-}" ] || { [ -z "${CORTEX_ROOT:-}" ] && [ ! -d /system/
             ;;
     esac
 fi
+
+# sudo in normal mode is Cortex's root on every phone: Android's root (a rooted phone's su) made the
+# files it wrote real root's, which the app could then not change. su and tsu still ask Android's
+# root on a rooted phone.
+case "$INVOKED_AS" in
+    sudo) sudo_direct "$@" ;;
+esac
 
 # No Android root to ask (nothing called su on the phone, or it does not give root): Cortex's root
 # of the Ubuntu files is what there is, and "sudo apt install x" from any guide works as it is.
@@ -292,7 +351,7 @@ export LC_ALL='C.UTF-8'; \
 export LOCPATH=$(sq "$CORTEX_ROOT/usr/lib/locale"); \
 export USER='root'; \
 export LOGNAME='root'; \
-export HOSTNAME='cortex-android'; \
+export HOSTNAME='localhost'; \
 export TERM=$(sq "${TERM:-xterm-256color}"); \
 export COLORTERM=$(sq "${COLORTERM:-truecolor}"); \
 export SSL_CERT_FILE=$(sq "$CERT_FILE"); \

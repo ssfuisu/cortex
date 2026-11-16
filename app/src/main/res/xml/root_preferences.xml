@@ -136,6 +136,11 @@
     <PreferenceCategory app:title="@string/pref_cat_root">
         <SwitchPreferenceCompat
             app:defaultValue="false"
+            app:key="sessions_as_root"
+            app:summary="@string/pref_sessions_as_root_summary"
+            app:title="@string/pref_sessions_as_root_title" />
+        <SwitchPreferenceCompat
+            app:defaultValue="false"
             app:key="root_mode"
             app:summary="@string/pref_root_mode_summary"
             app:title="@string/pref_root_mode_title" />

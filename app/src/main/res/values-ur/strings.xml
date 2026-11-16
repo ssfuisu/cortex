@@ -184,4 +184,6 @@
     <string name="desktop_retry">دوبارہ کوشش کریں</string>
     <string name="desktop_key_keyboard">کی بورڈ</string>
     <string name="desktop_stop">روکیں</string>
+    <string name="pref_sessions_as_root_title">سیشن root کے طور پر چلیں</string>
+    <string name="pref_sessions_as_root_summary">نئے سیشن آپ کے صارف کی بجائے root کے طور پر شروع ہوتے ہیں۔ ورنہ انتظامی کام کے لیے sudo استعمال کریں۔</string>
 </resources>

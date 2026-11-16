@@ -184,4 +184,6 @@
     <string name="desktop_retry">Réessayer</string>
     <string name="desktop_key_keyboard">Clavier</string>
     <string name="desktop_stop">Arrêter</string>
+    <string name="pref_sessions_as_root_title">Sessions en tant que root</string>
+    <string name="pref_sessions_as_root_summary">Les nouvelles sessions démarrent en root au lieu de votre utilisateur. Sinon, utilisez sudo pour l\'administration.</string>
 </resources>

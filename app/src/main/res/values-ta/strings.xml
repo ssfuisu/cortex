@@ -184,4 +184,6 @@
     <string name="desktop_retry">மீண்டும் முயல்</string>
     <string name="desktop_key_keyboard">விசைப்பலகை</string>
     <string name="desktop_stop">நிறுத்து</string>
+    <string name="pref_sessions_as_root_title">அமர்வுகள் root ஆக இயங்கும்</string>
+    <string name="pref_sessions_as_root_summary">புதிய அமர்வுகள் உங்கள் பயனருக்கு பதிலாக root ஆக தொடங்கும். இல்லையெனில் நிர்வாகப் பணிக்கு sudo பயன்படுத்தவும்.</string>
 </resources>

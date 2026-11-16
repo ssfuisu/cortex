@@ -3,6 +3,10 @@
 # reload.sh, service.sh, systemctl.sh, su.sh, xdg-open.sh
 set -u
 
+# The scripts send root's work through sudo when they do not run as root (the terminal's user);
+# the tests run them as whoever runs the tests, with sudo out of the way (one test checks it below)
+export CORTEX_NO_SUDO=1
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 ASSETS_SCRIPTS="$REPO_ROOT/app/src/main/assets/scripts"
@@ -456,6 +460,25 @@ for tool in apt apt-get; do
     chmod +x "$APT_T/local/$tool"
 done
 apt_auto() { CORTEX_APT_BIN="$APT_T/bin" CORTEX_APT_LISTS="$APT_T/lists" "$APT_T/local/$1" "${@:2}"; }
+# The terminal's ordinary user: "apt install" says to use sudo, and "apt list" still works
+mkdir -p "$APT_T/user-bin"
+printf '#!/bin/bash\n[ "$1" = -u ] && echo 10123 || echo cortex\n' > "$APT_T/user-bin/id"
+chmod +x "$APT_T/user-bin/id"
+: > "$APT_T/calls"
+msg=$(PATH="$APT_T/user-bin:$PATH" CORTEX_NO_SUDO= apt_auto apt install -y curl 2>&1); st=$?
+if [ "$st" = 100 ] && [ ! -s "$APT_T/calls" ] && [ "$msg" = "apt: install needs root. Run it with sudo: sudo apt install -y curl" ]; then
+    pass "an ordinary user's apt install says to run it with sudo"
+else
+    fail "ordinary user's apt install: status $st, calls '$(cat "$APT_T/calls")', '$msg'"
+fi
+: > "$APT_T/lists/ports_noble_main_binary-arm64_Packages.lz4"
+PATH="$APT_T/user-bin:$PATH" CORTEX_NO_SUDO= apt_auto apt list --installed >/dev/null 2>&1
+if [ "$(cat "$APT_T/calls")" = "apt list --installed" ]; then
+    pass "and apt list runs as it is"
+else
+    fail "ordinary user's apt list: calls '$(cat "$APT_T/calls")'"
+fi
+rm -f "$APT_T/lists/"*_Packages*
 : > "$APT_T/calls"
 msg=$(apt_auto apt-get -y install hello 2>&1 >/dev/null)
 if [ "$(cat "$APT_T/calls")" = "$(printf 'apt-get update\napt-get -y install hello')" ]; then
@@ -764,7 +787,7 @@ echo $! > "$SSHD_TEST_ROOT$pidfile"
 EOS
 printf '#!/bin/bash\nexit 0\n' > "$SBIN/ssh-keygen"
 printf '#!/bin/bash\n[ "$1" = network ] && printf "wlan0 192.168.1.23\\nwlan0 fe80::1\\nrmnet0 2a00:1450::5\\n"\n' > "$SBIN/cortex-api"
-printf '#!/bin/bash\necho root\n' > "$SBIN/id"
+printf '#!/bin/bash\nif [ "$1" = -u ]; then echo 0; else echo root; fi\n' > "$SBIN/id"
 chmod +x "$SR/usr/sbin/sshd" "$SBIN"/*
 echo 'root:*:19700:0:99999:7:::' > "$SR/etc/shadow"
 sshd_() {

@@ -184,4 +184,6 @@
     <string name="desktop_retry">重試</string>
     <string name="desktop_key_keyboard">鍵盤</string>
     <string name="desktop_stop">停止</string>
+    <string name="pref_sessions_as_root_title">工作階段以 root 身分執行</string>
+    <string name="pref_sessions_as_root_summary">新工作階段以 root 而非你的使用者身分啟動。否則請用 sudo 進行管理工作。</string>
 </resources>

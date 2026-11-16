@@ -184,4 +184,6 @@
     <string name="desktop_retry">Opnieuw proberen</string>
     <string name="desktop_key_keyboard">Toetsenbord</string>
     <string name="desktop_stop">Stoppen</string>
+    <string name="pref_sessions_as_root_title">Sessies draaien als root</string>
+    <string name="pref_sessions_as_root_summary">Nieuwe sessies starten als root in plaats van als je gebruiker. Gebruik anders sudo voor beheer.</string>
 </resources>

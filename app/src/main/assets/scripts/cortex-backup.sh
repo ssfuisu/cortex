@@ -1,5 +1,9 @@
 #!/bin/bash
 # cortex-backup: back up and restore your Cortex home directory.
+# Packages are root's to install: sudo for an ordinary user
+as_root() {
+    if [ "$(id -u)" = 0 ] || [ -n "${CORTEX_NO_SUDO:-}" ]; then "$@"; else sudo "$@"; fi
+}
 #
 #   cortex-backup [create] [-o FILE] [--include-caches]
 #   cortex-backup restore FILE [--yes] [--no-packages]
@@ -147,15 +151,15 @@ restore_packages() {
         echo "Install them later with: cortex-backup packages"
         return 0
     fi
-    apt-get update || echo "cortex-backup: apt-get update failed; trying with the package lists there are" >&2
-    if apt-get install -y "${missing[@]}"; then
+    as_root apt-get update || echo "cortex-backup: apt-get update failed; trying with the package lists there are" >&2
+    if as_root apt-get install -y "${missing[@]}"; then
         echo "Installed the ${#missing[@]} packages of the backup."
         return 0
     fi
     echo "Installing them one by one..."
     local p failed=()
     for p in "${missing[@]}"; do
-        apt-get install -y "$p" || failed+=("$p")
+        as_root apt-get install -y "$p" || failed+=("$p")
     done
     if [ ${#failed[@]} -gt 0 ]; then
         echo "cortex-backup: these packages could not be installed: ${failed[*]}" >&2

@@ -184,4 +184,6 @@
     <string name="desktop_retry">আবার চেষ্টা করুন</string>
     <string name="desktop_key_keyboard">কিবোর্ড</string>
     <string name="desktop_stop">থামান</string>
+    <string name="pref_sessions_as_root_title">সেশন root হিসেবে চলবে</string>
+    <string name="pref_sessions_as_root_summary">নতুন সেশন আপনার ব্যবহারকারীর বদলে root হিসেবে শুরু হয়। না হলে প্রশাসনিক কাজে sudo ব্যবহার করুন।</string>
 </resources>

@@ -184,4 +184,6 @@
     <string name="desktop_retry">पुन्हा प्रयत्न करा</string>
     <string name="desktop_key_keyboard">कीबोर्ड</string>
     <string name="desktop_stop">थांबवा</string>
+    <string name="pref_sessions_as_root_title">सत्रे root म्हणून चालतील</string>
+    <string name="pref_sessions_as_root_summary">नवीन सत्रे तुमच्या वापरकर्त्याऐवजी root म्हणून सुरू होतात. नाहीतर प्रशासनासाठी sudo वापरा.</string>
 </resources>

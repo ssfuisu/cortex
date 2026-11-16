@@ -184,4 +184,6 @@
     <string name="desktop_retry">ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ</string>
     <string name="desktop_key_keyboard">ಕೀಬೋರ್ಡ್</string>
     <string name="desktop_stop">ನಿಲ್ಲಿಸಿ</string>
+    <string name="pref_sessions_as_root_title">ಸೆಷನ್‌ಗಳು root ಆಗಿ ನಡೆಯುತ್ತವೆ</string>
+    <string name="pref_sessions_as_root_summary">ಹೊಸ ಸೆಷನ್‌ಗಳು ನಿಮ್ಮ ಬಳಕೆದಾರರ ಬದಲು root ಆಗಿ ಪ್ರಾರಂಭವಾಗುತ್ತವೆ. ಇಲ್ಲದಿದ್ದರೆ ನಿರ್ವಹಣೆಗೆ sudo ಬಳಸಿ.</string>
 </resources>

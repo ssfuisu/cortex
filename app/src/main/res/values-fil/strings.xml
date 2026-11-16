@@ -184,4 +184,6 @@
     <string name="desktop_retry">Subukan ulit</string>
     <string name="desktop_key_keyboard">Keyboard</string>
     <string name="desktop_stop">Ihinto</string>
+    <string name="pref_sessions_as_root_title">Tumatakbo ang mga session bilang root</string>
+    <string name="pref_sessions_as_root_summary">Nagsisimula ang mga bagong session bilang root sa halip na ang iyong user. Kung hindi, gamitin ang sudo para sa admin.</string>
 </resources>

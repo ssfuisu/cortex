@@ -184,4 +184,6 @@
     <string name="desktop_retry">إعادة المحاولة</string>
     <string name="desktop_key_keyboard">لوحة المفاتيح</string>
     <string name="desktop_stop">إيقاف</string>
+    <string name="pref_sessions_as_root_title">تشغيل الجلسات كجذر</string>
+    <string name="pref_sessions_as_root_summary">تبدأ الجلسات الجديدة كجذر بدلاً من مستخدمك. وإلا استخدم sudo للمهام الإدارية.</string>
 </resources>

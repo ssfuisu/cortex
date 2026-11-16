@@ -190,8 +190,24 @@ class ShellProfileTest {
 
         val bashrc = File(home, ".bashrc").readText()
         assertTrue(bashrc.startsWith("# ubuntu skel bashrc\n"))
-        assertTrue(bashrc.endsWith("PS1='\\w ${d} '\n"))
+        assertTrue(bashrc.endsWith(ShellProfile.CORTEX_PROMPT_LINE))
+        assertTrue(bashrc.contains("\\e[1;35m\\]\\u@\\h"))
         assertEquals("# ubuntu skel profile\n", File(home, ".profile").readText())
+    }
+
+    @Test
+    fun ensure_replacesTheOldCompactPromptOnly() {
+        val home = tempFolder.newFolder("home")
+        val old = "# ubuntu skel bashrc\n" + ShellProfile.OLD_PROMPT_LINE
+        File(home, ".bashrc").writeText(old)
+        ShellProfile.ensureUserStartupFiles(home, null)
+        assertEquals("# ubuntu skel bashrc\n" + ShellProfile.CORTEX_PROMPT_LINE, File(home, ".bashrc").readText())
+
+        // A prompt the user wrote stays
+        val own = "PS1='mine> '\n"
+        File(home, ".bashrc").writeText(own)
+        ShellProfile.ensureUserStartupFiles(home, null)
+        assertEquals(own, File(home, ".bashrc").readText())
     }
 
     @Test

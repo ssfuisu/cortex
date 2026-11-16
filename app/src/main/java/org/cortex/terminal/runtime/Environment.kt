@@ -24,7 +24,14 @@ object Environment {
         return File(context.applicationInfo.nativeLibraryDir)
     }
 
-    fun buildEnvironment(context: Context): Array<String> {
+    /**
+     * The environment of a program the app starts in the rootfs. [asUser]: an interactive session (or
+     * the desktop), which runs as the ordinary user of [UserAccount] unless Settings says root;
+     * everything else the app runs (setup, maintenance) is root.
+     */
+    fun buildEnvironment(context: Context, asUser: Boolean = false): Array<String> {
+        val user = asUser && !UserAccount.sessionsAsRoot(context)
+        val userName = if (user) UserAccount.name(context) else "root"
         val root = getCortexRoot(context).absolutePath
         val home = getHomeDir(context).absolutePath
         val tmp = getTmpDir(context).absolutePath
@@ -105,12 +112,12 @@ object Environment {
             "LANG=C.UTF-8",
             "LC_ALL=C.UTF-8",
             "LOCPATH=$root/usr/lib/locale",
-            "USER=cortex",
-            "LOGNAME=cortex",
+            "USER=$userName",
+            "LOGNAME=$userName",
             // Stock Ubuntu exports SHELL at login; installers (nvm, bun, pnpm, rustup, opencode, ...)
             // read it to decide which rc file to append their PATH setup to.
             "SHELL=/bin/bash",
-            "HOSTNAME=cortex-android",
+            "HOSTNAME=localhost",
             "PS1=\\w $ ",
             "ENV=$home/.profile",
             "DPKG_DEB_THREADS_MAX=1",
@@ -135,6 +142,8 @@ object Environment {
         if (preloadStr.isNotEmpty()) {
             envList.add("LD_PRELOAD=$preloadStr")
         }
+        // The library makes the first program the app's own user (ids.c), and everything it starts
+        if (user) envList.add("CORTEX_BECOME=app")
 
         return envList.toTypedArray()
     }

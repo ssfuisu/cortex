@@ -96,8 +96,8 @@ int listen(int sockfd, int backlog) {
 
 // Ports below 1024 are root's, and Android gives an app no way to them (EACCES). A server that asks
 // for one gets the port 8000 above it instead (80 is 8080, 443 is 8443, 22 is 8022, as cortex-sshd
-// already uses), and says so once on its error output; a connection on this phone to the low port
-// that finds nothing there tries the moved one, so "curl http://localhost" reaches nginx.
+// already uses), quietly; a connection on this phone to a low port a server here moved goes to the
+// moved one, so "curl http://localhost" reaches nginx.
 #define CORTEX_LOW_PORT_OFFSET 8000
 
 static int moved_low_port(int port) {
@@ -196,8 +196,12 @@ int bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen) {
         socklen_t moved_len = with_moved_port(addr, addrlen, &moved, &from, &to);
         if (moved_len && orig_bind(sockfd, (struct sockaddr *)&moved, moved_len) == 0) {
             remember_moved_port(from);
+            // Nothing on the program's own output (it cluttered every server's log and terminal): the
+            // app's notification for local servers names the port it listens on. CORTEX_PORT_NOTICE=1
+            // prints it, for whoever wants to see the move.
+            const char *notice = getenv("CORTEX_PORT_NOTICE");
             static int told = 0;
-            if (!__atomic_exchange_n(&told, 1, __ATOMIC_RELAXED)) {
+            if (notice && notice[0] == '1' && !__atomic_exchange_n(&told, 1, __ATOMIC_RELAXED)) {
                 char msg[160];
                 int n = snprintf(msg, sizeof(msg), "cortex: port %d is reserved on Android, listening on %d instead\n", from, to);
                 if (n > 0) syscall(SYS_write, 2, msg, (size_t)n);

@@ -184,4 +184,6 @@
     <string name="desktop_retry">Coba lagi</string>
     <string name="desktop_key_keyboard">Keyboard</string>
     <string name="desktop_stop">Hentikan</string>
+    <string name="pref_sessions_as_root_title">Sesi berjalan sebagai root</string>
+    <string name="pref_sessions_as_root_summary">Sesi baru dimulai sebagai root, bukan pengguna Anda. Jika tidak, gunakan sudo untuk tugas admin.</string>
 </resources>

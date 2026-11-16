@@ -184,4 +184,6 @@
     <string name="desktop_retry">Қайталау</string>
     <string name="desktop_key_keyboard">Пернетақта</string>
     <string name="desktop_stop">Тоқтату</string>
+    <string name="pref_sessions_as_root_title">Сеанстар root ретінде іске қосылады</string>
+    <string name="pref_sessions_as_root_summary">Жаңа сеанстар пайдаланушыңыздың орнына root ретінде басталады. Әйтпесе әкімшілік үшін sudo қолданыңыз.</string>
 </resources>

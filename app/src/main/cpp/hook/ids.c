@@ -16,8 +16,8 @@
 // records go with the file when it is renamed and when it is removed. PostgreSQL checks that its
 // data directory is its own, and pg_ctlcluster starts the server as the owner of that directory.
 //
-// "cortex-api no-fakeroot" starts a shell whose ids are the app's real ones: then nothing is
-// presented, files are the app user's and the programs run as an ordinary user.
+// The terminal's sessions run as the app's real user (named cortex in the rootfs' /etc/passwd):
+// nothing is presented then, files are that user's and the programs run as an ordinary user.
 
 // --- Ids ------------------------------------------------------------------------------------
 
@@ -110,11 +110,24 @@ static int ids_are_root(const cortex_ids_t *ids) {
            (ids->ngroups == 0 || (ids->ngroups == 1 && ids->groups[0] == 0));
 }
 
-// Read once, before the program runs (the constructor) or at the first question
+static void ids_set_app(cortex_ids_t *ids);
+
+// Read once, before the program runs (the constructor) or at the first question. A program the app
+// started itself (the shell of a session) has no CORTEX_IDS but CORTEX_BECOME=app: it is the app's
+// ordinary user. The request is taken out of the environment; what it starts gets CORTEX_IDS.
 static void ids_load(void) {
     if (__atomic_load_n(&g_ids_loaded, __ATOMIC_ACQUIRE)) return;
     cortex_ids_t ids;
-    if (ids_parse(getenv("CORTEX_IDS"), &ids) == 0) g_ids = ids;
+    if (ids_parse(getenv("CORTEX_IDS"), &ids) == 0) {
+        g_ids = ids;
+    } else {
+        const char *become = getenv("CORTEX_BECOME");
+        if (become && strcmp(become, "app") == 0) {
+            ids_set_app(&ids);
+            if (ids.e != (uid_t)-1) g_ids = ids;
+        }
+    }
+    if (getenv("CORTEX_BECOME")) unsetenv("CORTEX_BECOME");
     __atomic_store_n(&g_ids_loaded, 1, __ATOMIC_RELEASE);
 }
 
@@ -123,7 +136,7 @@ static const cortex_ids_t *ids_now(void) {
     return &g_ids;
 }
 
-// The app's real user, which "cortex-api no-fakeroot" runs as: nothing is presented for it
+// The app's real user, which the terminal's sessions run as: nothing is presented for it
 static int ids_app_mode(void) {
     const cortex_ids_t *ids = ids_now();
     if (ids->e == 0) return 0;
@@ -132,11 +145,21 @@ static int ids_app_mode(void) {
     return app != (uid_t)-1 && ids->e == app;
 }
 
+static int user_groups(const char *user, gid_t group, gid_t *groups, int max);
+
+// The terminal's user: the app's ids, and the groups /etc/group gives the user's name (sudo)
 static void ids_set_app(cortex_ids_t *ids) {
     ids_load_app();
     memset(ids, 0, sizeof(*ids));
     ids->r = ids->e = ids->s = g_app_uid;
     ids->gr = ids->ge = ids->gs = g_app_gid;
+#ifndef CORTEX_HOST_TEST
+    const char *name = getenv("USER");
+    if (name && *name && strcmp(name, "root") != 0) {
+        int n = user_groups(name, g_app_gid, ids->groups, CORTEX_IDS_MAX_GROUPS);
+        if (n > 1) ids->ngroups = n;
+    }
+#endif
 }
 
 // A file of a user other than root that this process makes is recorded as its own
@@ -640,8 +663,8 @@ static int ow_name_is_new(int dirfd, const char *path) {
 
 // The ids a program started with path runs with: the starter's, with the set-user-ID and
 // set-group-ID bits of the file (sudo, passwd, ping), and the saved ids set to the effective ones.
-// CORTEX_BECOME in the new environment asks for root ("root", su and sudo of a no-fakeroot shell)
-// or the app's own user ("app", cortex-api no-fakeroot). Returns 1 when they are root's (the
+// CORTEX_BECOME in the new environment asks for root ("root", su and sudo of the user's shell) or
+// the app's own user ("app", a session's shell). Returns 1 when they are root's (the
 // variable is then left out).
 static int ids_for_exec(const char *path, const char *become, cortex_ids_t *out) {
     *out = *ids_now();

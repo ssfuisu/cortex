@@ -184,4 +184,6 @@
     <string name="desktop_retry">Yritä uudelleen</string>
     <string name="desktop_key_keyboard">Näppäimistö</string>
     <string name="desktop_stop">Pysäytä</string>
+    <string name="pref_sessions_as_root_title">Istunnot ajetaan pääkäyttäjänä</string>
+    <string name="pref_sessions_as_root_summary">Uudet istunnot alkavat pääkäyttäjänä käyttäjäsi sijaan. Muuten käytä ylläpitoon sudoa.</string>
 </resources>

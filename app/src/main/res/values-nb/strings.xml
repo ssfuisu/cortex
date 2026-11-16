@@ -184,4 +184,6 @@
     <string name="desktop_retry">Prøv igjen</string>
     <string name="desktop_key_keyboard">Tastatur</string>
     <string name="desktop_stop">Stopp</string>
+    <string name="pref_sessions_as_root_title">Økter kjører som root</string>
+    <string name="pref_sessions_as_root_summary">Nye økter starter som root i stedet for brukeren din. Ellers bruk sudo til administrasjon.</string>
 </resources>

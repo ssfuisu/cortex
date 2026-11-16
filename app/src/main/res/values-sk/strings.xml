@@ -184,4 +184,6 @@
     <string name="desktop_retry">Skúsiť znova</string>
     <string name="desktop_key_keyboard">Klávesnica</string>
     <string name="desktop_stop">Zastaviť</string>
+    <string name="pref_sessions_as_root_title">Relácie bežia ako root</string>
+    <string name="pref_sessions_as_root_summary">Nové relácie začínajú ako root namiesto vášho používateľa. Inak na správu použite sudo.</string>
 </resources>

@@ -184,4 +184,6 @@
     <string name="desktop_retry">വീണ്ടും ശ്രമിക്കുക</string>
     <string name="desktop_key_keyboard">കീബോർഡ്</string>
     <string name="desktop_stop">നിർത്തുക</string>
+    <string name="pref_sessions_as_root_title">സെഷനുകൾ root ആയി പ്രവർത്തിക്കും</string>
+    <string name="pref_sessions_as_root_summary">പുതിയ സെഷനുകൾ നിങ്ങളുടെ ഉപയോക്താവിന് പകരം root ആയി തുടങ്ങും. അല്ലെങ്കിൽ അഡ്മിൻ ജോലിക്ക് sudo ഉപയോഗിക്കുക.</string>
 </resources>

@@ -1,5 +1,11 @@
 #!/bin/bash
 # Cortex Service Manager for Ubuntu on Android
+# Starting and stopping services is root's work: an ordinary user's call goes through sudo, as it
+# would on Ubuntu (status needs no root)
+case "${*}" in
+    *status* | *is-active* | *is-enabled* | *--help* | "") ;;
+    *) if [ "$(id -u)" != 0 ] && [ -z "${CORTEX_NO_SUDO:-}" ]; then exec sudo "$0" "$@"; fi ;;
+esac
 SERVICE="$1"
 ACTION="$2"
 shift 2 2>/dev/null
