@@ -68,12 +68,19 @@ object GpuAcceleration {
             val pb = ProcessBuilder(bin.absolutePath, "--use-egl-surfaceless", "--use-gles",
                 "--socket-path", sock.absolutePath)
                 .redirectErrorStream(true)
-                .redirectOutput(ProcessBuilder.Redirect.to(log))
             // an Android program: Android's environment, nothing of the rootfs' (no LD_PRELOAD)
             pb.environment().keys.retainAll(setOf("PATH", "ANDROID_ROOT", "ANDROID_DATA", "ANDROID_RUNTIME_ROOT",
                 "ANDROID_ART_ROOT", "ANDROID_I18N_ROOT", "ANDROID_TZDATA_ROOT", "BOOTCLASSPATH"))
             pb.environment()["TMPDIR"] = context.cacheDir.absolutePath
-            process = pb.start()
+            val p = pb.start()
+            process = p
+            // its output into the log (ProcessBuilder.Redirect needs Android 8)
+            Thread({
+                try {
+                    p.inputStream.use { input -> java.io.FileOutputStream(log).use { input.copyTo(it) } }
+                } catch (e: Exception) {
+                }
+            }, "Cortex-VirglLog").apply { isDaemon = true }.start()
             var waited = 0
             while (!sock.exists() && waited < 50 && isRunning()) {
                 Thread.sleep(100)

@@ -2,6 +2,9 @@
 #pragma once
 #include <string.h>
 #include <sys/system_properties.h>
+#ifndef PROPERTY_KEY_MAX
+#define PROPERTY_KEY_MAX 32
+#endif
 #ifndef PROPERTY_VALUE_MAX
 #define PROPERTY_VALUE_MAX PROP_VALUE_MAX
 #endif
