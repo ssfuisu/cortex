@@ -46,8 +46,8 @@ for n, m in enumerate(re.finditer(r'(?:^CORTEX_LD="|LD_LIBRARY_PATH=[\'"])(\$COR
     sources[f'setup-extra-rootfs.sh #{n}'] = dirs_from_shell_value(m.group(1))
 
 reference = sources.get('LibraryPath.kt', [])
-if len(reference) != 13:
-    errors.append(f'LibraryPath.kt lists {len(reference)} directories, expected 13')
+if len(reference) != 15:
+    errors.append(f'LibraryPath.kt lists {len(reference)} directories, expected 15')
 if not reference or not reference[0].endswith('/aarch64-linux-gnu'):
     errors.append('the aarch64 multiarch directory must come first')
 if len(sources) < 5:

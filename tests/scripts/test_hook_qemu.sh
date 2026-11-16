@@ -85,6 +85,28 @@ out=$(run "$work/selinux")
 check "SELinux is off for Ubuntu's programs" test "$out" = "is_selinux_enabled=0"
 [ "$out" = "is_selinux_enabled=0" ] || echo "        got: $out"
 
+# glob() looks in the rootfs: rpm finds its macro files this way, and without it Fedora's and
+# openSUSE's rpm saw no database ("no dbpath has been set")
+mkdir -p "$work/root/etc/cortex-glob"
+: > "$work/root/etc/cortex-glob/macros.a"; : > "$work/root/etc/cortex-glob/macros.b"; : > "$work/root/etc/cortex-glob/other"
+prog globtest <<'EOC'
+#include <glob.h>
+#include <stdio.h>
+int main(void) {
+    glob_t g;
+    int rc = glob("/etc/cortex-glob/macros.*", 0, NULL, &g);
+    printf("rc=%d", rc);
+    for (size_t i = 0; rc == 0 && i < g.gl_pathc; i++) printf(" %s", g.gl_pathv[i]);
+    if (rc == 0) globfree(&g);
+    glob_t n;
+    printf(" none=%d\n", glob("/etc/cortex-glob/zz*", 0, NULL, &n));
+    return 0;
+}
+EOC
+out=$(run "$work/globtest")
+check "glob() finds files in the rootfs and gives the names the program asked for" test "$out" = "rc=0 /etc/cortex-glob/macros.a /etc/cortex-glob/macros.b none=3"
+[ "$out" = "rc=0 /etc/cortex-glob/macros.a /etc/cortex-glob/macros.b none=3" ] || echo "        got: $out"
+
 # The shadow database comes from the rootfs: libc reads the machine's own /etc/shadow, which Android
 # does not have, and pam_unix's account check for root failed with "Authentication failure"
 printf 'cortexuser:$6$salt$hash:19000:1:99999:7:::\ncortexlock:!:19001::::::\n' > "$work/root/etc/shadow"

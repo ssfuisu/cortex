@@ -16,6 +16,9 @@ object LibraryPath {
         "/usr/lib/arm-linux-gnueabihf",
         "/lib",
         "/usr/lib",
+        // Fedora, openSUSE: 64-bit libraries in lib64
+        "/lib64",
+        "/usr/lib64",
         "/usr/local/lib",
         "/usr/lib/systemd",
         "/lib/systemd",

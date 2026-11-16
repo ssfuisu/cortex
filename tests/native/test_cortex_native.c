@@ -2248,7 +2248,7 @@ static void test_path_helpers(void) {
     ASSERT_TRUE(strncmp(dirs, first, strlen(first)) == 0, "aarch64 multiarch directories come first");
     int entries = 1;
     for (const char *p = dirs; *p; p++) entries += (*p == ':');
-    ASSERT_EQ(entries, 13, "13 library directories");
+    ASSERT_EQ(entries, 15, "15 library directories (lib64 too, for Fedora and openSUSE)");
     char with_sep[16] = "x";
     append_rootfs_lib_dirs(with_sep, sizeof(with_sep), 1, 1);
     ASSERT_TRUE(strncmp(with_sep, "x:/data", 7) == 0, "separate=1 starts with ':'");
@@ -2270,7 +2270,7 @@ static void test_path_helpers(void) {
                 "the caller's directories stay first, the missing ones follow in the usual order");
     entries = 1;
     for (const char *p = merged; *p; p++) entries += (*p == ':');
-    ASSERT_EQ(entries, 13 + 1, "13 directories of the rootfs, and the caller's own one");
+    ASSERT_EQ(entries, 15 + 1, "15 directories of the rootfs, and the caller's own one");
     char only_root[4096];
     append_rootfs_lib_dirs_missing_from(only_root, sizeof(only_root), 0, 0, "");
     ASSERT_STR_EQ(only_root, dirs, "no list of the caller's adds all of them, without a leading ':'");
@@ -2280,7 +2280,7 @@ static void test_path_helpers(void) {
     append_rootfs_lib_dirs_missing_from(merged, sizeof(merged), used, 1, prefix_only);
     entries = 1;
     for (const char *p = merged; *p; p++) entries += (*p == ':');
-    ASSERT_EQ(entries, 13 + 1, "a directory whose name only begins like one of the list is not that one");
+    ASSERT_EQ(entries, 15 + 1, "a directory whose name only begins like one of the list is not that one");
 
     /* SELinux label filtering of listxattr() results */
     char list1[] = "user.a\0security.selinux\0user.b";

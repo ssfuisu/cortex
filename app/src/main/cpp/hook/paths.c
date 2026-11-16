@@ -321,7 +321,7 @@ static ssize_t drop_selinux_xattr(char *list, ssize_t len) {
 static const char *const k_rootfs_lib_dirs[] = {
     "/lib/aarch64-linux-gnu", "/usr/lib/aarch64-linux-gnu",
     "/lib/arm-linux-gnueabihf", "/usr/lib/arm-linux-gnueabihf",
-    "/lib", "/usr/lib", "/usr/local/lib",
+    "/lib", "/usr/lib", "/lib64", "/usr/lib64", "/usr/local/lib",
     "/usr/lib/systemd", "/lib/systemd",
     "/usr/lib/aarch64-linux-gnu/systemd", "/lib/aarch64-linux-gnu/systemd",
     "/usr/lib/arm-linux-gnueabihf/systemd", "/lib/arm-linux-gnueabihf/systemd",

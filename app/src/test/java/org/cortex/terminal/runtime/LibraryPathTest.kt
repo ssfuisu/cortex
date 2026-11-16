@@ -19,7 +19,7 @@ class LibraryPathTest {
     @Test
     fun everyDirectoryIsListedOnce() {
         assertEquals(LibraryPath.DIRS.size, LibraryPath.DIRS.toSet().size)
-        assertEquals(13, LibraryPath.DIRS.size)
+        assertEquals(15, LibraryPath.DIRS.size)
     }
 
     @Test

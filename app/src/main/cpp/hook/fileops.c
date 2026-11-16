@@ -694,6 +694,36 @@ int scandir(const char *dirp, struct dirent ***namelist,
     return orig_scandir ? orig_scandir(target, namelist, filter, compar) : -1;
 }
 
+// Hook glob: glibc's glob() reads directories and stats names with its own internal calls, which
+// no preloaded library sees, so an absolute pattern looked in Android's tree. rpm finds its macro
+// files with it ("/usr/lib/rpm/macros.d/macros.*"): on Fedora and openSUSE every rpm, dnf and zypper
+// command stopped at "no dbpath has been set". glob's GLOB_ALTDIRFUNC hands it this library's
+// opendir() and stat(), which map the paths; the names it returns stay the ones of the pattern.
+static void *glob_opendir(const char *name) { return opendir(name); }
+static struct dirent *glob_readdir(void *dir) { return readdir((DIR *)dir); }
+static void glob_closedir(void *dir) { closedir((DIR *)dir); }
+static int glob_stat(const char *name, struct stat *st) { return stat(name, st); }
+static int glob_lstat(const char *name, struct stat *st) { return lstat(name, st); }
+
+int glob(const char *pattern, int flags, int (*errfunc)(const char *, int), glob_t *pglob) {
+    static int (*orig_glob)(const char *, int, int (*)(const char *, int), glob_t *) = NULL;
+    if (!orig_glob) orig_glob = (int (*)(const char *, int, int (*)(const char *, int), glob_t *))cortex_next((void *)glob, "glob");
+    if (!orig_glob) return GLOB_NOSPACE;
+    init_cortex_hook();
+    if (pattern && pglob && g_cortex_root[0] != '\0' && !(flags & GLOB_ALTDIRFUNC)) {
+        pglob->gl_opendir = glob_opendir;
+        pglob->gl_readdir = (void *)glob_readdir;
+        pglob->gl_closedir = glob_closedir;
+        pglob->gl_stat = (void *)glob_stat;
+        pglob->gl_lstat = (void *)glob_lstat;
+        int ret = orig_glob(pattern, flags | GLOB_ALTDIRFUNC, errfunc, pglob);
+        // The caller did not ask for it: globfree() and a later GLOB_APPEND see the usual flag
+        pglob->gl_flags &= ~GLOB_ALTDIRFUNC;
+        return ret;
+    }
+    return orig_glob(pattern, flags, errfunc, pglob);
+}
+
 #if defined(__LP64__)
 // Export 64-bit Large File Support (LFS) symbol aliases on 64-bit platforms so that
 // calls from libraries compiled with LFS (such as libstdc++ calling fopen64) are intercepted.
@@ -717,6 +747,7 @@ __asm__(
     ".globl mkstemps64\n"  ".set mkstemps64, mkstemps\n"
     ".globl mkostemps64\n" ".set mkostemps64, mkostemps\n"
     ".globl tmpfile64\n"   ".set tmpfile64, tmpfile\n"
+    ".globl glob64\n"      ".set glob64, glob\n"
 );
 #endif
 
