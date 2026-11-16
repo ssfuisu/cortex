@@ -242,6 +242,17 @@ sleep 20
 shot "01-first-start"
 wait_for 1200 run_ test -f "$DATA/files/cortex/.cortex_version" || die "Ubuntu was not unpacked within 20 minutes"
 log "Ubuntu unpacked after $((SECONDS - STARTED)) s"
+
+# The GPU server (GPU acceleration) starts on the emulator's OpenGL ES and opens its socket. Only
+# reported: the emulator's GPU is software, and what matters is that the program loads and runs.
+APK_DIR=$(sh_ pm path "$PKG" | sed -n 's/^package://p' | head -n 1 | xargs dirname 2>/dev/null)
+GPU_LIB="$APK_DIR/lib/$BINFMT_NAME/libvirgl_test_server.so"
+if run_ test -x "$GPU_LIB"; then
+    sh_ "rm -f /data/local/tmp/cortex-virgl.sock; ($GPU_LIB --use-egl-surfaceless --use-gles --socket-path /data/local/tmp/cortex-virgl.sock >/data/local/tmp/cortex-virgl.log 2>&1 &) ; sleep 5; ls -l /data/local/tmp/cortex-virgl.sock; pkill -f libvirgl_test_server; cat /data/local/tmp/cortex-virgl.log | tail -n 5" > "$OUT/gpu-server.txt" 2>&1
+    if grep -q "cortex-virgl.sock" "$OUT/gpu-server.txt"; then log "GPU server: started and listening"; else log "GPU server: did not start"; sed 's/^/  /' "$OUT/gpu-server.txt"; fi
+else
+    log "GPU server: not in the APK ($GPU_LIB)"
+fi
 sleep 15
 shot "02-terminal"
 
