@@ -236,7 +236,8 @@ trap 'kill $LOGCAT 2>/dev/null' EXIT
 
 log "Starting Cortex"
 STARTED=$SECONDS
-sh_ am start -W -n "$PKG/org.cortex.terminal.MainActivity" | tee "$OUT/first-start.txt"
+# The setup (choice of distribution) is for people: the test installs the bundled Ubuntu as before
+sh_ am start -W -n "$PKG/org.cortex.terminal.MainActivity" --ez org.cortex.terminal.SKIP_SETUP true | tee "$OUT/first-start.txt"
 sleep 20
 shot "01-first-start"
 wait_for 1200 run_ test -f "$DATA/files/cortex/.cortex_version" || die "Ubuntu was not unpacked within 20 minutes"

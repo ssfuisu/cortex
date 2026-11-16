@@ -45,6 +45,9 @@ import org.cortex.terminal.view.showInChrome
 class MainActivity : AppCompatActivity() {
 
     companion object {
+        /** An intent extra: a start without the setup, which installs the bundled Ubuntu (the emulator test) */
+        const val EXTRA_SKIP_SETUP = "org.cortex.terminal.SKIP_SETUP"
+
         var instance: MainActivity? = null
             private set
 
@@ -87,10 +90,20 @@ class MainActivity : AppCompatActivity() {
     private lateinit var extraKeysConfig: ExtraKeysConfig
     private val applyExtraKeysRunnable = Runnable { applyExtraKeys() }
     private var isBootstrapping = false
+    /** onCreate sent the first start to the setup: nothing of the terminal was made */
+    private var redirectedToSetup = false
     private var bootstrapDialog: BootstrapDialog? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // No system yet: the setup chooses one (a distribution, a desktop, the user) and installs it. An
+        // automated start (the emulator test) asks for the bundled Ubuntu as before, without it.
+        if (!BootstrapManager.isBootstrapInstalled(this) && !intent.getBooleanExtra(EXTRA_SKIP_SETUP, false)) {
+            redirectedToSetup = true
+            startActivity(Intent(this, org.cortex.terminal.setup.SetupActivity::class.java))
+            finish()
+            return
+        }
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
         extraKeysConfig = ExtraKeysConfig(Environment.getHomeDir(this))
@@ -635,23 +648,27 @@ class MainActivity : AppCompatActivity() {
             } catch (e: Exception) {
                 android.util.Log.e("MainActivity", "Startup filesystem init failed", e)
             }
-            try {
-                BootstrapManager.ensureUbuntuSources(root)
-            } catch (e: Exception) {
-                android.util.Log.e("MainActivity", "Startup ensureUbuntuSources failed", e)
-            }
-            // libc6-dev and its dependencies, for older installations that never had them
-            try {
-                BootstrapManager.ensureDevPackages(app, root)
-            } catch (e: Exception) {
-                android.util.Log.e("MainActivity", "Startup C development packages failed", e)
-            }
-            // The fastest Ubuntu mirror, chosen once (it needs the network: again on a later start
-            // when none answered)
-            try {
-                org.cortex.terminal.runtime.MirrorSelector.selectOnce(root)
-            } catch (e: Exception) {
-                android.util.Log.e("MainActivity", "Choosing a mirror failed", e)
+            // Cortex's own Ubuntu only: its sources, its C development overlay and its mirror (the
+            // downloaded distributions come with their own sources and mirror lists)
+            if (org.cortex.terminal.runtime.Distro.of(root).isBundled) {
+                try {
+                    BootstrapManager.ensureUbuntuSources(root)
+                } catch (e: Exception) {
+                    android.util.Log.e("MainActivity", "Startup ensureUbuntuSources failed", e)
+                }
+                // libc6-dev and its dependencies, for older installations that never had them
+                try {
+                    BootstrapManager.ensureDevPackages(app, root)
+                } catch (e: Exception) {
+                    android.util.Log.e("MainActivity", "Startup C development packages failed", e)
+                }
+                // The fastest Ubuntu mirror, chosen once (it needs the network: again on a later start
+                // when none answered)
+                try {
+                    org.cortex.terminal.runtime.MirrorSelector.selectOnce(root)
+                } catch (e: Exception) {
+                    android.util.Log.e("MainActivity", "Choosing a mirror failed", e)
+                }
             }
             android.util.Log.i(
                 "MainActivity",
@@ -923,6 +940,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        if (redirectedToSetup) {
+            super.onDestroy()
+            return
+        }
         try {
             if (bootstrapDialog?.isShowing == true) {
                 bootstrapDialog?.dismiss()

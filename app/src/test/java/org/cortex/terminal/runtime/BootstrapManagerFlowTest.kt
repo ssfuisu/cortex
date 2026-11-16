@@ -36,6 +36,7 @@ class BootstrapManagerFlowTest {
         root = Environment.getCortexRoot(context)
         home = Environment.getHomeDir(context)
         root.deleteRecursively()
+        File(context.filesDir, "distros").deleteRecursively()
     }
 
     private fun put(path: String, text: String, base: File = root): File =
@@ -288,6 +289,64 @@ class BootstrapManagerFlowTest {
         val output = process.inputStream.bufferedReader().readText()
         assertEquals(output, 0, process.waitFor())
         return tgz
+    }
+
+    /** An Arch-like image as build-distro-rootfs.py makes it: pacman, libraries in /usr/lib, /sbin -> usr/bin */
+    private fun archSystem(base: File) {
+        put("usr/bin/bash", "bash", base)
+        put("usr/bin/pacman", "pacman", base)
+        put("usr/bin/gawk", "gawk", base)
+        put("usr/lib/ld-linux-aarch64.so.1", "ld.so", base)
+        put("usr/lib/libc.so.6", "libc", base)
+        put("etc/passwd", "root:x:0:0::/root:/usr/bin/bash\n", base)
+        put("etc/group", "root:x:0:root\nwheel:x:998:\n", base)
+        put("etc/cortex/distro", "ID=arch\nNAME=Arch Linux ARM\nVERSION=rolling\nPM=pacman\n", base)
+        for ((link, target) in listOf("bin" to "usr/bin", "sbin" to "usr/bin", "lib" to "usr/lib")) {
+            File(base, target).mkdirs()
+            Files.createSymbolicLink(File(base, link).toPath(), File(target).toPath())
+        }
+    }
+
+    @Test(timeout = 120_000)
+    fun installBootstrap_ofADownloadedDistributionKeepsItsOwnLayout() {
+        val stage = File(context.cacheDir, "stage-arch")
+        archSystem(stage)
+        val tgz = archive(stage)
+
+        assertTrue(BootstrapManager.installBootstrap(context, { tgz.inputStream() }, bundled = false))
+
+        assertTrue(BootstrapManager.isBootstrapInstalled(context))
+        assertEquals("arch", Distro.of(root).id)
+        assertEquals("usr/bin", linkTarget(File(root, "sbin")))
+        // nothing of apt or Ubuntu in it
+        assertFalse(File(root, "var/lib/dpkg/status").exists())
+        assertFalse(File(root, "etc/apt/sources.list.d/ubuntu.sources").exists())
+        assertFalse(File(root, "usr/local/bin/apt").exists())
+        // the user, an admin in Arch's wheel group
+        val user = UserAccount.name(context)
+        assertTrue(read("etc/passwd").contains("$user:x:"))
+        assertTrue(Regex("(?m)^wheel:x:998:.*\\b$user\\b").containsMatchIn(read("etc/group")))
+    }
+
+    @Test(timeout = 120_000)
+    fun distroInstaller_switchesBetweenInstalledSystems() {
+        val stage = File(context.cacheDir, "stage-arch")
+        archSystem(stage)
+        val tgz = archive(stage)
+        assertTrue(BootstrapManager.installBootstrap(context, { tgz.inputStream() }, bundled = false))
+        put("home/notes.txt", "arch's own home")
+
+        // Another one: Arch waits in files/distros, files/cortex is empty for the install
+        assertFalse(DistroInstaller.makeActive(context, "debian-13"))
+        assertEquals(listOf("arch"), DistroInstaller.stored(context))
+        assertFalse(File(root, "usr/bin/bash").exists())
+
+        // and back: its files, its home, as they were
+        assertTrue(DistroInstaller.makeActive(context, "arch"))
+        assertEquals("arch", DistroInstaller.active(context)?.id)
+        assertEquals("arch's own home", read("home/notes.txt"))
+        assertEquals(emptyList<String>(), DistroInstaller.stored(context))
+        assertTrue(DistroInstaller.makeActive(context, "arch"))
     }
 
     @Test(timeout = 120_000)

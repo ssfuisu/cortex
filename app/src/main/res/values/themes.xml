@@ -30,6 +30,16 @@
         <item name="preferenceTheme">@style/PreferenceThemeOverlay</item>
     </style>
 
+    <!-- The setup (SetupActivity): its own violet and blue, dark whatever the terminal's theme -->
+    <style name="Theme.Cortex.Setup" parent="Theme.Material3.Dark.NoActionBar">
+        <item name="colorPrimary">#FF8B5CF6</item>
+        <item name="colorAccent">#FF8B5CF6</item>
+        <item name="colorControlActivated">#FF8B5CF6</item>
+        <item name="android:windowBackground">#FF0C0D1B</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">#FF0C0D1B</item>
+    </style>
+
     <!-- Specific theme for SettingsActivity with Toolbar -->
     <style name="Theme.Cortex.Settings" parent="Theme.Material3.Dark">
         <item name="colorPrimary">@color/cortex_primary</item>

@@ -1,16 +1,17 @@
 #!/bin/bash
 # cortex-desktop: a graphical Linux desktop (X11) in Cortex, shown in the app's Desktop screen.
 #
-#   cortex-desktop install [light|xfce] [--firefox]   installs the desktop (light: Openbox, the default)
+#   cortex-desktop install [xfce|lxqt|mate|kde|light] [--firefox]   installs a desktop (light: Openbox)
+#   cortex-desktop browser                             installs Firefox
 #   cortex-desktop start [--size WxH]                  starts it (the app opens its screen)
 #   cortex-desktop stop | restart | status
 #   cortex-desktop remove                              removes what install added
 #
-# The X server is Ubuntu's Xvnc. It listens on no network port: only on a Unix socket that the app
-# alone can open (/tmp/.cortex-desktop/vnc.sock), and X programs reach it as DISPLAY=:1 through
-# /tmp/.X11-unix. Sound goes from PulseAudio through a pipe to Android's speaker. There is no GPU:
-# everything is drawn by the CPU, which is fine for editors, file managers, office programs and
-# browsers, and slow for games and video.
+# The X server is the distribution's Xvnc (TigerVNC). It listens on no network port: only on a Unix
+# socket that the app alone can open (/tmp/.cortex-desktop/vnc.sock), and X programs reach it as
+# DISPLAY=:1 through /tmp/.X11-unix. Sound goes from PulseAudio through a pipe to Android's speaker.
+# Without the GPU setting everything is drawn by the CPU, which is fine for editors, file managers,
+# office programs and browsers, and slow for games and video.
 set -u
 
 R="${CORTEX_DESKTOP_ROOT:-}"
@@ -21,12 +22,90 @@ LOG_DIR="${HOME:-/root}/.cortex"
 LOG="$LOG_DIR/desktop.log"
 DEFAULT_SIZE="1280x720"
 
-LIGHT_PACKAGES="tigervnc-standalone-server tigervnc-tools dbus-x11 xauth x11-xserver-utils x11-utils
-xfonts-base fonts-dejavu-core openbox obconf python3-xdg tint2 pcmanfm lxterminal mousepad lxappearance
-adwaita-icon-theme-full librsvg2-common pulseaudio pulseaudio-utils xdg-utils"
-XFCE_PACKAGES="tigervnc-standalone-server tigervnc-tools dbus-x11 xauth x11-xserver-utils x11-utils
-xfonts-base fonts-dejavu-core xfce4 xfce4-terminal thunar mousepad
-adwaita-icon-theme-full librsvg2-common pulseaudio pulseaudio-utils xdg-utils"
+# The distribution (/etc/cortex/distro, written when its image was built; none: the app's Ubuntu)
+distro_value() {
+    sed -n "s/^$1=//p" "$R/etc/cortex/distro" 2>/dev/null | head -n 1
+}
+DISTRO_ID="$(distro_value ID)"; DISTRO_ID="${DISTRO_ID:-ubuntu-24.04}"
+PM="$(distro_value PM)"; PM="${PM:-apt}"
+
+# What every desktop needs (the X server, D-Bus, sound, fonts, icons), then what each one is, in the
+# package names of each package manager
+base_packages() {
+    case "$PM" in
+        apt)
+            local icons=adwaita-icon-theme
+            [ "$DISTRO_ID" = ubuntu-24.04 ] && icons=adwaita-icon-theme-full
+            echo "tigervnc-standalone-server tigervnc-tools dbus-x11 xauth x11-xserver-utils x11-utils xfonts-base
+fonts-dejavu-core $icons librsvg2-common pulseaudio pulseaudio-utils xdg-utils" ;;
+        pacman) echo "tigervnc xorg-xauth dbus pulseaudio xdg-utils adwaita-icon-theme ttf-dejavu" ;;
+        dnf) echo "tigervnc-server-minimal xorg-x11-xauth dbus-x11 pulseaudio pulseaudio-utils xdg-utils adwaita-icon-theme dejavu-sans-fonts" ;;
+        zypper) echo "xorg-x11-Xvnc dbus-1-daemon xauth pulseaudio pulseaudio-utils xdg-utils adwaita-icon-theme dejavu-fonts" ;;
+        xbps) echo "tigervnc xauth dbus-x11 pulseaudio xdg-utils adwaita-icon-theme dejavu-fonts-ttf" ;;
+    esac
+}
+
+desktop_packages() {
+    case "$1:$PM" in
+        light:apt) echo "openbox obconf python3-xdg tint2 pcmanfm lxterminal mousepad lxappearance" ;;
+        light:zypper) echo "openbox lxpanel pcmanfm lxterminal mousepad" ;; # no tint2 in openSUSE
+        light:*) echo "openbox tint2 pcmanfm lxterminal mousepad" ;;
+        xfce:apt) echo "xfce4 xfce4-terminal thunar mousepad" ;;
+        xfce:pacman) echo "xfce4 mousepad" ;;
+        xfce:xbps) echo "xfce4" ;;
+        xfce:*) echo "xfce4-session xfwm4 xfce4-panel xfdesktop xfce4-terminal thunar xfce4-settings mousepad" ;;
+        lxqt:apt) echo "lxqt-core qterminal openbox" ;;
+        lxqt:pacman) echo "lxqt openbox breeze-icons" ;;
+        lxqt:xbps) echo "lxqt openbox" ;;
+        lxqt:*) echo "lxqt-session lxqt-panel pcmanfm-qt qterminal lxqt-config openbox" ;;
+        mate:apt) echo "mate-desktop-environment-core mate-terminal" ;;
+        mate:pacman|mate:xbps) echo "mate mate-terminal" ;;
+        mate:*) echo "mate-session-manager marco mate-panel caja mate-terminal mate-settings-daemon mate-control-center" ;;
+        kde:apt) echo "kde-plasma-desktop kwin-x11 konsole dolphin" ;;
+        kde:pacman) echo "plasma-desktop konsole dolphin" ;;
+        kde:dnf) echo "plasma-workspace-x11 plasma-desktop kwin-x11 konsole dolphin" ;;
+        kde:zypper) echo "plasma6-session-x11 plasma6-desktop kwin6-x11 konsole dolphin" ;;
+        kde:xbps) echo "kde-plasma kwin-x11 konsole dolphin" ;;
+    esac
+}
+
+# The package manager's commands: install NAMES, remove NAMES, whether NAME is installed
+pkg_refresh() {
+    case "$PM" in
+        apt) as_root apt-get update ;;
+        pacman) as_root pacman -Syu --noconfirm ;; # Arch takes no partial upgrades
+        dnf) as_root dnf -y makecache ;;
+        zypper) as_root zypper -n --gpg-auto-import-keys refresh ;;
+        xbps) as_root xbps-install -Suy xbps ;;
+    esac
+}
+pkg_install() {
+    case "$PM" in
+        apt) as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "$@" ;;
+        pacman) as_root pacman -S --needed --noconfirm "$@" ;;
+        dnf) as_root dnf -y install --setopt=install_weak_deps=False "$@" ;;
+        zypper) as_root zypper -n install --no-recommends "$@" ;;
+        xbps) as_root xbps-install -y "$@" ;;
+    esac
+}
+pkg_remove() {
+    case "$PM" in
+        apt) as_root env DEBIAN_FRONTEND=noninteractive apt-get remove -y "$@" &&
+            { as_root env DEBIAN_FRONTEND=noninteractive apt-get autoremove -y || true; } ;;
+        pacman) as_root pacman -Rns --noconfirm "$@" ;;
+        dnf) as_root dnf -y remove "$@" ;;
+        zypper) as_root zypper -n remove --clean-deps "$@" ;;
+        xbps) as_root xbps-remove -Ry "$@" ;;
+    esac
+}
+pkg_installed() {
+    case "$PM" in
+        apt) dpkg-query -W -f='${Status}\n' "$1" 2>/dev/null | grep -q '^install ok installed' ;;
+        pacman) pacman -Q "$1" >/dev/null 2>&1 || pacman -Qg "$1" >/dev/null 2>&1 ;;
+        dnf|zypper) rpm -q "$1" >/dev/null 2>&1 ;;
+        xbps) xbps-query "$1" >/dev/null 2>&1 ;;
+    esac
+}
 
 die() {
     echo "cortex-desktop: $*" >&2
@@ -34,7 +113,7 @@ die() {
 }
 
 usage() {
-    sed -n '2,7p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 conf_value() {
@@ -66,7 +145,7 @@ pid_is() {
 }
 
 XVNC_NAMES='X(tig)?vnc'
-SESSION_NAMES='dbus-launch|openbox|xfce4-session|startxfce4|setsid'
+SESSION_NAMES='dbus-launch|openbox|xfce4-session|startxfce4|lxqt-session|startlxqt|mate-session|startplasma-x11|plasma_session|ksmserver|setsid'
 
 running_pid() {
     local pid
@@ -138,42 +217,58 @@ installed_kind() {
 }
 
 cmd_install() {
-    local kind="light" firefox=0
+    local kind="xfce" firefox=0
     for arg in "$@"; do
         case "$arg" in
             light|openbox) kind="light" ;;
             xfce|xfce4) kind="xfce" ;;
+            lxqt) kind="lxqt" ;;
+            mate) kind="mate" ;;
+            kde|plasma) kind="kde" ;;
             --firefox) firefox=1 ;;
             *) die "unknown option: $arg" ;;
         esac
     done
-    local packages="$LIGHT_PACKAGES"
-    [ "$kind" = xfce ] && packages="$XFCE_PACKAGES"
+    local packages
+    packages="$(base_packages) $(desktop_packages "$kind")"
+    [ -n "$(desktop_packages "$kind")" ] || die "$kind is not available for $PM"
     # What was there before stays when the desktop is removed: only the packages installed here are listed
     mkdir -p "$(dirname "$CONF")"
     local p
     for p in $packages; do
-        dpkg-query -W -f='${Status}\n' "$p" 2>/dev/null | grep -q '^install ok installed' || echo "$p"
+        pkg_installed "$p" || echo "$p"
     done >>"$R/etc/cortex/desktop.packages"
     sort -u -o "$R/etc/cortex/desktop.packages" "$R/etc/cortex/desktop.packages" 2>/dev/null
     # The links Cortex made to its Android opener step aside for the real ones (update-alternatives)
     for p in x-www-browser xdg-open; do
         [ "$(readlink "/usr/bin/$p" 2>/dev/null)" = /usr/local/bin/xdg-open ] && as_root rm -f "/usr/bin/$p"
     done
-    echo "Installing the $kind desktop. This downloads a few hundred MB from Ubuntu's archive."
-    as_root apt-get update || die "apt-get update failed"
+    echo "Installing the $kind desktop. This downloads a few hundred MB."
+    pkg_refresh || die "the package lists could not be refreshed"
     # shellcheck disable=SC2086
-    as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends $packages ||
-        die "the packages could not be installed"
+    pkg_install $packages || die "the packages could not be installed"
     if [ "$firefox" = 1 ]; then install_firefox || echo "cortex-desktop: Firefox was not installed (see above)." >&2; fi
     refresh_databases
     set_conf DESKTOP "$kind"
     echo "The desktop is installed. Open it from the app's menu (Desktop), or run: cortex-desktop start"
 }
 
+# Firefox in each distribution: Debian's and Kali's is the ESR, openSUSE's has Mozilla's name for it
+install_firefox() {
+    local name=firefox
+    case "$PM:$DISTRO_ID" in
+        apt:ubuntu-*) install_firefox_ubuntu; return ;;
+        apt:*) name=firefox-esr ;;
+        zypper:*) name=MozillaFirefox ;;
+    esac
+    pkg_installed "$name" || echo "$name" >>"$R/etc/cortex/desktop.packages"
+    [ "$PM" = apt ] && { as_root apt-get update || return 1; }
+    pkg_install "$name"
+}
+
 # Ubuntu's firefox package is only a pointer to the snap, which needs snapd: Mozilla's own apt
 # repository has the real program.
-install_firefox() {
+install_firefox_ubuntu() {
     echo "Installing Firefox from Mozilla's apt repository (packages.mozilla.org)."
     dpkg-query -W -f='${Status}\n' firefox 2>/dev/null | grep -q '^install ok installed' ||
         echo firefox >>"$R/etc/cortex/desktop.packages"
@@ -191,15 +286,13 @@ cmd_remove() {
     # Only what the desktop installed (packages that were there before it stay)
     local packages="" p
     for p in $(cat "$R/etc/cortex/desktop.packages" 2>/dev/null); do
-        dpkg-query -W -f='${Status}\n' "$p" 2>/dev/null | grep -q '^install ok installed' && packages="$packages $p"
+        pkg_installed "$p" && packages="$packages $p"
     done
     if [ -n "$packages" ]; then
         # shellcheck disable=SC2086
-        as_root env DEBIAN_FRONTEND=noninteractive apt-get remove -y $packages ||
-            die "the packages could not be removed (see above); the desktop stays installed"
-        as_root env DEBIAN_FRONTEND=noninteractive apt-get autoremove -y || true
+        pkg_remove $packages || die "the packages could not be removed (see above); the desktop stays installed"
     fi
-    as_root rm -f /etc/apt/sources.list.d/mozilla.list /etc/apt/preferences.d/mozilla
+    [ "$PM" = apt ] && as_root rm -f /etc/apt/sources.list.d/mozilla.list /etc/apt/preferences.d/mozilla
     rm -f "$R/etc/cortex/desktop.packages"
     set_conf DESKTOP ""
     echo "The desktop was removed."
@@ -208,7 +301,21 @@ cmd_remove() {
 session_command() {
     case "$(conf_value DESKTOP)" in
         xfce) echo "startxfce4" ;;
+        lxqt) echo "startlxqt" ;;
+        mate) echo "mate-session" ;;
+        kde) echo "startplasma-x11" ;;
         *) echo "openbox-session" ;;
+    esac
+}
+
+# What XDG_CURRENT_DESKTOP names it (menus and settings programs go by it)
+desktop_name() {
+    case "$(conf_value DESKTOP)" in
+        xfce) echo "XFCE" ;;
+        lxqt) echo "LXQt" ;;
+        mate) echo "MATE" ;;
+        kde) echo "KDE" ;;
+        *) echo "openbox" ;;
     esac
 }
 
@@ -219,7 +326,7 @@ ensure_openbox_autostart() {
     mkdir -p "$dir/openbox" "$dir/tint2" "$dir/pcmanfm/default"
     [ -f "$dir/openbox/autostart" ] || cat >"$dir/openbox/autostart" <<'EOF'
 # Started with the Openbox desktop of Cortex; edit freely.
-tint2 &
+if command -v tint2 >/dev/null 2>&1; then tint2 & else lxpanel & fi
 pcmanfm --desktop &
 EOF
     [ -f "$dir/tint2/tint2rc" ] || cat >"$dir/tint2/tint2rc" <<'EOF'
@@ -419,13 +526,28 @@ ensure_xfce_defaults() {
 EOF
 }
 
+# KDE's window manager and file indexer: compositing off as for XFCE (no GPU), and no indexing of the
+# home directory in the background. The files are the user's from then on.
+ensure_kde_defaults() {
+    local dir="${HOME}/.config"
+    mkdir -p "$dir" || return 0
+    [ -e "$dir/kwinrc" ] || printf '[Compositing]\nEnabled=false\n' >"$dir/kwinrc"
+    [ -e "$dir/baloofilerc" ] || printf '[Basic Settings]\nIndexing-Enabled=false\n' >"$dir/baloofilerc"
+    [ -e "$dir/kscreenlockerrc" ] || printf '[Daemon]\nAutolock=false\nLockOnResume=false\n' >"$dir/kscreenlockerrc"
+}
+
 # The desktop's session on the X server of display $1; fails when it ends at once
 start_session() {
-    local display="$1" pulse="" current="openbox"
+    local display="$1" pulse="" current
     refresh_databases
-    if [ "$(conf_value DESKTOP)" = xfce ]; then ensure_xfce_defaults; else ensure_openbox_autostart; fi
+    case "$(conf_value DESKTOP)" in
+        xfce) ensure_xfce_defaults ;;
+        kde) ensure_kde_defaults ;;
+        lxqt|mate) ;;
+        *) ensure_openbox_autostart ;;
+    esac
     [ -f "$STATE/pulse.server" ] && pulse="$(cat "$STATE/pulse.server")"
-    [ "$(conf_value DESKTOP)" = xfce ] && current="XFCE"
+    current="$(desktop_name)"
     (
         cd "$HOME" || exit 1
         unset SESSION_MANAGER DBUS_SESSION_BUS_ADDRESS
@@ -489,6 +611,7 @@ cmd_status() {
 
 case "${1:-start}" in
     install) shift; cmd_install "$@" ;;
+    browser|firefox) install_firefox ;;
     remove|uninstall) cmd_remove ;;
     start) shift; cmd_start "$@" ;;
     stop) cmd_stop ;;

@@ -29,9 +29,10 @@ object BootstrapManager {
         // configure (the extraction runs this again when it is done).
         if (!File(root, "usr/bin/bash").exists()) return
 
+        val distro = Distro.of(root)
         ensureRootTools(root, context)
         ensureBrowserOpener(root, context)
-        ShellScriptsInstaller.ensureAptAutoUpdate(root, context)
+        if (distro.usesApt) ShellScriptsInstaller.ensureAptAutoUpdate(root, context)
 
         // ~/.profile and ~/.bashrc are the user's own files (created once from /etc/skel, see
         // ShellProfile). Cortex's environment lives in /etc/profile.d, never in the user's files.
@@ -52,22 +53,26 @@ object BootstrapManager {
 
         ensureHookLibrary(context, root)
         updateDnsConfiguration(context, root)
-        cleanupAptArtifacts(root)
-        ensureAptSandbox(root)
-        ensureDpkgTables(root)
+        if (distro.usesApt) {
+            cleanupAptArtifacts(root)
+            ensureAptSandbox(root)
+            ensureDpkgTables(root)
+        }
         ensureLocale(root)
         ensureHosts(root)
         ensureNsswitch(root)
         ensureCaCertificates(root, context)
-        ensureKeyrings(root, context)
+        if (distro.isBundled) ensureKeyrings(root, context)
         ensurePasswd(root, home, context)
         ensureReloadScripts(root, home, context)
         updateTimezone(context, root)
 
         removeOldStorageLink(root, home)
 
-        File(root, "var/cache/apt/archives/partial").mkdirs()
-        File(root, "var/lib/apt/lists/partial").mkdirs()
+        if (distro.usesApt) {
+            File(root, "var/cache/apt/archives/partial").mkdirs()
+            File(root, "var/lib/apt/lists/partial").mkdirs()
+        }
         File(root, "tmp").mkdirs()
         listOf("boot", "media", "mnt", "srv", "opt").forEach {
             val d = File(root, it)
@@ -150,13 +155,20 @@ object BootstrapManager {
      */
     internal fun missingEssentials(root: File): List<String> {
         val missing = mutableListOf<String>()
-        for (path in listOf("usr/bin/bash", "usr/bin/apt", "usr/bin/dpkg")) {
+        val distro = Distro.of(root)
+        val programs = if (distro.usesApt) listOf("usr/bin/bash", "usr/bin/apt", "usr/bin/dpkg") else listOf("usr/bin/bash", distro.pm.program)
+        for (path in programs) {
             if (!File(root, path).exists()) missing += path
         }
-        val status = File(root, "var/lib/dpkg/status")
-        if (!status.isFile || status.length() == 0L) missing += "var/lib/dpkg/status"
-        val archDirs = listOf("usr/lib/aarch64-linux-gnu", "usr/lib/arm-linux-gnueabihf")
-        for (lib in listOf("libc.so.6", "libtinfo.so.6")) {
+        if (distro.usesApt) {
+            val status = File(root, "var/lib/dpkg/status")
+            if (!status.isFile || status.length() == 0L) missing += "var/lib/dpkg/status"
+        }
+        // Debian's family keeps its libraries in the multiarch directories, the others in lib or lib64;
+        // Arch and Void have the terminfo library only as part of ncursesw
+        val archDirs = if (distro.usesApt) listOf("usr/lib/aarch64-linux-gnu", "usr/lib/arm-linux-gnueabihf") else listOf("usr/lib64", "usr/lib")
+        val libs = if (distro.usesApt) listOf("libc.so.6", "libtinfo.so.6") else listOf("libc.so.6")
+        for (lib in libs) {
             // exists() follows the link (libtinfo.so.6 -> libtinfo.so.6.4): a dangling one counts as missing
             if (archDirs.none { File(root, "$it/$lib").exists() }) missing += lib
         }
@@ -168,7 +180,7 @@ object BootstrapManager {
         val root = Environment.getCortexRoot(context)
         // A system that an earlier version marked installed although its extraction stopped half way
         // (1.27.1 on some phones) counts as not installed: it is extracted again
-        return File(root, "usr/bin/apt").exists() && File(root, "usr/bin/bash").exists() &&
+        return File(root, Distro.of(root).pm.program).exists() && File(root, "usr/bin/bash").exists() &&
             hasDynamicLinker(root) && File(root, ".cortex_version").exists() && missingEssentials(root).isEmpty()
     }
 
@@ -192,13 +204,18 @@ object BootstrapManager {
         try {
             ensureHookLibrary(context, root)
             restoreGpgv(root)
-            ensureKeyrings(root, context)
-            ensureAptSandbox(root)
-            ensureUbuntuSources(root)
-            cleanupAptArtifacts(root)
+            val distro = Distro.of(root)
+            if (distro.isBundled) {
+                ensureKeyrings(root, context)
+                ensureUbuntuSources(root)
+            }
+            if (distro.usesApt) {
+                ensureAptSandbox(root)
+                cleanupAptArtifacts(root)
+            }
             // Package lists of an older release may be partial or corrupted: apt fetches them
             // again. Not while apt runs.
-            FileLocks.tryLock(AptConfigurator.aptLockFiles(root))?.use {
+            if (distro.usesApt) FileLocks.tryLock(AptConfigurator.aptLockFiles(root))?.use {
                 File(root, "var/lib/apt/lists").listFiles()?.forEach { f ->
                     if (f.isFile && f.name.endsWith("_Packages")) {
                         f.delete()
@@ -274,7 +291,8 @@ object BootstrapManager {
         context: Context,
         open: () -> InputStream,
         fallbackOpen: (() -> InputStream)? = null,
-        onProgress: ((Int) -> Unit)? = null
+        onProgress: ((Int) -> Unit)? = null,
+        bundled: Boolean = true
     ): Boolean {
         val root = Environment.getCortexRoot(context)
         val started = android.os.SystemClock.uptimeMillis()
@@ -295,12 +313,15 @@ object BootstrapManager {
                 }
             }
 
-            // Pre-create usr directories and UsrMerge symlinks
-            File(root, "usr/bin").mkdirs()
-            File(root, "usr/sbin").mkdirs()
-            File(root, "usr/lib").mkdirs()
-            File(root, "usr/lib64").mkdirs()
-            mapOf("bin" to "usr/bin", "sbin" to "usr/sbin", "lib" to "usr/lib", "lib64" to "usr/lib").forEach { (link, target) ->
+            // Pre-create usr directories and UsrMerge symlinks (a downloaded image brings its own:
+            // Arch's /sbin is usr/bin, Fedora's /lib64 is usr/lib64)
+            if (bundled) {
+                File(root, "usr/bin").mkdirs()
+                File(root, "usr/sbin").mkdirs()
+                File(root, "usr/lib").mkdirs()
+                File(root, "usr/lib64").mkdirs()
+            }
+            (if (bundled) mapOf("bin" to "usr/bin", "sbin" to "usr/sbin", "lib" to "usr/lib", "lib64" to "usr/lib") else emptyMap()).forEach { (link, target) ->
                 val linkFile = File(root, link)
                 if (!linkFile.exists()) {
                     try {
@@ -372,21 +393,25 @@ object BootstrapManager {
             // (a link in it is removed as a link, never followed)
             org.cortex.terminal.documents.DocumentPaths.deleteTree(File(root, "home/ubuntu"))
 
-            ensureUbuntuSources(root)
+            if (bundled) ensureUbuntuSources(root)
 
             // Ensure dpkg status file exists
-            val statusFile = File(root, "var/lib/dpkg/status")
-            statusFile.parentFile?.mkdirs()
-            if (!statusFile.exists()) {
-                statusFile.createNewFile()
+            if (Distro.of(root).usesApt) {
+                val statusFile = File(root, "var/lib/dpkg/status")
+                statusFile.parentFile?.mkdirs()
+                if (!statusFile.exists()) {
+                    statusFile.createNewFile()
+                }
             }
 
             // Hook library, DNS, users, apt, certificates, keyrings, the user's dotfiles, Cortex's
             // tools...: the same steps every start checks.
             initializeFileSystem(context)
 
-            File(root, "var/lib/apt/lists/partial").mkdirs()
-            File(root, "var/cache/apt/archives/partial").mkdirs()
+            if (Distro.of(root).usesApt) {
+                File(root, "var/lib/apt/lists/partial").mkdirs()
+                File(root, "var/cache/apt/archives/partial").mkdirs()
+            }
 
             // Mark bootstrap version only if dynamic linker is present and functional
             if (hasDynamicLinker(root)) {

@@ -1022,6 +1022,37 @@ else
 fi
 pkill -f "$DR/tmp/.cortex-desktop/vnc.sock" 2>/dev/null
 
+# The desktops of the other distributions: the package manager /etc/cortex/distro names, with its own
+# package names, and pacman's full upgrade (Arch takes no partial ones)
+PR="$TEST_TMP/desktop_pacman_root"
+PBIN="$TEST_TMP/desktop_pacman_bin"
+mkdir -p "$PR/etc/cortex" "$PBIN"
+printf 'ID=arch\nNAME=Arch Linux ARM\nPM=pacman\n' > "$PR/etc/cortex/distro"
+printf '#!/bin/sh\n[ "$1" = -u ] && echo 0 || echo root\n' > "$PBIN/id"
+cat > "$PBIN/pacman" <<'EOS'
+#!/bin/sh
+case "$1" in -Q|-Qg) exit 1 ;; esac
+echo "pacman $*" >> "$CORTEX_DESKTOP_ROOT/pacman.log"
+EOS
+chmod +x "$PBIN/id" "$PBIN/pacman"
+for kind in lxqt kde mate; do
+    rm -f "$PR/pacman.log"
+    CORTEX_DESKTOP_ROOT="$PR" HOME="$TEST_TMP/desktop_home" PATH="$PBIN:$PATH" bash "$DESKTOP_SH" install "$kind" >/dev/null 2>&1
+    first="$(sed -n 1p "$PR/pacman.log" 2>/dev/null)"; second="$(sed -n 2p "$PR/pacman.log" 2>/dev/null)"
+    case "$kind" in lxqt) want="lxqt openbox breeze-icons" ;; kde) want="plasma-desktop konsole dolphin" ;; mate) want="mate mate-terminal" ;; esac
+    if [ "$first" = "pacman -Syu --noconfirm" ] && [[ "$second" == "pacman -S --needed --noconfirm tigervnc "*" $want" ]] \
+        && grep -q "^DESKTOP=$kind$" "$PR/etc/cortex/desktop.conf"; then
+        pass "cortex-desktop install $kind on Arch uses pacman and its package names"
+    else
+        fail "cortex-desktop install $kind on Arch: $(tr '\n' '|' < "$PR/pacman.log" 2>/dev/null)"
+    fi
+done
+if PATH="$PBIN:$PATH" CORTEX_DESKTOP_ROOT="$PR" bash -c 'source <(sed -n "/^session_command()/,/^}/p;/^conf_value()/,/^}/p" "$1"); CONF="$CORTEX_DESKTOP_ROOT/etc/cortex/desktop.conf"; session_command' sh "$DESKTOP_SH" | grep -qx mate-session; then
+    pass "a MATE desktop starts mate-session"
+else
+    fail "MATE session command"
+fi
+
 echo "=== 7. Checking translations ==="
 if command -v python3 >/dev/null 2>&1; then
     TR_OUT="$(python3 "$REPO_ROOT/scripts/check-translations.py" 2>&1)"

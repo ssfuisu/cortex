@@ -41,6 +41,28 @@ object UserAccount {
     fun sessionsAsRoot(context: Context): Boolean =
         PreferenceManager.getDefaultSharedPreferences(context).getBoolean(PREF_SESSIONS_AS_ROOT, false)
 
+    const val PASSWORD_FILE = "etc/cortex/sudo-password"
+    const val MIN_PASSWORD = 4
+
+    /**
+     * The password sudo asks for (su.sh): "salt sha256(salt + password)" in /etc/cortex/sudo-password.
+     * An empty one removes it, and sudo then asks for none.
+     */
+    fun setSudoPassword(root: java.io.File, password: String) {
+        val file = java.io.File(root, PASSWORD_FILE)
+        if (password.isEmpty()) {
+            file.delete()
+            return
+        }
+        val saltBytes = ByteArray(12).also { java.security.SecureRandom().nextBytes(it) }
+        val salt = saltBytes.joinToString("") { "%02x".format(it) }
+        FileInstaller.install(file, "$salt ${passwordHash(salt, password)}\n", 384) // 0600
+    }
+
+    fun passwordHash(salt: String, password: String): String =
+        java.security.MessageDigest.getInstance("SHA-256").digest((salt + password).toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
+
     /** The app's own user and group: the kernel's ids of everything the terminal runs */
     fun uid(): Int = Process.myUid()
 
@@ -71,7 +93,7 @@ object UserAccount {
             }
             .map { l ->
                 val f = l.split(':').toMutableList()
-                if (f.size >= 4 && f[0] in setOf("sudo", "adm", "users")) {
+                if (f.size >= 4 && f[0] in setOf("sudo", "wheel", "adm", "users")) {
                     val members = f[3].split(',').filter { it.isNotEmpty() && it != DEFAULT_NAME || it == name }.toMutableList()
                     if (name !in members) members += name
                     f[3] = members.joinToString(",")

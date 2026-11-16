@@ -1,5 +1,9 @@
 <PreferenceScreen xmlns:app="http://schemas.android.com/apk/res-auto">
 
+    <Preference
+        app:key="distro"
+        app:title="@string/pref_distro_title" />
+
     <PreferenceCategory app:title="@string/pref_cat_appearance">
         <ListPreference
             app:defaultValue="jetbrains_mono"

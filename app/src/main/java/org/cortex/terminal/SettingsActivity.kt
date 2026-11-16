@@ -92,10 +92,13 @@ class SettingsActivity : AppCompatActivity() {
             val kind = org.cortex.terminal.desktop.DesktopAddon.installedKind(context)
             findPreference<Preference>("desktop_open")?.summary = when (kind) {
                 null -> getString(R.string.pref_desktop_open_missing)
-                org.cortex.terminal.desktop.DesktopAddon.KIND_XFCE -> getString(R.string.pref_desktop_open_installed, getString(R.string.desktop_kind_xfce))
-                else -> getString(R.string.pref_desktop_open_installed, getString(R.string.desktop_kind_light))
+                org.cortex.terminal.desktop.DesktopAddon.KIND_LIGHT -> getString(R.string.pref_desktop_open_installed, getString(R.string.desktop_kind_light))
+                else -> getString(R.string.pref_desktop_open_installed,
+                    org.cortex.terminal.runtime.DistroSetup.DESKTOPS.firstOrNull { it.kind == kind }?.name ?: kind)
             }
             findPreference<Preference>("desktop_remove")?.isVisible = kind != null
+            val distro = org.cortex.terminal.runtime.DistroInstaller.active(context)
+            findPreference<Preference>("distro")?.summary = getString(R.string.pref_distro_summary, distro?.label ?: "Ubuntu 24.04 LTS")
         }
 
         override fun onDisplayPreferenceDialog(preference: Preference) {
@@ -193,6 +196,11 @@ class SettingsActivity : AppCompatActivity() {
 
             // The desktop (X11): opened, installed (in a new session, where apt's progress can be read)
             // or removed
+            findPreference<Preference>("distro")?.setOnPreferenceClickListener {
+                startActivity(android.content.Intent(requireActivity(), org.cortex.terminal.setup.SetupActivity::class.java)
+                    .putExtra(org.cortex.terminal.setup.SetupActivity.EXTRA_MANAGE, true))
+                true
+            }
             findPreference<Preference>("desktop_open")?.setOnPreferenceClickListener {
                 val activity = requireActivity()
                 if (org.cortex.terminal.desktop.DesktopAddon.installedKind(activity) == null) {

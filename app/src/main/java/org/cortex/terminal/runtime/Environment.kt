@@ -129,6 +129,8 @@ object Environment {
             "SSL_CERT_FILE=$certFile",
             "SSL_CERT_DIR=$certDir",
             "CURL_CA_BUNDLE=$certFile",
+            // Void's xbps (libfetch) reads its own name for it
+            "SSL_CA_CERT_FILE=$certFile",
             "NODE_EXTRA_CA_CERTS=$certFile",
             "REQUESTS_CA_BUNDLE=$certFile",
             "TZDIR=$root/usr/share/zoneinfo",

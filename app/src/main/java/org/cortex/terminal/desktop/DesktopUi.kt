@@ -27,18 +27,28 @@ object DesktopUi {
         val pad = (20 * density).toInt()
         val tint = ColorStateList.valueOf(p.accent)
 
-        fun option(textRes: Int, id: Int) = RadioButton(activity).apply {
+        val desktops = org.cortex.terminal.runtime.DistroSetup.DESKTOPS.filter { it.kind != null }
+        fun option(d: org.cortex.terminal.runtime.DesktopOption, id: Int) = RadioButton(activity).apply {
             this.id = id
-            text = activity.getString(textRes)
+            val name = d.name
+            val about = activity.getString(d.description)
+            text = android.text.SpannableStringBuilder(name).apply {
+                append("\n")
+                val start = length
+                append(about)
+                setSpan(android.text.style.ForegroundColorSpan(p.textDim), start, length, 0)
+                setSpan(android.text.style.RelativeSizeSpan(0.85f), start, length, 0)
+            }
             setTextColor(p.text)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
             buttonTintList = tint
             setPadding(0, (8 * density).toInt(), 0, (8 * density).toInt())
         }
+        val installed = DesktopAddon.installedKind(activity)
         val group = RadioGroup(activity).apply {
-            addView(option(R.string.desktop_install_light, ID_LIGHT))
-            addView(option(R.string.desktop_install_xfce, ID_XFCE))
-            check(if (DesktopAddon.installedKind(activity) == DesktopAddon.KIND_XFCE) ID_XFCE else ID_LIGHT)
+            desktops.forEachIndexed { i, d -> addView(option(d, ID_BASE + i)) }
+            val chosen = desktops.indexOfFirst { it.kind == installed }.takeIf { it >= 0 } ?: desktops.indexOfFirst { it.recommended }
+            check(ID_BASE + chosen.coerceAtLeast(0))
         }
         val firefox = CheckBox(activity).apply {
             text = activity.getString(R.string.desktop_install_firefox)
@@ -64,9 +74,9 @@ object DesktopUi {
         }
         AlertDialog.Builder(activity)
             .setTitle(R.string.desktop_install_title)
-            .setView(content)
+            .setView(android.widget.ScrollView(activity).apply { addView(content) })
             .setPositiveButton(R.string.desktop_install_button) { _, _ ->
-                val kind = if (group.checkedRadioButtonId == ID_XFCE) DesktopAddon.KIND_XFCE else DesktopAddon.KIND_LIGHT
+                val kind = desktops.getOrNull(group.checkedRadioButtonId - ID_BASE)?.kind ?: DesktopAddon.KIND_XFCE
                 MainActivity.pendingSessionCommand = DesktopAddon.installCommand(kind, firefox.isChecked)
                 onStarted()
             }
@@ -86,6 +96,5 @@ object DesktopUi {
             .showInChrome()
     }
 
-    private const val ID_LIGHT = 0x7d01
-    private const val ID_XFCE = 0x7d02
+    private const val ID_BASE = 0x7d01
 }
