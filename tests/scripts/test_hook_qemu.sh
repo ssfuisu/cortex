@@ -403,6 +403,17 @@ out=$(run "$work/start_private" /usr/bin/use_runpath spawn)
 check "a program finds its libraries through its RUNPATH (posix_spawn)" test "$out" = "answer 42"
 [ "$out" = "answer 42" ] || echo "        got: $out"
 
+# A package manager that updates glibc puts a new, unpatched ld.so in place (a new file): the next
+# program started through it gets it patched first, as the image's own was when it was built
+ldso="$work/root/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1"
+rm -f "$ldso" && cp -L "$cross/ld-linux-aarch64.so.1" "$ldso"
+for kind in exec spawn; do
+  rm -f "$ldso" && cp -L "$cross/ld-linux-aarch64.so.1" "$ldso"
+  arg=""; [ "$kind" = spawn ] && arg=spawn
+  out=$(run "$work/start_private" /usr/bin/use_runpath $arg)
+  check "a new ld.so is patched before a program starts through it ($kind)" sh -c '[ "$1" = "answer 42" ] && ! cmp -s "$2" "$3"' sh "$out" "$ldso" "$cross/ld-linux-aarch64.so.1"
+done
+
 # A library found only through /etc/ld.so.conf.d (ld.so's cache on Linux, which ld.so cannot use here)
 mkdir -p "$work/root/opt/conflib" "$work/root/etc/ld.so.conf.d"
 echo 'int conf_answer(void) { return 7; }' | aarch64-linux-gnu-gcc -shared -fPIC -w -Wl,-soname,libconf.so.0 \

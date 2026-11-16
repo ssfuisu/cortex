@@ -250,6 +250,7 @@ static int cortex_execve(const char *filename, char *const argv[], char *const e
             ld_so[0] = '\0';
             if (find_dynamic_linker_for_machine(g_cortex_root, probe.e_machine, ld_so, sizeof(ld_so)) && strcmp(elf_target, ld_so) != 0) {
                 ensure_exec_bit(elf_target, probe.mode);
+                ensure_ldso_patched(ld_so);
 
                 if (!in_exec_rehearsal()) cortex_copy_cstr(g_real_exe, sizeof(g_real_exe), elf_target);
 
@@ -824,6 +825,7 @@ static int cortex_posix_spawn(pid_t *pid, const char *path,
     int ret = -1;
     if (has_ld_so && strcmp(elf_target, ld_so) != 0) {
         ensure_exec_bit(elf_target, probe.mode);
+        ensure_ldso_patched(ld_so);
         if (probe.android_interp) prepare_static_program_ex(elf_target, 1); // a Go program built for Android (#42)
 
         char hook_buf[PATH_MAX];

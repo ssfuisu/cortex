@@ -343,3 +343,32 @@ static int prepare_static_program_ex(const char *path, int go_only) {
 }
 
 static int prepare_static_program(const char *path) { return prepare_static_program_ex(path, 0); }
+
+// The rootfs' ld.so, made safe before a program is started through it. The image's own is patched when
+// it is built, but a package manager that updates glibc (pacman, dnf, zypper, xbps; apt holds it on
+// Ubuntu) puts a new, unpatched one in place, and the next program would die of SIGSYS before the hook
+// is loaded. What was looked at last is remembered in the process, and a forked child keeps it, so
+// most starts cost one stat().
+static struct {
+    dev_t dev;
+    ino_t ino;
+    off_t size;
+    struct timespec mtim;
+    int valid;
+} g_ldso_seen;
+
+static void ensure_ldso_patched(const char *ld_so) {
+    struct stat st;
+    if (stat(ld_so, &st) != 0) return;
+    if (g_ldso_seen.valid && g_ldso_seen.dev == st.st_dev && g_ldso_seen.ino == st.st_ino &&
+        g_ldso_seen.size == st.st_size && g_ldso_seen.mtim.tv_sec == st.st_mtim.tv_sec &&
+        g_ldso_seen.mtim.tv_nsec == st.st_mtim.tv_nsec) return;
+    if (prepare_static_program(ld_so) < 0) return;
+    // the patch keeps the file's size and times
+    if (stat(ld_so, &st) != 0) return;
+    g_ldso_seen.dev = st.st_dev;
+    g_ldso_seen.ino = st.st_ino;
+    g_ldso_seen.size = st.st_size;
+    g_ldso_seen.mtim = st.st_mtim;
+    g_ldso_seen.valid = 1;
+}
