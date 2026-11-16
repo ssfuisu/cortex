@@ -1,0 +1,103 @@
+name: Build Distribution Images
+
+# The systems the app can install besides its own Ubuntu (scripts/build-distro-rootfs.py), published
+# to the release "distros". The app reads distros.json from it: the name, size and SHA-256 of every
+# image, which it checks a download against. Run it by hand to refresh the images.
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish the images to the distros release (off: build and keep them as artifacts only)"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-distros
+  cancel-in-progress: false
+
+jobs:
+  list:
+    name: List images
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.list.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - id: list
+        run: |
+          matrix=$(python3 scripts/build-distro-rootfs.py list | python3 -c 'import json,sys; print(json.dumps({"include": [dict(zip(("id","arch"), l.split())) for l in sys.stdin if l.strip()]}))')
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          echo "$matrix"
+
+  image:
+    name: ${{ matrix.id }} ${{ matrix.arch }}
+    needs: list
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.list.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Build the image
+        run: |
+          sudo apt-get install -y -q zstd >/dev/null
+          python3 scripts/build-distro-rootfs.py build "${{ matrix.id }}" "${{ matrix.arch }}" out | grep -v '^Patched '
+          ls -la out
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: image-${{ matrix.id }}-${{ matrix.arch }}
+          path: out/cortex-*
+          compression-level: 0
+          retention-days: 7
+
+  publish:
+    name: Publish
+    needs: image
+    if: ${{ inputs.publish }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: image-*
+          path: out
+          merge-multiple: true
+      - name: Catalog and checksums
+        run: |
+          python3 scripts/build-distro-rootfs.py catalog out
+          (cd out && sha256sum cortex-*.tar.zst distros.json > SHA256SUMS)
+          cat out/SHA256SUMS
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            out/cortex-*.tar.zst
+            out/distros.json
+      - name: Upload to the distros release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Not a version of the app: a prerelease that is never the latest one, so the app's update
+          # check never sees it
+          if ! gh release view distros >/dev/null 2>&1; then
+            gh release create distros --prerelease --latest=false --target "$GITHUB_SHA" \
+              --title "Distribution images" \
+              --notes "The systems Cortex can install besides its own Ubuntu, built from the images of images.linuxcontainers.org by scripts/build-distro-rootfs.py. The app downloads them from here and checks each against distros.json. Every file has a build attestation."
+          fi
+          # The images first, the catalog that names them last: an app that reads the new catalog
+          # finds its files
+          gh release upload distros out/cortex-*.tar.zst --clobber
+          gh release upload distros out/SHA256SUMS out/distros.json --clobber
+          # Images no longer in the catalog
+          keep=$(cd out && ls cortex-*.tar.zst)
+          gh release view distros --json assets --jq '.assets[].name' | while read -r a; do
+            case "$a" in cortex-*.tar.zst) echo "$keep" | grep -qx "$a" || gh release delete-asset distros "$a" --yes ;; esac
+          done
