@@ -444,7 +444,7 @@ class SetupActivity : AppCompatActivity() {
             if (selected) CARD_ON else CARD,
             dp(18f),
             if (selected) ACCENT else LINE,
-            if (selected) dp(1.5f).coerceAtLeast(2) else dp(1),
+            if (selected) dp(1.5f).toInt().coerceAtLeast(2) else dp(1),
             0x297C5CFF
         )
         setPadding(dp(14), dp(14), dp(14), dp(14))
@@ -475,7 +475,7 @@ class SetupActivity : AppCompatActivity() {
                 imageTintList = ColorStateList.valueOf(Chrome.WHITE)
             }, FrameLayout.LayoutParams(dp(14), dp(14), Gravity.CENTER))
         } else {
-            background = rounded(0, dp(99f), 0xFF333B57.toInt(), dp(1.5f).coerceAtLeast(2))
+            background = rounded(0, dp(99f), 0xFF333B57.toInt(), dp(1.5f).toInt().coerceAtLeast(2))
         }
     }
 
@@ -735,7 +735,7 @@ class SetupActivity : AppCompatActivity() {
                     INPUT_BG,
                     dp(15f),
                     if (focused) ACCENT else LINE,
-                    if (focused) dp(1.5f).coerceAtLeast(2) else dp(1)
+                    if (focused) dp(1.5f).toInt().coerceAtLeast(2) else dp(1)
                 )
             }
             addTextChangedListener(object : TextWatcher {
