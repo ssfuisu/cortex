@@ -87,7 +87,7 @@ jobs:
         id: cache-virgl
         with:
           path: app/src/main/jniLibs/*/libvirgl_test_server.so
-          key: virgl-android-v1-${{ hashFiles('scripts/build-virgl-android.sh', 'gpu/patches/**') }}
+          key: virgl-android-v1-${{ hashFiles('scripts/build-virgl-android.sh', 'gpu/**') }}
 
       - name: Build the GPU server (virglrenderer for Android)
         if: steps.cache-virgl.outputs.cache-hit != 'true'

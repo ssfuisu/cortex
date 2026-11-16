@@ -66,8 +66,8 @@ strip = '$TC/bin/llvm-strip'
 pkg-config = 'pkg-config'
 
 [built-in options]
-c_args = ['-fPIE', '-O2']
-c_link_args = ['-fPIE', '-pie', '-Wl,-z,max-page-size=16384']
+c_args = ['-fPIE', '-O2', '-I$HERE/gpu/include']
+c_link_args = ['-fPIE', '-pie', '-Wl,-z,max-page-size=16384', '-llog']
 
 [host_machine]
 system = 'android'
