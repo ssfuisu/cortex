@@ -1,24 +1,24 @@
 {
  "version": "v1.28.0",
- "date": "2026-11-16",
+ "date": "2026-11-17",
  "where": "Android 14 emulator (API 34), arm64-v8a APK",
  "packages": [
   {
    "name": "python3",
    "ok": true,
-   "seconds": 35,
+   "seconds": 34,
    "why": ""
   },
   {
    "name": "python3-venv-pip",
    "ok": true,
-   "seconds": 129,
+   "seconds": 123,
    "why": ""
   },
   {
    "name": "nodejs-npm",
    "ok": true,
-   "seconds": 265,
+   "seconds": 263,
    "why": ""
   },
   {
@@ -36,13 +36,13 @@
   {
    "name": "cmake",
    "ok": true,
-   "seconds": 29,
+   "seconds": 28,
    "why": ""
   },
   {
    "name": "rust",
    "ok": true,
-   "seconds": 25,
+   "seconds": 28,
    "why": ""
   },
   {
@@ -54,13 +54,13 @@
   {
    "name": "java",
    "ok": false,
-   "seconds": 28,
-   "why": "the test failed: # bash: line 1: 12638 Aborted javac H.java exit status 134"
+   "seconds": 29,
+   "why": "the test failed: # bash: line 1: 12927 Aborted javac H.java exit status 134"
   },
   {
    "name": "php",
    "ok": true,
-   "seconds": 267,
+   "seconds": 254,
    "why": ""
   },
   {
@@ -72,7 +72,7 @@
   {
    "name": "perl",
    "ok": true,
-   "seconds": 3,
+   "seconds": 2,
    "why": ""
   },
   {
@@ -90,13 +90,13 @@
   {
    "name": "curl-https",
    "ok": true,
-   "seconds": 6,
+   "seconds": 12,
    "why": ""
   },
   {
    "name": "wget",
    "ok": true,
-   "seconds": 8,
+   "seconds": 15,
    "why": ""
   },
   {
@@ -120,7 +120,7 @@
   {
    "name": "xz-zstd",
    "ok": true,
-   "seconds": 7,
+   "seconds": 6,
    "why": ""
   },
   {
@@ -132,13 +132,13 @@
   {
    "name": "openssh-client",
    "ok": true,
-   "seconds": 10,
+   "seconds": 9,
    "why": ""
   },
   {
    "name": "htop",
    "ok": true,
-   "seconds": 14,
+   "seconds": 7,
    "why": ""
   },
   {
@@ -162,7 +162,7 @@
   {
    "name": "tmux",
    "ok": true,
-   "seconds": 11,
+   "seconds": 10,
    "why": ""
   },
   {
@@ -180,19 +180,19 @@
   {
    "name": "redis",
    "ok": true,
-   "seconds": 18,
+   "seconds": 19,
    "why": ""
   },
   {
    "name": "nginx",
    "ok": true,
-   "seconds": 20,
+   "seconds": 19,
    "why": ""
   },
   {
    "name": "mariadb",
    "ok": true,
-   "seconds": 43,
+   "seconds": 42,
    "why": ""
   },
   {
@@ -204,7 +204,7 @@
   {
    "name": "postgresql",
    "ok": false,
-   "seconds": 88,
+   "seconds": 87,
    "why": "the test failed: Examine the log output. ...fail! exit status 1"
   }
  ]
