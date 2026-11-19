@@ -1,72 +1,72 @@
 {
  "version": "v1.28.0",
- "date": "2026-11-18",
+ "date": "2026-11-19",
  "where": "Android 14 emulator (API 34), arm64-v8a APK",
  "packages": [
   {
    "name": "python3",
    "ok": true,
-   "seconds": 47,
+   "seconds": 36,
    "why": ""
   },
   {
    "name": "python3-venv-pip",
    "ok": true,
-   "seconds": 136,
+   "seconds": 128,
    "why": ""
   },
   {
    "name": "nodejs-npm",
    "ok": true,
-   "seconds": 282,
+   "seconds": 258,
    "why": ""
   },
   {
    "name": "c-gcc",
    "ok": true,
-   "seconds": 57,
+   "seconds": 47,
    "why": ""
   },
   {
    "name": "cpp-g++",
    "ok": true,
-   "seconds": 6,
+   "seconds": 4,
    "why": ""
   },
   {
    "name": "cmake",
    "ok": true,
-   "seconds": 32,
+   "seconds": 29,
    "why": ""
   },
   {
    "name": "rust",
    "ok": true,
-   "seconds": 36,
+   "seconds": 24,
    "why": ""
   },
   {
    "name": "go",
    "ok": false,
-   "seconds": 24,
+   "seconds": 16,
    "why": "the test failed: $ printf \"package main\\nimport \\\"fmt\\\"\\nfunc main() { fmt.Println(\\\"hello from Go\\\") }\\n\" > h.go && go run h.go Error running /data/user/0/org.cortex.terminal/files/cortex/bin/go: Unable to get realpath of go exit status 255"
   },
   {
    "name": "java",
    "ok": false,
-   "seconds": 42,
-   "why": "the test failed: # bash: line 1: 13167 Aborted javac H.java exit status 134"
+   "seconds": 28,
+   "why": "the test failed: # bash: line 1: 12998 Aborted javac H.java exit status 134"
   },
   {
    "name": "php",
    "ok": true,
-   "seconds": 285,
+   "seconds": 268,
    "why": ""
   },
   {
    "name": "ruby",
    "ok": true,
-   "seconds": 17,
+   "seconds": 15,
    "why": ""
   },
   {
@@ -84,43 +84,43 @@
   {
    "name": "git",
    "ok": true,
-   "seconds": 11,
+   "seconds": 10,
    "why": ""
   },
   {
    "name": "curl-https",
-   "ok": true,
-   "seconds": 8,
-   "why": ""
+   "ok": false,
+   "seconds": 80,
+   "why": "the test failed: $ curl -sSI https://ubuntu.com | head -n 1 curl: (7) Failed to connect to ubuntu.com port 443 after 74833 ms: Couldn't connect to server the output lacks \"HTTP/\""
   },
   {
    "name": "wget",
-   "ok": true,
-   "seconds": 8,
-   "why": ""
+   "ok": false,
+   "seconds": 83,
+   "why": "the test failed: Connecting to ubuntu.com (ubuntu.com)|185.125.190.20|:443... failed: Connection refused. Connecting to ubuntu.com (ubuntu.com)|2620:2d:4000:1::28|:443... failed: Network is unreachable. the output lacks \"saved\""
   },
   {
    "name": "jq",
-   "ok": true,
-   "seconds": 8,
-   "why": ""
-  },
-  {
-   "name": "sqlite3",
    "ok": true,
    "seconds": 7,
    "why": ""
   },
   {
+   "name": "sqlite3",
+   "ok": true,
+   "seconds": 6,
+   "why": ""
+  },
+  {
    "name": "zip-unzip",
    "ok": true,
-   "seconds": 8,
+   "seconds": 7,
    "why": ""
   },
   {
    "name": "xz-zstd",
    "ok": true,
-   "seconds": 8,
+   "seconds": 6,
    "why": ""
   },
   {
@@ -132,79 +132,79 @@
   {
    "name": "openssh-client",
    "ok": true,
-   "seconds": 11,
+   "seconds": 10,
    "why": ""
   },
   {
    "name": "htop",
    "ok": true,
-   "seconds": 9,
+   "seconds": 7,
    "why": ""
   },
   {
    "name": "ripgrep",
    "ok": true,
-   "seconds": 7,
+   "seconds": 6,
    "why": ""
   },
   {
    "name": "vim",
    "ok": true,
-   "seconds": 15,
+   "seconds": 13,
    "why": ""
   },
   {
    "name": "neovim",
    "ok": true,
-   "seconds": 15,
+   "seconds": 14,
    "why": ""
   },
   {
    "name": "tmux",
    "ok": true,
-   "seconds": 13,
+   "seconds": 11,
    "why": ""
   },
   {
    "name": "zsh",
    "ok": true,
-   "seconds": 17,
+   "seconds": 16,
    "why": ""
   },
   {
    "name": "fish",
    "ok": true,
-   "seconds": 19,
+   "seconds": 18,
    "why": ""
   },
   {
    "name": "redis",
    "ok": true,
-   "seconds": 21,
+   "seconds": 19,
    "why": ""
   },
   {
    "name": "nginx",
    "ok": true,
-   "seconds": 22,
+   "seconds": 21,
    "why": ""
   },
   {
    "name": "mariadb",
    "ok": true,
-   "seconds": 49,
+   "seconds": 47,
    "why": ""
   },
   {
    "name": "postgresql-client",
    "ok": true,
-   "seconds": 35,
+   "seconds": 32,
    "why": ""
   },
   {
    "name": "postgresql",
    "ok": false,
-   "seconds": 99,
+   "seconds": 88,
    "why": "the test failed: Examine the log output. ...fail! exit status 1"
   }
  ]
