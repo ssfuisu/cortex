@@ -227,7 +227,7 @@ At `/sdcard`, after you allow storage access.
 **How do I report a problem?**
 *Settings > Send a bug report* writes a text file with the versions and logs. Attach it to an [issue](https://github.com/ssfuisu/cortex/issues) or send it on [Telegram](https://t.me/ratzgn).
 ## Contributors
---App İcon:@hasanelfalakiy
+- App Icon: [@hasanelfalakiy](https://github.com/hasanelfalakiy)
 ---
 
 <p align="center">
