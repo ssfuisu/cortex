@@ -1,72 +1,72 @@
 {
  "version": "v1.28.0",
- "date": "2026-11-20",
+ "date": "2026-11-21",
  "where": "Android 14 emulator (API 34), arm64-v8a APK",
  "packages": [
   {
    "name": "python3",
    "ok": true,
-   "seconds": 49,
+   "seconds": 38,
    "why": ""
   },
   {
    "name": "python3-venv-pip",
    "ok": true,
-   "seconds": 138,
+   "seconds": 120,
    "why": ""
   },
   {
    "name": "nodejs-npm",
    "ok": true,
-   "seconds": 276,
+   "seconds": 242,
    "why": ""
   },
   {
    "name": "c-gcc",
    "ok": true,
-   "seconds": 55,
+   "seconds": 47,
    "why": ""
   },
   {
    "name": "cpp-g++",
    "ok": true,
-   "seconds": 6,
+   "seconds": 4,
    "why": ""
   },
   {
    "name": "cmake",
    "ok": true,
-   "seconds": 30,
+   "seconds": 27,
    "why": ""
   },
   {
    "name": "rust",
    "ok": true,
-   "seconds": 34,
+   "seconds": 29,
    "why": ""
   },
   {
    "name": "go",
    "ok": false,
-   "seconds": 23,
+   "seconds": 19,
    "why": "the test failed: $ printf \"package main\\nimport \\\"fmt\\\"\\nfunc main() { fmt.Println(\\\"hello from Go\\\") }\\n\" > h.go && go run h.go Error running /data/user/0/org.cortex.terminal/files/cortex/bin/go: Unable to get realpath of go exit status 255"
   },
   {
    "name": "java",
    "ok": false,
-   "seconds": 40,
-   "why": "the test failed: # bash: line 1: 13045 Aborted javac H.java exit status 134"
+   "seconds": 34,
+   "why": "the test failed: # bash: line 1: 13214 Aborted javac H.java exit status 134"
   },
   {
    "name": "php",
    "ok": true,
-   "seconds": 277,
+   "seconds": 234,
    "why": ""
   },
   {
    "name": "ruby",
    "ok": true,
-   "seconds": 17,
+   "seconds": 16,
    "why": ""
   },
   {
@@ -78,31 +78,31 @@
   {
    "name": "lua",
    "ok": true,
-   "seconds": 7,
+   "seconds": 6,
    "why": ""
   },
   {
    "name": "git",
    "ok": true,
-   "seconds": 10,
+   "seconds": 9,
    "why": ""
   },
   {
    "name": "curl-https",
    "ok": false,
-   "seconds": 84,
-   "why": "the test failed: $ curl -sSI https://ubuntu.com | head -n 1 curl: (7) Failed to connect to ubuntu.com port 443 after 77031 ms: Couldn't connect to server the output lacks \"HTTP/\""
+   "seconds": 82,
+   "why": "the test failed: $ curl -sSI https://ubuntu.com | head -n 1 curl: (7) Failed to connect to ubuntu.com port 443 after 75784 ms: Couldn't connect to server the output lacks \"HTTP/\""
   },
   {
    "name": "wget",
    "ok": true,
-   "seconds": 8,
+   "seconds": 7,
    "why": ""
   },
   {
    "name": "jq",
    "ok": true,
-   "seconds": 10,
+   "seconds": 7,
    "why": ""
   },
   {
@@ -114,31 +114,31 @@
   {
    "name": "zip-unzip",
    "ok": true,
-   "seconds": 8,
+   "seconds": 7,
    "why": ""
   },
   {
    "name": "xz-zstd",
    "ok": true,
-   "seconds": 7,
+   "seconds": 6,
    "why": ""
   },
   {
    "name": "rsync",
    "ok": true,
-   "seconds": 10,
+   "seconds": 9,
    "why": ""
   },
   {
    "name": "openssh-client",
    "ok": true,
-   "seconds": 11,
+   "seconds": 10,
    "why": ""
   },
   {
    "name": "htop",
    "ok": true,
-   "seconds": 8,
+   "seconds": 7,
    "why": ""
   },
   {
@@ -150,31 +150,31 @@
   {
    "name": "vim",
    "ok": true,
-   "seconds": 14,
+   "seconds": 12,
    "why": ""
   },
   {
    "name": "neovim",
    "ok": true,
-   "seconds": 15,
+   "seconds": 13,
    "why": ""
   },
   {
    "name": "tmux",
    "ok": true,
-   "seconds": 12,
+   "seconds": 11,
    "why": ""
   },
   {
    "name": "zsh",
    "ok": true,
-   "seconds": 17,
+   "seconds": 14,
    "why": ""
   },
   {
    "name": "fish",
    "ok": true,
-   "seconds": 20,
+   "seconds": 18,
    "why": ""
   },
   {
@@ -186,25 +186,25 @@
   {
    "name": "nginx",
    "ok": true,
-   "seconds": 23,
+   "seconds": 20,
    "why": ""
   },
   {
    "name": "mariadb",
    "ok": true,
-   "seconds": 49,
+   "seconds": 42,
    "why": ""
   },
   {
    "name": "postgresql-client",
    "ok": true,
-   "seconds": 34,
+   "seconds": 30,
    "why": ""
   },
   {
    "name": "postgresql",
    "ok": false,
-   "seconds": 99,
+   "seconds": 81,
    "why": "the test failed: Examine the log output. ...fail! exit status 1"
   }
  ]
