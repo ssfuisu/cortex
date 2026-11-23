@@ -66,8 +66,8 @@ class MirrorSelectorTest {
     fun theSourcesKeepSecurityOnTheOfficialServer() {
         val sources = MirrorSelector.sourcesFor(yandex)
         val stanzas = sources.split("\n\n")
-        assertTrue(stanzas[0].contains("URIs: $yandex") && stanzas[0].contains("Suites: noble noble-updates noble-backports"))
-        assertTrue(stanzas[1].contains("URIs: $OFFICIAL") && stanzas[1].contains("Suites: noble-security"))
+        assertTrue(stanzas[0].contains("URIs: $yandex") && stanzas[0].contains("Suites: resolute resolute-updates resolute-backports"))
+        assertTrue(stanzas[1].contains("URIs: $OFFICIAL") && stanzas[1].contains("Suites: resolute-security"))
         assertEquals(AptConfigurator.DEFAULT_UBUNTU_SOURCES, MirrorSelector.sourcesFor(OFFICIAL))
         assertEquals(yandex, MirrorSelector.mirrorOf(sources))
         assertEquals(OFFICIAL, MirrorSelector.mirrorOf(AptConfigurator.DEFAULT_UBUNTU_SOURCES))

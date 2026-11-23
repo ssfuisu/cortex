@@ -141,6 +141,12 @@
             app:title="@string/pref_root_mode_title" />
     </PreferenceCategory>
 
+    <PreferenceCategory app:title="@string/pref_cat_base_system">
+        <Preference
+            app:key="upgrade_base"
+            app:title="@string/pref_upgrade_base_title" />
+    </PreferenceCategory>
+
     <PreferenceCategory app:title="@string/pref_cat_support">
         <Preference
             app:key="telegram_contact_pref"

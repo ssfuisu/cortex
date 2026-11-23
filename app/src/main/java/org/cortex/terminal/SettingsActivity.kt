@@ -96,6 +96,18 @@ class SettingsActivity : AppCompatActivity() {
                 else -> getString(R.string.pref_desktop_open_installed, getString(R.string.desktop_kind_light))
             }
             findPreference<Preference>("desktop_remove")?.isVisible = kind != null
+            // The item only exists while the installed system is older than the base this app brings
+            findPreference<Preference>("upgrade_base")?.let { pref ->
+                val available = org.cortex.terminal.runtime.Reimage.reimageAvailable(context)
+                pref.isVisible = available
+                if (available) {
+                    pref.summary = getString(
+                        R.string.pref_upgrade_base_summary,
+                        org.cortex.terminal.runtime.Reimage.installedBase(context),
+                        org.cortex.terminal.runtime.Reimage.TARGET_BASE
+                    )
+                }
+            }
         }
 
         override fun onDisplayPreferenceDialog(preference: Preference) {
@@ -210,6 +222,33 @@ class SettingsActivity : AppCompatActivity() {
             findPreference<Preference>("desktop_remove")?.setOnPreferenceClickListener {
                 val activity = requireActivity()
                 org.cortex.terminal.desktop.DesktopUi.showRemoveDialog(activity) { activity.finish() }
+                true
+            }
+
+            // The base system (Ubuntu) of an install from an older version is replaced with the one
+            // this app brings, keeping the home directory (the files of the user) as it is
+            findPreference<Preference>("upgrade_base")?.setOnPreferenceClickListener {
+                val activity = requireActivity()
+                androidx.appcompat.app.AlertDialog.Builder(activity)
+                    .setTitle(activity.getString(R.string.upgrade_base_confirm_title, org.cortex.terminal.runtime.Reimage.TARGET_BASE))
+                    .setMessage(activity.getString(R.string.upgrade_base_confirm_message, org.cortex.terminal.runtime.Reimage.TARGET_BASE))
+                    .setPositiveButton(R.string.upgrade_base_confirm_ok) { _, _ ->
+                        val app = activity.applicationContext
+                        val progress = BootstrapDialog(activity)
+                        progress.show()
+                        Thread({
+                            val error = org.cortex.terminal.runtime.Reimage.reimage(app) { progress.progress = it }
+                            activity.runOnUiThread {
+                                try { if (progress.isShowing) progress.dismiss() } catch (_: Exception) {}
+                                val message = if (error == null)
+                                    activity.getString(R.string.upgrade_base_done, org.cortex.terminal.runtime.Reimage.TARGET_BASE)
+                                else activity.getString(R.string.upgrade_base_failed, error)
+                                android.widget.Toast.makeText(activity, message, android.widget.Toast.LENGTH_LONG).show()
+                            }
+                        }, "Cortex-Reimage").start()
+                    }
+                    .setNegativeButton(android.R.string.cancel, null)
+                    .show()
                 true
             }
 

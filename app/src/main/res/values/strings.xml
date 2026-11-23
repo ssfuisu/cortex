@@ -154,6 +154,15 @@
     <string name="root_enabled">Root mode is on</string>
     <string name="root_unavailable">Root mode is not available</string>
     <string name="root_failed_no_su">No root access: su was not found, or the request was denied.</string>
+    <!-- Base system (re-image to a new Ubuntu release) -->
+    <string name="pref_cat_base_system">Base system</string>
+    <string name="pref_upgrade_base_title">Upgrade the base system to Ubuntu %2$s LTS</string>
+    <string name="pref_upgrade_base_summary">Currently installed: Ubuntu %1$s. Your home directory and files are kept; the apt packages you installed are collected in a script you run in a session afterwards.</string>
+    <string name="upgrade_base_confirm_title">Upgrade to Ubuntu %s?</string>
+    <string name="upgrade_base_confirm_message">The base system is replaced with Ubuntu %s and your home directory is kept as it is. This needs free space for the two systems next to each other for a moment and takes a few minutes. Two things are not carried over: the apt packages you installed (they are collected in ~/.cortex-migration/reinstall.sh, run it once in a session) and Python virtual environments (python3 is a newer version, recreate them). Open sessions keep running the old system; close them and start a new one when the upgrade is done.</string>
+    <string name="upgrade_base_confirm_ok">Upgrade</string>
+    <string name="upgrade_base_done">Ubuntu %s is installed. Your files are kept. Run sh ~/.cortex-migration/reinstall.sh in a session to reinstall your apt packages.</string>
+    <string name="upgrade_base_failed">The upgrade failed: %1$s Your previous system is in place again.</string>
     <string name="root_failed_setup">Root works, but the chroot could not be set up: %1$s</string>
     <string name="root_exit_title">Leave root mode?</string>
     <string name="root_exit_message">Open root sessions will be closed, and files created as root will be given back to the app so that normal sessions can change them.</string>

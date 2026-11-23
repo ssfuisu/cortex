@@ -41,12 +41,12 @@ object AptConfigurator {
     internal const val DEFAULT_UBUNTU_SOURCES =
         "Types: deb\n" +
         "URIs: https://ports.ubuntu.com/ubuntu-ports/\n" +
-        "Suites: noble noble-updates noble-backports\n" +
+        "Suites: resolute resolute-updates resolute-backports\n" +
         "Components: main restricted universe multiverse\n" +
         "Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n\n" +
         "Types: deb\n" +
         "URIs: https://ports.ubuntu.com/ubuntu-ports/\n" +
-        "Suites: noble-security\n" +
+        "Suites: resolute-security\n" +
         "Components: main restricted universe multiverse\n" +
         "Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n"
 

@@ -21,6 +21,7 @@ object ElfLinkerPatcher {
 
     private val LINKER_CANDIDATES = listOf(
         "usr/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1",
+        "usr/lib/aarch64-linux-gnu/ld-2.43.so",
         "usr/lib/aarch64-linux-gnu/ld-2.39.so",
         "lib/ld-linux-aarch64.so.1",
         "lib/aarch64-linux-gnu/ld-linux-aarch64.so.1",
@@ -28,11 +29,27 @@ object ElfLinkerPatcher {
         "usr/lib64/ld-linux-aarch64.so.1",
         "lib64/ld-linux-aarch64.so.1",
         "usr/lib/arm-linux-gnueabihf/ld-linux-armhf.so.3",
+        "usr/lib/arm-linux-gnueabihf/ld-2.43.so",
         "usr/lib/arm-linux-gnueabihf/ld-2.39.so",
         "lib/ld-linux-armhf.so.3",
         "lib/arm-linux-gnueabihf/ld-linux-armhf.so.3",
         "usr/lib/ld-linux-armhf.so.3"
     )
+
+    /**
+     * The real (not the .so.1 symlink) linker file of [dir]: ld-&lt;major&gt;.&lt;minor&gt;.so, whose
+     * version follows the glibc the base image was built from (ld-2.39.so, ld-2.43.so, ...). The
+     * newest one wins if a directory ever holds two.
+     */
+    internal fun realLinkerFile(dir: File): File? {
+        if (!dir.isDirectory) return null
+        val regex = Regex("^ld-(\\d+)\\.(\\d+)\\.so$")
+        return dir.listFiles { f -> f.isFile && regex.matches(f.name) }
+            ?.maxByOrNull { f ->
+                val g = regex.matchEntire(f.name)!!.groupValues
+                g[1].toInt() * 1000 + g[2].toInt()
+            }
+    }
 
     @SuppressLint("NewApi")
     internal fun isSymlink(file: File): Boolean {
@@ -201,7 +218,14 @@ object ElfLinkerPatcher {
     }
 
     fun hasDynamicLinker(root: File): Boolean {
-        return LINKER_CANDIDATES.any { File(root, it).exists() }
+        if (LINKER_CANDIDATES.any { File(root, it).exists() }) return true
+        for (dir in listOf(
+            "usr/lib/aarch64-linux-gnu", "lib/aarch64-linux-gnu",
+            "usr/lib/arm-linux-gnueabihf", "lib/arm-linux-gnueabihf"
+        )) {
+            if (realLinkerFile(File(root, dir)) != null) return true
+        }
+        return false
     }
 
     fun findDynamicLinker(root: File): File? {
@@ -211,21 +235,30 @@ object ElfLinkerPatcher {
                 return f
             }
         }
+        // A glibc whose version none of the candidates names (a base image built from a newer
+        // Ubuntu than this list knows): its real linker file is found by its name pattern
+        for (dir in listOf(
+            "usr/lib/aarch64-linux-gnu", "lib/aarch64-linux-gnu",
+            "usr/lib/arm-linux-gnueabihf", "lib/arm-linux-gnueabihf"
+        )) {
+            realLinkerFile(File(root, dir))?.let { return it }
+        }
         return null
     }
 
     fun ensureDynamicLinkerSymlinks(root: File) {
         try {
-            // Check arm64
-            val ld64Real = File(root, "usr/lib/aarch64-linux-gnu/ld-2.39.so")
-            val ld64Link = File(root, "usr/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1")
+            // Check arm64 (the real linker file's name follows the glibc version: ld-2.39.so, ld-2.43.so, ...)
+            val arm64Dir = File(root, "usr/lib/aarch64-linux-gnu")
+            val ld64Real = realLinkerFile(arm64Dir) ?: File(arm64Dir, "ld-2.39.so")
+            val ld64Link = File(arm64Dir, "ld-linux-aarch64.so.1")
             if (ld64Real.exists()) {
                 ld64Real.setExecutable(true, true)
                 ld64Real.setReadable(true, true)
                 ld64Real.setWritable(true, true)
                 try { Os.chmod(ld64Real.absolutePath, 448) } catch (_: Exception) {}
                 if (!ld64Link.exists() && !isSymlink(ld64Link)) {
-                    if (!createSymlink("ld-2.39.so", ld64Link)) {
+                    if (!createSymlink(ld64Real.name, ld64Link)) {
                         try { ld64Real.copyTo(ld64Link, overwrite = true) } catch (_: Exception) {}
                     }
                 }
@@ -236,15 +269,16 @@ object ElfLinkerPatcher {
             }
 
             // Check arm32
-            val ld32Real = File(root, "usr/lib/arm-linux-gnueabihf/ld-2.39.so")
-            val ld32Link = File(root, "usr/lib/arm-linux-gnueabihf/ld-linux-armhf.so.3")
+            val armhfDir = File(root, "usr/lib/arm-linux-gnueabihf")
+            val ld32Real = realLinkerFile(armhfDir) ?: File(armhfDir, "ld-2.39.so")
+            val ld32Link = File(armhfDir, "ld-linux-armhf.so.3")
             if (ld32Real.exists()) {
                 ld32Real.setExecutable(true, true)
                 ld32Real.setReadable(true, true)
                 ld32Real.setWritable(true, true)
                 try { Os.chmod(ld32Real.absolutePath, 448) } catch (_: Exception) {}
                 if (!ld32Link.exists() && !isSymlink(ld32Link)) {
-                    if (!createSymlink("ld-2.39.so", ld32Link)) {
+                    if (!createSymlink(ld32Real.name, ld32Link)) {
                         try { ld32Real.copyTo(ld32Link, overwrite = true) } catch (_: Exception) {}
                     }
                 }

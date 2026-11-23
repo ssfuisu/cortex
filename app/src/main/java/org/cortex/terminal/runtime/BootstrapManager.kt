@@ -12,7 +12,7 @@ import java.util.zip.GZIPInputStream
 
 object BootstrapManager {
     private const val TAG = "BootstrapManager"
-    const val CURRENT_BOOTSTRAP_VERSION = 12705
+    const val CURRENT_BOOTSTRAP_VERSION = 12800
 
     fun initializeFileSystem(context: Context) {
         val root = Environment.getCortexRoot(context)
@@ -25,6 +25,9 @@ object BootstrapManager {
             }
             setMode(dir, 448) // 0700
         }
+        // A re-image keeps the previous system beside the root until the new one is verified: here
+        // the side copy is deleted, or brought back when the swap was interrupted (Reimage).
+        Reimage.settleOldRoot(root)
         // Everything else configures the Ubuntu system; before it is extracted there is nothing to
         // configure (the extraction runs this again when it is done).
         if (!File(root, "usr/bin/bash").exists()) return
@@ -395,6 +398,13 @@ object BootstrapManager {
                 versionFile.setReadable(true, true)
                 versionFile.setWritable(true, true)
                 setMode(versionFile, 384)
+                // Which Ubuntu release this system is (Reimage reads it; a system without the
+                // marker is 24.04, the release of every bootstrap before the marker existed).
+                val baseFile = File(root, ".cortex_base")
+                baseFile.writeText(Reimage.TARGET_BASE)
+                baseFile.setReadable(true, true)
+                baseFile.setWritable(true, true)
+                setMode(baseFile, 384)
                 Log.i(TAG, "Base system installed in ${android.os.SystemClock.uptimeMillis() - started} ms")
                 true
             } else {
