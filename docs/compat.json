@@ -1,72 +1,72 @@
 {
  "version": "v1.28.0",
- "date": "2026-11-22",
+ "date": "2026-11-23",
  "where": "Android 14 emulator (API 34), arm64-v8a APK",
  "packages": [
   {
    "name": "python3",
    "ok": true,
-   "seconds": 35,
+   "seconds": 53,
    "why": ""
   },
   {
    "name": "python3-venv-pip",
    "ok": true,
-   "seconds": 125,
+   "seconds": 144,
    "why": ""
   },
   {
    "name": "nodejs-npm",
    "ok": true,
-   "seconds": 246,
+   "seconds": 423,
    "why": ""
   },
   {
    "name": "c-gcc",
    "ok": true,
-   "seconds": 46,
+   "seconds": 57,
    "why": ""
   },
   {
    "name": "cpp-g++",
    "ok": true,
-   "seconds": 5,
+   "seconds": 7,
    "why": ""
   },
   {
    "name": "cmake",
    "ok": true,
-   "seconds": 27,
+   "seconds": 31,
    "why": ""
   },
   {
    "name": "rust",
    "ok": true,
-   "seconds": 24,
+   "seconds": 35,
    "why": ""
   },
   {
    "name": "go",
    "ok": false,
-   "seconds": 16,
+   "seconds": 23,
    "why": "the test failed: $ printf \"package main\\nimport \\\"fmt\\\"\\nfunc main() { fmt.Println(\\\"hello from Go\\\") }\\n\" > h.go && go run h.go Error running /data/user/0/org.cortex.terminal/files/cortex/bin/go: Unable to get realpath of go exit status 255"
   },
   {
    "name": "java",
    "ok": false,
-   "seconds": 29,
-   "why": "the test failed: # bash: line 1: 12972 Aborted javac H.java exit status 134"
+   "seconds": 41,
+   "why": "the test failed: # bash: line 1: 13282 Aborted javac H.java exit status 134"
   },
   {
    "name": "php",
    "ok": true,
-   "seconds": 262,
+   "seconds": 286,
    "why": ""
   },
   {
    "name": "ruby",
    "ok": true,
-   "seconds": 14,
+   "seconds": 17,
    "why": ""
   },
   {
@@ -78,133 +78,133 @@
   {
    "name": "lua",
    "ok": true,
-   "seconds": 5,
+   "seconds": 8,
    "why": ""
   },
   {
    "name": "git",
    "ok": true,
-   "seconds": 9,
+   "seconds": 10,
    "why": ""
   },
   {
    "name": "curl-https",
-   "ok": false,
-   "seconds": 80,
-   "why": "the test failed: $ curl -sSI https://ubuntu.com | head -n 1 curl: (7) Failed to connect to ubuntu.com port 443 after 75299 ms: Couldn't connect to server the output lacks \"HTTP/\""
+   "ok": true,
+   "seconds": 7,
+   "why": ""
   },
   {
    "name": "wget",
-   "ok": true,
-   "seconds": 6,
-   "why": ""
-  },
-  {
-   "name": "jq",
-   "ok": true,
-   "seconds": 7,
-   "why": ""
-  },
-  {
-   "name": "sqlite3",
-   "ok": true,
-   "seconds": 5,
-   "why": ""
-  },
-  {
-   "name": "zip-unzip",
-   "ok": true,
-   "seconds": 7,
-   "why": ""
-  },
-  {
-   "name": "xz-zstd",
-   "ok": true,
-   "seconds": 6,
-   "why": ""
-  },
-  {
-   "name": "rsync",
    "ok": true,
    "seconds": 8,
    "why": ""
   },
   {
-   "name": "openssh-client",
+   "name": "jq",
+   "ok": true,
+   "seconds": 8,
+   "why": ""
+  },
+  {
+   "name": "sqlite3",
+   "ok": true,
+   "seconds": 8,
+   "why": ""
+  },
+  {
+   "name": "zip-unzip",
    "ok": true,
    "seconds": 9,
    "why": ""
   },
   {
+   "name": "xz-zstd",
+   "ok": true,
+   "seconds": 9,
+   "why": ""
+  },
+  {
+   "name": "rsync",
+   "ok": true,
+   "seconds": 12,
+   "why": ""
+  },
+  {
+   "name": "openssh-client",
+   "ok": true,
+   "seconds": 13,
+   "why": ""
+  },
+  {
    "name": "htop",
-   "ok": true,
-   "seconds": 6,
-   "why": ""
-  },
-  {
-   "name": "ripgrep",
-   "ok": true,
-   "seconds": 6,
-   "why": ""
-  },
-  {
-   "name": "vim",
-   "ok": true,
-   "seconds": 12,
-   "why": ""
-  },
-  {
-   "name": "neovim",
-   "ok": true,
-   "seconds": 12,
-   "why": ""
-  },
-  {
-   "name": "tmux",
    "ok": true,
    "seconds": 10,
    "why": ""
   },
   {
-   "name": "zsh",
+   "name": "ripgrep",
    "ok": true,
-   "seconds": 14,
+   "seconds": 9,
    "why": ""
   },
   {
-   "name": "fish",
+   "name": "vim",
    "ok": true,
    "seconds": 17,
    "why": ""
   },
   {
+   "name": "neovim",
+   "ok": true,
+   "seconds": 21,
+   "why": ""
+  },
+  {
+   "name": "tmux",
+   "ok": true,
+   "seconds": 13,
+   "why": ""
+  },
+  {
+   "name": "zsh",
+   "ok": true,
+   "seconds": 17,
+   "why": ""
+  },
+  {
+   "name": "fish",
+   "ok": true,
+   "seconds": 25,
+   "why": ""
+  },
+  {
    "name": "redis",
    "ok": true,
-   "seconds": 18,
+   "seconds": 22,
    "why": ""
   },
   {
    "name": "nginx",
    "ok": true,
-   "seconds": 20,
+   "seconds": 25,
    "why": ""
   },
   {
    "name": "mariadb",
    "ok": true,
-   "seconds": 42,
+   "seconds": 56,
    "why": ""
   },
   {
    "name": "postgresql-client",
    "ok": true,
-   "seconds": 30,
+   "seconds": 34,
    "why": ""
   },
   {
    "name": "postgresql",
    "ok": false,
-   "seconds": 86,
+   "seconds": 107,
    "why": "the test failed: Examine the log output. ...fail! exit status 1"
   }
  ]
