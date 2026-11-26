@@ -1,30 +1,30 @@
 {
  "version": "v1.28.0",
- "date": "2026-11-25",
+ "date": "2026-11-26",
  "where": "Android 14 emulator (API 34), arm64-v8a APK",
  "packages": [
   {
    "name": "python3",
    "ok": true,
-   "seconds": 34,
+   "seconds": 32,
    "why": ""
   },
   {
    "name": "python3-venv-pip",
    "ok": true,
-   "seconds": 129,
+   "seconds": 116,
    "why": ""
   },
   {
    "name": "nodejs-npm",
-   "ok": true,
-   "seconds": 260,
-   "why": ""
+   "ok": false,
+   "seconds": 221,
+   "why": "the test failed: The futex facility returned an unexpected error code. bash: line 1: 11939 Aborted npm init -y > /dev/null exit status 134"
   },
   {
    "name": "c-gcc",
    "ok": true,
-   "seconds": 49,
+   "seconds": 45,
    "why": ""
   },
   {
@@ -36,13 +36,13 @@
   {
    "name": "cmake",
    "ok": true,
-   "seconds": 29,
+   "seconds": 25,
    "why": ""
   },
   {
    "name": "rust",
    "ok": true,
-   "seconds": 24,
+   "seconds": 27,
    "why": ""
   },
   {
@@ -54,19 +54,19 @@
   {
    "name": "java",
    "ok": false,
-   "seconds": 29,
-   "why": "the test failed: # bash: line 1: 12879 Aborted javac H.java exit status 134"
+   "seconds": 32,
+   "why": "the test failed: # bash: line 1: 13215 Aborted javac H.java exit status 134"
   },
   {
    "name": "php",
    "ok": true,
-   "seconds": 268,
+   "seconds": 234,
    "why": ""
   },
   {
    "name": "ruby",
    "ok": true,
-   "seconds": 16,
+   "seconds": 15,
    "why": ""
   },
   {
@@ -78,7 +78,7 @@
   {
    "name": "lua",
    "ok": true,
-   "seconds": 7,
+   "seconds": 5,
    "why": ""
   },
   {
@@ -95,26 +95,26 @@
   },
   {
    "name": "wget",
-   "ok": false,
-   "seconds": 81,
-   "why": "the test failed: Connecting to ubuntu.com (ubuntu.com)|185.125.190.20|:443... failed: Connection refused. Connecting to ubuntu.com (ubuntu.com)|2620:2d:4000:1::27|:443... failed: Network is unreachable. the output lacks \"saved\""
-  },
-  {
-   "name": "jq",
-   "ok": true,
-   "seconds": 7,
-   "why": ""
-  },
-  {
-   "name": "sqlite3",
    "ok": true,
    "seconds": 6,
    "why": ""
   },
   {
-   "name": "zip-unzip",
+   "name": "jq",
    "ok": true,
    "seconds": 8,
+   "why": ""
+  },
+  {
+   "name": "sqlite3",
+   "ok": true,
+   "seconds": 5,
+   "why": ""
+  },
+  {
+   "name": "zip-unzip",
+   "ok": true,
+   "seconds": 7,
    "why": ""
   },
   {
@@ -126,7 +126,7 @@
   {
    "name": "rsync",
    "ok": true,
-   "seconds": 12,
+   "seconds": 8,
    "why": ""
   },
   {
@@ -138,19 +138,19 @@
   {
    "name": "htop",
    "ok": true,
-   "seconds": 8,
+   "seconds": 7,
    "why": ""
   },
   {
    "name": "ripgrep",
    "ok": true,
-   "seconds": 7,
+   "seconds": 6,
    "why": ""
   },
   {
    "name": "vim",
    "ok": true,
-   "seconds": 13,
+   "seconds": 11,
    "why": ""
   },
   {
@@ -162,49 +162,49 @@
   {
    "name": "tmux",
    "ok": true,
-   "seconds": 12,
+   "seconds": 10,
    "why": ""
   },
   {
    "name": "zsh",
    "ok": true,
-   "seconds": 16,
+   "seconds": 14,
    "why": ""
   },
   {
    "name": "fish",
    "ok": true,
-   "seconds": 18,
+   "seconds": 16,
    "why": ""
   },
   {
    "name": "redis",
    "ok": true,
-   "seconds": 19,
+   "seconds": 16,
    "why": ""
   },
   {
    "name": "nginx",
    "ok": true,
-   "seconds": 21,
+   "seconds": 19,
    "why": ""
   },
   {
    "name": "mariadb",
    "ok": true,
-   "seconds": 45,
+   "seconds": 41,
    "why": ""
   },
   {
    "name": "postgresql-client",
    "ok": true,
-   "seconds": 32,
+   "seconds": 30,
    "why": ""
   },
   {
    "name": "postgresql",
    "ok": false,
-   "seconds": 89,
+   "seconds": 82,
    "why": "the test failed: Examine the log output. ...fail! exit status 1"
   }
  ]
