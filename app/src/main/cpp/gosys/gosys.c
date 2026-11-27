@@ -62,6 +62,10 @@ static inline const struct gosys_hdr *hdr(void) {
     return h;
 }
 
+static inline const char *hstr(const struct gosys_hdr *h, u16 off) {
+    return h->strings + off;
+}
+
 static inline i64 sc(i64 nr, i64 a0, i64 a1, i64 a2, i64 a3, i64 a4, i64 a5) {
     register i64 x8 __asm__("x8") = nr;
     register i64 x0 __asm__("x0") = a0;
@@ -98,9 +102,10 @@ static int pre(const char *path, const char *lit, u64 n) {
 // Whether path is the rootfs or in it
 static int in_root(const struct gosys_hdr *h, const char *p) {
     u64 n = h->root_len;
+    const char *root = hstr(h, h->root_off);
     if (n == 0) return 0;
     for (u64 i = 0; i < n; i++)
-        if (p[i] != h->root[i]) return 0;
+        if (p[i] != root[i]) return 0;
     return p[n] == '/' || p[n] == '\0';
 }
 
@@ -136,8 +141,9 @@ static const char *rw_path(const struct gosys_hdr *h, const char *path, char *bu
         }
     }
     u64 rl = h->root_len;
+    const char *root = hstr(h, h->root_off);
     if (path[1] == '\0') {
-        mcopy(buf, h->root, rl);
+        mcopy(buf, root, rl);
         buf[rl] = '\0';
         return buf;
     }
@@ -145,7 +151,7 @@ static const char *rw_path(const struct gosys_hdr *h, const char *path, char *bu
     if (pre(path, "/dev/shm", 8)) {
         u64 rest = slen(path + 8);
         if (rl + 8 + rest + 1 > cap) return path;
-        mcopy(buf, h->root, rl);
+        mcopy(buf, root, rl);
         mcopy(buf + rl, "/tmp/shm", 8);
         mcopy(buf + rl + 8, path + 8, rest + 1);
         return buf;
@@ -153,7 +159,7 @@ static const char *rw_path(const struct gosys_hdr *h, const char *path, char *bu
     if (is_host_path(path)) return path;
     u64 pl = slen(path);
     if (rl + pl + 1 > cap) return path;
-    mcopy(buf, h->root, rl);
+    mcopy(buf, root, rl);
     mcopy(buf + rl, path, pl + 1);
     return buf;
 }
@@ -166,7 +172,7 @@ static int rewriting(const struct gosys_hdr *h) {
     volatile u32 *mode = (volatile u32 *)((char *)h + h->scratch_rel + 4);
     u32 m = *mode;
     if (m == 0) {
-        m = sc(NR_FACCESSAT, AT_FDCWD, (i64)h->root, 0, 0, 0, 0) == 0 ? 1u : 2u;
+        m = sc(NR_FACCESSAT, AT_FDCWD, (i64)hstr(h, h->root_off), 0, 0, 0, 0) == 0 ? 1u : 2u;
         *mode = m;
     }
     return m == 1;
@@ -253,9 +259,10 @@ static void put_slot(const struct gosys_hdr *h, u32 held) {
 // Returns the new length of the n bytes at buf (a path, not NUL-terminated unless `nul`).
 static i64 unmap_prefix(const struct gosys_hdr *h, char *buf, i64 n, int nul) {
     u64 rl = h->root_len;
+    const char *root = hstr(h, h->root_off);
     if (rl == 0 || n <= 0 || (u64)n < rl + (nul ? 1 : 0)) return n;
     for (u64 i = 0; i < rl; i++)
-        if (buf[i] != h->root[i]) return n;
+        if (buf[i] != root[i]) return n;
     u64 end = (u64)n - (nul ? 1 : 0); // the path's own length
     if (end == rl) { // exactly the rootfs
         buf[0] = '/';
@@ -308,8 +315,9 @@ static i64 with_sockaddr(const struct gosys_hdr *h, u32 *held, i64 nr, i64 a0, i
         hash *= 1099511628211ULL;
     }
     u64 n = h->root_len;
+    const char *root = hstr(h, h->root_off);
     if (n + 5 + 11 + 16 + 1 > 108) return sc(nr, a0, a1, a2, 0, 0, 0);
-    mcopy(out + 2, h->root, n);
+    mcopy(out + 2, root, n);
     mcopy(out + 2 + n, "/tmp/.ctx_sock_", 15);
     put_hex16(out + 2 + n + 15, hash);
     out[2 + n + 15 + 16] = '\0';
@@ -402,23 +410,24 @@ static i64 with_execve(const struct gosys_hdr *h, u32 *held, i64 a0, i64 a1, i64
         char **ne = (char **)(slot + SLOT_ENV);
         char *kv = slot + SLOT_PATH_B;
         mcopy(kv, "CORTEX_ROOT=", 12);
-        mcopy(kv + 12, h->root, h->root_len + 1);
+        mcopy(kv + 12, hstr(h, h->root_off), (u64)h->root_len + 1);
         for (u32 i = 0; i < envc; i++) ne[i] = envp[i];
         ne[envc] = kv;
         ne[envc + 1] = 0;
         env = ne;
     }
 
+    const char *ldso = hstr(h, h->ldso_off);
     char **v = (char **)(slot + SLOT_ARGV);
     u32 n = 0;
-    v[n++] = (char *)h->ldso;
+    v[n++] = (char *)ldso;
     if (h->hook_len) {
         v[n++] = (char *)"--preload";
-        v[n++] = (char *)h->hook;
+        v[n++] = (char *)hstr(h, h->hook_off);
     }
     v[n++] = (char *)"--library-path";
-    v[n++] = (char *)h->libs;
-    v[n++] = (char *)h->runner;
+    v[n++] = (char *)hstr(h, h->libs_off);
+    v[n++] = (char *)hstr(h, h->runner_off);
     if (h->flags & GOSYS_FLAG_RUNNER_IS_BASH) {
         v[n++] = (char *)"-c";
         v[n++] = (char *)"exec -a \"$0\" \"$@\"";
@@ -429,9 +438,9 @@ static i64 with_execve(const struct gosys_hdr *h, u32 *held, i64 a0, i64 a1, i64
     v[n++] = (char *)path;
     for (u32 i = 1; i < argc; i++) v[n++] = argv[i];
     v[n] = 0;
-    i64 er = sc(NR_EXECVE, (i64)h->ldso, (i64)v, (i64)env, 0, 0, 0);
+    i64 er = sc(NR_EXECVE, (i64)ldso, (i64)v, (i64)env, 0, 0, 0);
     if (er == -13 /* -EACCES */ && h->exec_runner_len != 0)
-        return sc(NR_EXECVE, (i64)h->exec_runner, (i64)v, (i64)env, 0, 0, 0);
+        return sc(NR_EXECVE, (i64)hstr(h, h->exec_runner_off), (i64)v, (i64)env, 0, 0, 0);
     return er;
 }
 

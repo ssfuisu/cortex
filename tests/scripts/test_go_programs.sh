@@ -253,6 +253,11 @@ elif build_go_for android "$work/gotest-android" "" -ldflags "-s -w" 2>"$work/an
   check "bash starts it and it sees the file system and starts its programs" test ! -s "$work/diff.out"
   [ -s "$work/diff.out" ] && sed 's/^/        /' "$work/diff.out" | head -30
   check "the hook patched the file" test "$(hash_of "$root/usr/bin/gotest-android")" != "$before"
+  if [ "$(hash_of "$root/usr/bin/gotest-android")" = "$before" ]; then
+    readelf -lh "$work/gotest-android" 2>&1 | sed 's/^/        /' | head -45
+    cp "$work/gotest-android" "$work/diag-android"
+    "$work/gopatch" "$root" "$work/diag-android" 2>&1 | sed 's/^/        /' || true
+  fi
   once=$(hash_of "$root/usr/bin/gotest-android")
   via_hook "/usr/bin/gotest-android" >/dev/null
   check "starting it again does not change it" test "$(hash_of "$root/usr/bin/gotest-android")" = "$once"
