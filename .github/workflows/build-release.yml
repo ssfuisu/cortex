@@ -260,8 +260,8 @@ jobs:
             docker exec -e DEBIAN_FRONTEND=noninteractive "$cid" apt-get update -o Acquire::Retries=3
             # Ubuntu 26.04 defaults to rust-coreutils, which uses ARMv8.1 LSE atomics (cas) that crash
             # Android's ndk_translation emulator runner and older ARMv8.0 cores. Switch to GNU coreutils.
-            docker exec -e DEBIAN_FRONTEND=noninteractive "$cid" apt-get -y --allow-remove-essential --no-install-recommends install coreutils-from-gnu coreutils
-            docker exec -e DEBIAN_FRONTEND=noninteractive "$cid" apt-get -y --allow-remove-essential --no-install-recommends purge coreutils-from-uutils rust-coreutils
+            docker exec -e DEBIAN_FRONTEND=noninteractive "$cid" apt-get -y --allow-remove-essential --no-install-recommends install coreutils-from-gnu coreutils coreutils-from-uutils-
+            docker exec -e DEBIAN_FRONTEND=noninteractive "$cid" apt-get -y --allow-remove-essential purge rust-coreutils
             docker exec -e DEBIAN_FRONTEND=noninteractive "$cid" apt-get -y --no-install-recommends upgrade
             docker exec -e DEBIAN_FRONTEND=noninteractive "$cid" apt-get -y --no-install-recommends install sudo
             docker exec "$cid" sh -c 'id --version | grep -q "GNU coreutils" && [ ! -e /usr/bin/coreutils ]'
