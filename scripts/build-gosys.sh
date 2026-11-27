@@ -34,7 +34,7 @@ fi
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
-"${CC[@]}" -std=gnu11 -O2 -Wall -Wextra -Werror \
+"${CC[@]}" -std=gnu11 -Os -Wall -Wextra -Werror \
   -ffreestanding -fno-builtin -nostdlib -fPIE -fvisibility=hidden -fno-stack-protector \
   -fno-asynchronous-unwind-tables -fno-unwind-tables "${CC_EXTRA[@]}" \
   -mcmodel=tiny -mgeneral-regs-only -ffixed-x18 -ffixed-x28 \

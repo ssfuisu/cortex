@@ -32,9 +32,9 @@
 #define GOSYS_STATE_SIZE 1024u  // [4] rewriting mode, [8] execve calls on their way, [64 + 8 * slot] who has the slot (0: nobody)
 #define GOSYS_SCRATCH_SIZE (GOSYS_STATE_SIZE + GOSYS_SLOTS * GOSYS_SLOT_SIZE)
 
-#define GOSYS_THUNK_BYTES 256u  // room for the small code that connects a call site to the code
+#define GOSYS_THUNK_BYTES 32u   // room for the small code that connects a call site to the code
 
-#define GOSYS_STRINGS_MAX 1872u // packed NUL-terminated strings: root, ldso, hook, libs, runner, exec_runner
+#define GOSYS_STRINGS_MAX 1488u // packed NUL-terminated strings: root, ldso, hook, libs, runner, exec_runner
 
 struct gosys_hdr {
     char magic[8];           // "CXGOSYS1"
