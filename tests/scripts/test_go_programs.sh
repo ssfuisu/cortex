@@ -3,7 +3,7 @@
 # gosys, hook/go_programs.c) so that they see Ubuntu's paths and can start Ubuntu's programs.
 #
 # It builds a static AArch64 Go program (tests/go/gotest), a small root file system (Ubuntu's own
-# bash and libtinfo for arm64, the C library of the cross compiler, the hook and a C program) and
+# bash, libtinfo6, libc6 and libgcc-s1 for arm64, the hook and a C program) and
 # runs the Go program in it with qemu-user, after the hook's own code has patched it, and compares
 # what it sees with tests/go/expected.txt. Also checked: that the patch is made once, that it is
 # replaced when the added code changes, that the Go versions of the supported range are patched
@@ -99,7 +99,7 @@ build_go "$work/gotest-symbols" "" || { echo "the Go program did not build"; exi
 
 echo "== the file system"
 debs=${CORTEX_GO_TEST_DEBS:-$work/debs}
-if ! ls "$debs"/bash_*_arm64.deb >/dev/null 2>&1; then
+if ! ls "$debs"/bash_*_arm64.deb >/dev/null 2>&1 || ! ls "$debs"/libc6_*_arm64.deb >/dev/null 2>&1; then
   mkdir -p "$debs/state/lists/partial" "$debs/cache/archives/partial"
   echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports resolute main" > "$debs/src.list"
   : > "$debs/status"
@@ -107,15 +107,20 @@ if ! ls "$debs"/bash_*_arm64.deb >/dev/null 2>&1; then
     -o Dir::Etc::SourceList="$debs/src.list" -o Dir::Etc::SourceParts=/dev/null -o APT::Architecture=arm64
     -o APT::Architectures=arm64 -o Debug::NoLocking=1 -o Acquire::Retries=3 -o APT::Sandbox::User=root)
   apt-get "${apt_opts[@]}" update -qq >/dev/null 2>&1 \
-    && (cd "$debs" && apt-get "${apt_opts[@]}" download bash libtinfo6 >/dev/null 2>&1) \
+    && (cd "$debs" && apt-get "${apt_opts[@]}" download bash libtinfo6 libc6 libgcc-s1 >/dev/null 2>&1) \
     || skip "cannot download Ubuntu's arm64 packages"
 fi
 root=$work/rootfs
 mkdir -p "$root/etc" "$root/tmp" "$root/home/user" "$root/usr/lib" "$root/lib/aarch64-linux-gnu"
-for d in "$debs"/bash_*_arm64.deb "$debs"/libtinfo6_*_arm64.deb; do dpkg-deb -x "$d" "$root"; done
-cross=/usr/aarch64-linux-gnu/lib
-for f in libc.so.6 libm.so.6 libdl.so.2 libgcc_s.so.1; do cp -L "$cross/$f" "$root/lib/aarch64-linux-gnu/" 2>/dev/null; done
-cp -L "$cross/ld-linux-aarch64.so.1" "$root/lib/ld-linux-aarch64.so.1"
+for d in "$debs"/bash_*_arm64.deb "$debs"/libtinfo6_*_arm64.deb "$debs"/libc6_*_arm64.deb "$debs"/libgcc-s1_*_arm64.deb; do
+  dpkg-deb -x "$d" "$root"
+done
+for f in libc.so.6 libm.so.6 libdl.so.2 libgcc_s.so.1; do
+  if [ -e "$root/usr/lib/aarch64-linux-gnu/$f" ]; then
+    cp -L "$root/usr/lib/aarch64-linux-gnu/$f" "$root/lib/aarch64-linux-gnu/"
+  fi
+done
+cp -L "$root/usr/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1" "$root/lib/ld-linux-aarch64.so.1"
 ln -sfn usr/bin "$root/bin"
 ln -sf bash "$root/usr/bin/sh"
 cp "$hook" "$root/usr/lib/libcortex-hook.so"
