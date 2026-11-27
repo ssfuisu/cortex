@@ -5,7 +5,7 @@
 <h1 align="center">Cortex Terminal</h1>
 
 <p align="center">
-  <b>Ubuntu 24.04 on Android, without root, PRoot or a virtual machine.</b><br/>
+  <b>Ubuntu 26.04 on Android, without root, PRoot or a virtual machine.</b><br/>
   Ubuntu's own arm64 programs, installed with <code>apt</code>, running on the phone's CPU and kernel.
 </p>
 
@@ -28,7 +28,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/cortex-neofetch.jpg" width="24%" alt="neofetch showing Ubuntu 24.04.5 LTS in Cortex" />
+  <img src="docs/screenshots/cortex-neofetch.jpg" width="24%" alt="neofetch showing Ubuntu LTS in Cortex" />
   <img src="docs/screenshots/cortex-keyboard.jpg" width="24%" alt="The terminal with session tabs and the extra keys" />
   <img src="docs/screenshots/cortex-api.jpg" width="24%" alt="cortex-api printing the battery state, the clipboard and a notification" />
   <img src="docs/screenshots/cortex-themes.jpg" width="24%" alt="The color scheme picker" />
@@ -38,14 +38,14 @@
 
 ## In one paragraph
 
-Cortex is an Android terminal app that ships an Ubuntu 24.04 root file system (built from Ubuntu's official arm64 and armhf images) and runs it inside the app's private storage. The programs are the ones from Ubuntu's archive, not rebuilt for Android. They run as ordinary processes of the app, directly on the CPU, and their system calls go straight to Android's Linux kernel. What makes that work is a library loaded into every program with `LD_PRELOAD`: it maps paths like `/usr` and `/etc` into the app's storage and covers for the things Android does not let an app do. Nothing traces the programs and nothing virtualizes them.
+Cortex is an Android terminal app that ships an Ubuntu 26.04 root file system (built from Ubuntu's official arm64 and armhf images) and runs it inside the app's private storage. The programs are the ones from Ubuntu's archive, not rebuilt for Android. They run as ordinary processes of the app, directly on the CPU, and their system calls go straight to Android's Linux kernel. What makes that work is a library loaded into every program with `LD_PRELOAD`: it maps paths like `/usr` and `/etc` into the app's storage and covers for the things Android does not let an app do. Nothing traces the programs and nothing virtualizes them.
 
 ## How it actually works
 
 ```mermaid
 flowchart LR
     subgraph APP["Cortex: an ordinary Android app, no root"]
-        P["Ubuntu program<br/>bash, gcc, python3, apt"] --> G["glibc 2.39<br/>(Ubuntu's)"]
+        P["Ubuntu program<br/>bash, gcc, python3, apt"] --> G["glibc 2.43<br/>(Ubuntu's)"]
         G -- "calls that take a path<br/>open, stat, exec, connect" --> H["libcortex-hook.so<br/>(LD_PRELOAD)"]
     end
     H -- "same call, path mapped<br/>/usr/lib/x becomes<br/>/data/.../cortex/usr/lib/x" --> K["Android's Linux kernel"]
@@ -85,29 +85,29 @@ The library is about 10,000 lines of C in [`app/src/main/cpp/hook`](app/src/main
 | **Packages** | `apt` and `dpkg` with Ubuntu's mirrors and signatures | **Real** |
 | **Files** | Contents, modes, timestamps, symbolic links | **Real** |
 | **Network** | Sockets and DNS, IPv4 and IPv6 | **Real** |
-| **glibc** | Ubuntu's 2.39 build with three system call sites patched: `set_robust_list` is skipped, `clone3` and `rseq` answer "not available" so glibc uses the older calls. `libc6` is held at this build | **Adapted** |
+| **glibc** | Ubuntu's 2.43 build with three system call sites patched: `set_robust_list` is skipped, `clone3` and `rseq` answer "not available" so glibc uses the older calls. `libc6` is held at this build | **Adapted** |
 | **Paths** | `/` is the app's private directory, mapped in the libc calls | **Emulated** |
-| **Root and other users** | Programs see uid 0 and files owned by root, the kernel sees the app's user. `su`, `runuser` and servers that drop to their user become that user for the programs, and `chown` records owners | **Emulated** |
+| **Users and `sudo`** | Sessions start as `cortex@localhost` (uid 1000) with passwordless `sudo`. `su`, `runuser` and servers that drop privileges run in userspace, while `tsu` invokes real phone Android root (`su`) on rooted devices | **Emulated** |
 | **Forbidden calls** | `setuid` and the other calls Android's seccomp filter forbids are answered by a signal handler instead of killing the program | **Emulated** |
 | **Hard links** | Copies that report a real link count, the same in every process | **Emulated** |
 | **SysV shared memory, memfd locks** | Files of Cortex's own (X11's MIT-SHM, PHP's opcache) | **Emulated** |
 | **Static programs** | Patched once in their file before their first start | **Adapted** |
 | **Maintenance tools** | A few that package installs call (`systemd-sysusers`, `mandb`, `update-mime-database`) are stand-ins that do nothing | **Adapted** |
 
-**What does not work in normal mode**, because an app is not root: systemd as the init system, `mount`, kernel modules, containers, reading the kernel's network tables (`ss`, `netstat`), and the GPU. Users other than root exist for the programs only (the kernel still sees one user), which is enough for PostgreSQL's own cluster and servers that drop privileges. A server that asks for a port below 1024 gets the port 8000 above it (80 becomes 8080, and `localhost:80` still reaches it). On a rooted phone, [root mode](#root-mode) removes most of these.
+**What does not work without kernel privileges**: systemd as the init system, `mount`, kernel modules, containers, reading the kernel's network tables (`ss`, `netstat`), and the GPU. Users exist for the Ubuntu programs only (the kernel still sees the app user), which is enough for `sudo`, PostgreSQL's own cluster, and servers that drop privileges. A server that asks for a port below 1024 gets the port 8000 above it (80 becomes 8080, and `localhost:80` still reaches it).
 
 ## Install
 
 1. Download from [Releases](https://github.com/ssfuisu/cortex/releases/latest): `Cortex-arm64-v8a-signed.apk` for nearly every phone, `Cortex-armeabi-v7a-signed.apk` for 32-bit ARM.
 2. Optional: check where it comes from. From 1.27.7 on every APK is built on GitHub from the tagged source, `gh attestation verify Cortex-arm64-v8a-signed.apk --repo ssfuisu/cortex` proves it, and `SHA256SUMS.txt` is next to it. The signing key is in [`signing/README.md`](signing/README.md).
-3. Install and open it. Ubuntu is unpacked on the first start, then you get a shell.
+3. Install and open it. Ubuntu is unpacked on the first start, then you get a shell as `cortex@localhost`.
 
-Android 7.0 or newer. Like Termux, the app targets API level 28, the last one that lets an app run programs from its own data directory.
+Android 7.0 or newer (`targetSdk 35`).
 
 ```bash
-apt install build-essential git python3 nodejs   # the first install fetches the package lists itself
-cd /sdcard/Download                              # the phone's shared storage
-cortex-desktop install xfce                      # optional desktop, also from the menu
+sudo apt install build-essential git python3 nodejs   # the first install fetches the package lists itself
+cd /sdcard/Download                                   # the phone's shared storage
+cortex-desktop install xfce                           # optional desktop, also from the menu
 ```
 
 ## Features
@@ -119,9 +119,8 @@ cortex-desktop install xfce                      # optional desktop, also from t
 **Ubuntu**
 - `apt` with Ubuntu's archive, signed packages and the fastest mirror picked once
 - `build-essential` and `-dev` packages, static linking, OpenJDK, Python, Node.js, Go, Rust
-- `sudo` works (you are root as far as programs can tell)
+- Starts as `cortex@localhost` with passwordless `sudo`; `tsu` accesses Android phone root separately without colliding with Ubuntu `sudo`/`su`
 - `cortex-backup` saves `~` and the list of installed packages, `restore` reinstalls them
-- Root mode on rooted phones: a real chroot, nothing emulated
 
 </td>
 <td width="50%" valign="top">
@@ -179,15 +178,9 @@ curl -fsSL https://raw.githubusercontent.com/ssfuisu/cortex/main/tests/bench/com
 
 It also says what it detected it runs in, so the two tables can't get mixed up.
 
-## Root mode
-
-On a rooted phone (Magisk, KernelSU, APatch), *Settings > Root mode* runs new sessions as real root in a chroot of the same Ubuntu files. The library is not loaded there. Mounts, real owners, hard links, set-user-ID programs and low ports work as on a PC. Each session gets its own mount namespace, so nothing is mounted for Android or other apps. Turning it off gives the files back to the app.
-
-Containers need root mode. Since 1.27.7 it also mounts the phone's cgroups at `/sys/fs/cgroup`, and [docs/containers.md](docs/containers.md) has the steps for Podman and Docker, including the iptables setting many Android kernels need.
-
 ## Is it safe for the phone?
 
-In normal mode Cortex is an ordinary app: everything you run in it runs as the app's own Android user, in the app sandbox. It can't change Android, the system or other apps' private data, it can't brick anything, and uninstalling removes everything in the app's own storage. Programs only *think* they are root. The one thing to keep in mind: once you allow storage access, commands can change and delete your files in `/sdcard`, and uninstalling doesn't undo that. [SECURITY.md](SECURITY.md) explains every permission the app asks for and what the app itself connects to (Ubuntu's mirrors and GitHub's release API, nothing else).
+Cortex is an ordinary app: everything you run in it runs as the app's own Android user, in the app sandbox. It can't change Android, the system or other apps' private data, it can't brick anything, and uninstalling removes everything in the app's own storage. Ubuntu `sudo` and `su` only change user IDs inside the emulated Ubuntu environment (use `tsu` or `su --android` explicitly if you want your rooted phone's Android `su`). The one thing to keep in mind: once you allow storage access, commands can change and delete your files in `/sdcard`, and uninstalling doesn't undo that. [SECURITY.md](SECURITY.md) explains every permission the app asks for and what the app itself connects to (Ubuntu's mirrors and GitHub's release API, nothing else).
 
 ## FAQ
 
@@ -195,10 +188,10 @@ In normal mode Cortex is an ordinary app: everything you run in it runs as the a
 Programming on the phone or tablet (Python, Node.js, C, Rust, Go, git), small servers and bots (nginx, Redis, MariaDB, a Telegram bot), SSH into Cortex from a computer with `cortex-sshd`, scripts that use the phone through `cortex-api`, and the occasional desktop program on the built-in X11 desktop.
 
 **Will every Ubuntu package work?**
-Most command-line software does. Every night a job installs a set of common packages on an emulator and tests each one, the [latest results](https://ssfuisu.github.io/cortex/compat.html) are public, failures included. What needs the things in the list above (systemd services, other users, raw devices) does not work in normal mode.
+Most command-line software does. Every night a job installs a set of common packages on an emulator and tests each one, the [latest results](https://ssfuisu.github.io/cortex/compat.html) are public, failures included. What needs real kernel root privileges (systemd services, `mount`, raw kernel sockets/tables, GPU drivers) is unsupported.
 
 **Can I run Docker or Podman?**
-Only in root mode, see [docs/containers.md](docs/containers.md). Containers need namespaces, mounts and cgroups, and Android never gives those to an app.
+No. Containers need Linux namespaces, mounts and cgroups, which Android never gives to an ordinary app.
 
 **Is there a GUI?**
 Yes, as an add-on: *Desktop* in the menu installs Openbox or XFCE (and Firefox if you want) and shows it inside the app. It's drawn by the CPU, no GPU, so it suits editors and browsing more than games.
@@ -209,8 +202,8 @@ Yes, `Cortex-armeabi-v7a-signed.apk` is Ubuntu's armhf. Every change builds it a
 **Why does Go need special code?**
 Go programs don't use the C library, they make their system calls themselves, so a preloaded library never sees them. Before a Go 1.19+ program starts for the first time, Cortex adds a small piece of code to it that does the same path mapping.
 
-**A tool refuses to run as root (Claude Code's `--dangerously-skip-permissions`, some installers). What now?**
-Run `cortex-api no-fakeroot`. It starts a shell where programs see an ordinary user (`cortex`) instead of root, until you `exit`. `sudo` still works in it, and the session's other tabs stay root. `cortex-api no-fakeroot COMMAND` runs just one command that way.
+**How do `sudo`, `su`, and `tsu` work?**
+Sessions start as normal user `cortex@localhost` with passwordless `sudo`. `sudo` and `su` stay strictly inside Ubuntu; `tsu` (or `su --android`) invokes real Android phone root on rooted devices without colliding with Ubuntu commands.
 
 **Can I name my sessions?**
 Long press a tab (or a session in the drawer) and give it a name. It stays after Android ends the app.
@@ -219,7 +212,7 @@ Long press a tab (or a session in the drawer) and give it a name. It stays after
 Static C and C++ programs do, and Go programs built with Go 1.19 or newer. Older or 32-bit Go programs run but see Android's files instead of Ubuntu's.
 
 **Why does `pip install` refuse?**
-That is Ubuntu 24.04's own rule (PEP 668). Use `python3 -m venv`, `pipx` or `apt install python3-<name>`.
+That is Ubuntu 26.04's own rule (PEP 668). Use `python3 -m venv`, `pipx` or `sudo apt install python3-<name>`.
 
 **Where are my phone's files?**
 At `/sdcard`, after you allow storage access.

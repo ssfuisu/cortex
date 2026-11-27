@@ -30,7 +30,6 @@ import org.cortex.terminal.LocaleHelper
 import org.cortex.terminal.MainActivity
 import org.cortex.terminal.R
 import org.cortex.terminal.runtime.Environment
-import org.cortex.terminal.runtime.RootMode
 import org.cortex.terminal.service.CortexService
 import java.io.File
 import java.util.concurrent.CountDownLatch
@@ -125,7 +124,6 @@ object ApiCommands {
                 "manufacturer" to Build.MANUFACTURER,
                 "model" to Build.MODEL,
                 "abi" to Build.SUPPORTED_ABIS.firstOrNull(),
-                "root_mode" to RootMode.isEnabled(context),
                 "foreground" to CortexApp.isInForeground
             )
         )

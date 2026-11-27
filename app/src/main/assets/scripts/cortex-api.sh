@@ -58,15 +58,12 @@ shift
 # takes CORTEX_BECOME when a program starts and keeps the user for everything started from there,
 # so it ends with this shell (or COMMAND), and the session's other shells stay root.
 if [ "$cmd" = "no-fakeroot" ]; then
-    if [ -n "${CORTEX_CHROOT:-}" ]; then
-        die "root mode runs as real root; use runuser -u USER (after adduser USER) for another user"
-    fi
     export CORTEX_BECOME=app
     if [ "$#" -gt 0 ]; then
         exec "$@"
     fi
     if [ -t 2 ]; then
-        echo "Programs here run as an ordinary user (cortex), not root. sudo still works; exit goes back to root." >&2
+        echo "Programs here run as an ordinary user (cortex), not root. sudo still works; exit goes back." >&2
     fi
     exec "${SHELL:-/bin/bash}"
 fi

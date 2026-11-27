@@ -26,3 +26,33 @@ target_link_options(
     "-Wl,-z,max-page-size=16384"
 )
 
+# Freestanding userland ELF runner packaged in nativeLibraryDir (apk_data_file) so targetSdk >= 29
+# can run dynamically installed Ubuntu linkers and binaries despite W^X on app_data_file.
+add_library(
+    cortex-exec
+    SHARED
+    cortex-exec.c
+)
+
+target_compile_options(
+    cortex-exec
+    PRIVATE
+    "-ffreestanding"
+    "-fno-builtin"
+    "-fno-stack-protector"
+    "-fno-unwind-tables"
+    "-fno-asynchronous-unwind-tables"
+    "-fvisibility=hidden"
+    "-O2"
+)
+
+target_link_options(
+    cortex-exec
+    PRIVATE
+    "-nostdlib"
+    "-Wl,-e,_start"
+    "-Wl,-Bsymbolic"
+    "-Wl,--no-undefined"
+    "-Wl,-z,max-page-size=16384"
+)
+

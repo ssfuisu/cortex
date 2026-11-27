@@ -83,10 +83,15 @@ __attribute__((used)) void emu_main(long *sp) {
     new_envp[ne] = 0;
 
     // ld.so's own options come first; the ones it already has are left as they are.
+    // Under targetSdk >= 29, libcortex-exec.so in nativeLibraryDir invokes ld.so (argv[2]).
     const char *name = base_name(argv[1]);
-    int is_ldso = starts_with(name, "ld-linux") || starts_with(name, "ld-2.");
+    int is_exec_runner = equal(name, "libcortex-exec.so");
+    const char *ld_target = (is_exec_runner && argc >= 3) ? argv[2] : argv[1];
+    const char *ld_name = base_name(ld_target);
+    int is_ldso = starts_with(ld_name, "ld-linux") || starts_with(ld_name, "ld-2.");
     if (is_ldso) {
-        for (long i = 3; i < argc && starts_with(argv[i], "--"); i++) {
+        long start_opt = is_exec_runner ? 3 : 3;
+        for (long i = start_opt; i < argc && starts_with(argv[i], "--"); i++) {
             if (equal(argv[i], "--preload")) preload = 0;
             if (equal(argv[i], "--library-path")) lib_path = 0;
             if (takes_value(argv[i])) i++;

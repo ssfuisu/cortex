@@ -43,11 +43,11 @@ class UbuntuOnDeviceTest {
     }
 
     @Test
-    fun theShellIsUbuntusBashAsRoot() {
+    fun theShellIsUbuntusBashAsCortex() {
         val arch = if (android.os.Process.is64Bit()) "arm64" else "armhf"
         assertOutput(
-            "uid=0 24.04 $arch",
-            ". /etc/os-release; echo \"uid=\$(id -u) \$VERSION_ID \$(dpkg --print-architecture)\""
+            "uid=1000 26.04 $arch localhost sudo=0",
+            ". /etc/os-release; echo \"uid=\$(id -u) \$VERSION_ID \$(dpkg --print-architecture) \$(hostname) sudo=\$(sudo -n id -u)\""
         )
     }
 
@@ -83,7 +83,7 @@ class UbuntuOnDeviceTest {
 
     @Test
     fun aptInstallsAPackageFromUbuntusArchive() {
-        // The app comes without package lists: apt-get fetches them first by itself
-        assertOutput("Hello, world!", "apt-get install -y --no-install-recommends hello && hello")
+        // The app comes without package lists: sudo apt-get fetches them first by itself
+        assertOutput("Hello, world!", "sudo apt-get install -y --no-install-recommends hello && hello")
     }
 }

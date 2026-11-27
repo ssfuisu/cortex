@@ -1075,6 +1075,63 @@ else
   echo "  skip  32-bit ARM checks (no arm-linux-gnueabihf-gcc or qemu-arm)"
 fi
 
+# #81: executing a shebang script via relative symlink, absolute symlink, or backing path spelling
+# passes the Ubuntu-visible path (never $CORTEX_ROOT/...) to the interpreter.
+mkdir -p "$work/root/usr/local/bin" "$work/root/usr/local/lib/pkg" "$work/root/bin"
+cp -f "$cross/libc.so.6" "$work/root/lib/ld-dummy" 2>/dev/null || true
+prog argdump <<'EOC'
+#include <stdio.h>
+int main(int argc, char **argv) {
+    for (int i = 0; i < argc; i++) printf("%d:%s\n", i, argv[i]);
+    return 0;
+}
+EOC
+cp -f "$work/argdump" "$work/root/usr/local/bin/argdump"
+chmod +x "$work/root/usr/local/bin/argdump"
+cat > "$work/root/usr/local/lib/pkg/entry.sh" <<'EOS'
+#!/usr/local/bin/argdump
+EOS
+chmod +x "$work/root/usr/local/lib/pkg/entry.sh"
+ln -sf "../lib/pkg/entry.sh" "$work/root/usr/local/bin/rel-entry"
+ln -sf "/usr/local/lib/pkg/entry.sh" "$work/root/usr/local/bin/abs-entry"
+prog spawn_script_check <<'EOC'
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/wait.h>
+#include <unistd.h>
+static void run_one(const char *path) {
+    pid_t pid = fork();
+    if (pid == 0) {
+        char *const argv[] = { (char *)path, "arg1", NULL };
+        execv(path, argv);
+        _exit(127);
+    }
+    int st = 0;
+    waitpid(pid, &st, 0);
+}
+int main(void) {
+    run_one("/usr/local/bin/abs-entry");
+    run_one("/usr/local/bin/rel-entry");
+    char backing[4096];
+    snprintf(backing, sizeof(backing), "%s/usr/local/bin/rel-entry", getenv("CORTEX_ROOT"));
+    run_one(backing);
+    return 0;
+}
+EOC
+out=$(cd "$work/root/usr/local/bin" && env -i CORTEX_ROOT="$work/root" HOME="$work" timeout 60 qemu-aarch64 "$cross/ld-linux-aarch64.so.1" \
+  --preload "$work/hook.so" --library-path "$cross" "$work/spawn_script_check" 2>&1 | grep -v "cannot be preloaded")
+want="0:/usr/local/bin/argdump
+1:/usr/local/bin/abs-entry
+2:arg1
+0:/usr/local/bin/argdump
+1:/usr/local/bin/rel-entry
+2:arg1
+0:/usr/local/bin/argdump
+1:/usr/local/bin/rel-entry
+2:arg1"
+check "shebang script execution through relative symlink or backing path keeps Ubuntu-visible path (#81)" test "$out" = "$want"
+[ "$out" = "$want" ] || echo "$out" | sed 's/^/        /'
+
 echo
 echo "$passed passed, $failed failed"
 [ "$failed" = 0 ]

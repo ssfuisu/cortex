@@ -107,11 +107,13 @@ object Environment {
             "LOCPATH=$root/usr/lib/locale",
             "USER=cortex",
             "LOGNAME=cortex",
+            // Default normal Ubuntu user `cortex` (uid=1000, gid=1000, member of group sudo=27).
+            "CORTEX_IDS=1000,1000,1000:1000,1000,1000:1000,27",
             // Stock Ubuntu exports SHELL at login; installers (nvm, bun, pnpm, rustup, opencode, ...)
             // read it to decide which rc file to append their PATH setup to.
             "SHELL=/bin/bash",
-            "HOSTNAME=cortex-android",
-            "PS1=\\w $ ",
+            "HOSTNAME=localhost",
+            "PS1=\\u@\\h:\\w\\$ ",
             "ENV=$home/.profile",
             "DPKG_DEB_THREADS_MAX=1",
             "XZ_OPT=-T1",
@@ -131,6 +133,11 @@ object Environment {
             "GODEBUG=netdns=cgo",
             "BROWSER=/usr/local/bin/xdg-open"
         )
+
+        val execRunner = File(getNativeLibDir(context), "libcortex-exec.so")
+        if (execRunner.isFile) {
+            envList.add("CORTEX_EXEC_RUNNER=${execRunner.absolutePath}")
+        }
 
         if (preloadStr.isNotEmpty()) {
             envList.add("LD_PRELOAD=$preloadStr")

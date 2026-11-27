@@ -5,7 +5,7 @@ import java.io.File
 
 /**
  * Owns the user's shell startup files so that they behave exactly like on a stock
- * Ubuntu 24.04 install:
+ * Ubuntu 26.04 install:
  *
  *  - `~/.profile` and `~/.bashrc` are plain user files. They are created once from
  *    `/etc/skel` (Ubuntu's own defaults) and are never rewritten afterwards, so whatever
@@ -112,7 +112,7 @@ object ShellProfile {
     /** The `$HOME/.opencode/bin:` variant of the same strip leaves a no-op `export PATH=$PATH`. */
     private val NOOP_OPENCODE_PATH = Regex("(?m)^(# opencode\\n)export PATH=${Regex.escape(D)}PATH[ \\t]*$")
 
-    /** What Ubuntu 24.04 ships in /etc/skel/.profile. */
+    /** What Ubuntu 26.04 ships in /etc/skel/.profile. */
     internal val DEFAULT_PROFILE = """
         # ~/.profile: executed by the command interpreter for login shells.
         # This file is not read by bash(1), if ~/.bash_profile or ~/.bash_login
@@ -143,7 +143,7 @@ object ShellProfile {
         fi
     """.trimIndent() + "\n"
 
-    /** Condensed version of Ubuntu 24.04's /etc/skel/.bashrc, used only if /etc/skel is missing. */
+    /** Condensed version of Ubuntu 26.04's /etc/skel/.bashrc, used only if /etc/skel is missing. */
     internal val DEFAULT_BASHRC = """
         # ~/.bashrc: executed by bash(1) for non-login shells.
         # see /usr/share/doc/bash/examples/startup-files (in the package bash-doc)
@@ -211,10 +211,10 @@ object ShellProfile {
         fi
     """.trimIndent() + "\n"
 
-    /** Keeps the compact Cortex prompt of earlier releases; delete the line for Ubuntu's stock prompt. */
+    /** Uses the standard Ubuntu-style `cortex@localhost:~$ ` prompt. */
     internal val CORTEX_PROMPT_LINE =
-        "\n# Cortex keeps its compact prompt; delete this line to get Ubuntu's user@host:dir prompt.\n" +
-            "PS1='\\w ${D} '\n"
+        "\n# Cortex prompt (user@host:dir).\n" +
+            "PS1='\\u@\\h:\\w\\$ '\n"
 
     /**
      * Creates `~/.profile` and `~/.bashrc` if they do not exist and cleans up what releases
@@ -260,6 +260,10 @@ object ShellProfile {
      */
     fun migrateLegacyStartupFile(text: String, isProfile: Boolean): String {
         var out = text
+        val compactPrompt = "# Cortex keeps its compact prompt; delete this line to get Ubuntu's user@host:dir prompt.\nPS1='\\w ${D} '"
+        if (out.contains(compactPrompt)) {
+            out = out.replace(compactPrompt, "# Cortex prompt (user@host:dir).\nPS1='\\u@\\h:\\w\\$ '")
+        }
         val hasLegacy = LEGACY_MARKERS.any { out.contains(it) }
         if (hasLegacy) {
             out = out.replace(LEGACY_RELOAD_FN, "")

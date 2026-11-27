@@ -14,9 +14,9 @@ export DEBIAN_FRONTEND=noninteractive
 # reports promise; the crypto libraries use their plain code there
 if [ -n "${CORTEX_E2E_EMULATOR:-}" ]; then
     export OPENSSL_armcap=0 GNUTLS_CPUID_OVERRIDE=0x1 NETTLE_FAT_OVERRIDE=none
-    mkdir -p /etc/gcrypt
+    sudo mkdir -p /etc/gcrypt
     printf '%s\n' arm-neon arm-aes arm-sha1 arm-sha2 arm-pmull arm-sha3 arm-sm3 arm-sm4 arm-sha512 \
-        arm-sve arm-sve2 arm-sveaes arm-svepmull arm-svesha3 arm-svesm4 > /etc/gcrypt/hwf.deny
+        arm-sve arm-sve2 arm-sveaes arm-svepmull arm-svesha3 arm-svesm4 | sudo tee /etc/gcrypt/hwf.deny >/dev/null
 fi
 
 # CORTEX_COMPAT_ONLY="redis nginx": only those packages (names as in the table), to look closer at some
@@ -52,7 +52,7 @@ package() {
         # terminal: apt-get changes the terminal's settings at its end and is stopped (SIGTTOU) for good.
         # So: --foreground, and no terminal as input.
         # shellcheck disable=SC2086 # the package list
-        timeout --foreground 900 apt-get install -y --no-install-recommends $packages < /dev/null 2>&1 | tail -n 250
+        timeout --foreground 900 sudo apt-get install -y --no-install-recommends $packages < /dev/null 2>&1 | tail -n 250
         s=${PIPESTATUS[0]}
         [ "$s" = 0 ] || { echo "apt-get failed ($s)"; exit 10; }
         echo "\$ $command"
@@ -75,7 +75,7 @@ package() {
     fi
 }
 
-apt-get update > "$OUT/apt-update.txt" 2>&1
+sudo apt-get update > "$OUT/apt-update.txt" 2>&1
 
 # Languages
 package python3 "python3" "ok" 'python3 -c "import ssl, sqlite3, json, hashlib, zlib; print(\"ok\")"'
@@ -133,7 +133,7 @@ package postgresql-client "postgresql-client" "psql (PostgreSQL)" 'psql --versio
 # but the server refuses to run as root and Cortex's root is only pretended (pg_createcluster stops at
 # "Could not change user id"), so this one is a known gap outside root mode.
 package postgresql "postgresql" "1" \
-    'service postgresql start && sleep 5 && su postgres -s /bin/sh -c "psql -tAc \"select 1\""; s=$?; service postgresql stop >/dev/null 2>&1; exit $s'
+    'sudo service postgresql start && sleep 5 && sudo su postgres -s /bin/sh -c "psql -tAc \"select 1\""; s=$?; sudo service postgresql stop >/dev/null 2>&1; exit $s'
 
 # A name in the list that is not one of the table's: a finding of its own, not an empty run
 if [ "$ONLY" != "  " ]; then

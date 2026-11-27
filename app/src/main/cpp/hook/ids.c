@@ -444,9 +444,10 @@ static int ow_lock_file(void) {
     return -1;
 }
 
-// Records the owner of a file (root's, 0:0, removes the record); with set = 0 only removes it
-static void ow_put(uint64_t dev, uint64_t ino, uid_t uid, gid_t gid, int set) {
-    if (set && uid == 0 && gid == 0) set = 0;
+// Records the owner of a file (removing the entry when it matches the default owner for its
+// directory: 0:0 in system dirs, 1000:1000 under $CORTEX_ROOT/home); with set = 0 only removes it.
+static void ow_put_for(uint64_t dev, uint64_t ino, uid_t uid, gid_t gid, uid_t def_uid, gid_t def_gid, int set) {
+    if (set && uid == def_uid && gid == def_gid) set = 0;
     // Nothing to remove without a table or records: no lock
     if (!set && !ow_maybe_any()) return;
     cortex_ow_table_t *t = ow_table(set);
@@ -523,6 +524,73 @@ static void ow_put(uint64_t dev, uint64_t ino, uid_t uid, gid_t gid, int set) {
     errno = saved_errno;
 }
 
+static void ow_put(uint64_t dev, uint64_t ino, uid_t uid, gid_t gid, int set) {
+    ow_put_for(dev, ino, uid, gid, 0, 0, set);
+}
+
+#define CORTEX_HOME_FD_WORDS 16
+static uint64_t g_home_fds[CORTEX_HOME_FD_WORDS];
+static int g_cwd_in_home = -1;
+
+static int is_in_cortex_home(const char *path) {
+    if (!path || g_cortex_root_len == 0) return 0;
+    if (strncmp(path, g_cortex_root, g_cortex_root_len) != 0) return 0;
+    const char *sub = path + g_cortex_root_len;
+    return strncmp(sub, "/home", 5) == 0 && (sub[5] == '/' || sub[5] == '\0');
+}
+
+static void home_fd_set(int fd, int in_home) {
+    if (fd < 0 || fd >= CORTEX_HOME_FD_WORDS * 64) return;
+    uint64_t mask = 1ULL << (fd & 63);
+    if (in_home) __atomic_fetch_or(&g_home_fds[fd >> 6], mask, __ATOMIC_RELAXED);
+    else __atomic_fetch_and(&g_home_fds[fd >> 6], ~mask, __ATOMIC_RELAXED);
+}
+
+static int home_fd_is(int fd) {
+    if (fd < 0 || fd >= CORTEX_HOME_FD_WORDS * 64) return 0;
+    return (__atomic_load_n(&g_home_fds[fd >> 6], __ATOMIC_RELAXED) & (1ULL << (fd & 63))) != 0;
+}
+
+static int cwd_is_home(void) {
+    int v = __atomic_load_n(&g_cwd_in_home, __ATOMIC_RELAXED);
+    if (v >= 0) return v;
+    char cwd[PATH_MAX];
+    int in_home = 0;
+#ifdef CORTEX_HOST_TEST
+    if (getcwd(cwd, sizeof(cwd)) != NULL) in_home = is_in_cortex_home(cwd);
+#else
+    ssize_t n = (ssize_t)syscall(SYS_readlinkat, AT_FDCWD, "/proc/self/cwd", cwd, sizeof(cwd) - 1);
+    if (n > 0) {
+        cwd[n] = '\0';
+        in_home = is_in_cortex_home(cwd);
+    }
+#endif
+    __atomic_store_n(&g_cwd_in_home, in_home, __ATOMIC_RELAXED);
+    return in_home;
+}
+
+static void cwd_update_chdir(const char *target) {
+    if (target && target[0] == '/' && !strstr(target, "..")) {
+        __atomic_store_n(&g_cwd_in_home, is_in_cortex_home(target), __ATOMIC_RELAXED);
+    } else {
+        __atomic_store_n(&g_cwd_in_home, -1, __ATOMIC_RELAXED);
+    }
+}
+
+static void cwd_update_fchdir(int fd) {
+    __atomic_store_n(&g_cwd_in_home, fd >= 0 ? home_fd_is(fd) : -1, __ATOMIC_RELAXED);
+}
+
+static int path_is_home_at(int dirfd, const char *path) {
+    if (g_cortex_root_len == 0) return 0;
+    if (path && path[0] == '/') {
+        if (!strstr(path, "..")) return is_in_cortex_home(path);
+        return 0;
+    }
+    if (path && strstr(path, "..")) return 0;
+    return dirfd == AT_FDCWD ? cwd_is_home() : home_fd_is(dirfd);
+}
+
 static int ow_real_fstatat(int dirfd, const char *path, struct stat *st, int flags) {
 #ifdef CORTEX_HOST_TEST
     return fstatat(dirfd, path, st, flags);
@@ -540,7 +608,7 @@ static int ow_real_fstat(int fd, struct stat *st) {
 
 // The owner a program sees for a file the kernel says is the app's (uid or gid NULL: not asked).
 // dev and ino 0: no file to look up (the default only).
-static void present_owner(uid_t *uid, gid_t *gid, uint64_t dev, uint64_t ino) {
+static void present_owner_ex(uid_t *uid, gid_t *gid, uint64_t dev, uint64_t ino, uid_t def_uid, gid_t def_gid) {
     ids_load_app();
     uid_t app_uid = __atomic_load_n(&g_app_uid, __ATOMIC_RELAXED);
     gid_t app_gid = __atomic_load_n(&g_app_gid, __ATOMIC_RELAXED);
@@ -548,8 +616,8 @@ static void present_owner(uid_t *uid, gid_t *gid, uint64_t dev, uint64_t ino) {
     int is_app_uid = uid && *uid == app_uid;
     int is_app_gid = gid && *gid == app_gid;
     if (!is_app_uid && !is_app_gid) return;
-    uid_t u = 0;
-    gid_t g = 0;
+    uid_t u = def_uid;
+    gid_t g = def_gid;
     if (ids_app_mode()) {
         u = app_uid;
         g = app_gid;
@@ -560,10 +628,14 @@ static void present_owner(uid_t *uid, gid_t *gid, uint64_t dev, uint64_t ino) {
 }
 
 // The owner a program sees for an open file or a name (NULL path: the descriptor)
-static int ow_presented_at(int dirfd, const char *path, int flags, struct stat *st) {
+static int ow_presented_at_for(int dirfd, const char *path, int flags, struct stat *st, uid_t def_uid, gid_t def_gid) {
     int ret = path ? ow_real_fstatat(dirfd, path, st, flags) : ow_real_fstat(dirfd, st);
-    if (ret == 0) present_owner(&st->st_uid, &st->st_gid, (uint64_t)st->st_dev, (uint64_t)st->st_ino);
+    if (ret == 0) present_owner_ex(&st->st_uid, &st->st_gid, (uint64_t)st->st_dev, (uint64_t)st->st_ino, def_uid, def_gid);
     return ret;
+}
+
+static int ow_presented_at(int dirfd, const char *path, int flags, struct stat *st) {
+    return ow_presented_at_for(dirfd, path, flags, st, 0, 0);
 }
 
 // chown() and its relatives: root records the new owner of a file of the app; an ordinary user may
@@ -571,8 +643,11 @@ static int ow_presented_at(int dirfd, const char *path, int flags, struct stat *
 // /dev, /sdcard) has an owner the kernel tells: there is nothing to record. (path NULL: dirfd is
 // the file.)
 static int fake_chown(int dirfd, const char *path, uid_t owner, gid_t group, int flags) {
+    int is_home = path ? path_is_home_at(dirfd, path) : home_fd_is(dirfd);
+    uid_t def_u = is_home ? 1000 : 0;
+    gid_t def_g = is_home ? 1000 : 0;
     struct stat st;
-    if (ow_presented_at(dirfd, path, flags, &st) != 0) {
+    if (ow_presented_at_for(dirfd, path, flags, &st, def_u, def_g) != 0) {
         // Only a name that is not there is an error, as before (the call was always "done")
         if (errno == ENOENT || errno == ENOTDIR || errno == ELOOP || errno == EBADF) return -1;
         return 0;
@@ -594,19 +669,22 @@ static int fake_chown(int dirfd, const char *path, uid_t owner, gid_t group, int
     int ret = path ? ow_real_fstatat(dirfd, path, &real, flags) : ow_real_fstat(dirfd, &real);
     if (ret != 0 || real.st_uid != g_app_uid) return 0;
     if (new_uid == st.st_uid && new_gid == st.st_gid) return 0;
-    ow_put((uint64_t)real.st_dev, (uint64_t)real.st_ino, new_uid, new_gid, 1);
+    ow_put_for((uint64_t)real.st_dev, (uint64_t)real.st_ino, new_uid, new_gid, def_u, def_g, 1);
     return 0;
 }
 
 // A file a process of another user just made is that user's (path NULL: the descriptor dirfd)
 static void ow_record_new_at(int dirfd, const char *path, int flags) {
     if (!ids_records_new_files()) return;
+    int is_home = path ? path_is_home_at(dirfd, path) : home_fd_is(dirfd);
+    const cortex_ids_t *ids = ids_now();
+    if (is_home && ids->e == 1000 && ids->ge == 1000) return;
     struct stat st;
     int ret = path ? ow_real_fstatat(dirfd, path, &st, flags) : ow_real_fstat(dirfd, &st);
     ids_load_app();
     if (ret != 0 || st.st_uid != g_app_uid) return;
-    const cortex_ids_t *ids = ids_now();
-    ow_put((uint64_t)st.st_dev, (uint64_t)st.st_ino, ids->e, ids->ge, 1);
+    ow_put_for((uint64_t)st.st_dev, (uint64_t)st.st_ino, ids->e, ids->ge,
+               is_home ? 1000 : 0, is_home ? 1000 : 0, 1);
 }
 
 // The record of a name about to be removed (unlink, rmdir, a rename over it): its key, or 0

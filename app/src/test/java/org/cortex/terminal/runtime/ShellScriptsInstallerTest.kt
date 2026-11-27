@@ -78,12 +78,15 @@ class ShellScriptsInstallerTest {
         ShellScriptsInstaller.ensureRootTools(root, null)
 
         val tsuFile = File(localBin, "tsu")
+        val androidSuFile = File(localBin, "android-su")
         val sudoFile = File(localBin, "sudo")
         val rootCmdFile = File(localBin, "root")
 
         assertTrue("su must still exist", suFile.exists())
         assertTrue("tsu must be installed when su exists", tsuFile.exists())
         assertTrue(tsuFile.readText().contains("exec /usr/local/bin/su \"\$@\""))
+        assertTrue("android-su must be installed when su exists", androidSuFile.exists())
+        assertTrue(androidSuFile.readText().contains("exec /usr/local/bin/su \"\$@\""))
         assertTrue("sudo must be installed when su exists", sudoFile.exists())
         assertTrue(sudoFile.readText().contains("exec /usr/local/bin/su \"\$@\""))
         assertTrue("root wrapper must be installed when su exists", rootCmdFile.exists())

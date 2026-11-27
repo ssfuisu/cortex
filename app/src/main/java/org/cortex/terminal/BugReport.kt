@@ -10,7 +10,6 @@ import androidx.core.content.FileProvider
 import org.cortex.terminal.runtime.BootstrapManager
 import org.cortex.terminal.runtime.Environment
 import org.cortex.terminal.runtime.MirrorSelector
-import org.cortex.terminal.runtime.RootMode
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -18,7 +17,7 @@ import java.util.Locale
 
 /**
  * A text file with what helps to find a problem: the app's and the phone's versions, the state of
- * the Ubuntu system and root mode, the desktop's log, and the app's own log (Android lets an app
+ * the Ubuntu system, the desktop's log, and the app's own log (Android lets an app
  * read only its own).
  * Settings > Send a bug report shares it with an app the user picks; nothing is sent otherwise.
  */
@@ -65,8 +64,7 @@ object BugReport {
             },
             "package" to context.packageName,
             "system set up for" to readOrNull(File(root, ".cortex_version"))?.trim(),
-            "current version" to BootstrapManager.CURRENT_BOOTSTRAP_VERSION.toString(),
-            "root mode" to RootMode.isEnabled(context).toString()
+            "current version" to BootstrapManager.CURRENT_BOOTSTRAP_VERSION.toString()
         )
         sections["Android"] = listOf(
             "release" to "${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})",

@@ -305,6 +305,7 @@ object ShellScriptsInstaller {
     private fun ensureApiTools(localBin: File, context: Context?) {
         val tools = listOf(
             "cortex-api" to "cortex-api.sh",
+            "cortex-audio" to "cortex-audio.sh",
             "notify-send" to "notify-send.sh",
             "cortex-sshd" to "cortex-sshd.sh",
             "cortex-desktop" to "cortex-desktop.sh",
@@ -348,22 +349,24 @@ object ShellScriptsInstaller {
             val suFile = File(localBin, "su")
             try {
                 val suScript = loadAssetScript(context, "su.sh", "#!/bin/bash\n")
-                FileInstaller.install(suFile, suScript, 448) // 0700
+                FileInstaller.install(suFile, suScript, 493) // 0755
             } catch (e: Exception) {
                 Log.e(TAG, "Skipping su script install: ${e.message}")
             }
 
             val tsuFile = File(localBin, "tsu")
+            val androidSuFile = File(localBin, "android-su")
             val sudoFile = File(localBin, "sudo")
             val rootFile = File(localBin, "root")
+            val wrappers = listOf(tsuFile, androidSuFile, sudoFile, rootFile)
             if (suFile.exists()) {
-                val tsuFallback = "#!/bin/sh\nexec /usr/local/bin/su \"\$@\"\n"
+                val tsuFallback = "#!/bin/sh\nexport CORTEX_INVOKED_AS=\"\${0##*/}\"\nexec /usr/local/bin/su \"\$@\"\n"
                 val tsuScript = loadAssetScript(context, "tsu.sh", tsuFallback)
-                for (wrapper in listOf(tsuFile, sudoFile, rootFile)) {
-                    FileInstaller.install(wrapper, tsuScript, 448)
+                for (wrapper in wrappers) {
+                    FileInstaller.install(wrapper, tsuScript, 493)
                 }
             } else {
-                for (wrapper in listOf(tsuFile, sudoFile, rootFile)) {
+                for (wrapper in wrappers) {
                     if (wrapper.exists()) {
                         try { wrapper.delete() } catch (_: Exception) {}
                     }

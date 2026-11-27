@@ -1,21 +1,19 @@
-<p>Cortex is a terminal app that runs Ubuntu 24.04 LTS on your phone. The programs are Ubuntu's own arm64 (or armhf) builds, installed with <b>apt</b> from Ubuntu's archive, and they run as ordinary processes of the app, directly on the phone's CPU and kernel.</p>
+<p>Cortex is a terminal app that runs Ubuntu 26.04 LTS on your phone. The programs are Ubuntu's own arm64 (or armhf) builds, installed with <b>apt</b> from Ubuntu's archive, and they run as ordinary processes of the app, directly on the phone's CPU and kernel.</p>
 
 <p><b>How it works, honestly:</b> a small library loaded into every program with LD_PRELOAD maps paths like /usr and /etc into the app's private storage and covers for what Android forbids an app (some system calls, hard links, SysV shared memory, other users). It is the same technique as fakechroot and fakeroot, written for Android. There is no ptrace (not PRoot) and no virtual machine, so programs run at full speed. Statically linked programs are patched once before their first start.</p>
 
 <p><b>Features</b></p>
 <ul>
 <li>apt with Ubuntu's mirrors and signatures: build-essential, Python, Node.js, Go, Rust, Java, PostgreSQL, nginx and the rest</li>
-<li>Programs see themselves as root; su, runuser and servers that drop to their own user work</li>
-<li>cortex-api no-fakeroot: a shell where programs run as an ordinary user, for tools that refuse root</li>
+<li>Starts as normal user cortex@localhost with passwordless sudo; tsu accesses Android root separately on rooted devices</li>
 <li>Tabs and sessions that come back after Android ends the app, renamable with a long press</li>
 <li>Extra keys you can define, pinch to zoom, hardware keyboard shortcuts, 14 color schemes</li>
 <li>cortex-api: notifications, clipboard, opening links and files, sharing, battery, speech</li>
 <li>Optional X11 desktop (Openbox or XFCE, Firefox) shown inside the app, with sound</li>
 <li>One-tap SSH server, notifications for local web servers you start</li>
-<li>Root mode on rooted phones: a real chroot, with cgroups for Podman and Docker</li>
 <li>50 interface languages</li>
 </ul>
 
-<p><b>What does not work without root:</b> systemd as the init system, mount, kernel modules, containers, and the GPU. Other users exist for the programs only. Servers that ask for ports below 1024 get the port 8000 above it (80 becomes 8080).</p>
+<p><b>What does not work without kernel privileges:</b> systemd as the init system, mount, kernel modules, containers, and the GPU. Users exist for Ubuntu programs only. Servers that ask for ports below 1024 get the port 8000 above it (80 becomes 8080).</p>
 
-<p>Android 7.0 or newer. Like Termux, the app targets API level 28, the last one that lets an app run programs from its own data directory. The Ubuntu base system is unpacked on the first start. Ubuntu's files stay in the app's own storage and are removed with it.</p>
+<p>Android 7.0 or newer (targetSdk 35). The Ubuntu base system is unpacked on the first start. Ubuntu's files stay in the app's own storage and are removed with it.</p>

@@ -42,17 +42,17 @@ conf_value() {
 }
 
 set_conf() {
-    mkdir -p "$(dirname "$CONF")"
-    touch "$CONF"
+    as_root mkdir -p "$(dirname "$CONF")"
+    as_root touch "$CONF"
     if grep -q "^$1=" "$CONF" 2>/dev/null; then
-        sed -i "s|^$1=.*|$1=$2|" "$CONF"
+        as_root sed -i "s|^$1=.*|$1=$2|" "$CONF"
     else
-        echo "$1=$2" >>"$CONF"
+        echo "$1=$2" | as_root tee -a "$CONF" >/dev/null
     fi
 }
 
 as_root() {
-    if [ "$(id -u)" = 0 ]; then "$@"; else sudo "$@"; fi
+    if [ -n "$R" ] || [ "$(id -u 2>/dev/null || echo 1000)" = 0 ]; then "$@"; else sudo "$@"; fi
 }
 
 # A process that runs (one that ended but was not reaped yet, a zombie, does not)
@@ -150,12 +150,15 @@ cmd_install() {
     local packages="$LIGHT_PACKAGES"
     [ "$kind" = xfce ] && packages="$XFCE_PACKAGES"
     # What was there before stays when the desktop is removed: only the packages installed here are listed
-    mkdir -p "$(dirname "$CONF")"
-    local p
+    as_root mkdir -p "$(dirname "$CONF")"
+    local p pkg_list=""
     for p in $packages; do
-        dpkg-query -W -f='${Status}\n' "$p" 2>/dev/null | grep -q '^install ok installed' || echo "$p"
-    done >>"$R/etc/cortex/desktop.packages"
-    sort -u -o "$R/etc/cortex/desktop.packages" "$R/etc/cortex/desktop.packages" 2>/dev/null
+        dpkg-query -W -f='${Status}\n' "$p" 2>/dev/null | grep -q '^install ok installed' || pkg_list="$pkg_list$p"$'\n'
+    done
+    if [ -n "$pkg_list" ]; then
+        printf '%s' "$pkg_list" | as_root tee -a "$R/etc/cortex/desktop.packages" >/dev/null
+    fi
+    as_root sort -u -o "$R/etc/cortex/desktop.packages" "$R/etc/cortex/desktop.packages" 2>/dev/null || true
     # The links Cortex made to its Android opener step aside for the real ones (update-alternatives)
     for p in x-www-browser xdg-open; do
         [ "$(readlink "/usr/bin/$p" 2>/dev/null)" = /usr/local/bin/xdg-open ] && as_root rm -f "/usr/bin/$p"
@@ -199,8 +202,7 @@ cmd_remove() {
             die "the packages could not be removed (see above); the desktop stays installed"
         as_root env DEBIAN_FRONTEND=noninteractive apt-get autoremove -y || true
     fi
-    as_root rm -f /etc/apt/sources.list.d/mozilla.list /etc/apt/preferences.d/mozilla
-    rm -f "$R/etc/cortex/desktop.packages"
+    as_root rm -f /etc/apt/sources.list.d/mozilla.list /etc/apt/preferences.d/mozilla "$R/etc/cortex/desktop.packages"
     set_conf DESKTOP ""
     echo "The desktop was removed."
 }
@@ -331,6 +333,14 @@ start_audio() {
     done
     if [ -S "$STATE/pulse.sock" ]; then
         echo "unix:$STATE/pulse.sock" >"$STATE/pulse.server"
+        if [ -d "$R/etc/alsa/conf.d" ] && [ -w "$R/etc/alsa/conf.d" ] && [ ! -e "$R/etc/alsa/conf.d/99-cortex-pulse.conf" ]; then
+            for d in "$R/usr/lib/aarch64-linux-gnu/alsa-lib" "$R/usr/lib/arm-linux-gnueabihf/alsa-lib" "$R/usr/lib/alsa-lib"; do
+                if [ -e "$d/libasound_module_pcm_pulse.so" ]; then
+                    printf 'pcm.!default {\n    type pulse\n    fallback "sysdefault"\n}\nctl.!default {\n    type pulse\n    fallback "sysdefault"\n}\n' >"$R/etc/alsa/conf.d/99-cortex-pulse.conf" 2>/dev/null || true
+                    break
+                fi
+            done
+        fi
     else
         # not one that runs on without anyone knowing its socket
         stop_audio
@@ -372,7 +382,7 @@ cmd_start() {
     # -SendPrimary=0: only what is copied (the CLIPBOARD) goes to Android's clipboard. Text that is
     # only selected (the PRIMARY) replaced what had been copied on the phone, at every selection.
     setsid Xvnc ":$display" -geometry "$size" -depth 24 -rfbunixpath "$SOCKET" -rfbunixmode 0600 -rfbport -1 \
-        -SecurityTypes None -nolisten tcp -AlwaysShared -AcceptSetDesktopSize -dpi 120 -SendPrimary=0 \
+        -SecurityTypes None -nolisten tcp -AlwaysShared -AcceptSetDesktopSize -dpi 96 -SendPrimary=0 \
         </dev/null >>"$LOG" 2>&1 9>&- &
     pid=$!
     echo "$pid" >"$STATE/xvnc.pid"

@@ -1241,6 +1241,33 @@ static void test_ids_and_owners(void) {
     ASSERT_EQ(fake_chown(AT_FDCWD, file, 0, 0, 0), 0, "a chown to root records nothing");
     ASSERT_TRUE(!ow_key_at(AT_FDCWD, file, &d, &i), "no record");
 
+    /* Files under $CORTEX_ROOT/home default to 1000:1000 (cortex:cortex) without filling owners,
+     * while explicit chown to 0:0 inside home persists and chown 1000:1000 clears the entry. */
+    char home_dir[PATH_MAX], home_file[PATH_MAX];
+    snprintf(home_dir, sizeof(home_dir), "%s/home", root);
+    mkdir(home_dir, 0755);
+    snprintf(home_file, sizeof(home_file), "%s/userfile", home_dir);
+    fd = open(home_file, O_CREAT | O_WRONLY, 0644);
+    close(fd);
+    ASSERT_EQ(stat(home_file, &st), 0, "stat home file");
+    u = st.st_uid;
+    g = st.st_gid;
+    present_owner_ex(&u, &g, (uint64_t)st.st_dev, (uint64_t)st.st_ino, 1000, 1000);
+    ASSERT_TRUE(u == 1000 && g == 1000, "home file defaults to cortex (1000:1000)");
+    g_ids.r = g_ids.e = g_ids.s = 1000;
+    g_ids.gr = g_ids.ge = g_ids.gs = 1000;
+    ow_record_new_at(AT_FDCWD, home_file, AT_SYMLINK_NOFOLLOW);
+    ASSERT_TRUE(!ow_key_at(AT_FDCWD, home_file, &d, &i), "new home file created as cortex takes no owner slot");
+    memset(&g_ids, 0, sizeof(g_ids));
+    ASSERT_EQ(fake_chown(AT_FDCWD, home_file, 0, 0, 0), 0, "root chown inside home succeeds");
+    ASSERT_TRUE(ow_key_at(AT_FDCWD, home_file, &d, &i), "root owner inside home is explicitly recorded");
+    u = st.st_uid;
+    g = st.st_gid;
+    present_owner_ex(&u, &g, (uint64_t)st.st_dev, (uint64_t)st.st_ino, 1000, 1000);
+    ASSERT_TRUE(u == 0 && g == 0, "explicit root owner inside home overrides default");
+    ASSERT_EQ(fake_chown(AT_FDCWD, home_file, 1000, 1000, 0), 0, "chown back to 1000:1000 succeeds");
+    ASSERT_TRUE(!ow_key_at(AT_FDCWD, home_file, &d, &i), "chown back to home default clears owner record");
+
     cortex_set_root(saved_root, saved_len);
     rm_rf(root);
     g_ids = saved;
@@ -2457,6 +2484,31 @@ static void test_exec_argv(void) {
     ASSERT_TRUE(is_host_interpreter("/system/bin/sh"), "Android shell");
     ASSERT_TRUE(is_host_interpreter("/data/local/tmp/x"), "outside the rootfs");
     ASSERT_TRUE(!is_host_interpreter("/r/usr/bin/python3"), "rootfs interpreter");
+
+    /* #81: shebang scripts must never expose $CORTEX_ROOT unless handled by a host interpreter */
+    const char *fake_root = "/data/user/0/org.cortex.terminal/files/cortex";
+    cortex_set_root(fake_root, strlen(fake_root));
+    ASSERT_STR_EQ(
+        script_arg_path_for("/usr/local/bin/dsh", "/data/user/0/org.cortex.terminal/files/cortex/usr/local/bin/dsh", 0, 1),
+        "/usr/local/bin/dsh",
+        "Ubuntu path keeps Ubuntu spelling");
+    ASSERT_STR_EQ(
+        script_arg_path_for("/data/user/0/org.cortex.terminal/files/cortex/usr/local/bin/dsh",
+                            "/data/user/0/org.cortex.terminal/files/cortex/usr/local/bin/dsh", 0, 1),
+        "/usr/local/bin/dsh",
+        "Android backing path spelling strips CORTEX_ROOT");
+    ASSERT_STR_EQ(
+        script_arg_path_for("./dsh", "/data/user/0/org.cortex.terminal/files/cortex/usr/local/bin/dsh", 0, 1),
+        "/usr/local/bin/dsh",
+        "relative symlink inside rootfs strips CORTEX_ROOT so realpath stays in Ubuntu");
+    ASSERT_STR_EQ(
+        script_arg_path_for("./build.sh", "/data/user/0/org.cortex.terminal/files/cortex/tmp/build.sh", 0, 0),
+        "./build.sh",
+        "relative regular script keeps caller spelling");
+    ASSERT_STR_EQ(
+        script_arg_path_for("/system/bin/sh", "/data/user/0/org.cortex.terminal/files/cortex/tmp/host.sh", 1, 0),
+        "/data/user/0/org.cortex.terminal/files/cortex/tmp/host.sh",
+        "host interpreter still receives real backing path");
     cortex_set_root("", 0);
 }
 

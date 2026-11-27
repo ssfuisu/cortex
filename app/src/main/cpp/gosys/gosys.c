@@ -41,14 +41,20 @@ enum {
 };
 
 __attribute__((section(".hdr"), used))
-static const volatile struct gosys_hdr g_hdr = { .magic = "CXGOSYS1", .version = GOSYS_VERSION };
+static const volatile struct gosys_hdr g_hdr = {
+    .magic = { 'C', 'X', 'G', 'O', 'S', 'Y', 'S', '1' },
+    .version = GOSYS_VERSION
+};
 
 // Filled by the patcher; the instructions that connect the call site to cxgo_entry
 __attribute__((section(".thunks"), used))
 static const volatile u32 g_thunks[GOSYS_THUNK_BYTES / 4];
 
 __attribute__((section(".trailer"), used))
-static const volatile struct gosys_trailer g_trailer = { .magic = "CXGOEND1", .version = GOSYS_VERSION };
+static const volatile struct gosys_trailer g_trailer = {
+    .magic = { 'C', 'X', 'G', 'O', 'E', 'N', 'D', '1' },
+    .version = GOSYS_VERSION
+};
 
 static inline const struct gosys_hdr *hdr(void) {
     const struct gosys_hdr *h = (const struct gosys_hdr *)&g_hdr;
@@ -423,16 +429,28 @@ static i64 with_execve(const struct gosys_hdr *h, u32 *held, i64 a0, i64 a1, i64
     v[n++] = (char *)path;
     for (u32 i = 1; i < argc; i++) v[n++] = argv[i];
     v[n] = 0;
-    return sc(NR_EXECVE, (i64)h->ldso, (i64)v, (i64)env, 0, 0, 0);
+    i64 er = sc(NR_EXECVE, (i64)h->ldso, (i64)v, (i64)env, 0, 0, 0);
+    if (er == -13 /* -EACCES */ && h->exec_runner_len != 0)
+        return sc(NR_EXECVE, (i64)h->exec_runner, (i64)v, (i64)env, 0, 0, 0);
+    return er;
 }
 
 // ---- The entry ---------------------------------------------------------------------------
+
+static int is_proc_version(const char *p) {
+    static const char pv[] = "/proc/version";
+    if (!p) return 0;
+    for (u64 i = 0; i < sizeof(pv); i++)
+        if (p[i] != pv[i]) return 0;
+    return 1;
+}
 
 // Rewrites the path arguments `i1` and `i2` (an index into a[], -1: none) that are absolute, makes
 // the call, and shows the program the paths it expects in what the call returns.
 static i64 with_paths(const struct gosys_hdr *h, u32 *held, i64 nr, i64 *a, int i1, int i2) {
     char *slot = 0;
     int proc_link = 0;
+    const char *orig_p = i1 >= 0 ? (const char *)a[i1] : 0;
     int idx[2] = { i1, i2 };
     for (int k = 0; k < 2; k++) {
         int i = idx[k];
@@ -444,6 +462,21 @@ static i64 with_paths(const struct gosys_hdr *h, u32 *held, i64 nr, i64 *a, int 
         a[i] = (i64)rw_path(h, p, slot + (k ? SLOT_PATH_B : SLOT_PATH_A), SLOT_PATH_CAP);
     }
     i64 r = sc(nr, a[0], a[1], a[2], a[3], a[4], a[5]);
+    if (r < 0 && (r == -13 || r == -1 || r == -2) && is_proc_version(orig_p)) {
+        // Android's SELinux blocks untrusted_app from proc_version: provide basic stat/access metadata.
+        if (nr == NR_FACCESSAT || nr == NR_FACCESSAT2) {
+            return (a[2] & 2 /* W_OK */) ? -13 : 0;
+        }
+        if (nr == NR_NEWFSTATAT && a[2]) {
+            unsigned char *st = (unsigned char *)a[2];
+            for (u64 j = 0; j < 128; j++) st[j] = 0;
+            *(u32 *)(st + 16) = 0100444u; // st_mode: S_IFREG | 0444 (aarch64 struct stat)
+            *(u32 *)(st + 20) = 1u;       // st_nlink
+            *(i64 *)(st + 48) = 64;       // st_size
+            *(u32 *)(st + 56) = 4096u;    // st_blksize
+            return 0;
+        }
+    }
     if (proc_link && r > 0) r = unmap_prefix(h, (char *)a[2], r, 0);
     return r;
 }

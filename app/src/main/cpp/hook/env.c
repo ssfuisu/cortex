@@ -16,7 +16,9 @@ static char **clean_env_for_system(char *const envp[]) {
         char first = envp[i][0];
         if (!((first == 'L' && (strncmp(envp[i], "LD_PRELOAD=", 11) == 0 ||
                                 strncmp(envp[i], "LD_LIBRARY_PATH=", 16) == 0)) ||
-              (first == 'G' && strncmp(envp[i], "GLIBC_TUNABLES=", 15) == 0))) {
+              (first == 'G' && strncmp(envp[i], "GLIBC_TUNABLES=", 15) == 0) ||
+              (first == 'C' && (strncmp(envp[i], "CORTEX_EXEC_RUNNER=", 19) == 0 ||
+                                strncmp(envp[i], "CORTEX_EXEC_BIN=", 16) == 0)))) {
             if (first == 'P' && strncmp(envp[i], "PATH=", 5) == 0) {
                 has_path = 1;
                 size_t plen = strlen(envp[i]);

@@ -54,7 +54,7 @@ class MirrorSelectorTest {
 
     @Test
     fun releaseDatesAsUbuntuWritesThem() {
-        val text = "Origin: Ubuntu\nLabel: Ubuntu\nSuite: noble-updates\nDate: Fri, 23 Oct 2026 14:21:13 UTC\nValid-Until: x\n"
+        val text = "Origin: Ubuntu\nLabel: Ubuntu\nSuite: resolute-updates\nDate: Fri, 23 Oct 2026 14:21:13 UTC\nValid-Until: x\n"
         assertEquals(1792765273000L, MirrorSelector.releaseDate(text))
         // a single-digit hour is padded with a space, not a zero
         assertEquals(1792734681000L, MirrorSelector.releaseDate("Date: Fri, 23 Oct 2026  5:51:21 UTC\n"))
@@ -66,8 +66,8 @@ class MirrorSelectorTest {
     fun theSourcesKeepSecurityOnTheOfficialServer() {
         val sources = MirrorSelector.sourcesFor(yandex)
         val stanzas = sources.split("\n\n")
-        assertTrue(stanzas[0].contains("URIs: $yandex") && stanzas[0].contains("Suites: noble noble-updates noble-backports"))
-        assertTrue(stanzas[1].contains("URIs: $OFFICIAL") && stanzas[1].contains("Suites: noble-security"))
+        assertTrue(stanzas[0].contains("URIs: $yandex") && stanzas[0].contains("Suites: resolute resolute-updates resolute-backports"))
+        assertTrue(stanzas[1].contains("URIs: $OFFICIAL") && stanzas[1].contains("Suites: resolute-security"))
         assertEquals(AptConfigurator.DEFAULT_UBUNTU_SOURCES, MirrorSelector.sourcesFor(OFFICIAL))
         assertEquals(yandex, MirrorSelector.mirrorOf(sources))
         assertEquals(OFFICIAL, MirrorSelector.mirrorOf(AptConfigurator.DEFAULT_UBUNTU_SOURCES))
@@ -90,8 +90,8 @@ class MirrorSelectorTest {
     fun anotherServerDropsThePackageListsOfTheOldOne() {
         val root = tempFolder.newFolder("rootfs")
         MirrorSelector.setMirror(root, OFFICIAL)
-        val packages = File(listsOf(root), "ports.ubuntu.com_ubuntu-ports_dists_noble_main_binary-arm64_Packages")
-        val release = File(listsOf(root), "ports.ubuntu.com_ubuntu-ports_dists_noble_InRelease")
+        val packages = File(listsOf(root), "ports.ubuntu.com_ubuntu-ports_dists_resolute_main_binary-arm64_Packages")
+        val release = File(listsOf(root), "ports.ubuntu.com_ubuntu-ports_dists_resolute_InRelease")
         packages.writeText("old")
         release.writeText("old")
 
@@ -108,7 +108,7 @@ class MirrorSelectorTest {
     fun whileAptRunsTheSourcesAndListsStay() {
         val root = tempFolder.newFolder("rootfs")
         MirrorSelector.setMirror(root, OFFICIAL)
-        val packages = File(listsOf(root), "ports.ubuntu.com_ubuntu-ports_dists_noble_main_binary-arm64_Packages")
+        val packages = File(listsOf(root), "ports.ubuntu.com_ubuntu-ports_dists_resolute_main_binary-arm64_Packages")
         packages.writeText("in use")
 
         FileLocks.tryLock(AptConfigurator.aptLockFiles(root))!!.use {

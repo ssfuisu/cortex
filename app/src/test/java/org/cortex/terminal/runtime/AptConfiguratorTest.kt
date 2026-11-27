@@ -19,7 +19,7 @@ class AptConfiguratorTest {
         val root = tempFolder.newFolder("rootfs")
         val legacyList = File(root, "etc/apt/sources.list").apply {
             parentFile?.mkdirs()
-            writeText("deb http://ports.ubuntu.com/ubuntu-ports noble main\n")
+            writeText("deb http://ports.ubuntu.com/ubuntu-ports resolute main\n")
         }
 
         AptConfigurator.ensureUbuntuSources(root)
@@ -41,7 +41,7 @@ class AptConfiguratorTest {
             writeText(
                 "Types: deb\n" +
                     "URIs: http://ports.ubuntu.com/ubuntu-ports/\n" +
-                    "Suites: noble noble-updates\n" +
+                    "Suites: resolute resolute-updates\n" +
                     "Components: main universe\n" +
                     "Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n"
             )
@@ -52,7 +52,7 @@ class AptConfiguratorTest {
         val updated = ubuntuSources.readText()
         assertTrue(updated.contains("URIs: https://ports.ubuntu.com/ubuntu-ports/"))
         assertFalse(updated.contains("http://ports.ubuntu.com/ubuntu-ports/"))
-        assertTrue(updated.contains("Suites: noble noble-updates"))
+        assertTrue(updated.contains("Suites: resolute resolute-updates"))
     }
 
     @Test
@@ -61,7 +61,7 @@ class AptConfiguratorTest {
         val customContent =
             "Types: deb\n" +
                 "URIs: https://mirror.example.org/ubuntu-ports/\n" +
-                "Suites: noble noble-security\n" +
+                "Suites: resolute resolute-security\n" +
                 "Components: main restricted\n" +
                 "Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n"
         val ubuntuSources = File(root, "etc/apt/sources.list.d/ubuntu.sources").apply {
@@ -200,10 +200,10 @@ class AptConfiguratorTest {
         val status = File(root, "var/lib/dpkg/status").apply {
             parentFile?.mkdirs()
             writeText(
-                "Package: libc6\nStatus: install ok installed\nVersion: 2.39-0ubuntu8.9\n\n" +
-                    "Package: libc-dev-bin\nStatus: install ok installed\nVersion: 2.39-0ubuntu8.9\n\n" +
-                    "Package: libc6-dev\nStatus: install ok installed\nVersion: 2.39-0ubuntu8.9\n\n" +
-                    "Package: bash\nStatus: install ok installed\nVersion: 5.2.21-2ubuntu4\n"
+                "Package: libc6\nStatus: install ok installed\nVersion: 2.43-2ubuntu2\n\n" +
+                    "Package: libc-dev-bin\nStatus: install ok installed\nVersion: 2.43-2ubuntu2\n\n" +
+                    "Package: libc6-dev\nStatus: install ok installed\nVersion: 2.43-2ubuntu2\n\n" +
+                    "Package: bash\nStatus: install ok installed\nVersion: 5.3-2ubuntu1\n"
             )
         }
 

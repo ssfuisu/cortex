@@ -290,7 +290,7 @@ func ubuntu() {
 	addrs, err := net.LookupHost("archive.ubuntu.com")
 	show("dns", len(addrs) > 0, err)
 	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Get("https://archive.ubuntu.com/ubuntu/dists/noble/InRelease")
+	resp, err := client.Get("https://archive.ubuntu.com/ubuntu/dists/resolute/InRelease")
 	if err == nil {
 		resp.Body.Close()
 		show("https", resp.StatusCode, nil)

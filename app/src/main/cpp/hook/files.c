@@ -5,6 +5,91 @@
 
 #ifndef CORTEX_HOST_TEST
 
+// Android's SELinux denies untrusted_app access to /proc/version (u:object_r:proc_version:s0).
+// Programs like LibreOffice (oosplash) check stat("/proc/version") on startup and fail with
+// "ERROR: /proc not mounted" when kernel denies it. Fall back to synthetic uname-backed metadata
+// and content only if kernel refuses access.
+static int is_proc_version_path(const char *path) {
+    return path && strcmp(path, "/proc/version") == 0;
+}
+
+static size_t format_proc_version_line(char *buf, size_t cap) {
+    struct utsname u;
+    memset(&u, 0, sizeof(u));
+    if (uname(&u) != 0) {
+        int n = snprintf(buf, cap, "Linux version 6.1.0-android (cortex@localhost) (gcc) #1 SMP PREEMPT\n");
+        return (n > 0 && (size_t)n < cap) ? (size_t)n : (cap > 0 ? cap - 1 : 0);
+    }
+    int n = snprintf(buf, cap, "Linux version %s (cortex@localhost) (gcc) %s\n",
+                     u.release[0] ? u.release : "6.1.0-android",
+                     u.version[0] ? u.version : "#1 SMP PREEMPT");
+    if (n <= 0) return 0;
+    return ((size_t)n < cap) ? (size_t)n : cap - 1;
+}
+
+static void fill_synthetic_proc_version_stat(struct stat *st) {
+    if (!st) return;
+    char line[384];
+    size_t len = format_proc_version_line(line, sizeof(line));
+    memset(st, 0, sizeof(*st));
+    st->st_mode = S_IFREG | 0444;
+    st->st_nlink = 1;
+    st->st_uid = 0;
+    st->st_gid = 0;
+    st->st_ino = 0x70726f63UL;
+    st->st_blksize = 4096;
+    st->st_size = (off_t)len;
+}
+
+static void fill_synthetic_proc_version_statx(struct statx *sx) {
+    if (!sx) return;
+    char line[384];
+    size_t len = format_proc_version_line(line, sizeof(line));
+    memset(sx, 0, sizeof(*sx));
+    sx->stx_mask = STATX_BASIC_STATS;
+    sx->stx_blksize = 4096;
+    sx->stx_nlink = 1;
+    sx->stx_uid = 0;
+    sx->stx_gid = 0;
+    sx->stx_mode = S_IFREG | 0444;
+    sx->stx_ino = 0x70726f63ULL;
+    sx->stx_size = (uint64_t)len;
+}
+
+static int is_proc_version_fallback_err(int err) {
+    return err == EACCES || err == EPERM || err == ENOENT;
+}
+
+static int open_synthetic_proc_version(int flags) {
+    if ((flags & O_ACCMODE) != O_RDONLY) {
+        errno = EACCES;
+        return -1;
+    }
+    char line[384];
+    size_t len = format_proc_version_line(line, sizeof(line));
+    int fd = -1;
+#ifdef __NR_memfd_create
+    fd = (int)syscall(__NR_memfd_create, "proc_version", MFD_CLOEXEC);
+    if (fd >= 0) {
+        ssize_t w = write(fd, line, len);
+        if (w == (ssize_t)len && lseek(fd, 0, SEEK_SET) == 0) {
+            if ((flags & O_CLOEXEC) == 0) fcntl(fd, F_SETFD, 0);
+            return fd;
+        }
+        syscall(SYS_close, fd);
+    }
+#endif
+    int pfd[2];
+    if (pipe2(pfd, (flags & O_CLOEXEC) ? O_CLOEXEC : 0) == 0) {
+        ssize_t w = write(pfd[1], line, len);
+        syscall(SYS_close, pfd[1]);
+        if (w == (ssize_t)len) return pfd[0];
+        syscall(SYS_close, pfd[0]);
+    }
+    errno = EACCES;
+    return -1;
+}
+
 #ifndef O_TMPFILE
 #define O_TMPFILE (020000000 | 00200000)
 #endif
@@ -163,15 +248,25 @@ int open(const char *pathname, int flags, ...) {
         va_start(args, flags);
         mode_t mode = va_arg(args, mode_t);
         va_end(args);
+        int is_home = path_is_home_at(AT_FDCWD, target);
         int is_new = (flags & O_CREAT) && ids_records_new_files() && ow_name_is_new(AT_FDCWD, target);
         int fd = orig_open(target, flags, mode);
         if (fd < 0 && (flags & O_CREAT) && refused_in_repaired_dir(AT_FDCWD, target)) fd = orig_open(target, flags, mode);
         if (fd < 0 && errno == EACCES) fd = open_as_root_after_refusal(AT_FDCWD, target, flags, mode, 1);
-        if (fd >= 0 && is_new) ow_record_new_at(fd, NULL, 0);
+        if (fd >= 0) {
+            home_fd_set(fd, is_home);
+            if (is_new) ow_record_new_at(fd, NULL, 0);
+        }
         return fd;
     }
+    int is_home = path_is_home_at(AT_FDCWD, target);
     int fd = orig_open(target, flags);
     if (fd < 0 && errno == EACCES) fd = open_as_root_after_refusal(AT_FDCWD, target, flags, 0, 0);
+    if (fd < 0 && is_proc_version_fallback_err(errno) && is_proc_version_path(pathname)) {
+        fd = open_synthetic_proc_version(flags);
+        is_home = 0;
+    }
+    if (fd >= 0) home_fd_set(fd, is_home);
     return fd;
 }
 
@@ -195,15 +290,25 @@ int openat(int dirfd, const char *pathname, int flags, ...) {
         va_start(args, flags);
         mode_t mode = va_arg(args, mode_t);
         va_end(args);
+        int is_home = path_is_home_at(dirfd, target);
         int is_new = (flags & O_CREAT) && ids_records_new_files() && ow_name_is_new(dirfd, target);
         int fd = orig_openat(dirfd, target, flags, mode);
         if (fd < 0 && (flags & O_CREAT) && refused_in_repaired_dir(dirfd, target)) fd = orig_openat(dirfd, target, flags, mode);
         if (fd < 0 && errno == EACCES) fd = open_as_root_after_refusal(dirfd, target, flags, mode, 1);
-        if (fd >= 0 && is_new) ow_record_new_at(fd, NULL, 0);
+        if (fd >= 0) {
+            home_fd_set(fd, is_home);
+            if (is_new) ow_record_new_at(fd, NULL, 0);
+        }
         return fd;
     }
+    int is_home = path_is_home_at(dirfd, target);
     int fd = orig_openat(dirfd, target, flags);
     if (fd < 0 && errno == EACCES) fd = open_as_root_after_refusal(dirfd, target, flags, 0, 0);
+    if (fd < 0 && is_proc_version_fallback_err(errno) && is_proc_version_path(pathname)) {
+        fd = open_synthetic_proc_version(flags);
+        is_home = 0;
+    }
+    if (fd >= 0) home_fd_set(fd, is_home);
     return fd;
 }
 
@@ -222,13 +327,17 @@ int __openat_2(int dirfd, const char *pathname, int flags) {
 }
 
 // openat2/open_how local definition: avoids depending on <linux/openat2.h>,
-// which old NDK/cross headers may lack. Layout matches UAPI ver0
-// (flags, mode, resolve = 3 x __u64); extra fields are never read here.
+// which old NDK/cross headers may lack. glibc 2.43+ declares openat2(const struct open_how *).
+#if defined(__GLIBC__) && (__GLIBC__ > 2 || (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 43))
+typedef const struct open_how *cortex_open_how_arg_t;
+#else
 struct cortex_open_how {
     uint64_t flags;
     uint64_t mode;
     uint64_t resolve;
 };
+typedef struct cortex_open_how *cortex_open_how_arg_t;
+#endif
 #ifndef RESOLVE_BENEATH
 #define RESOLVE_BENEATH 0x08
 #endif
@@ -251,9 +360,9 @@ static long call_orig_syscall(long number, unsigned long a1, unsigned long a2, u
 // Rewrites absolute paths like openat, then delegates; on ENOSYS (kernels
 // without openat2, e.g. Android < 5.6) emulates with plain openat instead of
 // trusting every caller to implement the fallback itself.
-int openat2(int dirfd, const char *pathname, struct cortex_open_how *how, size_t usize) {
-    static int (*orig_openat2)(int, const char *, struct cortex_open_how *, size_t) = NULL;
-    if (!orig_openat2) orig_openat2 = (int (*)(int, const char *, struct cortex_open_how *, size_t))dlsym(RTLD_NEXT, "openat2");
+int openat2(int dirfd, const char *pathname, cortex_open_how_arg_t how, size_t usize) {
+    static int (*orig_openat2)(int, const char *, cortex_open_how_arg_t, size_t) = NULL;
+    if (!orig_openat2) orig_openat2 = (int (*)(int, const char *, cortex_open_how_arg_t, size_t))dlsym(RTLD_NEXT, "openat2");
     if (!pathname) {
         errno = EFAULT;
         return -1;
@@ -270,10 +379,18 @@ int openat2(int dirfd, const char *pathname, struct cortex_open_how *how, size_t
     const char *target = (pathname[0] == '/') ? rewrite_path(pathname, buf, sizeof(buf)) : pathname;
     if (orig_openat2) {
         int ret = orig_openat2(dirfd, target, how, usize);
+        if (ret < 0 && how && (how->flags & O_ACCMODE) == O_RDONLY &&
+            is_proc_version_fallback_err(errno) && is_proc_version_path(pathname)) {
+            return open_synthetic_proc_version((int)(how->flags & 0xffffffffu));
+        }
         if (ret >= 0 || errno != ENOSYS) return ret;
     }
 #ifdef __NR_openat2
     long sret = call_orig_syscall(__NR_openat2, (unsigned long)dirfd, (unsigned long)target, (unsigned long)how, (unsigned long)usize, 0, 0);
+    if (sret < 0 && how && (how->flags & O_ACCMODE) == O_RDONLY &&
+        is_proc_version_fallback_err(errno) && is_proc_version_path(pathname)) {
+        return open_synthetic_proc_version((int)(how->flags & 0xffffffffu));
+    }
     if (sret >= 0 || errno != ENOSYS) {
         return (int)sret;
     }
@@ -348,7 +465,21 @@ FILE *fopen(const char *pathname, const char *mode) {
             errno = EACCES;
         }
     }
-    if (f && is_new) ow_record_new_at(fileno(f), NULL, 0);
+    if (!f && is_proc_version_fallback_err(errno) && is_proc_version_path(pathname)) {
+        if (mode && (mode[0] != 'r' || strchr(mode, '+'))) {
+            errno = EACCES;
+        } else {
+            int pfd = open_synthetic_proc_version(O_RDONLY | ((mode && strchr(mode, 'e')) ? O_CLOEXEC : 0));
+            if (pfd >= 0) {
+                f = fdopen(pfd, mode ? mode : "r");
+                if (!f) close(pfd);
+            }
+        }
+    }
+    if (f) {
+        home_fd_set(fileno(f), path_is_home_at(AT_FDCWD, target));
+        if (is_new) ow_record_new_at(fileno(f), NULL, 0);
+    }
     return f;
 }
 
@@ -558,7 +689,12 @@ int stat(const char *pathname, struct stat *statbuf) {
         const char *retry = usrmerge_retry_path(target, alt, sizeof(alt));
         if (retry) ret = orig_stat(retry, statbuf);
     }
-    if (ret == 0) apply_stat_emulation(statbuf);
+    if (ret != 0 && is_proc_version_fallback_err(errno) && is_proc_version_path(pathname)) {
+        fill_synthetic_proc_version_stat(statbuf);
+        errno = 0;
+        return 0;
+    }
+    if (ret == 0) apply_stat_emulation_for(statbuf, path_is_home_at(AT_FDCWD, target));
     return ret;
 }
 
@@ -683,7 +819,12 @@ int lstat(const char *pathname, struct stat *statbuf) {
         readlink_result_may_change(pathname, (long long)statbuf->st_size)) {
         link_size_as_read(AT_FDCWD, pathname, target, statbuf);
     }
-    if (ret == 0) apply_stat_emulation(statbuf);
+    if (ret != 0 && is_proc_version_fallback_err(errno) && is_proc_version_path(pathname)) {
+        fill_synthetic_proc_version_stat(statbuf);
+        errno = 0;
+        return 0;
+    }
+    if (ret == 0) apply_stat_emulation_for(statbuf, path_is_home_at(AT_FDCWD, target));
     return ret;
 }
 
@@ -706,7 +847,12 @@ int fstatat(int dirfd, const char *pathname, struct stat *statbuf, int flags) {
         readlink_result_may_change(pathname, (long long)statbuf->st_size)) {
         link_size_as_read(dirfd, pathname, target, statbuf);
     }
-    if (ret == 0) apply_stat_emulation(statbuf);
+    if (ret != 0 && is_proc_version_fallback_err(errno) && is_proc_version_path(pathname)) {
+        fill_synthetic_proc_version_stat(statbuf);
+        errno = 0;
+        return 0;
+    }
+    if (ret == 0) apply_stat_emulation_for(statbuf, path_is_home_at(dirfd, target));
     return ret;
 }
 
@@ -715,7 +861,15 @@ int fstat(int fd, struct stat *statbuf) {
     static int (*orig_fstat)(int, struct stat *) = NULL;
     if (!orig_fstat) orig_fstat = (int (*)(int, struct stat *))cortex_next((void *)fstat, "fstat");
     int ret = orig_fstat ? orig_fstat(fd, statbuf) : -1;
-    if (ret == 0) apply_stat_emulation(statbuf);
+    if (ret == 0) apply_stat_emulation_for(statbuf, home_fd_is(fd));
+    return ret;
+}
+
+static int maybe_proc_version_stat(int ret, const char *pathname, void *statbuf) {
+    if (ret != 0 && is_proc_version_fallback_err(errno) && is_proc_version_path(pathname)) {
+        fill_synthetic_proc_version_stat((struct stat *)statbuf);
+        return 0;
+    }
     return ret;
 }
 
@@ -725,7 +879,8 @@ int __xstat(int ver, const char *pathname, struct stat *statbuf) {
     if (!orig___xstat) orig___xstat = (int (*)(int, const char *, struct stat *))dlsym(RTLD_NEXT, "__xstat");
     char buf[PATH_MAX];
     const char *target = rewrite_path(pathname, buf, sizeof(buf));
-    return orig___xstat ? orig___xstat(ver, target, statbuf) : stat(target, statbuf);
+    int ret = orig___xstat ? orig___xstat(ver, target, statbuf) : stat(target, statbuf);
+    return maybe_proc_version_stat(ret, pathname, statbuf);
 }
 
 int __xstat64(int ver, const char *pathname, struct stat64 *statbuf) {
@@ -733,7 +888,8 @@ int __xstat64(int ver, const char *pathname, struct stat64 *statbuf) {
     if (!orig___xstat64) orig___xstat64 = (int (*)(int, const char *, struct stat64 *))dlsym(RTLD_NEXT, "__xstat64");
     char buf[PATH_MAX];
     const char *target = rewrite_path(pathname, buf, sizeof(buf));
-    return orig___xstat64 ? orig___xstat64(ver, target, statbuf) : stat(target, (struct stat *)statbuf);
+    int ret = orig___xstat64 ? orig___xstat64(ver, target, statbuf) : stat(target, (struct stat *)statbuf);
+    return maybe_proc_version_stat(ret, pathname, statbuf);
 }
 
 int __lxstat(int ver, const char *pathname, struct stat *statbuf) {
@@ -741,7 +897,8 @@ int __lxstat(int ver, const char *pathname, struct stat *statbuf) {
     if (!orig___lxstat) orig___lxstat = (int (*)(int, const char *, struct stat *))dlsym(RTLD_NEXT, "__lxstat");
     char buf[PATH_MAX];
     const char *target = rewrite_path(pathname, buf, sizeof(buf));
-    return orig___lxstat ? orig___lxstat(ver, target, statbuf) : lstat(target, statbuf);
+    int ret = orig___lxstat ? orig___lxstat(ver, target, statbuf) : lstat(target, statbuf);
+    return maybe_proc_version_stat(ret, pathname, statbuf);
 }
 
 int __lxstat64(int ver, const char *pathname, struct stat64 *statbuf) {
@@ -749,7 +906,8 @@ int __lxstat64(int ver, const char *pathname, struct stat64 *statbuf) {
     if (!orig___lxstat64) orig___lxstat64 = (int (*)(int, const char *, struct stat64 *))dlsym(RTLD_NEXT, "__lxstat64");
     char buf[PATH_MAX];
     const char *target = rewrite_path(pathname, buf, sizeof(buf));
-    return orig___lxstat64 ? orig___lxstat64(ver, target, statbuf) : lstat(target, (struct stat *)statbuf);
+    int ret = orig___lxstat64 ? orig___lxstat64(ver, target, statbuf) : lstat(target, (struct stat *)statbuf);
+    return maybe_proc_version_stat(ret, pathname, statbuf);
 }
 
 int __fxstatat(int ver, int dirfd, const char *pathname, struct stat *statbuf, int flags) {
@@ -757,7 +915,8 @@ int __fxstatat(int ver, int dirfd, const char *pathname, struct stat *statbuf, i
     if (!orig___fxstatat) orig___fxstatat = (int (*)(int, int, const char *, struct stat *, int))dlsym(RTLD_NEXT, "__fxstatat");
     char buf[PATH_MAX];
     const char *target = (pathname && pathname[0] == '/') ? rewrite_path(pathname, buf, sizeof(buf)) : pathname;
-    return orig___fxstatat ? orig___fxstatat(ver, dirfd, target, statbuf, flags) : fstatat(dirfd, target, statbuf, flags);
+    int ret = orig___fxstatat ? orig___fxstatat(ver, dirfd, target, statbuf, flags) : fstatat(dirfd, target, statbuf, flags);
+    return maybe_proc_version_stat(ret, pathname, statbuf);
 }
 
 int __fxstatat64(int ver, int dirfd, const char *pathname, struct stat64 *statbuf, int flags) {
@@ -765,7 +924,8 @@ int __fxstatat64(int ver, int dirfd, const char *pathname, struct stat64 *statbu
     if (!orig___fxstatat64) orig___fxstatat64 = (int (*)(int, int, const char *, struct stat64 *, int))dlsym(RTLD_NEXT, "__fxstatat64");
     char buf[PATH_MAX];
     const char *target = (pathname && pathname[0] == '/') ? rewrite_path(pathname, buf, sizeof(buf)) : pathname;
-    return orig___fxstatat64 ? orig___fxstatat64(ver, dirfd, target, statbuf, flags) : fstatat(dirfd, target, (struct stat *)statbuf, flags);
+    int ret = orig___fxstatat64 ? orig___fxstatat64(ver, dirfd, target, statbuf, flags) : fstatat(dirfd, target, (struct stat *)statbuf, flags);
+    return maybe_proc_version_stat(ret, pathname, statbuf);
 }
 
 // Hook statx
@@ -779,6 +939,11 @@ int statx(int dirfd, const char *pathname, int flags, unsigned int mask, struct 
     char buf[PATH_MAX];
     const char *target = (pathname && pathname[0] == '/') ? rewrite_path(pathname, buf, sizeof(buf)) : pathname;
     int ret = orig_statx ? orig_statx(dirfd, target, flags, mask, statxbuf) : -1;
+    if (ret != 0 && is_proc_version_fallback_err(errno) && is_proc_version_path(pathname)) {
+        fill_synthetic_proc_version_statx(statxbuf);
+        errno = 0;
+        return 0;
+    }
     // The file as the kernel names it, before an emulated link changes its inode number: the key of
     // a recorded owner
     uint64_t ow_dev = 0, ow_ino = 0;
@@ -824,10 +989,12 @@ int statx(int dirfd, const char *pathname, int flags, unsigned int mask, struct 
         }
     }
     if (ret == 0 && statxbuf) {
+        int is_home = path_is_home_at(dirfd, target);
         uid_t uid = (uid_t)statxbuf->stx_uid;
         gid_t gid = (gid_t)statxbuf->stx_gid;
-        present_owner((statxbuf->stx_mask & STATX_UID) ? &uid : NULL, (statxbuf->stx_mask & STATX_GID) ? &gid : NULL,
-                      ow_dev, ow_ino);
+        present_owner_ex((statxbuf->stx_mask & STATX_UID) ? &uid : NULL,
+                         (statxbuf->stx_mask & STATX_GID) ? &gid : NULL,
+                         ow_dev, ow_ino, is_home ? 1000 : 0, is_home ? 1000 : 0);
         statxbuf->stx_uid = (uint32_t)uid;
         statxbuf->stx_gid = (uint32_t)gid;
     }

@@ -63,22 +63,26 @@ static int find_dynamic_linker(const char *cortex_root, const char *cmd, char *o
 
     const char *aarch64_cands[] = {
         "/usr/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1",
+        "/usr/lib/aarch64-linux-gnu/ld-2.43.so",
         "/usr/lib/aarch64-linux-gnu/ld-2.39.so",
         "/lib/ld-linux-aarch64.so.1",
         "/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1",
         "/usr/lib/ld-linux-aarch64.so.1",
         "/usr/lib64/ld-linux-aarch64.so.1",
         "/lib64/ld-linux-aarch64.so.1",
+        "/lib/aarch64-linux-gnu/ld-2.43.so",
         "/lib/aarch64-linux-gnu/ld-2.39.so",
         NULL
     };
 
     const char *armhf_cands[] = {
         "/usr/lib/arm-linux-gnueabihf/ld-linux-armhf.so.3",
+        "/usr/lib/arm-linux-gnueabihf/ld-2.43.so",
         "/usr/lib/arm-linux-gnueabihf/ld-2.39.so",
         "/lib/ld-linux-armhf.so.3",
         "/lib/arm-linux-gnueabihf/ld-linux-armhf.so.3",
         "/usr/lib/ld-linux-armhf.so.3",
+        "/lib/arm-linux-gnueabihf/ld-2.43.so",
         "/lib/arm-linux-gnueabihf/ld-2.39.so",
         "/usr/lib/arm-linux-gnueabi/ld-linux.so.3",
         "/lib/arm-linux-gnueabi/ld-linux.so.3",
@@ -88,6 +92,7 @@ static int find_dynamic_linker(const char *cortex_root, const char *cmd, char *o
     const char *x86_64_cands[] = {
         "/lib64/ld-linux-x86-64.so.2",
         "/usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2",
+        "/usr/lib/x86_64-linux-gnu/ld-2.43.so",
         "/usr/lib/x86_64-linux-gnu/ld-2.39.so",
         "/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2",
         NULL
@@ -285,6 +290,7 @@ struct pty_spawn {
     const char *slave_name;
     const char *cwd;
     const char *notice; // written to the terminal first, or NULL
+    const char *runner; // libcortex-exec.so in nativeLibraryDir for targetSdk >= 29
     struct pty_exec exec[3]; // tried in order
     int max_fd;
 };
@@ -329,7 +335,11 @@ static void pty_child(const struct pty_spawn *s) {
     struct termios tios;
     memset(&tios, 0, sizeof(struct termios));
     if (tcgetattr(STDIN_FILENO, &tios) == 0) {
-        tios.c_iflag |= (ICRNL | IXON);
+        tios.c_iflag |= (ICRNL | IXON
+#ifdef IUTF8
+                         | IUTF8
+#endif
+                        );
         tios.c_oflag |= (OPOST | ONLCR);
         tios.c_cflag |= (CS8 | CREAD);
         tios.c_lflag |= (ISIG | ICANON | ECHO | ECHOE | ECHOK | ECHOCTL | ECHOKE | IEXTEN);
@@ -356,6 +366,12 @@ static void pty_child(const struct pty_spawn *s) {
     for (int i = 0; i < 3 && s->exec[i].path; i++) {
         execve(s->exec[i].path, s->exec[i].argv, s->exec[i].envp);
         int err = errno;
+        if (err == EACCES && s->runner && s->runner[0] != '\0' &&
+            s->exec[i].argv && s->exec[i].argv[0] &&
+            strcmp(s->exec[i].argv[0], s->exec[i].path) == 0) {
+            execve(s->runner, s->exec[i].argv, s->exec[i].envp);
+            err = errno;
+        }
         if (s->exec[i].failure) {
             pty_write(s->exec[i].failure);
             pty_write_errno(err);
@@ -463,10 +479,12 @@ Java_org_cortex_terminal_pty_PtyNative_createPty(
 
     // Everything the child does is worked out here, before it exists (see struct pty_spawn)
     const char *cortex_root = NULL;
+    const char *exec_runner = NULL;
     for (int i = 0; i < envCount; i++) {
         if (strncmp(envp[i], "CORTEX_ROOT=", 12) == 0) {
             cortex_root = envp[i] + 12;
-            break;
+        } else if (strncmp(envp[i], "CORTEX_EXEC_RUNNER=", 19) == 0) {
+            exec_runner = envp[i] + 19;
         }
     }
     int in_root = cortex_root && cortex_root[0] != '\0' && strncmp(cmd, cortex_root, strlen(cortex_root)) == 0;
@@ -481,6 +499,7 @@ Java_org_cortex_terminal_pty_PtyNative_createPty(
     memset(&spawn, 0, sizeof(spawn));
     spawn.slave_name = slaveName;
     spawn.cwd = cwd;
+    spawn.runner = exec_runner;
     spawn.max_fd = (int)max_fd;
     // A host program (outside the rootfs, e.g. /system/bin/sh) gets an environment without Cortex's
     // variables.
@@ -518,7 +537,7 @@ Java_org_cortex_terminal_pty_PtyNative_createPty(
             } else {
                 snprintf(notice, sizeof(notice),
                     "Cortex: Dynamic linker (ld.so) not found in %s!\n"
-                    "Ubuntu 24.04 environment may be corrupted or still initializing.\n"
+                    "Ubuntu 26.04 environment may be corrupted or still initializing.\n"
                     "Falling back to Android system shell...\n\n", cortex_root);
                 spawn.notice = notice;
                 struct pty_exec android_sh = { "/system/bin/sh", fallback_sh_argv, sys_env, NULL };

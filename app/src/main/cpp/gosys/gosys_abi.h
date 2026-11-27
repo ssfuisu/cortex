@@ -15,7 +15,7 @@
 #include <stdint.h>
 
 #ifndef GOSYS_VERSION
-#define GOSYS_VERSION 3u  // raised when the code or its header changes: patched programs are patched again
+#define GOSYS_VERSION 4u  // raised when the code or its header changes: patched programs are patched again
 #endif
 
 // The scratch memory for rewritten paths: a small state area and 64 slots, in zero-filled memory the
@@ -48,12 +48,13 @@ struct gosys_hdr {
     uint32_t hook_len;       // libcortex-hook.so; 0: none
     uint32_t libs_len;       // the rootfs's library directories, ':' separated
     uint32_t runner_len;     // the rootfs's bash, or env without it; 0: Ubuntu programs cannot be started
-    uint32_t reserved;
+    uint32_t exec_runner_len;// nativeLibraryDir libcortex-exec.so for targetSdk >= 29; 0: none
     char root[GOSYS_ROOT_MAX];
     char ldso[GOSYS_PATH_MAX];
     char hook[GOSYS_PATH_MAX];
     char libs[GOSYS_LIBS_MAX];
     char runner[GOSYS_PATH_MAX];
+    char exec_runner[GOSYS_PATH_MAX];
 };
 
 #define GOSYS_FLAG_RUNNER_IS_BASH 1u  // gosys_hdr.flags

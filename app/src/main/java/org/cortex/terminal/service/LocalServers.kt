@@ -16,7 +16,6 @@ import androidx.preference.PreferenceManager
 import org.cortex.terminal.LocaleHelper
 import org.cortex.terminal.R
 import org.cortex.terminal.api.ApiServer
-import org.cortex.terminal.runtime.RootMode
 import java.io.File
 import java.net.InetAddress
 import java.net.InetSocketAddress
@@ -30,9 +29,8 @@ import java.util.concurrent.TimeUnit
  * jupyter...), to open them in the browser or copy their address; it goes when the server does.
  *
  * The hook reports each listen() in run/cortex/listening/PORT ("PID NAME"). Programs that do not
- * go through the C library (Go) and root mode's sessions are found in /proc/net/tcp, as long as
- * Android lets the app read it. A port counts once it answers HTTP, so that SSH, databases and the
- * like stay quiet.
+ * go through the C library (Go) are found in /proc/net/tcp, as long as Android lets the app read
+ * it. A port counts once it answers HTTP, so that SSH, databases and the like stay quiet.
  */
 class LocalServers(private val context: Context, private val root: File) {
     private val dir = File(root, "run/cortex/listening")
@@ -239,7 +237,7 @@ class LocalServers(private val context: Context, private val root: File) {
 
     private fun procListening(): Set<Int>? {
         if (SystemClock.elapsedRealtime() < procRetryAt) return null
-        val uids = if (RootMode.isEnabled(context)) setOf(Process.myUid(), 0) else setOf(Process.myUid())
+        val uids = setOf(Process.myUid())
         var any = false
         val ports = mutableSetOf<Int>()
         for (name in listOf("/proc/net/tcp", "/proc/net/tcp6")) {

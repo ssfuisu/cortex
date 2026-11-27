@@ -185,7 +185,7 @@ static const char *rewrite_path(const char *path, char *buffer, size_t bufsize) 
 }
 
 // Whether the rootfs keeps bin (pair CORTEX_USRMERGE_BIN) or sbin as a symlink into /usr, as
-// Ubuntu 24.04 does. Checked once per process with one readlink().
+// Ubuntu 26.04 does. Checked once per process with one readlink().
 static int rootfs_pair_is_merged(int pair) {
     static int known[3] = { 0, -1, -1 };
     if (known[pair] >= 0) return known[pair];

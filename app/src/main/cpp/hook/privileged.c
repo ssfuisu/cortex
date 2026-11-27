@@ -636,7 +636,7 @@ long syscall(long number, ...) {
 
 #ifdef __NR_openat2
     if (number == __NR_openat2) {
-        return (long)openat2((int)arg1, (const char *)arg2, (struct cortex_open_how *)arg3, (size_t)arg4);
+        return (long)openat2((int)arg1, (const char *)arg2, (cortex_open_how_arg_t)arg3, (size_t)arg4);
     }
 #endif
 
@@ -769,6 +769,61 @@ long syscall(long number, ...) {
     }
 
     return call_orig_syscall(number, arg1, arg2, arg3, arg4, arg5, arg6);
+}
+
+static void cortex_read_hostname(char *out, size_t cap) {
+    if (cap == 0) return;
+    if (g_cortex_root[0] != '\0') {
+        char path[PATH_MAX];
+        size_t n = cortex_append(path, sizeof(path), 0, g_cortex_root, g_cortex_root_len);
+        cortex_append(path, sizeof(path), n, "/etc/hostname", 13);
+        int fd = (int)syscall(SYS_openat, AT_FDCWD, path, O_RDONLY | O_CLOEXEC, 0);
+        if (fd >= 0) {
+            char buf[256];
+            ssize_t r = (ssize_t)syscall(SYS_read, fd, buf, sizeof(buf) - 1);
+            syscall(SYS_close, fd);
+            if (r > 0) {
+                size_t len = 0;
+                while (len < (size_t)r && buf[len] != '\n' && buf[len] != '\r' && buf[len] != ' ' && buf[len] != '\t') {
+                    len++;
+                }
+                if (len > 0) {
+                    if (len >= cap) len = cap - 1;
+                    memcpy(out, buf, len);
+                    out[len] = '\0';
+                    return;
+                }
+            }
+        }
+    }
+    cortex_copy_cstr(out, cap, "localhost");
+}
+
+int gethostname(char *name, size_t len) {
+    if (!name) {
+        errno = EFAULT;
+        return -1;
+    }
+    char host[256];
+    cortex_read_hostname(host, sizeof(host));
+    size_t hlen = strlen(host);
+    if (len == 0 || hlen >= len) {
+        if (len > 0) memcpy(name, host, len);
+        errno = ENAMETOOLONG;
+        return -1;
+    }
+    memcpy(name, host, hlen + 1);
+    return 0;
+}
+
+int uname(struct utsname *buf) {
+    static int (*orig_uname)(struct utsname *) = NULL;
+    if (!orig_uname) orig_uname = (int (*)(struct utsname *))dlsym(RTLD_NEXT, "uname");
+    int ret = orig_uname ? orig_uname(buf) : (int)call_orig_syscall(SYS_uname, (unsigned long)buf, 0, 0, 0, 0, 0);
+    if (ret == 0 && buf) {
+        cortex_read_hostname(buf->nodename, sizeof(buf->nodename));
+    }
+    return ret;
 }
 
 #endif /* !CORTEX_HOST_TEST */

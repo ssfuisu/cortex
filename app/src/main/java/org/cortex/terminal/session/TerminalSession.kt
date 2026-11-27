@@ -7,7 +7,6 @@ import org.cortex.terminal.emulator.TerminalEmulator
 import org.cortex.terminal.pty.PtyProcess
 import org.cortex.terminal.runtime.BootstrapManager
 import org.cortex.terminal.runtime.Environment
-import org.cortex.terminal.runtime.RootMode
 import java.io.File
 import java.io.IOException
 import java.util.concurrent.Executors
@@ -45,21 +44,16 @@ class TerminalSession(
     /** 1-based position of this session in the drawer, for notification texts. */
     var numberProvider: (() -> Int)? = null
 
-    /** Whether the session runs as real root in a chroot (root mode was on when it started). */
-    @Volatile
-    var isRoot = false
-        private set
-
     /** Where the shell starts instead of the home directory (a session brought back), if it still exists. */
     var startDirectory: String? = null
 
     /** Output shown, dimmed, before the shell starts: the end of a session brought back. */
     var restoredOutput: String? = null
 
-    /** The shell's directory now (not known for root sessions, whose shell is under su). */
+    /** The shell's directory now, when it is running. */
     fun currentDirectory(): String? {
         val pid = ptyProcess?.pid ?: return null
-        if (isRoot || !isRunning) return null
+        if (!isRunning) return null
         return try {
             android.system.Os.readlink("/proc/$pid/cwd").takeIf { it.startsWith("/") }
         } catch (e: Exception) {
@@ -87,19 +81,6 @@ class TerminalSession(
             arrayOf("-l", "-i") // Interactive login shell
         } else {
             emptyArray()
-        }
-
-        if (RootMode.isEnabled(context)) {
-            val launch = RootMode.sessionLaunch(context, env)
-            if (launch != null) {
-                isRoot = true
-                shell = launch.command
-                args = launch.args
-                ptyEnv = launch.env
-                cwd = launch.cwd
-            } else {
-                Log.e(tag, "Root mode is on, but its helper is missing: starting a normal session")
-            }
         }
 
         try {
@@ -142,12 +123,6 @@ class TerminalSession(
                     val duration = System.currentTimeMillis() - startTime
                     Log.i(tag, "Process exited with code $code after ${duration}ms")
                     isRunning = false
-                    if (isRoot && code != 0 && duration <= 5000) {
-                        // su refused, or root is gone: say where root mode is turned off.
-                        val hint = "\r\n" + context.getString(R.string.root_session_failed) + "\r\n"
-                        val bytes = hint.toByteArray(Charsets.UTF_8)
-                        emulator.processInput(bytes, 0, bytes.size)
-                    }
                     if (code != 0) {
                         val msg = "\r\n[Process completed (code $code) - press Enter]\r\n"
                         emulator.processInput(msg.toByteArray(), 0, msg.length)
@@ -194,8 +169,18 @@ class TerminalSession(
         Thread(runnable, "Cortex-PtyWriter").apply { isDaemon = true }
     }
 
+    internal var testOutputObserver: ((ByteArray) -> Unit)? = null
+
+    internal fun markRunningForTest(running: Boolean) {
+        isRunning = running
+    }
+
     fun write(bytes: ByteArray) {
         if (!isRunning || writeExecutor.isShutdown) return
+        testOutputObserver?.let { observer ->
+            observer(bytes)
+            return
+        }
         try {
             writeExecutor.execute {
                 if (!isRunning) return@execute

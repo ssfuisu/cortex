@@ -159,6 +159,11 @@ static int go_make_header(struct gosys_hdr *h) {
         h->libs_len = (uint32_t)used;
         memcpy(h->libs, buf, used);
     }
+    const char *exec_runner = getenv("CORTEX_EXEC_RUNNER");
+    if (exec_runner && exec_runner[0] == '/' && strlen(exec_runner) < GOSYS_PATH_MAX) {
+        h->exec_runner_len = (uint32_t)strlen(exec_runner);
+        memcpy(h->exec_runner, exec_runner, h->exec_runner_len);
+    }
     if (h->ldso_len == 0 || h->runner_len == 0) h->runner_len = 0; // Ubuntu programs cannot be started
     return 0;
 }

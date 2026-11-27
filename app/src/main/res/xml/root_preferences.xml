@@ -76,7 +76,7 @@
             app:useSimpleSummaryProvider="true" />
         <ListPreference
             app:key="desktop_scale"
-            app:defaultValue="100"
+            app:defaultValue="65"
             app:entries="@array/desktop_scale_entries"
             app:entryValues="@array/desktop_scale_values"
             app:title="@string/pref_desktop_scale_title"
@@ -131,14 +131,6 @@
             app:key="documents_enabled"
             app:summary="@string/pref_documents_summary"
             app:title="@string/pref_documents_title" />
-    </PreferenceCategory>
-
-    <PreferenceCategory app:title="@string/pref_cat_root">
-        <SwitchPreferenceCompat
-            app:defaultValue="false"
-            app:key="root_mode"
-            app:summary="@string/pref_root_mode_summary"
-            app:title="@string/pref_root_mode_title" />
     </PreferenceCategory>
 
     <PreferenceCategory app:title="@string/pref_cat_support">

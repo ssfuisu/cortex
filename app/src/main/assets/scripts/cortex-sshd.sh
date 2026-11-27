@@ -83,10 +83,14 @@ show_addresses() {
     fi
 }
 
+as_root() {
+    if [ -n "$R" ] || [ "$(id -u 2>/dev/null || echo 1000)" = 0 ]; then "$@"; else sudo "$@"; fi
+}
+
 write_config() {
     local port="$1"
-    mkdir -p "${CONF%/*}" || die "cannot create ${CONF%/*}"
-    cat > "$CONF.new" <<EOF
+    as_root mkdir -p "${CONF%/*}" || die "cannot create ${CONF%/*}"
+    cat <<EOF | as_root tee "$CONF.new" >/dev/null || die "cannot write $CONF"
 # Written by cortex-sshd ("cortex-sshd start -p PORT" changes the port). Settings of your own go in
 # another file of this directory: this one comes first, so its values count.
 Port $port
@@ -99,7 +103,7 @@ KbdInteractiveAuthentication no
 PrintMotd no
 PidFile ${PIDFILE#"$R"}
 EOF
-    mv "$CONF.new" "$CONF" || die "cannot write $CONF"
+    as_root mv "$CONF.new" "$CONF" || die "cannot write $CONF"
 }
 
 ensure_installed() {
@@ -107,7 +111,7 @@ ensure_installed() {
     echo "Installing openssh-server (once)..."
     # Without what it recommends: systemd's login and resolver (which would make /etc/resolv.conf a
     # link to one that does not run), python3 for ssh-import-id, xauth
-    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends openssh-server ||
+    as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends openssh-server ||
         die "openssh-server could not be installed"
     [ -x "$SSHD" ] || die "$SSHD is missing after installing openssh-server"
 }
@@ -143,11 +147,11 @@ do_start() {
     write_config "${port:-$(configured_port)}"
     port="$(configured_port)"
     # Host keys, made once; the directory where sshd's unprivileged part runs
-    ssh-keygen -A >/dev/null 2>&1 || true
-    mkdir -p "$R/run/sshd" && chmod 755 "$R/run/sshd"
+    as_root ssh-keygen -A >/dev/null 2>&1 || true
+    as_root mkdir -p "$R/run/sshd" && as_root chmod 755 "$R/run/sshd"
     mkdir -p "${LOG%/*}"
-    "$SSHD" -t || die "sshd does not accept its configuration (see above)"
-    "$SSHD" -E "$LOG" || die "sshd did not start (see $LOG)"
+    as_root "$SSHD" -t || die "sshd does not accept its configuration (see above)"
+    as_root "$SSHD" -E "$LOG" || die "sshd did not start (see $LOG)"
     local i
     for i in 1 2 3 4 5 6 7 8 9 10; do
         pid="$(running_pid)" && break
@@ -166,13 +170,13 @@ do_stop() {
         echo "The SSH server is not running."
         return 0
     fi
-    kill "$pid" 2>/dev/null
+    as_root kill "$pid" 2>/dev/null
     for i in 1 2 3 4 5 6 7 8 9 10; do
         kill -0 "$pid" 2>/dev/null || break
         sleep 0.3
     done
-    kill -0 "$pid" 2>/dev/null && kill -9 "$pid" 2>/dev/null
-    rm -f "$PIDFILE"
+    kill -0 "$pid" 2>/dev/null && as_root kill -9 "$pid" 2>/dev/null
+    as_root rm -f "$PIDFILE"
     echo "The SSH server is stopped."
 }
 

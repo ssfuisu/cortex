@@ -445,20 +445,28 @@ static void load_app_ids(void) {
     __atomic_store_n(&g_app_uid, uid, __ATOMIC_RELAXED);
 }
 
-// The owner a program sees (ids.c): root's for the app's files unless recorded otherwise
-static void present_owner(uid_t *uid, gid_t *gid, uint64_t dev, uint64_t ino);
+// The owner a program sees (ids.c): root's for the app's files unless in /home or recorded otherwise
+static void present_owner_ex(uid_t *uid, gid_t *gid, uint64_t dev, uint64_t ino, uid_t def_uid, gid_t def_gid);
+
+static void present_owner(uid_t *uid, gid_t *gid, uint64_t dev, uint64_t ino) {
+    present_owner_ex(uid, gid, dev, ino, 0, 0);
+}
 
 __attribute__((unused)) static void present_owner_as_root(uid_t *uid, gid_t *gid) {
     present_owner(uid, gid, 0, 0);
 }
 
-// What the stat() family returns: emulated hard links as real ones, the app's files as root's
-// (or as the owner chown() gave them).
-static void apply_stat_emulation(struct stat *st) {
+// What the stat() family returns: emulated hard links as real ones, the app's files as their
+// default owner (0:0 in system paths, 1000:1000 under /home, or the owner chown() gave them).
+static void apply_stat_emulation_for(struct stat *st, int is_home) {
     if (!st) return;
     uint64_t dev = (uint64_t)st->st_dev, ino = (uint64_t)st->st_ino;
     apply_emulated_hardlink(st);
-    present_owner(&st->st_uid, &st->st_gid, dev, ino);
+    present_owner_ex(&st->st_uid, &st->st_gid, dev, ino, is_home ? 1000 : 0, is_home ? 1000 : 0);
+}
+
+static void apply_stat_emulation(struct stat *st) {
+    apply_stat_emulation_for(st, 0);
 }
 
 static int real_fstatat(int dirfd, const char *path, struct stat *st, int flags) {

@@ -20,6 +20,14 @@ int faccessat(int dirfd, const char *pathname, int mode, int flags) {
         return -1;
     }
 
+    if (is_proc_version_path(pathname)) {
+        if ((mode & W_OK) != 0 || (mode & X_OK) != 0) {
+            errno = EACCES;
+            return -1;
+        }
+        return 0;
+    }
+
     if (mode == F_OK) {
         return 0;
     }
@@ -609,14 +617,18 @@ int chdir(const char *path) {
     if (!orig_chdir) orig_chdir = (int (*)(const char *))dlsym(RTLD_NEXT, "chdir");
     char buf[PATH_MAX];
     const char *target = rewrite_path(path, buf, sizeof(buf));
-    return orig_chdir ? orig_chdir(target) : -1;
+    int ret = orig_chdir ? orig_chdir(target) : -1;
+    if (ret == 0) cwd_update_chdir(target);
+    return ret;
 }
 
 // Hook fchdir
 int fchdir(int fd) {
     static int (*orig_fchdir)(int) = NULL;
     if (!orig_fchdir) orig_fchdir = (int (*)(int))dlsym(RTLD_NEXT, "fchdir");
-    return orig_fchdir ? orig_fchdir(fd) : -1;
+    int ret = orig_fchdir ? orig_fchdir(fd) : -1;
+    if (ret == 0) cwd_update_fchdir(fd);
+    return ret;
 }
 
 // Hook getcwd

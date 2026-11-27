@@ -10,9 +10,9 @@ and every other -dev package.
 The overlay is the stock libc6-dev with its four dependencies (libc-dev-bin, libcrypt-dev,
 linux-libc-dev, rpcsvc-proto), registered in dpkg's database the way dpkg would have done it. The
 only change to the stock metadata: the exact "libc6 (= version)" and "libcrypt1 (= version)" in
-Depends become "at least". Headers and static libraries are the same in every 2.39.x security
+Depends become "at least". Headers and static libraries are the same in every 2.43.x security
 update, while the runtime stays the patched libc6 that the app ships, so the pairing is sound for
-any 2.39 libc6, which is what lets the same overlay serve fresh installs and old ones.
+any 2.43 libc6, which is what lets the same overlay serve fresh installs and old ones.
 
 The result is a tar.gz with root-relative paths:
   usr/...                                   the package files
@@ -38,9 +38,9 @@ import tempfile
 
 PACKAGES = ("libc6-dev", "libc-dev-bin", "libcrypt-dev", "linux-libc-dev", "rpcsvc-proto")
 TRIPLETS = {"arm64": "aarch64-linux-gnu", "armhf": "arm-linux-gnueabihf"}
-GLIBC_SERIES = "2.39"
+GLIBC_SERIES = "2.43"
 DEFAULT_MIRROR = "https://ports.ubuntu.com/ubuntu-ports/"
-DEFAULT_SUITES = ("noble", "noble-updates", "noble-security")
+DEFAULT_SUITES = ("resolute", "resolute-updates", "resolute-security")
 
 STATUS_PATH = "var/lib/cortex/devpkgs/status"
 INFO_DIR = "var/lib/dpkg/info/"

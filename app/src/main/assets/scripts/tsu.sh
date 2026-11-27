@@ -1,12 +1,8 @@
 #!/bin/sh
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-# su tells tsu, sudo and root apart by this name (they differ in root mode)
-CORTEX_INVOKED_AS="$(basename "$0")"
-export CORTEX_INVOKED_AS
-if [ -x "$SCRIPT_DIR/su" ]; then
-    exec "$SCRIPT_DIR/su" "$@"
-elif [ -x /usr/local/bin/su ]; then
-    exec /usr/local/bin/su "$@"
-else
-    exec su "$@"
+# Wrapper invoking su.sh while preserving the called name (`sudo`, `su`, `tsu`, `android-su`, `root`).
+export CORTEX_INVOKED_AS="${0##*/}"
+SELF_DIR="${0%/*}"
+if [ "$SELF_DIR" != "$0" ] && [ -x "$SELF_DIR/su" ]; then
+    exec "$SELF_DIR/su" "$@"
 fi
+exec /usr/local/bin/su "$@"

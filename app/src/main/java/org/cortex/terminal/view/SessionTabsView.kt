@@ -27,7 +27,7 @@ class SessionTabsView @JvmOverloads constructor(
      * [title] is what a screen reader says ("Session 2"); the tab itself shows the number, or the
      * [name] the user gave the session.
      */
-    class Tab(val title: String, val isRoot: Boolean, val name: String? = null)
+    class Tab(val title: String, val name: String? = null)
 
     var onSelect: ((Int) -> Unit)? = null
     /** A long press on a tab: rename its session */
@@ -72,7 +72,7 @@ class SessionTabsView @JvmOverloads constructor(
     /** Shows these tabs, the one at [activeIndex] being the session on screen. */
     fun update(newTabs: List<Tab>, activeIndex: Int) {
         val unchanged = activeIndex == active && newTabs.size == tabs.size &&
-            newTabs.indices.all { newTabs[it].title == tabs[it].title && newTabs[it].isRoot == tabs[it].isRoot && newTabs[it].name == tabs[it].name }
+            newTabs.indices.all { newTabs[it].title == tabs[it].title && newTabs[it].name == tabs[it].name }
         tabs = newTabs
         val activeChanged = activeIndex != active
         active = activeIndex
@@ -128,8 +128,7 @@ class SessionTabsView @JvmOverloads constructor(
             )
             isClickable = true
             isFocusable = true
-            // The ROOT badge is seen, so it is said as well
-            contentDescription = if (tab.isRoot) "${tab.title}, ${context.getString(R.string.session_root_badge)}" else tab.title
+            contentDescription = tab.title
             setOnClickListener {
                 if (index != active) it.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                 onSelect?.invoke(index)
@@ -150,11 +149,6 @@ class SessionTabsView @JvmOverloads constructor(
                 ellipsize = android.text.TextUtils.TruncateAt.END
             }
         })
-        if (tab.isRoot) {
-            row.addView(text(context.getString(R.string.session_root_badge), 9f, p.danger, true).apply {
-                setPadding(dp(6), 0, 0, 0)
-            })
-        }
         if (isActive) {
             val close = text("✕", 12f, p.textDim, false).apply {
                 gravity = Gravity.CENTER

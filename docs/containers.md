@@ -1,6 +1,8 @@
 # Containers (Podman, Docker) on Cortex
 
-Short version: **containers need root mode.** In normal mode Cortex is an ordinary app, and Android doesn't let an app create namespaces, mount file systems or touch cgroups, which is exactly what a container runtime does. No amount of library tricks changes that, so `podman run` or `dockerd` won't work there. If you just want to run a program, install it with `apt` and run it directly, it's the same Ubuntu.
+> **Note:** In-app root chroot mode was removed in Cortex 1.29.0. Android does not allow unprivileged apps to create Linux namespaces, mount file systems, or manipulate cgroups, so `podman` and `dockerd` are unsupported inside Cortex.
+
+Historical instructions (for earlier releases with root chroot mode): Android doesn't let an app create namespaces, mount file systems or touch cgroups, which is exactly what a container runtime does. No amount of library tricks changes that, so `podman run` or `dockerd` won't work there. If you just want to run a program, install it with `apt` and run it directly, it's the same Ubuntu.
 
 On a rooted phone, root mode (*Settings > Root mode*) gives you a real chroot with real root, and from 1.27.7 on it also sets up `/sys/fs/cgroup` the way Ubuntu does. That's enough for Podman on many kernels. Android kernels differ a lot between phones though, so treat this as "should work, here's what to try" and not as a promise.
 

@@ -101,7 +101,7 @@ echo "== the file system"
 debs=${CORTEX_GO_TEST_DEBS:-$work/debs}
 if ! ls "$debs"/bash_*_arm64.deb >/dev/null 2>&1; then
   mkdir -p "$debs/state/lists/partial" "$debs/cache/archives/partial"
-  echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports noble main" > "$debs/src.list"
+  echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports resolute main" > "$debs/src.list"
   : > "$debs/status"
   apt_opts=(-o Dir::State="$debs/state" -o Dir::State::status="$debs/status" -o Dir::Cache="$debs/cache"
     -o Dir::Etc::SourceList="$debs/src.list" -o Dir::Etc::SourceParts=/dev/null -o APT::Architecture=arm64
@@ -119,7 +119,7 @@ cp -L "$cross/ld-linux-aarch64.so.1" "$root/lib/ld-linux-aarch64.so.1"
 ln -sfn usr/bin "$root/bin"
 ln -sf bash "$root/usr/bin/sh"
 cp "$hook" "$root/usr/lib/libcortex-hook.so"
-echo 'PRETTY_NAME="Fake Ubuntu 24.04"' > "$root/etc/os-release"
+echo 'PRETTY_NAME="Fake Ubuntu 26.04"' > "$root/etc/os-release"
 printf 'nameserver 8.8.8.8\n' > "$root/etc/resolv.conf"
 printf '127.0.0.1 localhost\n10.9.8.7 fake.example\n' > "$root/etc/hosts"
 cat > "$work/hello.c" <<'EOF'
@@ -338,9 +338,9 @@ int main(void) {
 }
 EOF
 aarch64-linux-gnu-gcc -O2 -o "$root/usr/bin/shelltest" "$work/shell.c"
-expected_shell='system: PRETTY_NAME="Fake Ubuntu 24.04"
+expected_shell='system: PRETTY_NAME="Fake Ubuntu 26.04"
 system status: 3
-popen r: PRETTY_NAME="Fake Ubuntu 24.04" status 0
+popen r: PRETTY_NAME="Fake Ubuntu 26.04" status 0
 popen w status: 0
 system(NULL): 1'
 shell_out=$(via_hook "/usr/bin/shelltest")

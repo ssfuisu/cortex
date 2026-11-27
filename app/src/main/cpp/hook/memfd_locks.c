@@ -169,7 +169,13 @@ static int cortex_fcntl(int fd, int cmd, void *arg, const char *symbol, int (**o
         }
         __atomic_store_n(orig_slot, orig, __ATOMIC_RELAXED);
     }
-    if (!fcntl_is_lock_cmd(cmd)) return orig(fd, cmd, arg);
+    if (!fcntl_is_lock_cmd(cmd)) {
+        int ret = orig(fd, cmd, arg);
+        if (ret >= 0 && (cmd == F_DUPFD || cmd == F_DUPFD_CLOEXEC)) {
+            home_fd_set(ret, home_fd_is(fd));
+        }
+        return ret;
+    }
     int ret;
     if (memfd_locks_denied_for_test(fd)) {
         ret = -1;

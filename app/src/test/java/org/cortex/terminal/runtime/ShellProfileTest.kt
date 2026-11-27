@@ -190,7 +190,7 @@ class ShellProfileTest {
 
         val bashrc = File(home, ".bashrc").readText()
         assertTrue(bashrc.startsWith("# ubuntu skel bashrc\n"))
-        assertTrue(bashrc.endsWith("PS1='\\w ${d} '\n"))
+        assertTrue(bashrc.endsWith("PS1='\\u@\\h:\\w\\$ '\n"))
         assertEquals("# ubuntu skel profile\n", File(home, ".profile").readText())
     }
 

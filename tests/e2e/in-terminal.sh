@@ -26,7 +26,7 @@ fi
 # ~/.cortex but the keys bar), as the run's output is kept as an artifact.
 (cd / && tar -cf "$OUT/app-config.tar" --ignore-failed-read --exclude=etc/ssl --exclude=etc/ld.so.cache \
     etc/profile etc/profile.d etc/bash.bashrc etc/apt etc/dpkg etc/passwd etc/group \
-    etc/hosts etc/resolv.conf etc/nsswitch.conf etc/environment etc/cortex etc/skel usr/local usr/sbin/policy-rc.d \
+    etc/hosts etc/hostname etc/sudoers etc/sudoers.d etc/resolv.conf etc/nsswitch.conf etc/environment etc/cortex etc/skel usr/local usr/sbin/policy-rc.d \
     usr/sbin/ldconfig usr/sbin/start-stop-daemon usr/sbin/mandb usr/lib/locale/C.UTF-8 usr/lib/locale/en_US.UTF-8 \
     var/lib/dpkg/status var/lib/cortex 2>/dev/null; cd "$HOME" && tar -rf "$OUT/app-config.tar" -C / --ignore-failed-read \
     "$(printf '%s' "$HOME" | sed 's#^/##')/.bashrc" "$(printf '%s' "$HOME" | sed 's#^/##')/.profile" "$(printf '%s' "$HOME" | sed 's#^/##')/.bash_profile" \
@@ -76,9 +76,12 @@ expect() {
 echo "Cortex end-to-end test"
 
 # The system
-check os-release grep -q 'VERSION_ID="24.04"' /etc/os-release
+check os-release grep -q 'VERSION_ID="26.04"' /etc/os-release
 expect dpkg-arch "${CORTEX_E2E_ARCH:-arm64}" dpkg --print-architecture
-expect id-root "uid=0(root)" id
+expect id-cortex "uid=1000(cortex)" id
+expect hostname-localhost "localhost" hostname
+expect sudo-root "uid=0(root)" sudo -n id
+expect proc-version "Linux" cat /proc/version
 expect bash-arrays ok bash -c 'declare -A m=([a]=ok); echo "${m[a]}"'
 # The system users and groups every Ubuntu has (packages' scripts use them), and sudo as a guide types it
 expect base-users "man:x:6:12:" getent passwd man
@@ -119,13 +122,13 @@ hard_links_between_processes() {
 }
 export -f hard_links_between_processes
 expect hard-links-shared "links 2 then 1, same inode" hard_links_between_processes
-# The files Cortex makes are root's, the user programs run as (test -O compares the owner with geteuid())
-check own-files bash -c 'f=$(mktemp) && [ -O "$f" ] && [ -G "$f" ] && [ "$(stat -c %u:%g "$f")" = 0:0 ]; s=$?; rm -f "$f"; exit $s'
-# Other users (ids.c): runuser becomes the user, its files are its own, root takes them back with
-# sudo; cortex-api no-fakeroot runs as the app's ordinary user; chown gives a file an owner
-expect users-runuser "nobody 65534:65534 root" bash -c 'runuser -u nobody -- bash -c "f=\$(mktemp); echo \$(id -un) \$(stat -c %u:%g \$f) \$(sudo id -un); rm -f \$f"'
+# The files Cortex makes belong to the active user (cortex 1000:1000 by default)
+check own-files bash -c 'f=$(mktemp) && [ -O "$f" ] && [ -G "$f" ] && [ "$(stat -c %u:%g "$f")" = 1000:1000 ]; s=$?; rm -f "$f"; exit $s'
+# Other users (ids.c): sudo elevates to root; runuser becomes the user, its files are its own;
+# cortex-api no-fakeroot runs as the app's ordinary user; chown gives a file an owner
+expect users-runuser "nobody 65534:65534 root" bash -c 'sudo runuser -u nobody -- bash -c "f=\$(mktemp); echo \$(id -un) \$(stat -c %u:%g \$f); rm -f \$f"; su -c "id -un"'
 expect users-no-fakeroot "cortex yes root" bash -c 'cortex-api no-fakeroot bash -c "echo \$(id -un) \$([ \$(id -u) -ne 0 ] && echo yes) \$(sudo id -un)"'
-check users-chown bash -c 'f=$(mktemp) && chown nobody:nogroup "$f" && [ "$(stat -c %U:%G "$f")" = nobody:nogroup ]; s=$?; rm -f "$f"; exit $s'
+check users-chown bash -c 'f=$(mktemp) && sudo chown nobody:nogroup "$f" && [ "$(stat -c %U:%G "$f")" = nobody:nogroup ]; s=$?; rm -f "$f"; exit $s'
 check sha256sum bash -c 'echo hi | sha256sum | grep -q ^98ea6e4f216f2fb4b69fff9b3a44842c38686ca685f3f55dc48c5d3fb1107be4'
 check shared-storage bash -c 'echo hi > "$0/written-by-ubuntu.txt" && [ "$(cat "$0/written-by-ubuntu.txt")" = hi ]' "$OUT"
 
@@ -179,8 +182,8 @@ fi
 # Packages from Ubuntu's archive. The app comes without package lists: the first install runs
 # "apt-get update" by itself (/usr/local/bin/apt-get).
 if [ -z "$NO_APT" ]; then
-    expect apt-install "package lists are empty" apt-get install -y --no-install-recommends hello python3-minimal
-    check apt-update apt-get update
+    expect apt-install "package lists are empty" sudo apt-get install -y --no-install-recommends hello python3-minimal
+    check apt-update sudo apt-get update
     expect hello "Hello, world!" hello
     expect python3 "4" python3 -c 'print(2 + 2)'
     # A lock on a memfd, which Android's SELinux policy refuses an app (PHP's opcache keeps its lock so)
@@ -215,7 +218,7 @@ ssh_login() {
     cortex-sshd key < ~/.ssh/e2e.pub || return 1
     local out s
     out="$(timeout 60 ssh -p 8022 -i ~/.ssh/e2e -o BatchMode=yes -o StrictHostKeyChecking=no \
-        -o UserKnownHostsFile=/dev/null root@127.0.0.1 'echo ssh-login-ok as $(id -un) in $PWD' 2>&1)"
+        -o UserKnownHostsFile=/dev/null cortex@127.0.0.1 'echo ssh-login-ok as $(id -un) in $PWD' 2>&1)"
     s=$?
     echo "$out"
     cortex-sshd stop
@@ -223,7 +226,7 @@ ssh_login() {
 }
 export -f ssh_login
 if [ -z "$NO_APT" ]; then
-    expect ssh-server "ssh-login-ok as root" ssh_login
+    expect ssh-server "ssh-login-ok as cortex" ssh_login
 else
     skip ssh-server "openssh-server is a package"
 fi
@@ -232,9 +235,9 @@ fi
 # Unix socket for the app (RFB), takes X programs on DISPLAY, and has shared memory (MIT-SHM, which
 # the hook emulates). Only the server and xdpyinfo: the whole desktop is a large download.
 x_server() {
-    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends tigervnc-standalone-server x11-utils \
+    sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends tigervnc-standalone-server x11-utils \
         >/dev/null 2>&1 || { echo "apt-get install failed"; return 1; }
-    mkdir -p /etc/cortex && echo "DESKTOP=light" > /etc/cortex/desktop.conf
+    sudo mkdir -p /etc/cortex && echo "DESKTOP=light" | sudo tee /etc/cortex/desktop.conf >/dev/null
     # no desktop session is installed here: a stand-in that runs as long as the X server
     local stub=/tmp/e2e-desktop-stub
     mkdir -p "$stub" && printf '#!/bin/bash\nexec -a dbus-launch sleep 600\n' > "$stub/dbus-launch" && chmod +x "$stub/dbus-launch"
@@ -251,7 +254,7 @@ x_server() {
     # a login shell of the terminal finds the running desktop on its own
     bash -lc 'echo "terminal DISPLAY=$DISPLAY"' | grep "DISPLAY=:$display" || s=1
     cortex-desktop stop
-    rm -rf /etc/cortex/desktop.conf "$stub"
+    sudo rm -rf /etc/cortex/desktop.conf "$stub"
     [ "$s" = 0 ] || { echo "--- desktop log"; tail -n 30 ~/.cortex/desktop.log; cat /tmp/xdpyinfo.txt | head -20; }
     return $s
 }
