@@ -116,14 +116,42 @@ check "getspnam reads the shadow file of the rootfs" test "$out" = "$expected_sh
 prog kept_child <<'EOC'
 #define _GNU_SOURCE
 #include <fcntl.h>
+#include <spawn.h>
 #include <stdio.h>
-#include <unistd.h>
+#include <stdlib.h>
 #include <sys/syscall.h>
-int main(void) {
+#include <sys/wait.h>
+#include <unistd.h>
+extern char **environ;
+int main(int argc, char **argv) {
+    if (argc > 1) {
+        int extra = atoi(argv[1]);
+        printf("posix_spawn 3=%s extra=%s\n",
+               fcntl(3, F_GETFD) >= 0 ? "kept" : "gone",
+               fcntl(extra, F_GETFD) < 0 ? "closed" : "open");
+        return 0;
+    }
     close(3);
     syscall(SYS_close_range, 3u, ~0u, 0);
     printf("descriptor 3 after close(): %s\n", fcntl(3, F_GETFD) >= 0 ? "kept" : "gone");
-    return 0;
+    fflush(stdout);
+    int extra = open("/dev/null", O_RDONLY);
+    if (extra <= 3) return 2;
+    char extra_str[16];
+    snprintf(extra_str, sizeof(extra_str), "%d", extra);
+    posix_spawn_file_actions_t fa;
+    posix_spawn_file_actions_init(&fa);
+    posix_spawn_file_actions_addclose(&fa, 3);
+    posix_spawn_file_actions_addclosefrom_np(&fa, 3);
+    pid_t pid = 0;
+    char *args[] = { "kept_child", extra_str, NULL };
+    int rc = posix_spawn(&pid, "/bin/kept_child", &fa, NULL, args, environ);
+    posix_spawn_file_actions_destroy(&fa);
+    close(extra);
+    if (rc != 0) return 3;
+    int st = 0;
+    waitpid(pid, &st, 0);
+    return WIFEXITED(st) ? WEXITSTATUS(st) : 4;
 }
 EOC
 prog kept_parent <<'EOC'
@@ -145,9 +173,12 @@ int main(int argc, char **argv) {
     return 3;
 }
 EOC
+mkdir -p "$work/root/bin" && cp "$work/kept_child" "$work/root/bin/kept_child"
 out=$(run "$work/kept_parent" "$work/root/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1" "$work/hook.so" "$work/root/lib/aarch64-linux-gnu" "$work/kept_child")
-check "a descriptor that is the translator's memory file stays open" test "$out" = "descriptor 3 after close(): kept"
-[ "$out" = "descriptor 3 after close(): kept" ] || echo "        got: $out"
+want="descriptor 3 after close(): kept
+posix_spawn 3=kept extra=closed"
+check "a descriptor that is the translator's memory file stays open" test "$out" = "$want"
+[ "$out" = "$want" ] || echo "        got: $out"
 
 # A program that found no translator's files tells the ones it starts, which then do not look (the
 # look is a system call to /proc/self/fd in every program that is started)

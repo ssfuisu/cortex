@@ -481,6 +481,39 @@ void closefrom(int lowfd) {
     close_range(lowfd < 0 ? 0U : (unsigned int)lowfd, ~0U, 0);
 }
 
+// glibc's posix_spawn() executes file_actions inside the vfork child via direct syscalls (bypassing
+// close() / close_range() hooks), so filter kept translator descriptors while building the actions
+// list (Python 3.14 subprocess.Popen passes POSIX_SPAWN_CLOSEFROM=3 by default).
+int posix_spawn_file_actions_addclose(posix_spawn_file_actions_t *file_actions, int fd) {
+    static int (*orig_addclose)(posix_spawn_file_actions_t *, int) = NULL;
+    if (!orig_addclose) {
+        orig_addclose = (int (*)(posix_spawn_file_actions_t *, int))dlsym(RTLD_NEXT, "posix_spawn_file_actions_addclose");
+    }
+    if (g_kept_fd_count > 0 && is_kept_fd(fd)) return 0;
+    return orig_addclose ? orig_addclose(file_actions, fd) : ENOSYS;
+}
+
+int posix_spawn_file_actions_addclosefrom_np(posix_spawn_file_actions_t *file_actions, int from) {
+    static int (*orig_addclosefrom)(posix_spawn_file_actions_t *, int) = NULL;
+    if (!orig_addclosefrom) {
+        orig_addclosefrom = (int (*)(posix_spawn_file_actions_t *, int))dlsym(RTLD_NEXT, "posix_spawn_file_actions_addclosefrom_np");
+    }
+    if (!orig_addclosefrom) return ENOSYS;
+    if (from < 0 || g_kept_fd_count == 0) return orig_addclosefrom(file_actions, from);
+
+    int cur = from;
+    for (int i = 0; i < g_kept_fd_count; i++) {
+        int k = g_kept_fds[i];
+        if (k < cur) continue;
+        for (int fd = cur; fd < k; fd++) {
+            int r = posix_spawn_file_actions_addclose(file_actions, fd);
+            if (r != 0) return r;
+        }
+        cur = k + 1;
+    }
+    return orig_addclosefrom(file_actions, cur);
+}
+
 static int close_range_all(unsigned int first, unsigned int last, int flags) {
     static int (*orig_close_range)(unsigned int, unsigned int, int) = NULL;
     if (!orig_close_range) {
