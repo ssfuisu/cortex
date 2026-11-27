@@ -1298,6 +1298,12 @@ static int is_in_cortex_root(const char *path) {
            (path[g_cortex_root_len] == '/' || path[g_cortex_root_len] == '\0');
 }
 
+static const char *strip_cortex_root(const char *path) {
+    if (!is_in_cortex_root(path)) return path;
+    const char *stripped = path + g_cortex_root_len;
+    return stripped[0] != '\0' ? stripped : "/";
+}
+
 // Scripts interpreted inside Ubuntu must receive the Ubuntu-visible path rather than the
 // Android backing path ($CORTEX_ROOT/...), so symlinks and ESM module URLs do not leak it (#81).
 static const char *script_arg_path_for(const char *caller_path, const char *target, int is_host, int target_is_link) {
@@ -1306,8 +1312,7 @@ static const char *script_arg_path_for(const char *caller_path, const char *targ
         if (caller_path && caller_path[0] != '/' && !target_is_link) {
             return caller_path;
         }
-        const char *stripped = target + g_cortex_root_len;
-        return stripped[0] != '\0' ? stripped : "/";
+        return strip_cortex_root(target);
     }
     if (caller_path && caller_path[0] != '/') return caller_path;
     return target;

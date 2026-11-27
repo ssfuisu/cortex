@@ -51,7 +51,12 @@ static const char *select_exec_target(const char *target, char *resolved, size_t
     resolve_symlinks(target, resolved, resolved_size, 0);
     probe_exec_file(resolved, probe);
     if (probe->is_elf && !is_ld_linux(resolved)) return resolved;
-    if (strcmp(resolved, target) != 0) probe_exec_file(target, probe);
+    if (strcmp(resolved, target) != 0) {
+        struct exec_probe target_probe;
+        probe_exec_file(target, &target_probe);
+        // Keep the resolved probe when target is an unrewritten absolute symlink inside rootfs.
+        if (target_probe.n >= 0) *probe = target_probe;
+    }
     return target;
 }
 
@@ -414,7 +419,7 @@ static int cortex_execve(const char *filename, char *const argv[], char *const e
             char interp_buf[PATH_MAX];
             const char *rewritten_interp = shebang_interpreter(interp, interp_buf, sizeof(interp_buf));
             const char *script = script_arg_path(caller_path, target, rewritten_interp);
-            char **new_argv = build_script_argv(rewritten_interp, interp_arg, script, argv);
+            char **new_argv = build_script_argv(strip_cortex_root(rewritten_interp), interp_arg, script, argv);
             if (!new_argv) {
                 errno = ENOMEM;
                 return -1;
@@ -788,7 +793,7 @@ static int spawn_script(pid_t *pid, const char *caller_path, const char *target,
     char interp_buf[PATH_MAX];
     const char *rewritten_interp = shebang_interpreter(interp, interp_buf, sizeof(interp_buf));
     const char *script = script_arg_path(caller_path, target, rewritten_interp);
-    char **new_argv = build_script_argv(rewritten_interp, interp_arg, script, argv);
+    char **new_argv = build_script_argv(strip_cortex_root(rewritten_interp), interp_arg, script, argv);
     if (!new_argv) return ENOMEM;
     int ret;
     if (is_host_interpreter(rewritten_interp)) {
