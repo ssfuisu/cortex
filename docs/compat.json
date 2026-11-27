@@ -1,30 +1,30 @@
 {
  "version": "v1.28.0",
- "date": "2026-11-26",
+ "date": "2026-11-27",
  "where": "Android 14 emulator (API 34), arm64-v8a APK",
  "packages": [
   {
    "name": "python3",
    "ok": true,
-   "seconds": 32,
+   "seconds": 34,
    "why": ""
   },
   {
    "name": "python3-venv-pip",
    "ok": true,
-   "seconds": 116,
+   "seconds": 129,
    "why": ""
   },
   {
    "name": "nodejs-npm",
-   "ok": false,
-   "seconds": 221,
-   "why": "the test failed: The futex facility returned an unexpected error code. bash: line 1: 11939 Aborted npm init -y > /dev/null exit status 134"
+   "ok": true,
+   "seconds": 285,
+   "why": ""
   },
   {
    "name": "c-gcc",
    "ok": true,
-   "seconds": 45,
+   "seconds": 48,
    "why": ""
   },
   {
@@ -36,13 +36,13 @@
   {
    "name": "cmake",
    "ok": true,
-   "seconds": 25,
+   "seconds": 28,
    "why": ""
   },
   {
    "name": "rust",
    "ok": true,
-   "seconds": 27,
+   "seconds": 24,
    "why": ""
   },
   {
@@ -54,19 +54,19 @@
   {
    "name": "java",
    "ok": false,
-   "seconds": 32,
-   "why": "the test failed: # bash: line 1: 13215 Aborted javac H.java exit status 134"
+   "seconds": 29,
+   "why": "the test failed: # bash: line 1: 13086 Aborted javac H.java exit status 134"
   },
   {
    "name": "php",
    "ok": true,
-   "seconds": 234,
+   "seconds": 269,
    "why": ""
   },
   {
    "name": "ruby",
    "ok": true,
-   "seconds": 15,
+   "seconds": 17,
    "why": ""
   },
   {
@@ -78,37 +78,37 @@
   {
    "name": "lua",
    "ok": true,
-   "seconds": 5,
+   "seconds": 6,
    "why": ""
   },
   {
    "name": "git",
    "ok": true,
-   "seconds": 9,
+   "seconds": 10,
    "why": ""
   },
   {
    "name": "curl-https",
    "ok": true,
-   "seconds": 7,
-   "why": ""
-  },
-  {
-   "name": "wget",
-   "ok": true,
    "seconds": 6,
    "why": ""
   },
   {
+   "name": "wget",
+   "ok": false,
+   "seconds": 82,
+   "why": "the test failed: Connecting to ubuntu.com (ubuntu.com)|185.125.190.21|:443... failed: Connection refused. Connecting to ubuntu.com (ubuntu.com)|2620:2d:4000:1::27|:443... failed: Network is unreachable. the output lacks \"saved\""
+  },
+  {
    "name": "jq",
    "ok": true,
-   "seconds": 8,
+   "seconds": 7,
    "why": ""
   },
   {
    "name": "sqlite3",
    "ok": true,
-   "seconds": 5,
+   "seconds": 6,
    "why": ""
   },
   {
@@ -126,13 +126,13 @@
   {
    "name": "rsync",
    "ok": true,
-   "seconds": 8,
+   "seconds": 9,
    "why": ""
   },
   {
    "name": "openssh-client",
    "ok": true,
-   "seconds": 9,
+   "seconds": 10,
    "why": ""
   },
   {
@@ -150,49 +150,49 @@
   {
    "name": "vim",
    "ok": true,
-   "seconds": 11,
+   "seconds": 13,
    "why": ""
   },
   {
    "name": "neovim",
    "ok": true,
-   "seconds": 13,
+   "seconds": 15,
    "why": ""
   },
   {
    "name": "tmux",
    "ok": true,
-   "seconds": 10,
+   "seconds": 11,
    "why": ""
   },
   {
    "name": "zsh",
    "ok": true,
-   "seconds": 14,
+   "seconds": 15,
    "why": ""
   },
   {
    "name": "fish",
    "ok": true,
-   "seconds": 16,
+   "seconds": 17,
    "why": ""
   },
   {
    "name": "redis",
    "ok": true,
-   "seconds": 16,
+   "seconds": 18,
    "why": ""
   },
   {
    "name": "nginx",
    "ok": true,
-   "seconds": 19,
+   "seconds": 21,
    "why": ""
   },
   {
    "name": "mariadb",
    "ok": true,
-   "seconds": 41,
+   "seconds": 43,
    "why": ""
   },
   {
@@ -204,7 +204,7 @@
   {
    "name": "postgresql",
    "ok": false,
-   "seconds": 82,
+   "seconds": 86,
    "why": "the test failed: Examine the log output. ...fail! exit status 1"
   }
  ]
