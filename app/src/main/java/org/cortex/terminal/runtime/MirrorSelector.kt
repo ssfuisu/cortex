@@ -15,7 +15,7 @@ import java.util.concurrent.TimeUnit
  * Picks the Ubuntu ports mirror that answers fastest from where the phone is. Canonical's ports
  * servers are in Europe and North America, and reach some countries (China above all) only slowly.
  *
- * Every mirror is measured by fetching the noble-updates index; one is taken only when it is clearly
+ * Every mirror is measured by fetching the resolute-updates index; one is taken only when it is clearly
  * faster than the official server and has the current index (a few hours behind at most: mirrors
  * update a few times a day, some only once). Security updates always come from the official
  * server. A mirror cannot change a package unnoticed: apt checks every file against the archive's
@@ -96,7 +96,7 @@ object MirrorSelector {
         var connection: HttpURLConnection? = null
         return try {
             val started = System.nanoTime()
-            connection = URL(mirror + "dists/noble-updates/InRelease").openConnection() as HttpURLConnection
+            connection = URL(mirror + "dists/resolute-updates/InRelease").openConnection() as HttpURLConnection
             connection.connectTimeout = 4000
             connection.readTimeout = 6000
             connection.setRequestProperty("User-Agent", "Cortex")

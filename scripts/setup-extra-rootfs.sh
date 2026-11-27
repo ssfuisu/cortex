@@ -350,14 +350,14 @@ fi
 CORTEX_LD_SO=""
 for cand_ld in \
   "$CORTEX_ROOT/usr/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1" \
-  "$CORTEX_ROOT/usr/lib/aarch64-linux-gnu/ld-2.39.so" \
+  "$CORTEX_ROOT/usr/lib/aarch64-linux-gnu/ld-2.43.so" \
   "$CORTEX_ROOT/lib/ld-linux-aarch64.so.1" \
   "$CORTEX_ROOT/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1" \
   "$CORTEX_ROOT/usr/lib/ld-linux-aarch64.so.1" \
   "$CORTEX_ROOT/usr/lib64/ld-linux-aarch64.so.1" \
   "$CORTEX_ROOT/lib64/ld-linux-aarch64.so.1" \
   "$CORTEX_ROOT/usr/lib/arm-linux-gnueabihf/ld-linux-armhf.so.3" \
-  "$CORTEX_ROOT/usr/lib/arm-linux-gnueabihf/ld-2.39.so" \
+  "$CORTEX_ROOT/usr/lib/arm-linux-gnueabihf/ld-2.43.so" \
   "$CORTEX_ROOT/lib/ld-linux-armhf.so.3" \
   "$CORTEX_ROOT/lib/arm-linux-gnueabihf/ld-linux-armhf.so.3" \
   "$CORTEX_ROOT/usr/lib/ld-linux-armhf.so.3"; do
