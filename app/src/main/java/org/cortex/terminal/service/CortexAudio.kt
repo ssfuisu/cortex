@@ -244,10 +244,13 @@ object CortexAudio {
 
     private fun drainWake(fd: FileDescriptor?) {
         if (fd == null) return
-        val tmp = ByteArray(16)
+        val tmp = ByteArray(64)
+        val pfd = arrayOf(StructPollfd().apply {
+            this.fd = fd
+            events = OsConstants.POLLIN.toShort()
+        })
         try {
-            Os.fcntlInt(fd, OsConstants.F_SETFL, OsConstants.O_NONBLOCK)
-            while (true) {
+            while (Os.poll(pfd, 0) > 0 && (pfd[0].revents.toInt() and OsConstants.POLLIN) != 0) {
                 if (Os.read(fd, tmp, 0, tmp.size) <= 0) break
             }
         } catch (_: Exception) {
