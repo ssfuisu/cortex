@@ -272,7 +272,7 @@ jobs:
               awk -F: -v OFS=: "BEGIN{print \"root:x:0:0:root:/root:/bin/bash\"} \$1!=\"root\" && \$1!=\"ubuntu\" && \$1!=\"cortex\" {print} END{print \"cortex:x:1000:1000:Cortex:/home:/bin/bash\"}" /etc/passwd > /etc/passwd.new && mv /etc/passwd.new /etc/passwd
               awk -F: -v OFS=: "\$1==\"ubuntu\" || \$1==\"cortex\" {next} \$1==\"sudo\" {found=1; n=split(\$4,a,\",\"); out=\"\"; for(i=1;i<=n;i++) if(a[i]!=\"\" && a[i]!=\"ubuntu\" && a[i]!=\"cortex\") out=(out?out \",\":\"\") a[i]; \$4=(out?out \",\":\"\") \"cortex\"; print; next} {print} END{if(!found) print \"sudo:x:27:cortex\"; print \"cortex:x:1000:\"}" /etc/group > /etc/group.new && mv /etc/group.new /etc/group
               if [ -f /etc/shadow ]; then
-                awk -F: -v OFS=: "\$1==\"ubuntu\" || \$1==\"cortex\" {next} {print} END{print \"cortex:!:19000:0:99999:7:::\"}" /etc/shadow > /etc/shadow.new && mv /etc/shadow.new /etc/shadow
+                awk -F: -v OFS=: "\$1==\"ubuntu\" || \$1==\"cortex\" {next} {print} END{print \"cortex:*:19000:0:99999:7:::\"}" /etc/shadow > /etc/shadow.new && mv /etc/shadow.new /etc/shadow
                 chmod 0640 /etc/shadow
               fi
               chmod 0644 /etc/passwd /etc/group

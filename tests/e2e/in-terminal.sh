@@ -126,7 +126,7 @@ expect hard-links-shared "links 2 then 1, same inode" hard_links_between_process
 check own-files bash -c 'f=$(mktemp) && [ -O "$f" ] && [ -G "$f" ] && [ "$(stat -c %u:%g "$f")" = 1000:1000 ]; s=$?; rm -f "$f"; exit $s'
 # Other users (ids.c): sudo elevates to root; runuser becomes the user, its files are its own;
 # cortex-api no-fakeroot runs as the app's ordinary user; chown gives a file an owner
-expect users-runuser "nobody 65534:65534 root" bash -c 'sudo runuser -u nobody -- bash -c "f=\$(mktemp); echo \$(id -un) \$(stat -c %u:%g \$f); rm -f \$f"; su -c "id -un"'
+expect users-runuser "nobody 65534:65534 root" bash -c 'u=$(sudo runuser -u nobody -- bash -c "f=\$(mktemp); echo \$(id -un) \$(stat -c %u:%g \$f); rm -f \$f") && r=$(su -c "id -un") && echo "$u $r"'
 expect users-no-fakeroot "cortex yes root" bash -c 'cortex-api no-fakeroot bash -c "echo \$(id -un) \$([ \$(id -u) -ne 0 ] && echo yes) \$(sudo id -un)"'
 check users-chown bash -c 'f=$(mktemp) && sudo chown nobody:nogroup "$f" && [ "$(stat -c %U:%G "$f")" = nobody:nogroup ]; s=$?; rm -f "$f"; exit $s'
 check sha256sum bash -c 'echo hi | sha256sum | grep -q ^98ea6e4f216f2fb4b69fff9b3a44842c38686ca685f3f55dc48c5d3fb1107be4'

@@ -931,11 +931,11 @@ prog ids_main <<'EOC'
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
-static void start(char *const *env) {
+static void start(const char *prog, char *const *env) {
     pid_t pid = fork();
     if (pid == 0) {
-        char *args[] = { "ids_child", NULL };
-        execve("/bin/ids_child", args, env);
+        char *args[] = { (char *)prog, NULL };
+        execve(prog, args, env);
         _exit(3);
     }
     waitpid(pid, NULL, 0);
@@ -976,15 +976,18 @@ int main(void) {
     unlink("/tmp/mine");
     unlink("/tmp/owned2");
     char *empty[] = { NULL };
-    start(empty);
+    start("/bin/ids_child", empty);
     char *forged[] = { "CORTEX_IDS=0,0,0:0,0,0", NULL };
-    start(forged);
+    start("/bin/ids_child", forged);
     char *become[] = { "CORTEX_BECOME=root", NULL };
-    start(become);
+    start("/bin/ids_child", become);
+    start("/bin/become_script", become);
     return 0;
 }
 EOC
 cp "$work/ids_child" "$work/root/bin/ids_child"
+printf '#!/bin/ids_child\n' > "$work/root/bin/become_script"
+chmod 755 "$work/root/bin/become_script"
 out=$(run "$work/ids_main")
 want="start uid=0
 chown: 65534:65534
@@ -997,6 +1000,7 @@ made by nobody: 65534:65534
 chown of root's file: -1 EPERM
 child uid=65534 euid=65534 gid=65534
 child uid=65534 euid=65534 gid=65534
+child uid=0 euid=0 gid=0
 child uid=0 euid=0 gid=0"
 check "a process becomes another user, keeps it across exec, and chown gives files owners" test "$out" = "$want"
 [ "$out" = "$want" ] || echo "$out" | sed 's/^/        /'

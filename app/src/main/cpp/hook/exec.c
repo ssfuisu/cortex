@@ -435,11 +435,7 @@ static int cortex_execve(const char *filename, char *const argv[], char *const e
                 errno = ELOOP;
                 ret = -1;
             } else {
-                char **cortex_env = prepare_cortex_env(envp, NULL);
-                ret = cortex_execve(rewritten_interp, new_argv, cortex_env, depth + 1);
-                int saved_errno = errno;
-                free_modified_env(cortex_env, envp);
-                errno = saved_errno;
+                ret = cortex_execve(rewritten_interp, new_argv, envp, depth + 1);
             }
             free(new_argv);
             return ret;
