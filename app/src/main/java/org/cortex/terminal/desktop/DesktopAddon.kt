@@ -40,7 +40,7 @@ object DesktopAddon {
         } catch (e: Exception) {
             null
         }
-        return kind?.takeIf { it.isNotEmpty() }
+        return kind?.takeIf { it == KIND_XFCE }
     }
 
     /** Whether the X server runs: its pid (a process of this app) is alive and its socket is there. */

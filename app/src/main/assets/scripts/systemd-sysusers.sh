@@ -6,35 +6,71 @@
 
 ROOT=""
 READ_STDIN=0
-ARGS=""
+INLINE=0
+DRY_RUN=0
+RC=0
 
-while [ $# -gt 0 ]; do
-    case "$1" in
-        --root=*) ROOT="${1#--root=}"; shift ;;
-        --root) ROOT="${2:-}"; shift; [ $# -gt 0 ] && shift ;;
-        --replace=*|--image=*|--image-policy=*|--tldr|--cat-config|--inline|--no-pager|--quiet|-q|--dry-run)
-            shift ;;
-        --replace|--image|--image-policy)
-            shift; [ $# -gt 0 ] && shift ;;
-        -h|--help|--version)
-            exit 0 ;;
-        --)
-            shift
-            while [ $# -gt 0 ]; do
-                ARGS="$ARGS $1"
+# Parse options while keeping positional arguments intact in "$@" (preserves whitespace/quotes).
+COUNT=$#
+POS_COUNT=0
+END_OPTS=0
+i=0
+while [ "$i" -lt "$COUNT" ]; do
+    i=$((i + 1))
+    arg="$1"
+    shift
+    if [ "$END_OPTS" = 1 ]; then
+        set -- "$@" "$arg"
+        POS_COUNT=$((POS_COUNT + 1))
+        continue
+    fi
+    case "$arg" in
+        --root=*)
+            ROOT="${arg#--root=}"
+            ;;
+        --root)
+            if [ "$i" -lt "$COUNT" ]; then
+                i=$((i + 1))
+                ROOT="$1"
                 shift
-            done
-            break ;;
+            fi
+            ;;
+        --inline)
+            INLINE=1
+            ;;
+        --dry-run)
+            DRY_RUN=1
+            ;;
+        --replace=*|--image=*|--image-policy=*|--tldr|--cat-config|--no-pager|--quiet|-q)
+            ;;
+        --replace|--image|--image-policy)
+            if [ "$i" -lt "$COUNT" ]; then
+                i=$((i + 1))
+                shift
+            fi
+            ;;
+        -h|--help|--version)
+            exit 0
+            ;;
+        --)
+            END_OPTS=1
+            ;;
         -)
             READ_STDIN=1
-            shift ;;
+            ;;
         -*)
-            shift ;;
+            ;;
         *)
-            ARGS="$ARGS $1"
-            shift ;;
+            set -- "$@" "$arg"
+            POS_COUNT=$((POS_COUNT + 1))
+            ;;
     esac
 done
+
+# Dry run must not create directories or modify account databases.
+if [ "$DRY_RUN" = 1 ]; then
+    exit 0
+fi
 
 ROOT="${ROOT%/}"
 PASSWD="$ROOT/etc/passwd"
@@ -42,9 +78,11 @@ GROUP="$ROOT/etc/group"
 SHADOW="$ROOT/etc/shadow"
 GSHADOW="$ROOT/etc/gshadow"
 
-mkdir -p "$ROOT/etc" 2>/dev/null || true
-[ -f "$PASSWD" ] || : >"$PASSWD" 2>/dev/null || true
-[ -f "$GROUP" ] || : >"$GROUP" 2>/dev/null || true
+mkdir -p "$ROOT/etc" || exit 1
+[ -f "$PASSWD" ] || : >"$PASSWD" || exit 1
+[ -f "$GROUP" ] || : >"$GROUP" || exit 1
+
+SEP="$(printf '\037')"
 
 next_free_gid() {
     awk -F: '
@@ -112,9 +150,9 @@ ensure_group() {
             ;;
     esac
     [ -n "$gid" ] || gid="$(next_free_gid)"
-    printf '%s:x:%s:\n' "$name" "$gid" >>"$GROUP" 2>/dev/null || true
+    printf '%s:x:%s:\n' "$name" "$gid" >>"$GROUP" || return 1
     if [ -f "$GSHADOW" ] && ! awk -F: -v n="$name" '$1 == n { f=1; exit } END { exit (f ? 0 : 1) }' "$GSHADOW" 2>/dev/null; then
-        printf '%s:!::\n' "$name" >>"$GSHADOW" 2>/dev/null || true
+        printf '%s:!::\n' "$name" >>"$GSHADOW" || return 1
     fi
     printf '%s' "$gid"
 }
@@ -141,14 +179,14 @@ ensure_user() {
     if [ -n "$req_grp" ] && [ "$req_grp" != "-" ]; then
         case "$req_grp" in
             *[!0-9]*)
-                gid="$(ensure_group "$req_grp" "-")"
+                gid="$(ensure_group "$req_grp" "-")" || return 1
                 ;;
             *)
                 gid="$req_grp"
                 ;;
         esac
     else
-        gid="$(ensure_group "$name" "$req_uid")"
+        gid="$(ensure_group "$name" "$req_uid")" || return 1
     fi
 
     if user_exists "$name"; then
@@ -176,16 +214,19 @@ ensure_user() {
     esac
 
     [ -n "$gid" ] || gid="$uid"
-    printf '%s:x:%s:%s:%s:%s:%s\n' "$name" "$uid" "$gid" "$gecos" "$home" "$shell" >>"$PASSWD" 2>/dev/null || true
+    printf '%s:x:%s:%s:%s:%s:%s\n' "$name" "$uid" "$gid" "$gecos" "$home" "$shell" >>"$PASSWD" || return 1
     if [ -f "$SHADOW" ] && ! awk -F: -v n="$name" '$1 == n { f=1; exit } END { exit (f ? 0 : 1) }' "$SHADOW" 2>/dev/null; then
-        printf '%s:*:19700:0:99999:7:::\n' "$name" >>"$SHADOW" 2>/dev/null || true
+        printf '%s:*:19700:0:99999:7:::\n' "$name" >>"$SHADOW" || return 1
     fi
 }
 
 add_member() {
     local user="$1" group="$2"
     [ -n "$user" ] && [ -n "$group" ] || return 0
-    ensure_group "$group" "-" >/dev/null
+    if ! user_exists "$user"; then
+        ensure_user "$user" "-" "" "" "" || return 1
+    fi
+    ensure_group "$group" "-" >/dev/null || return 1
     local tmp="$GROUP.sysusers.$$"
     if awk -F: -v OFS=: -v u="$user" -v g="$group" '
         $1 == g {
@@ -195,21 +236,27 @@ add_member() {
             if (!found) $4 = ($4 == "" ? u : $4 "," u)
         }
         { print }
-    ' "$GROUP" >"$tmp" 2>/dev/null; then
-        mv -f "$tmp" "$GROUP" 2>/dev/null || rm -f "$tmp"
+    ' "$GROUP" >"$tmp"; then
+        mv -f "$tmp" "$GROUP" || { rm -f "$tmp"; return 1; }
     else
         rm -f "$tmp" 2>/dev/null || true
+        return 1
     fi
 }
 
-# Parse a sysusers.d line respecting double-quoted fields, outputting tab-separated fields.
+# Parse sysusers.d lines respecting double-quoted fields, outputting non-whitespace \037-separated
+# fields (so empty fields like "" are never collapsed by POSIX read). Emits g/u/u! before m so
+# explicit user definitions are honored before membership records implicitly create missing users.
 process_stream() {
-    awk '
-        function emit(arr, n,   i) {
-            if (n < 2) return
+    local parsed_tmp
+    parsed_tmp="$(mktemp 2>/dev/null || printf '%s' "${TMPDIR:-/tmp}/sysusers.parsed.$$")"
+    awk -v sep="$SEP" '
+        function format_rec(arr, n,   i, line) {
+            line = ""
             for (i = 1; i <= 6; i++) {
-                printf "%s%s", (i <= n ? arr[i] : ""), (i < 6 ? "\t" : "\n")
+                line = line (i <= n ? arr[i] : "") (i < 6 ? sep : "")
             }
+            return line
         }
         {
             sub(/\r$/, "")
@@ -242,29 +289,48 @@ process_stream() {
                     s = substr(s, RLENGTH + 1)
                 }
             }
-            emit(arr, n)
+            if (n < 2) next
+            rec = format_rec(arr, n)
+            if (arr[1] == "m") {
+                deferred[++m_cnt] = rec
+            } else {
+                print rec
+            }
         }
-    ' | while IFS="$(printf '\t')" read -r typ name id_spec gecos home shell; do
+        END {
+            for (i = 1; i <= m_cnt; i++) {
+                print deferred[i]
+            }
+        }
+    ' >"$parsed_tmp" || { rm -f "$parsed_tmp"; return 1; }
+
+    local status=0
+    while IFS="$SEP" read -r typ name id_spec gecos home shell; do
         case "$typ" in
             u|u!)
-                ensure_user "$name" "$id_spec" "$gecos" "$home" "$shell"
+                ensure_user "$name" "$id_spec" "$gecos" "$home" "$shell" || status=1
                 ;;
             g)
-                ensure_group "$name" "$id_spec" >/dev/null
+                ensure_group "$name" "$id_spec" >/dev/null || status=1
                 ;;
             m)
-                add_member "$name" "$id_spec"
+                add_member "$name" "$id_spec" || status=1
                 ;;
         esac
-    done
+    done <"$parsed_tmp"
+    rm -f "$parsed_tmp"
+    return "$status"
 }
 
 find_conf() {
     local arg="$1" d
     case "$arg" in
         /*)
-            [ -r "$arg" ] && { printf '%s' "$arg"; return 0; }
-            [ -n "$ROOT" ] && [ -r "$ROOT$arg" ] && { printf '%s' "$ROOT$arg"; return 0; }
+            if [ -n "$ROOT" ]; then
+                [ -r "$ROOT$arg" ] && { printf '%s' "$ROOT$arg"; return 0; }
+            else
+                [ -r "$arg" ] && { printf '%s' "$arg"; return 0; }
+            fi
             return 1
             ;;
     esac
@@ -277,31 +343,54 @@ find_conf() {
     return 1
 }
 
-if [ "$READ_STDIN" = 1 ]; then
-    process_stream
-fi
-
-if [ -n "$ARGS" ]; then
-    for arg in $ARGS; do
-        conf="$(find_conf "$arg" || true)"
-        if [ -n "$conf" ] && [ -r "$conf" ]; then
-            process_stream <"$conf"
-        fi
-    done
-elif [ "$READ_STDIN" = 0 ]; then
-    SEEN=" "
-    for d in "$ROOT/etc/sysusers.d" "$ROOT/run/sysusers.d" "$ROOT/usr/local/lib/sysusers.d" "$ROOT/usr/lib/sysusers.d" "$ROOT/lib/sysusers.d"; do
-        [ -d "$d" ] || continue
-        for f in "$d"/*.conf; do
-            [ -r "$f" ] || continue
-            base="$(basename "$f")"
-            case "$SEEN" in
-                *" $base "*) continue ;;
-            esac
-            SEEN="$SEEN$base "
-            process_stream <"$f"
+# Collect all input streams into one stream so explicit u/g definitions across all files run before m.
+collect_all_inputs() {
+    if [ "$READ_STDIN" = 1 ]; then
+        cat
+        printf '\n'
+    fi
+    if [ "$POS_COUNT" -gt 0 ]; then
+        for arg in "$@"; do
+            if [ "$INLINE" = 1 ]; then
+                printf '%s\n' "$arg"
+            else
+                conf="$(find_conf "$arg" || true)"
+                if [ -n "$conf" ] && [ -r "$conf" ]; then
+                    cat "$conf"
+                    printf '\n'
+                fi
+            fi
         done
-    done
-fi
+    elif [ "$READ_STDIN" = 0 ]; then
+        # Select highest-priority file per basename, then sort globally by basename (sysusers.d(5)).
+        local seen=" " list_tmp d f base
+        list_tmp="$(mktemp 2>/dev/null || printf '%s' "${TMPDIR:-/tmp}/sysusers.list.$$")"
+        : >"$list_tmp"
+        for d in "$ROOT/etc/sysusers.d" "$ROOT/run/sysusers.d" "$ROOT/usr/local/lib/sysusers.d" "$ROOT/usr/lib/sysusers.d" "$ROOT/lib/sysusers.d"; do
+            [ -d "$d" ] || continue
+            for f in "$d"/*.conf; do
+                [ -r "$f" ] || continue
+                base="$(basename "$f")"
+                case "$seen" in
+                    *" $base "*) continue ;;
+                esac
+                seen="$seen$base "
+                printf '%s\t%s\n' "$base" "$f" >>"$list_tmp"
+            done
+        done
+        LC_ALL=C sort -t "$(printf '\t')" -k1,1 "$list_tmp" | while IFS="$(printf '\t')" read -r _base path; do
+            [ -r "$path" ] && cat "$path"
+            printf '\n'
+        done
+        rm -f "$list_tmp"
+    fi
+}
 
-exit 0
+INPUT_TMP="$(mktemp 2>/dev/null || printf '%s' "${TMPDIR:-/tmp}/sysusers.in.$$")"
+collect_all_inputs "$@" >"$INPUT_TMP"
+if [ -s "$INPUT_TMP" ]; then
+    process_stream <"$INPUT_TMP" || RC=1
+fi
+rm -f "$INPUT_TMP"
+
+exit "$RC"

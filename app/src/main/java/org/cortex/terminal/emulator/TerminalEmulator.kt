@@ -51,6 +51,7 @@ class TerminalEmulator(
     /** OSC 52: a program asked to put [String] on the clipboard. Called with the emulator lock held. */
     var onClipboardSet: ((String) -> Unit)? = null
 
+    internal var monotonicMs: () -> Long = { System.nanoTime() / 1_000_000L }
     private var oscOverflow = false
     var onSendResponse: ((String) -> Unit)? = null
     var isApplicationCursorKeys = false
@@ -318,7 +319,6 @@ class TerminalEmulator(
             }
             'c' -> { // Full reset (RIS)
                 buffer.currentLink = null
-                commandStartMs = -1L
                 buffer.eraseInDisplay(2)
                 buffer.cursorRow = 0
                 buffer.cursorCol = 0

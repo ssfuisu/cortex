@@ -131,7 +131,7 @@ refresh_databases() {
 installed_kind() {
     local kind
     kind="$(conf_value DESKTOP)"
-    [ -n "$kind" ] && command -v Xvnc >/dev/null 2>&1 && echo "$kind"
+    [ "$kind" = "xfce" ] && command -v Xvnc >/dev/null 2>&1 && echo "$kind"
 }
 
 cmd_install() {
@@ -185,14 +185,43 @@ install_firefox() {
     fi
     as_root install -m 0644 "$tmpkey" /etc/apt/keyrings/packages.mozilla.org.asc || { rm -f "$tmpkey"; return 1; }
     rm -f "$tmpkey"
-    echo "deb [signed-by=/etc/apt/keyrings/packages.mozilla.org.asc] https://packages.mozilla.org/apt mozilla main" |
-        as_root tee /etc/apt/sources.list.d/mozilla.list >/dev/null || return 1
-    printf 'Package: *\nPin: origin packages.mozilla.org\nPin-Priority: 1000\n' |
-        as_root tee /etc/apt/preferences.d/mozilla >/dev/null || return 1
-    if ! { as_root apt-get update && as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends firefox; }; then
-        as_root rm -f /etc/apt/sources.list.d/mozilla.list /etc/apt/preferences.d/mozilla
+    local list_file="/etc/apt/sources.list.d/mozilla.list"
+    local pin_file="/etc/apt/preferences.d/mozilla"
+    local list_bak="" pin_bak=""
+    if [ -f "$list_file" ]; then
+        list_bak="$(mktemp)" && cp -p "$list_file" "$list_bak" || list_bak=""
+    fi
+    if [ -f "$pin_file" ]; then
+        pin_bak="$(mktemp)" && cp -p "$pin_file" "$pin_bak" || pin_bak=""
+    fi
+    restore_mozilla_apt() {
+        if [ -n "$list_bak" ] && [ -f "$list_bak" ]; then
+            as_root install -m 0644 "$list_bak" "$list_file" >/dev/null 2>&1 || true
+        else
+            as_root rm -f "$list_file"
+        fi
+        if [ -n "$pin_bak" ] && [ -f "$pin_bak" ]; then
+            as_root install -m 0644 "$pin_bak" "$pin_file" >/dev/null 2>&1 || true
+        else
+            as_root rm -f "$pin_file"
+        fi
+        rm -f "$list_bak" "$pin_bak"
+    }
+    if ! echo "deb [signed-by=/etc/apt/keyrings/packages.mozilla.org.asc] https://packages.mozilla.org/apt mozilla main" |
+        as_root tee "$list_file" >/dev/null; then
+        restore_mozilla_apt
         return 1
     fi
+    if ! printf 'Package: *\nPin: origin packages.mozilla.org\nPin-Priority: 1000\n' |
+        as_root tee "$pin_file" >/dev/null; then
+        restore_mozilla_apt
+        return 1
+    fi
+    if ! { as_root apt-get update && as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends firefox; }; then
+        restore_mozilla_apt
+        return 1
+    fi
+    rm -f "$list_bak" "$pin_bak"
 }
 
 cmd_remove() {

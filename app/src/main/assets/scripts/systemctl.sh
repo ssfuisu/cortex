@@ -77,13 +77,25 @@ case "$ACTION" in
         echo "Disabled $SERVICE from automatic startup."
         exit 0
         ;;
-    try-restart|condrestart|try-reload-or-restart|reload-or-restart)
+    try-restart|condrestart|try-reload-or-restart)
         [ -z "$SERVICE" ] && exit 0
         validate_service_name
         if service "$SERVICE" status >/dev/null 2>&1; then
             exec service "$SERVICE" restart "$@"
         fi
         exit 0
+        ;;
+    reload-or-restart)
+        if [ -z "$SERVICE" ]; then
+            echo "Usage: systemctl $ACTION <service>"
+            exit 1
+        fi
+        validate_service_name
+        if service "$SERVICE" status >/dev/null 2>&1; then
+            exec service "$SERVICE" restart "$@"
+        else
+            exec service "$SERVICE" start "$@"
+        fi
         ;;
     start|stop|restart|status|reload|force-reload)
         if [ -z "$SERVICE" ]; then

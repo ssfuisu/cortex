@@ -125,25 +125,51 @@ fi
 # 2f. systemd-sysusers.sh creates missing system users/groups from sysusers.d configs
 SYSUSERS_SH="$ASSETS_SCRIPTS/systemd-sysusers.sh"
 SU_SYSROOT="$TEST_TMP/sysusers_root"
-mkdir -p "$SU_SYSROOT/etc" "$SU_SYSROOT/usr/lib/sysusers.d"
+mkdir -p "$SU_SYSROOT/etc/sysusers.d" "$SU_SYSROOT/usr/lib/sysusers.d"
 printf 'root:x:0:0:root:/root:/bin/bash\n' > "$SU_SYSROOT/etc/passwd"
 printf 'root:x:0:\n' > "$SU_SYSROOT/etc/group"
 printf 'root:*:19700:0:99999:7:::\n' > "$SU_SYSROOT/etc/shadow"
 printf 'root:*::\n' > "$SU_SYSROOT/etc/gshadow"
-cat > "$SU_SYSROOT/usr/lib/sysusers.d/dbus.conf" << 'EOF'
+cat > "$SU_SYSROOT/usr/lib/sysusers.d/10-dbus.conf" << 'EOF'
 # Comment line
 u! messagebus - "D-Bus Message Bus" /nonexistent /usr/sbin/nologin
 g extra-grp 220
 m messagebus extra-grp
+u emptygecos - "" /srv/empty /bin/false
+u ordered 421 "Vendor Order" /var/lib/ordered /usr/sbin/nologin
+m implicituser sharedgrp
 EOF
-if sh "$SYSUSERS_SH" --root="$SU_SYSROOT" dbus.conf \
+cat > "$SU_SYSROOT/etc/sysusers.d/90-local.conf" << 'EOF'
+u ordered 420 "Local Later" /var/lib/local /usr/sbin/nologin
+EOF
+# --dry-run must not modify account databases
+if sh "$SYSUSERS_SH" --dry-run --root="$SU_SYSROOT" 10-dbus.conf \
+    && ! grep -q '^messagebus:' "$SU_SYSROOT/etc/passwd"; then
+    pass "systemd-sysusers.sh --dry-run makes no changes"
+else
+    fail "systemd-sysusers.sh --dry-run modified account databases"
+fi
+# Full directory scan: global basename sort (10-dbus before 90-local), empty GECOS preserved, m creates missing user
+if sh "$SYSUSERS_SH" --root="$SU_SYSROOT" \
     && grep -q '^messagebus:x:[0-9]\+:[0-9]\+:D-Bus Message Bus:/nonexistent:/usr/sbin/nologin$' "$SU_SYSROOT/etc/passwd" \
     && grep -q '^messagebus:x:[0-9]\+:$' "$SU_SYSROOT/etc/group" \
     && grep -q '^extra-grp:x:220:messagebus$' "$SU_SYSROOT/etc/group" \
-    && grep -q '^messagebus:\*:19700:0:99999:7:::$' "$SU_SYSROOT/etc/shadow"; then
-    pass "systemd-sysusers.sh creates users, groups, shadow entries, and memberships from sysusers.d"
+    && grep -q '^messagebus:\*:19700:0:99999:7:::$' "$SU_SYSROOT/etc/shadow" \
+    && grep -q '^emptygecos:x:[0-9]\+:[0-9]\+::/srv/empty:/bin/false$' "$SU_SYSROOT/etc/passwd" \
+    && grep -q '^ordered:x:421:421:Vendor Order:/var/lib/ordered:/usr/sbin/nologin$' "$SU_SYSROOT/etc/passwd" \
+    && grep -q '^implicituser:x:[0-9]\+:[0-9]\+::/:/usr/sbin/nologin$' "$SU_SYSROOT/etc/passwd" \
+    && grep -q '^sharedgrp:x:[0-9]\+:implicituser$' "$SU_SYSROOT/etc/group"; then
+    pass "systemd-sysusers.sh creates users, groups, shadow entries, memberships, empty GECOS, and respects global sort"
 else
     fail "systemd-sysusers.sh failed: passwd=$(cat "$SU_SYSROOT/etc/passwd") group=$(cat "$SU_SYSROOT/etc/group")"
+fi
+# --inline and --root absolute path resolution
+if sh "$SYSUSERS_SH" --root="$SU_SYSROOT" --inline 'u inlineacct 455 "Inline Account" /srv/inline /bin/sh' \
+    && grep -q '^inlineacct:x:455:455:Inline Account:/srv/inline:/bin/sh$' "$SU_SYSROOT/etc/passwd" \
+    && sh "$SYSUSERS_SH" --root="$SU_SYSROOT" /usr/lib/sysusers.d/10-dbus.conf; then
+    pass "systemd-sysusers.sh supports --inline and --root absolute config paths"
+else
+    fail "systemd-sysusers.sh --inline / --root absolute path failed: passwd=$(cat "$SU_SYSROOT/etc/passwd")"
 fi
 
 # 2b. Immediate crash detection on start
@@ -883,7 +909,15 @@ time.sleep(300)' "$sock" "$CORTEX_DESKTOP_ROOT/tmp/.X11-unix/X$display"
 EOS
 printf '#!/bin/bash\necho "$*" > "$CORTEX_DESKTOP_ROOT/tmp/session-args"\nexec -a dbus-launch sleep 300\n' > "$DBIN/dbus-launch"
 chmod +x "$DBIN/Xvnc" "$DBIN/dbus-launch"
-mkdir -p "$DR/etc/cortex" "$DR/usr/share/backgrounds/xfce" && echo "DESKTOP=xfce" > "$DR/etc/cortex/desktop.conf"
+mkdir -p "$DR/etc/cortex" "$DR/usr/share/backgrounds/xfce"
+# Legacy DESKTOP=light installs are treated as not installed so upgrade prompts XFCE install
+echo "DESKTOP=light" > "$DR/etc/cortex/desktop.conf"
+if [ "$(desktop_ status 2>&1)" = "not installed" ] && ! desktop_ start >/dev/null 2>&1; then
+    pass "cortex-desktop treats legacy DESKTOP=light as not installed"
+else
+    fail "cortex-desktop should not treat legacy DESKTOP=light as installed"
+fi
+echo "DESKTOP=xfce" > "$DR/etc/cortex/desktop.conf"
 : > "$DR/usr/share/backgrounds/xfce/xfce-blue.jpg"
 if desktop_ start --size 1024x600 >/dev/null 2>&1 && desktop_ status | grep -q "running (xfce, DISPLAY=:1)" \
     && [ -S "$DR/tmp/.cortex-desktop/vnc.sock" ] && [ "$(cat "$DR/tmp/xvnc-geometry")" = 1024x600 ] \
