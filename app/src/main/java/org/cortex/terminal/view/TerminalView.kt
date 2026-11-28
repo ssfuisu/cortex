@@ -592,6 +592,11 @@ class TerminalView @JvmOverloads constructor(
     init {
         isFocusable = true
         isFocusableInTouchMode = true
+        textPaint.typeface = try {
+            Typeface.createFromAsset(context.assets, "fonts/JetBrainsMono.ttf")
+        } catch (_: Exception) {
+            Typeface.MONOSPACE
+        }
         measureCharDimensions()
     }
 
@@ -606,61 +611,6 @@ class TerminalView @JvmOverloads constructor(
         terminalTextSizeSp = sp
         val px = sp * resources.displayMetrics.density * resources.configuration.fontScale
         textPaint.textSize = px
-        measureCharDimensions()
-        updateTerminalDimensions()
-        invalidate()
-    }
-
-    private var currentFontKey: String = "jetbrains_mono"
-    private var cachedTypeface: Typeface? = null
-    private var currentFontStamp: String = ""
-
-    fun setTerminalFont(fontKey: String) {
-        // The custom font is a file the user can add or replace at any time: its size and date are
-        // part of the key, so a new file is loaded when the font is applied again (on resume)
-        val customFile = if (fontKey == "custom") {
-            java.io.File(org.cortex.terminal.runtime.Environment.getHomeDir(context), ".cortex/font.ttf")
-        } else null
-        val stamp = customFile?.let { customFontStamp(it) } ?: ""
-        if (fontKey == currentFontKey && stamp == currentFontStamp && cachedTypeface != null) {
-            textPaint.typeface = cachedTypeface
-            measureCharDimensions()
-            updateTerminalDimensions()
-            invalidate()
-            return
-        }
-        val tf = when (fontKey) {
-            "jetbrains_mono" -> {
-                try {
-                    Typeface.createFromAsset(context.assets, "fonts/JetBrainsMono.ttf")
-                } catch (e: Exception) {
-                    Typeface.MONOSPACE
-                }
-            }
-            "fira_code" -> {
-                try {
-                    Typeface.createFromAsset(context.assets, "fonts/FiraCode.ttf")
-                } catch (e: Exception) {
-                    Typeface.MONOSPACE
-                }
-            }
-            "custom" -> {
-                if (customFile != null && customFile.isFile && customFile.canRead()) {
-                    try {
-                        Typeface.createFromFile(customFile)
-                    } catch (e: Exception) {
-                        Typeface.MONOSPACE
-                    }
-                } else {
-                    Typeface.MONOSPACE
-                }
-            }
-            else -> Typeface.MONOSPACE
-        }
-        currentFontKey = fontKey
-        currentFontStamp = stamp
-        cachedTypeface = tf
-        textPaint.typeface = tf
         measureCharDimensions()
         updateTerminalDimensions()
         invalidate()
@@ -2306,7 +2256,3 @@ internal fun actionPopupPosition(
     val x = selectionLeft.coerceAtMost(viewWidth - popupWidth)
     return intArrayOf(viewLeft + x.coerceAtLeast(0), viewTop + y.coerceAtLeast(0))
 }
-
-/** What identifies the custom font file's contents: changes when the file is added, replaced or removed. */
-internal fun customFontStamp(file: java.io.File): String =
-    if (file.isFile) "${file.length()}:${file.lastModified()}" else "none"

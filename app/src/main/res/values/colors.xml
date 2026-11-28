@@ -1,11 +1,11 @@
 <resources>
-    <!-- Backgrounds & Surfaces (Material 3 Dark / Catppuccin Mocha) -->
-    <color name="cortex_bg">#12131a</color>
-    <color name="cortex_surface">#1a1b26</color>
-    <color name="cortex_surface_variant">#24273a</color>
-    <color name="cortex_surface_container">#161722</color>
-    <color name="cortex_surface_elevated">#252839</color>
-    <color name="cortex_bar">#12131a</color>
+    <!-- Backgrounds & Surfaces (Black AMOLED default) -->
+    <color name="cortex_bg">#000000</color>
+    <color name="cortex_surface">#0a0a0a</color>
+    <color name="cortex_surface_variant">#161616</color>
+    <color name="cortex_surface_container">#000000</color>
+    <color name="cortex_surface_elevated">#161616</color>
+    <color name="cortex_bar">#000000</color>
 
     <!-- Material 3 Accent Roles -->
     <color name="cortex_primary">#89b4fa</color>

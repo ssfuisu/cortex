@@ -1,10 +1,10 @@
 #!/bin/bash
-# cortex-desktop: a graphical Linux desktop (X11) in Cortex, shown in the app's Desktop screen.
+# cortex-desktop: a graphical Linux desktop (XFCE + Firefox) in Cortex, shown in the app's Desktop screen.
 #
-#   cortex-desktop install [light|xfce] [--firefox]   installs the desktop (light: Openbox, the default)
-#   cortex-desktop start [--size WxH]                  starts it (the app opens its screen)
+#   cortex-desktop install                    installs the XFCE desktop and Firefox
+#   cortex-desktop start [--size WxH]         starts it (the app opens its screen)
 #   cortex-desktop stop | restart | status
-#   cortex-desktop remove                              removes what install added
+#   cortex-desktop remove                     removes what install added
 #
 # The X server is Ubuntu's Xvnc. It listens on no network port: only on a Unix socket that the app
 # alone can open (/tmp/.cortex-desktop/vnc.sock), and X programs reach it as DISPLAY=:1 through
@@ -21,12 +21,9 @@ LOG_DIR="${HOME:-/root}/.cortex"
 LOG="$LOG_DIR/desktop.log"
 DEFAULT_SIZE="1280x720"
 
-LIGHT_PACKAGES="tigervnc-standalone-server tigervnc-tools dbus-x11 xauth x11-xserver-utils x11-utils
-xfonts-base fonts-dejavu-core openbox obconf python3-xdg tint2 pcmanfm lxterminal mousepad lxappearance
-adwaita-icon-theme-full librsvg2-common pulseaudio pulseaudio-utils xdg-utils"
 XFCE_PACKAGES="tigervnc-standalone-server tigervnc-tools dbus-x11 xauth x11-xserver-utils x11-utils
 xfonts-base fonts-dejavu-core xfce4 xfce4-terminal thunar mousepad
-adwaita-icon-theme-full librsvg2-common pulseaudio pulseaudio-utils xdg-utils"
+adwaita-icon-theme-full librsvg2-common pulseaudio pulseaudio-utils xdg-utils curl ca-certificates"
 
 die() {
     echo "cortex-desktop: $*" >&2
@@ -66,7 +63,7 @@ pid_is() {
 }
 
 XVNC_NAMES='X(tig)?vnc'
-SESSION_NAMES='dbus-launch|openbox|xfce4-session|startxfce4|setsid'
+SESSION_NAMES='dbus-launch|xfce4-session|startxfce4|setsid'
 
 running_pid() {
     local pid
@@ -122,12 +119,12 @@ refresh_databases() {
     dir="$R/usr/share/mime"
     if [ -d "$dir/packages" ] && { [ ! -f "$dir/mime.cache" ] || [ -n "$(find "$dir/packages" -newer "$dir/mime.cache" -print -quit 2>/dev/null)" ]; }; then
         if real="$(real_tool update-mime-database)"; then
-            "$real" "$dir" >/dev/null 2>&1 || echo "cortex-desktop: update-mime-database failed" >&2
+            as_root "$real" "$dir" >/dev/null 2>&1 || echo "cortex-desktop: update-mime-database failed" >&2
         fi
     fi
     dir="$R/usr/share/applications"
     if [ -d "$dir" ] && real="$(real_tool update-desktop-database)"; then
-        "$real" "$dir" >/dev/null 2>&1 || echo "cortex-desktop: update-desktop-database failed" >&2
+        as_root "$real" "$dir" >/dev/null 2>&1 || echo "cortex-desktop: update-desktop-database failed" >&2
     fi
 }
 
@@ -138,17 +135,15 @@ installed_kind() {
 }
 
 cmd_install() {
-    local kind="light" firefox=0
+    local kind="xfce" firefox=1
     for arg in "$@"; do
         case "$arg" in
-            light|openbox) kind="light" ;;
-            xfce|xfce4) kind="xfce" ;;
-            --firefox) firefox=1 ;;
+            xfce|xfce4|--firefox) ;;
+            --no-firefox) firefox=0 ;;
             *) die "unknown option: $arg" ;;
         esac
     done
-    local packages="$LIGHT_PACKAGES"
-    [ "$kind" = xfce ] && packages="$XFCE_PACKAGES"
+    local packages="$XFCE_PACKAGES"
     # What was there before stays when the desktop is removed: only the packages installed here are listed
     as_root mkdir -p "$(dirname "$CONF")"
     local p pkg_list=""
@@ -163,7 +158,7 @@ cmd_install() {
     for p in x-www-browser xdg-open; do
         [ "$(readlink "/usr/bin/$p" 2>/dev/null)" = /usr/local/bin/xdg-open ] && as_root rm -f "/usr/bin/$p"
     done
-    echo "Installing the $kind desktop. This downloads a few hundred MB from Ubuntu's archive."
+    echo "Installing the XFCE desktop and Firefox. This downloads packages from Ubuntu's archive."
     as_root apt-get update || die "apt-get update failed"
     # shellcheck disable=SC2086
     as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends $packages ||
@@ -178,29 +173,47 @@ cmd_install() {
 # repository has the real program.
 install_firefox() {
     echo "Installing Firefox from Mozilla's apt repository (packages.mozilla.org)."
-    dpkg-query -W -f='${Status}\n' firefox 2>/dev/null | grep -q '^install ok installed' ||
-        echo firefox >>"$R/etc/cortex/desktop.packages"
+    if ! dpkg-query -W -f='${Status}\n' firefox 2>/dev/null | grep -q '^install ok installed'; then
+        echo firefox | as_root tee -a "$R/etc/cortex/desktop.packages" >/dev/null
+    fi
     as_root mkdir -p /etc/apt/keyrings || return 1
-    curl -fsSL https://packages.mozilla.org/apt/repo-signing-key.gpg | as_root tee /etc/apt/keyrings/packages.mozilla.org.asc >/dev/null || return 1
+    local tmpkey
+    tmpkey="$(mktemp)" || return 1
+    if ! curl -fsSL https://packages.mozilla.org/apt/repo-signing-key.gpg -o "$tmpkey" || [ ! -s "$tmpkey" ]; then
+        rm -f "$tmpkey"
+        return 1
+    fi
+    as_root install -m 0644 "$tmpkey" /etc/apt/keyrings/packages.mozilla.org.asc || { rm -f "$tmpkey"; return 1; }
+    rm -f "$tmpkey"
     echo "deb [signed-by=/etc/apt/keyrings/packages.mozilla.org.asc] https://packages.mozilla.org/apt mozilla main" |
         as_root tee /etc/apt/sources.list.d/mozilla.list >/dev/null || return 1
     printf 'Package: *\nPin: origin packages.mozilla.org\nPin-Priority: 1000\n' |
         as_root tee /etc/apt/preferences.d/mozilla >/dev/null || return 1
-    as_root apt-get update && as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y firefox
+    if ! { as_root apt-get update && as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends firefox; }; then
+        as_root rm -f /etc/apt/sources.list.d/mozilla.list /etc/apt/preferences.d/mozilla
+        return 1
+    fi
 }
 
 cmd_remove() {
     cmd_stop >/dev/null 2>&1
+    # Recover cleanly if a previous removal left dbus/systemd packages half-configured (missing messagebus)
+    if command -v systemd-sysusers >/dev/null 2>&1; then
+        as_root systemd-sysusers >/dev/null 2>&1 || true
+    fi
+    as_root env DEBIAN_FRONTEND=noninteractive dpkg --configure -a >/dev/null 2>&1 || true
     # Only what the desktop installed (packages that were there before it stay)
     local packages="" p
     for p in $(cat "$R/etc/cortex/desktop.packages" 2>/dev/null); do
         dpkg-query -W -f='${Status}\n' "$p" 2>/dev/null | grep -q '^install ok installed' && packages="$packages $p"
     done
     if [ -n "$packages" ]; then
+        # --auto-remove + --no-install-recommends stops apt from pulling in dbus-user-session/systemd
+        # to satisfy a soon-to-be-autoremoved dependency (such as dconf-service) when removing dbus-x11.
         # shellcheck disable=SC2086
-        as_root env DEBIAN_FRONTEND=noninteractive apt-get remove -y $packages ||
+        as_root env DEBIAN_FRONTEND=noninteractive apt-get remove --auto-remove -y --no-install-recommends $packages ||
             die "the packages could not be removed (see above); the desktop stays installed"
-        as_root env DEBIAN_FRONTEND=noninteractive apt-get autoremove -y || true
+        as_root env DEBIAN_FRONTEND=noninteractive apt-get autoremove -y --no-install-recommends || true
     fi
     as_root rm -f /etc/apt/sources.list.d/mozilla.list /etc/apt/preferences.d/mozilla "$R/etc/cortex/desktop.packages"
     set_conf DESKTOP ""
@@ -208,86 +221,7 @@ cmd_remove() {
 }
 
 session_command() {
-    case "$(conf_value DESKTOP)" in
-        xfce) echo "startxfce4" ;;
-        *) echo "openbox-session" ;;
-    esac
-}
-
-# Openbox alone is an empty screen: a panel (launchers, windows, clock) and a desktop background come
-# with it, in the app's dark colors. Only written when missing: they are the user's to change.
-ensure_openbox_autostart() {
-    local dir="${HOME}/.config"
-    mkdir -p "$dir/openbox" "$dir/tint2" "$dir/pcmanfm/default"
-    [ -f "$dir/openbox/autostart" ] || cat >"$dir/openbox/autostart" <<'EOF'
-# Started with the Openbox desktop of Cortex; edit freely.
-tint2 &
-pcmanfm --desktop &
-EOF
-    [ -f "$dir/tint2/tint2rc" ] || cat >"$dir/tint2/tint2rc" <<'EOF'
-# The panel of Cortex's desktop (tint2); edit freely, or run tint2conf.
-# Background 1: the panel
-rounded = 0
-border_width = 0
-background_color = #1e1e2e 100
-border_color = #45475a 100
-# Background 2: the active window, a launcher under the finger
-rounded = 6
-border_width = 0
-background_color = #45475a 100
-border_color = #45475a 100
-background_color_hover = #585b70 100
-border_color_hover = #585b70 100
-
-panel_items = LTSC
-panel_size = 100% 44
-panel_padding = 6 4 6
-panel_background_id = 1
-panel_position = bottom center horizontal
-panel_layer = top
-wm_menu = 1
-strut_policy = follow_size
-
-taskbar_mode = single_desktop
-taskbar_padding = 0 0 4
-taskbar_name = 0
-task_text = 1
-task_icon = 1
-task_maximum_size = 220 36
-task_padding = 6 4 6
-task_font = DejaVu Sans 10
-task_font_color = #cdd6f4 100
-task_active_background_id = 2
-task_active_font_color = #ffffff 100
-
-launcher_padding = 4 4 6
-launcher_icon_size = 30
-launcher_icon_background_id = 2
-launcher_item_app = lxterminal.desktop
-launcher_item_app = pcmanfm.desktop
-launcher_item_app = org.xfce.mousepad.desktop
-launcher_item_app = firefox.desktop
-
-systray_padding = 4 2 4
-systray_icon_size = 22
-
-time1_format = %H:%M
-time1_font = DejaVu Sans Bold 11
-clock_font_color = #cdd6f4 100
-clock_padding = 6 0
-EOF
-    [ -f "$dir/pcmanfm/default/desktop-items-0.conf" ] || cat >"$dir/pcmanfm/default/desktop-items-0.conf" <<'EOF'
-[*]
-wallpaper_mode=color
-desktop_bg=#1e1e2e
-desktop_fg=#cdd6f4
-desktop_shadow=#11111b
-desktop_font=DejaVu Sans 11
-show_wm_menu=0
-show_documents=1
-show_trash=1
-show_mounts=0
-EOF
+    echo "startxfce4"
 }
 
 # Ends the desktop's PulseAudio. "pulseaudio --kill" does not find it here: it looks for a process
@@ -367,9 +301,12 @@ cmd_start() {
         echo "The desktop is running (DISPLAY=:$(cat "$STATE/display" 2>/dev/null || echo 1))."
         return 0
     fi
-    mkdir -p "$STATE" "$LOG_DIR" "$R/tmp/.X11-unix"
-    chmod 700 "$STATE"
-    chmod 1777 "$R/tmp/.X11-unix" 2>/dev/null
+    mkdir -p "$STATE" "$STATE/runtime" "$LOG_DIR"
+    chmod 700 "$STATE" "$STATE/runtime"
+    # Pre-create X11 and ICE socket directories owned by root with sticky bit 1777 so non-root
+    # xfce4-session/Xvnc do not stall on "_IceTransmkdir: ERROR: euid != 0".
+    as_root mkdir -p -m 1777 "$R/tmp/.X11-unix" "$R/tmp/.ICE-unix" 2>/dev/null || mkdir -p "$R/tmp/.X11-unix" "$R/tmp/.ICE-unix"
+    as_root chmod 1777 "$R/tmp" "$R/tmp/.X11-unix" "$R/tmp/.ICE-unix" 2>/dev/null || true
     local display
     display="$(free_display)" || die "no free X display (:1 to :9 are taken)"
     [ -n "$size" ] || size="$(conf_value SIZE)"
@@ -412,13 +349,15 @@ cmd_start() {
 }
 
 # XFCE's window manager blends the windows together itself (shadows, transparency) unless told
-# otherwise, and without a GPU the CPU does that for every change on the screen. Off the first time;
-# the file is the user's from then on (Settings > Window Manager Tweaks > Compositor).
+# otherwise, and without a GPU the CPU does that for every change on the screen. Also point
+# xfdesktop at an installed XFCE wallpaper instead of Ubuntu's missing xubuntu-wallpaper.png
+# (which otherwise left the entire desktop background pitch black). Both files are only created
+# when missing so user changes are preserved.
 ensure_xfce_defaults() {
     local dir="${HOME}/.config/xfce4/xfconf/xfce-perchannel-xml"
-    [ -e "$dir/xfwm4.xml" ] && return 0
     mkdir -p "$dir" || return 0
-    cat >"$dir/xfwm4.xml" <<'EOF'
+    if [ ! -e "$dir/xfwm4.xml" ]; then
+        cat >"$dir/xfwm4.xml" <<'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
 
 <channel name="xfwm4" version="1.0">
@@ -427,21 +366,72 @@ ensure_xfce_defaults() {
   </property>
 </channel>
 EOF
+    fi
+    if [ ! -e "$dir/xfce4-desktop.xml" ]; then
+        local wp=""
+        for cand in \
+            /usr/share/backgrounds/xfce/xfce-blue.jpg \
+            /usr/share/backgrounds/xfce/xfce-shapes.svg \
+            /usr/share/backgrounds/xfce/xfce-teal.svg; do
+            if [ -f "$R$cand" ]; then
+                wp="$cand"
+                break
+            fi
+        done
+        local img_style=0
+        [ -n "$wp" ] && img_style=5
+        cat >"$dir/xfce4-desktop.xml" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+
+<channel name="xfce4-desktop" version="1.0">
+  <property name="backdrop" type="empty">
+    <property name="screen0" type="empty">
+      <property name="monitorVNC-0" type="empty">
+        <property name="workspace0" type="empty">
+          <property name="color-style" type="int" value="0"/>
+          <property name="image-style" type="int" value="$img_style"/>
+          <property name="last-image" type="string" value="$wp"/>
+          <property name="rgba1" type="array">
+            <value type="double" value="0.117647"/>
+            <value type="double" value="0.160784"/>
+            <value type="double" value="0.231373"/>
+            <value type="double" value="1.000000"/>
+          </property>
+        </property>
+      </property>
+      <property name="monitor0" type="empty">
+        <property name="workspace0" type="empty">
+          <property name="color-style" type="int" value="0"/>
+          <property name="image-style" type="int" value="$img_style"/>
+          <property name="last-image" type="string" value="$wp"/>
+          <property name="rgba1" type="array">
+            <value type="double" value="0.117647"/>
+            <value type="double" value="0.160784"/>
+            <value type="double" value="0.231373"/>
+            <value type="double" value="1.000000"/>
+          </property>
+        </property>
+      </property>
+    </property>
+  </property>
+</channel>
+EOF
+    fi
 }
 
 # The desktop's session on the X server of display $1; fails when it ends at once
 start_session() {
-    local display="$1" pulse="" current="openbox"
+    local display="$1" pulse=""
     refresh_databases
-    if [ "$(conf_value DESKTOP)" = xfce ]; then ensure_xfce_defaults; else ensure_openbox_autostart; fi
+    ensure_xfce_defaults
+    mkdir -p "$STATE/runtime" 2>/dev/null && chmod 700 "$STATE/runtime" 2>/dev/null
     [ -f "$STATE/pulse.server" ] && pulse="$(cat "$STATE/pulse.server")"
-    [ "$(conf_value DESKTOP)" = xfce ] && current="XFCE"
     (
         cd "$HOME" || exit 1
         unset SESSION_MANAGER DBUS_SESSION_BUS_ADDRESS
         # NO_AT_BRIDGE: there is no accessibility bus here, and every GTK program waited for it and
         # wrote a warning
-        export DISPLAY=":$display" XDG_SESSION_TYPE=x11 XDG_CURRENT_DESKTOP="$current" NO_AT_BRIDGE=1
+        export DISPLAY=":$display" XDG_SESSION_TYPE=x11 XDG_CURRENT_DESKTOP=XFCE XDG_RUNTIME_DIR="$STATE/runtime" NO_AT_BRIDGE=1
         [ -n "$pulse" ] && export PULSE_SERVER="$pulse"
         # shellcheck disable=SC2046
         exec setsid dbus-launch --exit-with-session $(session_command)

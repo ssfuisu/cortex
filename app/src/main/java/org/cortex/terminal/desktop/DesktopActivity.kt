@@ -13,7 +13,6 @@ import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
-import android.view.WindowManager
 import android.view.inputmethod.InputMethodManager
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
@@ -63,18 +62,13 @@ class DesktopActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val themeKey = PreferenceManager.getDefaultSharedPreferences(this).getString("terminal_theme", "catppuccin") ?: "catppuccin"
+        val themeKey = PreferenceManager.getDefaultSharedPreferences(this).getString("terminal_theme", "amoled") ?: "amoled"
         TerminalColor.applyTheme(themeKey)
         Chrome.apply(TerminalColor.SCHEMES.getValue(TerminalColor.currentThemeId))
         val p = Chrome.palette
         val density = resources.displayMetrics.density
 
         WindowCompat.setDecorFitsSystemWindows(window, false)
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        // Settings > Secure screen, as for the terminal: no screenshots, a blank preview in recent apps
-        if (PreferenceManager.getDefaultSharedPreferences(this).getBoolean("secure_screen", false)) {
-            window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
-        }
         window.statusBarColor = Color.BLACK
         window.navigationBarColor = p.bar
         WindowInsetsControllerCompat(window, window.decorView).apply {
@@ -123,12 +117,12 @@ class DesktopActivity : AppCompatActivity() {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(p.bar)
             addView(surface, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
-            addView(keyBar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (46 * density).toInt()))
+            addView(keyBar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (42 * density).toInt()))
         }
         ViewCompat.setOnApplyWindowInsetsListener(root) { v, insets ->
             val bars = insets.getInsets(WindowInsetsCompat.Type.navigationBars() or WindowInsetsCompat.Type.displayCutout())
             val ime = insets.getInsets(WindowInsetsCompat.Type.ime())
-            v.setPadding(bars.left, 0, bars.right, maxOf(bars.bottom, ime.bottom))
+            v.setPadding(bars.left, bars.top, bars.right, maxOf(bars.bottom, ime.bottom))
             insets
         }
         setContentView(root)
@@ -139,7 +133,7 @@ class DesktopActivity : AppCompatActivity() {
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding((4 * density).toInt(), 0, (4 * density).toInt(), 0)
+            setPadding(0, 0, 0, 0)
         }
         fun key(label: String, onClick: (TextView) -> Unit): TextView = TextView(this).apply {
             text = label
@@ -149,12 +143,9 @@ class DesktopActivity : AppCompatActivity() {
             gravity = Gravity.CENTER
             minWidth = (44 * density).toInt()
             setPadding((10 * density).toInt(), 0, (10 * density).toInt(), 0)
-            background = Chrome.keyBackground(p, 8 * density, 0)
+            background = Chrome.flatKeyBackground(p)
             setOnClickListener { onClick(this) }
-            row.addView(this, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, (36 * density).toInt()).apply {
-                marginStart = (3 * density).toInt()
-                marginEnd = (3 * density).toInt()
-            })
+            row.addView(this, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT))
         }
         key(getString(R.string.desktop_key_keyboard)) { toggleKeyboard() }
         key("Esc") { desktop.sendKeysym(XKeySyms.ESCAPE) }
@@ -195,10 +186,9 @@ class DesktopActivity : AppCompatActivity() {
 
     private fun refreshModifiers() {
         val p = Chrome.palette
-        val density = resources.displayMetrics.density
         for ((sym, view) in modifierKeys) {
             val on = sym in held
-            view.background = if (on) Chrome.activeKeyBackground(p, 8 * density, 0) else Chrome.keyBackground(p, 8 * density, 0)
+            view.background = if (on) Chrome.activeKeyBackground(p, 0f, 0) else Chrome.flatKeyBackground(p)
             view.setTextColor(if (on) p.onAccent else p.text)
         }
     }
@@ -213,7 +203,17 @@ class DesktopActivity : AppCompatActivity() {
 
     override fun onStart() {
         super.onStart()
-        connectOrStart()
+        if (desktop.width > 0 && desktop.height > 0) {
+            connectOrStart()
+        } else {
+            // Wait for the initial layout pass so Xvnc starts at the exact view size
+            // without triggering an immediate ExtendedDesktopSize resize storm.
+            desktop.post {
+                if (!isFinishing && lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)) {
+                    connectOrStart()
+                }
+            }
+        }
         clipboard.addPrimaryClipChangedListener(clipListener)
     }
 
@@ -240,7 +240,7 @@ class DesktopActivity : AppCompatActivity() {
     private fun connectOrStart() {
         if (DesktopAddon.installedKind(this) == null) {
             showStatus(getString(R.string.desktop_not_installed), getString(R.string.desktop_install_button)) {
-                DesktopUi.showInstallDialog(this) { finish() }
+                DesktopUi.startInstall { finish() }
             }
             return
         }

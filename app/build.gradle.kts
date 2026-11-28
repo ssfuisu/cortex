@@ -16,8 +16,8 @@ android {
         // privacy warnings. Writable rootfs binaries (app_data_file) execute via libcortex-exec.so
         // in nativeLibraryDir (apk_data_file), which holds execute_no_trans under targetSdk >= 29.
         targetSdk = 35
-        versionCode = 12900
-        versionName = "1.29.0"
+        versionCode = 12901
+        versionName = "1.29.1"
         // UbuntuOnDeviceTest (app/src/androidTest), on Firebase Test Lab
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

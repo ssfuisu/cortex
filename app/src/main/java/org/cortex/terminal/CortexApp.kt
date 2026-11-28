@@ -8,6 +8,7 @@ class CortexApp : Application() {
     override fun onCreate() {
         super.onCreate()
         LocaleHelper.applySaved(this)
+        org.cortex.terminal.documents.CortexDocumentsProvider.setEnabled(this, true)
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
             override fun onActivityStarted(activity: Activity) {
                 startedActivities++

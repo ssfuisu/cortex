@@ -12,7 +12,6 @@ import android.os.FileObserver
 import android.os.Process
 import android.os.SystemClock
 import android.util.Log
-import androidx.preference.PreferenceManager
 import org.cortex.terminal.LocaleHelper
 import org.cortex.terminal.R
 import org.cortex.terminal.api.ApiServer
@@ -110,9 +109,6 @@ class LocalServers(private val context: Context, private val root: File) {
         }
     }
 
-    private fun enabled() =
-        PreferenceManager.getDefaultSharedPreferences(context).getBoolean(PREF_NOTIFY_SERVERS, true)
-
     @Suppress("DEPRECATION") // FileObserver(File) needs API 29
     private fun watch() {
         if (observer != null) return
@@ -149,11 +145,6 @@ class LocalServers(private val context: Context, private val root: File) {
 
     private fun poll() {
         watch()
-        if (!enabled()) {
-            if (shown.isNotEmpty()) stopShowing(shown.keys.toList())
-            pending.clear()
-            return
-        }
         // The listening ports from /proc/net when Android lets the app read it: then servers are
         // never connected to just to see whether they are still there (sshd would log each time)
         val listening = procListening()
@@ -189,7 +180,7 @@ class LocalServers(private val context: Context, private val root: File) {
     private fun check(port: Int) {
         val p = pending[port] ?: return
         val now = SystemClock.elapsedRealtime()
-        if (!enabled() || now < p.nextCheck) return
+        if (now < p.nextCheck) return
         if (answersHttp(port)) {
             pending.remove(port)
             shown[port] = p.program
@@ -331,7 +322,6 @@ class LocalServers(private val context: Context, private val root: File) {
     companion object {
         private const val TAG = "LocalServers"
         const val CHANNEL_ID = "cortex_servers"
-        const val PREF_NOTIFY_SERVERS = "notify_servers"
         private const val POLL_SECONDS = 3L
         private const val IDLE_POLL_SECONDS = 15L
         private const val PROC_RETRY_MS = 10 * 60 * 1000L

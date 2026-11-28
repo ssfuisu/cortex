@@ -122,6 +122,19 @@ object ShellScriptsInstaller {
         }
     }
 
+    /** Installs `systemd-sysusers` (POSIX sysusers.d processor) into /usr/bin and /usr/sbin. */
+    fun ensureSysusersTool(root: File, context: Context? = null) {
+        try {
+            val fallback = "#!/bin/sh\nexit 0\n"
+            val script = loadAssetScript(context, "systemd-sysusers.sh", fallback)
+            for (dir in listOf(File(root, "usr/bin"), File(root, "usr/sbin"))) {
+                FileInstaller.install(File(dir, "systemd-sysusers"), script, 493) // 0755
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to install systemd-sysusers", e)
+        }
+    }
+
     fun ensureServiceManager(root: File, context: Context? = null) {
         try {
             File(root, "run").mkdirs()
@@ -135,14 +148,14 @@ object ShellScriptsInstaller {
 
             try {
                 val serviceScript = loadAssetScript(context, "service.sh", "#!/bin/bash\n")
-                FileInstaller.install(File(localBin, "service"), serviceScript, 448) // 0700
+                FileInstaller.install(File(localBin, "service"), serviceScript, 493) // 0755
             } catch (e: Exception) {
                 Log.e(TAG, "Skipping service script install: ${e.message}")
             }
 
             try {
                 val systemctlScript = loadAssetScript(context, "systemctl.sh", "#!/bin/bash\n")
-                FileInstaller.install(File(localBin, "systemctl"), systemctlScript, 448)
+                FileInstaller.install(File(localBin, "systemctl"), systemctlScript, 493) // 0755
             } catch (e: Exception) {
                 Log.e(TAG, "Skipping systemctl script install: ${e.message}")
             }
@@ -151,7 +164,7 @@ object ShellScriptsInstaller {
                 "cortex-service",
                 "#!/bin/sh\nexec service \"\$@\"\n"
             )
-            FileInstaller.install(File(localBin, "cortex-service"), cortexServiceScript, 448)
+            FileInstaller.install(File(localBin, "cortex-service"), cortexServiceScript, 493) // 0755
 
             // The SSH server as a service, for "service cortex-sshd start" and the start with Cortex
             // (cortex-sshd enable)

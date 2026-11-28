@@ -4,6 +4,44 @@ What changed in each version of Cortex Terminal, newest first. The release workf
 of a GitHub release from the section of its version here. Older versions are described on the
 [GitHub releases](https://github.com/ssfuisu/cortex/releases) page.
 
+## 1.29.1 (2026-11-28)
+
+### Fixed
+
+- **XFCE Desktop Mode black screen with only cursor visible.** Fixed three interacting causes:
+  - Kept `RfbClient` requesting full non-incremental frames until pixel rectangles actually arrive
+    for the current screen size, preventing pseudo-only `ExtendedDesktopSize` updates after resize
+    from leaving the framebuffer black.
+  - Waited for the initial view layout before starting `Xvnc` in `DesktopActivity` and applied top
+    display-cutout padding so the XFCE top panel is never obscured behind camera cutouts or lost to
+    an immediate out-of-bounds resize request.
+  - Pre-created root-owned `1777` `/tmp/.ICE-unix` and `/tmp/.X11-unix` directories, exported
+    `XDG_RUNTIME_DIR`, and wrote default `xfce4-desktop.xml` pointing to an installed XFCE
+    wallpaper instead of Ubuntu's missing `xubuntu-wallpaper.png`.
+- **Desktop removal `dpkg` error (`dbus`, `libpam-systemd`, `systemd-resolved`, `dbus-user-session`).**
+  Stopped intercepting `systemd-sysusers` as a no-op in `libcortex-hook.so` and replaced the dummy
+  stub with a POSIX-shell `systemd-sysusers` implementation so packages like `dbus-system-bus-common`
+  create their required system accounts (`messagebus`). Updated `cortex-desktop remove` to repair
+  half-configured packages and run `apt-get remove --auto-remove --no-install-recommends`, and
+  updated `systemctl` to handle leading flags (`--system`, `--user`, `--quiet`).
+- **Firefox installation during desktop setup.** Added `curl` and `ca-certificates` to desktop
+  packages and verified Mozilla's signing key download before configuring the apt repository.
+
+### Changed
+
+- **Automatic XFCE + Firefox desktop installation (removed Openbox).** Removed Openbox ("light")
+  from the desktop script and UI. Opening Desktop when not installed now starts installing XFCE and
+  Firefox immediately without a chooser dialog.
+- **Termux-style flush Extra Keys bar.** Removed margins, outer padding, rounded corners, and key
+  borders from the extra keys bar (and the desktop key bar) so keys sit edge-to-edge as clean
+  rectangles.
+- **Black (AMOLED) is now the default color scheme.**
+- **Decluttered Settings and removed unneeded features.**
+  - Removed Secure Screen (`FLAG_SECURE`), Keep Screen On (`FLAG_KEEP_SCREEN_ON`), Terminal Font
+    selection (uses JetBrains Mono), Session Restore, and background long-command notifications.
+  - Removed Clipboard Access (OSC 52), Local Web Servers, and Show in File Manager from Settings;
+    all three now remain enabled automatically.
+
 ## 1.29.0 (2026-11-27)
 
 ### Changed

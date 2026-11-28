@@ -6,8 +6,6 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.preference.ListPreference
 import androidx.preference.Preference
 import androidx.preference.PreferenceFragmentCompat
-import androidx.preference.SwitchPreferenceCompat
-import org.cortex.terminal.documents.CortexDocumentsProvider
 
 class SettingsActivity : AppCompatActivity() {
 
@@ -29,7 +27,7 @@ class SettingsActivity : AppCompatActivity() {
         // In the colors of the terminal's scheme, like the screens of the terminal itself (this
         // screen can be the first of a new process, so the scheme is read here too)
         val themeKey = androidx.preference.PreferenceManager.getDefaultSharedPreferences(this)
-            .getString("terminal_theme", "catppuccin") ?: "catppuccin"
+            .getString("terminal_theme", "amoled") ?: "amoled"
         org.cortex.terminal.emulator.TerminalColor.applyTheme(themeKey)
         org.cortex.terminal.view.Chrome.apply(
             org.cortex.terminal.emulator.TerminalColor.SCHEMES.getValue(org.cortex.terminal.emulator.TerminalColor.currentThemeId)
@@ -59,16 +57,6 @@ class SettingsActivity : AppCompatActivity() {
         }
     }
 
-    override fun onResume() {
-        super.onResume()
-        val prefs = androidx.preference.PreferenceManager.getDefaultSharedPreferences(this)
-        if (prefs.getBoolean("secure_screen", false)) {
-            window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
-        } else {
-            window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
-        }
-    }
-
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         if (item.itemId == android.R.id.home) {
             finish()
@@ -86,13 +74,11 @@ class SettingsActivity : AppCompatActivity() {
 
         override fun onResume() {
             super.onResume()
-            // Whether the desktop is installed, and which one
             val context = requireContext()
             val kind = org.cortex.terminal.desktop.DesktopAddon.installedKind(context)
             findPreference<Preference>("desktop_open")?.summary = when (kind) {
                 null -> getString(R.string.pref_desktop_open_missing)
-                org.cortex.terminal.desktop.DesktopAddon.KIND_XFCE -> getString(R.string.pref_desktop_open_installed, getString(R.string.desktop_kind_xfce))
-                else -> getString(R.string.pref_desktop_open_installed, getString(R.string.desktop_kind_light))
+                else -> getString(R.string.pref_desktop_open_installed, getString(R.string.desktop_kind_xfce))
             }
             findPreference<Preference>("desktop_remove")?.isVisible = kind != null
         }
@@ -153,12 +139,6 @@ class SettingsActivity : AppCompatActivity() {
             findPreference<ListPreference>("terminal_font_size")?.summaryProvider =
                 Preference.SummaryProvider<ListPreference> { pref -> pref.entry ?: pref.value?.let { "$it sp" } }
 
-            findPreference<androidx.preference.SwitchPreferenceCompat>(CortexDocumentsProvider.PREF_DOCUMENTS_ENABLED)
-                ?.setOnPreferenceChangeListener { _, newValue ->
-                    CortexDocumentsProvider.setEnabled(requireContext(), newValue as Boolean)
-                    true
-                }
-
             findPreference<Preference>("telegram_contact_pref")?.setOnPreferenceClickListener {
                 try {
                     val intent = android.content.Intent(
@@ -180,20 +160,14 @@ class SettingsActivity : AppCompatActivity() {
                 true
             }
 
-            // The desktop (X11): opened, installed (in a new session, where apt's progress can be read)
-            // or removed
+            // The desktop (X11): opened, installed directly (XFCE + Firefox in a new session) or removed
             findPreference<Preference>("desktop_open")?.setOnPreferenceClickListener {
                 val activity = requireActivity()
                 if (org.cortex.terminal.desktop.DesktopAddon.installedKind(activity) == null) {
-                    org.cortex.terminal.desktop.DesktopUi.showInstallDialog(activity) { activity.finish() }
+                    org.cortex.terminal.desktop.DesktopUi.startInstall { activity.finish() }
                 } else {
                     startActivity(android.content.Intent(activity, org.cortex.terminal.desktop.DesktopActivity::class.java))
                 }
-                true
-            }
-            findPreference<Preference>("desktop_install")?.setOnPreferenceClickListener {
-                val activity = requireActivity()
-                org.cortex.terminal.desktop.DesktopUi.showInstallDialog(activity) { activity.finish() }
                 true
             }
             findPreference<Preference>("desktop_remove")?.setOnPreferenceClickListener {

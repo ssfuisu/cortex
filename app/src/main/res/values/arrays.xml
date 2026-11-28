@@ -17,22 +17,9 @@
         <item>18</item>
     </string-array>
 
-    <string-array name="terminal_font_entries">
-        <item>@string/font_jetbrains_default</item>
-        <item>Fira Code Nerd Font</item>
-        <item>@string/font_system_monospace</item>
-        <item>@string/font_custom</item>
-    </string-array>
-
-    <string-array name="terminal_font_values" translatable="false">
-        <item>jetbrains_mono</item>
-        <item>fira_code</item>
-        <item>monospace</item>
-        <item>custom</item>
-    </string-array>
-
     <string-array name="terminal_theme_entries">
-        <item>@string/theme_catppuccin_default</item>
+        <item>@string/theme_amoled_default</item>
+        <item>Catppuccin Mocha</item>
         <item>Light</item>
         <item>Tokyo Night</item>
         <item>Dracula</item>
@@ -45,10 +32,10 @@
         <item>Everforest</item>
         <item>GitHub Dark</item>
         <item>Ayu Mirage</item>
-        <item>Black (AMOLED)</item>
     </string-array>
 
     <string-array name="terminal_theme_values" translatable="false">
+        <item>amoled</item>
         <item>catppuccin</item>
         <item>light</item>
         <item>tokyo_night</item>
@@ -62,21 +49,6 @@
         <item>everforest</item>
         <item>github_dark</item>
         <item>ayu_mirage</item>
-        <item>amoled</item>
-    </string-array>
-
-    <string-array name="long_command_threshold_entries">
-        <item>@string/threshold_15s</item>
-        <item>@string/threshold_30s</item>
-        <item>@string/threshold_1m</item>
-        <item>@string/threshold_5m</item>
-    </string-array>
-
-    <string-array name="long_command_threshold_values" translatable="false">
-        <item>15</item>
-        <item>30</item>
-        <item>60</item>
-        <item>300</item>
     </string-array>
 
     <!-- Each language is written in its own language so it can be found whatever the current UI language is. -->

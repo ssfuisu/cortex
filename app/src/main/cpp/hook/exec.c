@@ -264,7 +264,6 @@ static int cortex_execve(const char *filename, char *const argv[], char *const e
     if (strcmp(f_base, "ldconfig") == 0 ||
         strcmp(f_base, "ldconfig.real") == 0 ||
         strcmp(f_base, "systemd-machine-id-setup") == 0 ||
-        strcmp(f_base, "systemd-sysusers") == 0 ||
         strcmp(f_base, "systemd-tmpfiles") == 0 ||
         strcmp(f_base, "start-stop-daemon") == 0 ||
         strcmp(f_base, "mandb") == 0 ||
@@ -276,7 +275,6 @@ static int cortex_execve(const char *filename, char *const argv[], char *const e
         strcmp(prog_name, "ldconfig") == 0 ||
         strcmp(prog_name, "ldconfig.real") == 0 ||
         strcmp(prog_name, "systemd-machine-id-setup") == 0 ||
-        strcmp(prog_name, "systemd-sysusers") == 0 ||
         strcmp(prog_name, "systemd-tmpfiles") == 0 ||
         strcmp(prog_name, "start-stop-daemon") == 0 ||
         strcmp(prog_name, "mandb") == 0 ||
@@ -840,13 +838,11 @@ static int cortex_posix_spawn(pid_t *pid, const char *path,
     if (strcmp(f_base, "ldconfig") == 0 ||
         strcmp(f_base, "ldconfig.real") == 0 ||
         strcmp(f_base, "systemd-machine-id-setup") == 0 ||
-        strcmp(f_base, "systemd-sysusers") == 0 ||
         strcmp(f_base, "systemd-tmpfiles") == 0 ||
         strcmp(f_base, "start-stop-daemon") == 0 ||
         strcmp(prog_name, "ldconfig") == 0 ||
         strcmp(prog_name, "ldconfig.real") == 0 ||
         strcmp(prog_name, "systemd-machine-id-setup") == 0 ||
-        strcmp(prog_name, "systemd-sysusers") == 0 ||
         strcmp(prog_name, "systemd-tmpfiles") == 0 ||
         strcmp(prog_name, "start-stop-daemon") == 0) {
         pid_t child = fork();

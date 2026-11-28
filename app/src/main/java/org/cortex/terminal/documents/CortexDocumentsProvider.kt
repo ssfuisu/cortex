@@ -35,18 +35,10 @@ class CortexDocumentsProvider : DocumentsProvider() {
     private fun requireNotNullContext(): Context =
         context ?: throw IllegalStateException("Provider is not attached")
 
-    private fun isShareEnabled(): Boolean = try {
-        androidx.preference.PreferenceManager.getDefaultSharedPreferences(requireNotNullContext())
-            .getBoolean(PREF_DOCUMENTS_ENABLED, true)
-    } catch (_: Exception) {
-        true
-    }
-
     override fun onCreate(): Boolean = true
 
     override fun queryRoots(projection: Array<out String>?): Cursor {
         val result = MatrixCursor(projection ?: DEFAULT_ROOT_PROJECTION)
-        if (!isShareEnabled()) return result
         val base = base()
         if (!base.isDirectory) base.mkdirs()
         result.newRow().apply {
@@ -144,7 +136,6 @@ class CortexDocumentsProvider : DocumentsProvider() {
     override fun getDocumentType(documentId: String): String = mimeTypeOf(existing(documentId))
 
     private fun existing(documentId: String): File {
-        if (!isShareEnabled()) throw FileNotFoundException("Sharing is turned off")
         val file = DocumentPaths.resolve(base(), documentId) ?: throw FileNotFoundException("Invalid document $documentId")
         if (!file.exists()) throw FileNotFoundException("$documentId does not exist")
         return file
@@ -176,8 +167,6 @@ class CortexDocumentsProvider : DocumentsProvider() {
     }
 
     companion object {
-        const val PREF_DOCUMENTS_ENABLED = "documents_enabled"
-
         private val DEFAULT_ROOT_PROJECTION = arrayOf(
             Root.COLUMN_ROOT_ID, Root.COLUMN_FLAGS, Root.COLUMN_ICON, Root.COLUMN_TITLE,
             Root.COLUMN_SUMMARY, Root.COLUMN_DOCUMENT_ID, Root.COLUMN_MIME_TYPES, Root.COLUMN_AVAILABLE_BYTES

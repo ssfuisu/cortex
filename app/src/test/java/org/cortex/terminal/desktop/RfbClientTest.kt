@@ -194,6 +194,54 @@ class RfbClientTest {
     }
 
     @Test
+    fun pseudoOnlyUpdateAfterResizeStillRequestsFullFramebuffer() {
+        val p = connect()
+        readSetup(p)
+        p.recorder.next()
+        startReader(p.client)
+        // Server resizes to 8x6 (no pixels yet) -> client must ask for a full frame
+        p.toClient.writeByte(RfbClient.MSG_FRAMEBUFFER_UPDATE)
+        p.toClient.writeByte(0)
+        p.toClient.writeShort(1)
+        p.toClient.rect(0, 0, 8, 6, RfbClient.PSEUDO_EXTENDED_DESKTOP_SIZE)
+        p.toClient.writeByte(1)
+        p.toClient.write(ByteArray(3))
+        p.toClient.writeInt(7)
+        p.toClient.writeShort(0); p.toClient.writeShort(0); p.toClient.writeShort(8); p.toClient.writeShort(6)
+        p.toClient.writeInt(0)
+        p.toClient.flush()
+        assertEquals("resize 8 6", p.recorder.next())
+        assertEquals("end", p.recorder.next())
+        readUpdateRequest(p, incremental = false)
+
+        // Server answers with another pseudo-only ExtendedDesktopSize at the same 8x6 size:
+        // client still has zero pixels for 8x6, so it must keep asking for a non-incremental frame.
+        p.toClient.writeByte(RfbClient.MSG_FRAMEBUFFER_UPDATE)
+        p.toClient.writeByte(0)
+        p.toClient.writeShort(1)
+        p.toClient.rect(0, 0, 8, 6, RfbClient.PSEUDO_EXTENDED_DESKTOP_SIZE)
+        p.toClient.writeByte(1)
+        p.toClient.write(ByteArray(3))
+        p.toClient.writeInt(7)
+        p.toClient.writeShort(0); p.toClient.writeShort(0); p.toClient.writeShort(8); p.toClient.writeShort(6)
+        p.toClient.writeInt(0)
+        p.toClient.flush()
+        assertEquals("end", p.recorder.next())
+        readUpdateRequest(p, incremental = false)
+
+        // Once actual raw pixels arrive, subsequent requests switch to incremental
+        p.toClient.writeByte(RfbClient.MSG_FRAMEBUFFER_UPDATE)
+        p.toClient.writeByte(0)
+        p.toClient.writeShort(1)
+        p.toClient.rect(0, 0, 1, 1, RfbClient.ENCODING_RAW)
+        p.toClient.write(byteArrayOf(0x11, 0x22, 0x33, 0))
+        p.toClient.flush()
+        assertEquals("update 0 0 1 1", p.recorder.next())
+        assertEquals("end", p.recorder.next())
+        readUpdateRequest(p, incremental = true)
+    }
+
+    @Test
     fun sizeAskedBeforeTheServerCanIsSentWhenItCan() {
         val p = connect()
         readSetup(p)

@@ -49,17 +49,14 @@ class CortexService : Service() {
             if (lastVersionCode != 0 && lastVersionCode < appVersion && _sessionManager != null) {
                 android.util.Log.i("CortexService", "App version updated from $lastVersionCode to $appVersion. Resetting sessions.")
                 try {
-                    // They come back in the new version (SessionStore)
-                    _sessionManager?.destroyAll(forget = false)
+                    _sessionManager?.destroyAll()
                 } catch (e: Exception) {}
                 _sessionManager = null
             }
             lastVersionCode = appVersion
 
             if (_sessionManager == null) {
-                _sessionManager = SessionManager(context.applicationContext).also {
-                    it.store = org.cortex.terminal.session.SessionStore(java.io.File(context.filesDir, "sessions"))
-                }
+                _sessionManager = SessionManager(context.applicationContext)
             }
             return _sessionManager!!
         }

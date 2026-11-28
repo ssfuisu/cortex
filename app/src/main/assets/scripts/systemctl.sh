@@ -1,8 +1,31 @@
 #!/bin/bash
 # Cortex systemctl compatibility shim
-ACTION="$1"
-SERVICE="${2%.service}"
-shift 2 2>/dev/null
+USER_MODE=0
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --user) USER_MODE=1; shift ;;
+        --system|--quiet|-q|--no-reload|--no-block|--now|--global|--runtime|--no-pager|--no-ask-password|--full|-l)
+            shift ;;
+        --root=*|--preset-mode=*|--kill-who=*|--signal=*|-s=*)
+            shift ;;
+        --root|--preset-mode|--kill-who|--signal|-s)
+            shift; [ $# -gt 0 ] && shift ;;
+        --) shift; break ;;
+        -*) shift ;;
+        *) break ;;
+    esac
+done
+
+# There is no systemd --user daemon in Cortex; report failure so scripts (e.g. xfce4 xinitrc)
+# do not attempt to use systemd user activation.
+if [ "$USER_MODE" = 1 ]; then
+    exit 1
+fi
+
+ACTION="${1:-}"
+SERVICE="${2:-}"
+SERVICE="${SERVICE%.service}"
+shift 2 2>/dev/null || shift $# 2>/dev/null
 
 AUTOSTART_DIR="${CORTEX_AUTOSTART_DIR:-/etc/cortex/autostart}"
 
@@ -14,7 +37,7 @@ validate_service_name() {
 }
 
 case "$ACTION" in
-    daemon-reload|reset-failed)
+    ""|daemon-reload|daemon-reexec|reset-failed)
         exit 0
         ;;
     is-system-running)
@@ -52,6 +75,14 @@ case "$ACTION" in
         validate_service_name
         rm -f "$AUTOSTART_DIR/$SERVICE"
         echo "Disabled $SERVICE from automatic startup."
+        exit 0
+        ;;
+    try-restart|condrestart|try-reload-or-restart|reload-or-restart)
+        [ -z "$SERVICE" ] && exit 0
+        validate_service_name
+        if service "$SERVICE" status >/dev/null 2>&1; then
+            exec service "$SERVICE" restart "$@"
+        fi
         exit 0
         ;;
     start|stop|restart|status|reload|force-reload)

@@ -31,7 +31,7 @@ object ThemePicker {
 
         val adapter = object : ArrayAdapter<String>(context, 0, names) {
             override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
-                val scheme = TerminalColor.SCHEMES[ids[position]] ?: TerminalColor.SCHEMES.getValue("catppuccin")
+                val scheme = TerminalColor.SCHEMES[ids[position]] ?: TerminalColor.SCHEMES.getValue("amoled")
                 val selected = ids[position] == pref.value
                 val row = LinearLayout(context).apply {
                     orientation = LinearLayout.VERTICAL

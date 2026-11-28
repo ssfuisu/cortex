@@ -14,6 +14,31 @@ object TerminalColor {
     )
 
     val SCHEMES = mapOf(
+        "amoled" to ColorScheme(
+            id = "amoled",
+            displayName = "Black (AMOLED)",
+            fg = Color.rgb(0xcd, 0xd6, 0xf4),
+            bg = Color.rgb(0x00, 0x00, 0x00),
+            cursor = Color.rgb(0x89, 0xb4, 0xfa),
+            ansi = intArrayOf(
+                Color.rgb(0x1e, 0x1e, 0x2e), // 0
+                Color.rgb(0xf3, 0x8b, 0xa8), // 1
+                Color.rgb(0xa6, 0xe3, 0xa1), // 2
+                Color.rgb(0xf9, 0xe2, 0xaf), // 3
+                Color.rgb(0x89, 0xb4, 0xfa), // 4
+                Color.rgb(0xcb, 0xa6, 0xf7), // 5
+                Color.rgb(0x89, 0xdc, 0xeb), // 6
+                Color.rgb(0xba, 0xc2, 0xde), // 7
+                Color.rgb(0x7f, 0x84, 0x9c), // 8
+                Color.rgb(0xf3, 0x8b, 0xa8), // 9
+                Color.rgb(0xa6, 0xe3, 0xa1), // 10
+                Color.rgb(0xf9, 0xe2, 0xaf), // 11
+                Color.rgb(0x89, 0xb4, 0xfa), // 12
+                Color.rgb(0xcb, 0xa6, 0xf7), // 13
+                Color.rgb(0x94, 0xe2, 0xd5), // 14
+                Color.rgb(0xa6, 0xad, 0xc8)  // 15
+            )
+        ),
         "catppuccin" to ColorScheme(
             id = "catppuccin",
             displayName = "Catppuccin Mocha",
@@ -340,39 +365,14 @@ object TerminalColor {
                 Color.rgb(0x95, 0xe6, 0xcb), // 14
                 Color.rgb(0xff, 0xff, 0xff)  // 15
             )
-        ),
-        "amoled" to ColorScheme(
-            id = "amoled",
-            displayName = "Black (AMOLED)",
-            fg = Color.rgb(0xcd, 0xd6, 0xf4),
-            bg = Color.rgb(0x00, 0x00, 0x00),
-            cursor = Color.rgb(0x89, 0xb4, 0xfa),
-            ansi = intArrayOf(
-                Color.rgb(0x1e, 0x1e, 0x2e), // 0
-                Color.rgb(0xf3, 0x8b, 0xa8), // 1
-                Color.rgb(0xa6, 0xe3, 0xa1), // 2
-                Color.rgb(0xf9, 0xe2, 0xaf), // 3
-                Color.rgb(0x89, 0xb4, 0xfa), // 4
-                Color.rgb(0xcb, 0xa6, 0xf7), // 5
-                Color.rgb(0x89, 0xdc, 0xeb), // 6
-                Color.rgb(0xba, 0xc2, 0xde), // 7
-                Color.rgb(0x7f, 0x84, 0x9c), // 8
-                Color.rgb(0xf3, 0x8b, 0xa8), // 9
-                Color.rgb(0xa6, 0xe3, 0xa1), // 10
-                Color.rgb(0xf9, 0xe2, 0xaf), // 11
-                Color.rgb(0x89, 0xb4, 0xfa), // 12
-                Color.rgb(0xcb, 0xa6, 0xf7), // 13
-                Color.rgb(0x94, 0xe2, 0xd5), // 14
-                Color.rgb(0xa6, 0xad, 0xc8)  // 15
-            )
         )
     )
 
-    var currentThemeId: String = "catppuccin"
+    var currentThemeId: String = "amoled"
         private set
 
     var DEFAULT_FG: Int = Color.rgb(0xcd, 0xd6, 0xf4)
-    var DEFAULT_BG: Int = Color.rgb(0x18, 0x18, 0x25)
+    var DEFAULT_BG: Int = Color.rgb(0x00, 0x00, 0x00)
     var CURSOR_COLOR: Int = Color.rgb(0x89, 0xb4, 0xfa)
 
     val ANSI_COLORS = IntArray(16)
@@ -383,7 +383,7 @@ object TerminalColor {
     private var held = IntArray(18)
 
     init {
-        applyTheme("catppuccin")
+        applyTheme("amoled")
         held = inUse()
     }
 
@@ -463,7 +463,7 @@ object TerminalColor {
     }
 
     fun applyTheme(themeId: String) {
-        val scheme = SCHEMES[themeId] ?: SCHEMES["catppuccin"] ?: return
+        val scheme = SCHEMES[themeId] ?: SCHEMES["amoled"] ?: return
         currentThemeId = scheme.id
         DEFAULT_FG = scheme.fg
         DEFAULT_BG = scheme.bg
