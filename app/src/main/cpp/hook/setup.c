@@ -4,10 +4,11 @@
 // Start-up (CORTEX_ROOT, certificate and time zone defaults), /proc/self/exe, rewrite_path() and
 // the short names of Unix sockets.
 
+static char g_exec_runner[PATH_MAX] = {0};
+
 #ifndef CORTEX_HOST_TEST
 
 static char g_real_exe[PATH_MAX] = {0};
-static char g_exec_runner[PATH_MAX] = {0};
 static int g_initialized = 0;
 
 static void init_cortex_hook(void) {
