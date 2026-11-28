@@ -63,12 +63,14 @@ static char **prepare_cortex_env(char *const envp[], const char *real_exe) {
     // are compared (this was 13 strncmp() calls for each of the 30 or so variables)
     int has_nt = 0;
     int has_exec_runner = 0;
+    int has_locpath = 0;
     while (envp && envp[count]) {
         const char *e = envp[count];
         switch (e[0]) {
         case 'L':
             if (strncmp(e, "LD_PRELOAD=", 11) == 0) has_preload = 1;
             else if (strncmp(e, "LD_LIBRARY_PATH=", 16) == 0) has_ld_library_path = 1;
+            else if (strncmp(e, "LOCPATH=", 8) == 0) has_locpath = 1;
             break;
         case 'C':
             if (strncmp(e, "CORTEX_ROOT=", 12) == 0) has_root = 1;
@@ -100,7 +102,7 @@ static char **prepare_cortex_env(char *const envp[], const char *real_exe) {
         count++;
     }
 
-    char **new_env = calloc(count + 22, sizeof(char *));
+    char **new_env = calloc(count + 23, sizeof(char *));
     int dst = 0;
     // The ids the program runs with (ids.c): this process's, whatever the environment it passes
     // says, first in the block (the other end of a socket finds them there in /proc/PID/environ).
@@ -170,6 +172,17 @@ static char **prepare_cortex_env(char *const envp[], const char *real_exe) {
         if (str) {
             memcpy(str, "CORTEX_EXEC_RUNNER=", 19);
             memcpy(str + 19, g_exec_runner, rlen + 1);
+            new_env[dst++] = str;
+        }
+    }
+    if (!has_locpath && g_cortex_root[0] != '\0') {
+        static const char loc_rel[] = "/usr/lib/locale";
+        size_t size = 8 + g_cortex_root_len + sizeof(loc_rel);
+        char *str = malloc(size);
+        if (str) {
+            size_t n = cortex_append(str, size, 0, "LOCPATH=", 8);
+            n = cortex_append(str, size, n, g_cortex_root, g_cortex_root_len);
+            cortex_append(str, size, n, loc_rel, sizeof(loc_rel) - 1);
             new_env[dst++] = str;
         }
     }

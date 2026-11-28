@@ -110,11 +110,34 @@ static int ids_are_root(const cortex_ids_t *ids) {
            (ids->ngroups == 0 || (ids->ngroups == 1 && ids->groups[0] == 0));
 }
 
+#ifdef CORTEX_HOST_TEST
+static char *cortex_libc_getenv(const char *name) {
+    return getenv(name);
+}
+#else
+// Programs such as GNU bash export their own getenv()/setenv() symbols in the main executable.
+// Calling bash's setenv() from an LD_PRELOAD constructor before main() prematurely creates
+// bash's shell_variables table, causing subsequent bash getenv() calls to stop scanning environ
+// (so ids_load() saw NULL for CORTEX_IDS when bash started with a clean env such as from sshd).
+// Bypass main-executable interposition by resolving libc's getenv/setenv via RTLD_NEXT.
+static char *cortex_libc_getenv(const char *name) {
+    static char *(*orig_getenv)(const char *) = NULL;
+    if (!orig_getenv) orig_getenv = (char *(*)(const char *))dlsym(RTLD_NEXT, "getenv");
+    return orig_getenv ? orig_getenv(name) : getenv(name);
+}
+
+static int cortex_libc_setenv(const char *name, const char *value, int overwrite) {
+    static int (*orig_setenv)(const char *, const char *, int) = NULL;
+    if (!orig_setenv) orig_setenv = (int (*)(const char *, const char *, int))dlsym(RTLD_NEXT, "setenv");
+    return orig_setenv ? orig_setenv(name, value, overwrite) : setenv(name, value, overwrite);
+}
+#endif
+
 // Read once, before the program runs (the constructor) or at the first question
 static void ids_load(void) {
     if (__atomic_load_n(&g_ids_loaded, __ATOMIC_ACQUIRE)) return;
     cortex_ids_t ids;
-    if (ids_parse(getenv("CORTEX_IDS"), &ids) == 0) g_ids = ids;
+    if (ids_parse(cortex_libc_getenv("CORTEX_IDS"), &ids) == 0) g_ids = ids;
     __atomic_store_n(&g_ids_loaded, 1, __ATOMIC_RELEASE);
 }
 

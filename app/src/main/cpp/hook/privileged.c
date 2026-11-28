@@ -56,7 +56,7 @@ static int g_no_translator = 0;
 __attribute__((constructor(102))) static void find_translator_files(void) {
     // The first program of a session looks; the ones it starts are told (a translator is there for
     // all the programs of a machine or for none, and where it is not known they look as before)
-    const char *known = getenv("CORTEX_NT");
+    const char *known = cortex_libc_getenv("CORTEX_NT");
     if (known && known[0] == '0' && known[1] == '\0') {
         g_no_translator = 1;
         return;

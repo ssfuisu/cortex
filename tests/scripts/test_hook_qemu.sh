@@ -1082,6 +1082,59 @@ child uid=0 euid=0 gid=0"
 check "a process becomes another user, keeps it across exec, and chown gives files owners" test "$out" = "$want"
 [ "$out" = "$want" ] || echo "$out" | sed 's/^/        /'
 
+# Programs that export their own getenv/setenv (GNU bash 5.3) must not have their pre-main
+# setenv() called by our constructor, or their getenv() hides environ and drops CORTEX_IDS when
+# started with a clean environment (e.g. sshd -> bash). Also verify LOCPATH propagation.
+aarch64-linux-gnu-gcc -std=gnu11 -O2 -w -rdynamic -o "$work/bash_env_shadow" -x c - <<'EOC'
+#define _GNU_SOURCE
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/wait.h>
+#include <unistd.h>
+
+static int g_table_created = 0;
+
+char *getenv(const char *name) {
+    if (g_table_created) return NULL;
+    extern char **environ;
+    if (!name || !environ) return NULL;
+    size_t n = strlen(name);
+    for (char **e = environ; *e; e++) {
+        if (strncmp(*e, name, n) == 0 && (*e)[n] == '=') return *e + n + 1;
+    }
+    return NULL;
+}
+
+int setenv(const char *name, const char *value, int overwrite) {
+    (void)name; (void)value; (void)overwrite;
+    g_table_created = 1;
+    return 0;
+}
+
+int main(void) {
+    setvbuf(stdout, NULL, _IONBF, 0);
+    printf("shadow=%d uid=%u euid=%u gid=%u\n", g_table_created,
+           (unsigned)getuid(), (unsigned)geteuid(), (unsigned)getgid());
+    pid_t pid = fork();
+    if (pid == 0) {
+        char *args[] = { (char *)"/bin/ids_child", NULL };
+        char *empty[] = { NULL };
+        execve("/bin/ids_child", args, empty);
+        _exit(3);
+    }
+    waitpid(pid, NULL, 0);
+    return 0;
+}
+EOC
+out=$(env -i CORTEX_ROOT="$work/root" CORTEX_IDS="1000,1000,1000:1000,1000,1000:1000,27" \
+  timeout 60 qemu-aarch64 "$cross/ld-linux-aarch64.so.1" \
+  --preload "$work/hook.so" --library-path "$cross" "$work/bash_env_shadow" 2>&1 | grep -v "cannot be preloaded")
+want="shadow=0 uid=1000 euid=1000 gid=1000
+child uid=1000 euid=1000 gid=1000"
+check "CORTEX_IDS survives main-executable getenv/setenv interposition (bash 5.3 under clean env)" test "$out" = "$want"
+[ "$out" = "$want" ] || echo "$out" | sed 's/^/        /'
+
 # A port below 1024 is root's and Android refuses it to an app: the server gets the port 8000 above
 # it, and a connection to the low port on this phone reaches it. (Run as root, the port is free.)
 prog low_port <<'EOC'
