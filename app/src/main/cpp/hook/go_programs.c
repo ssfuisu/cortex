@@ -170,7 +170,7 @@ static int go_make_header(struct gosys_hdr *h) {
     if (used < sizeof(buf)) {
         go_pack_str(h, &str_used, &h->libs_off, &h->libs_len, buf, used);
     }
-    const char *exec_runner = getenv("CORTEX_EXEC_RUNNER");
+    const char *exec_runner = g_exec_runner[0] != '\0' ? g_exec_runner : getenv("CORTEX_EXEC_RUNNER");
     if (exec_runner && exec_runner[0] == '/') {
         go_pack_str(h, &str_used, &h->exec_runner_off, &h->exec_runner_len, exec_runner, strlen(exec_runner));
     }

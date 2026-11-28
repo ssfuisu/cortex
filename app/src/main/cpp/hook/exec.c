@@ -169,29 +169,39 @@ static void free_exec_bin_env(char **env) {
     free(env);
 }
 
-static int run_execve(orig_execve_f_type f, const char *path, char *const argv[], char *const envp[]) {
+static const char *cortex_exec_runner(void) {
+    if (g_exec_runner[0] != '\0') return g_exec_runner;
+    const char *r = getenv("CORTEX_EXEC_RUNNER");
+    return (r && r[0] != '\0') ? r : NULL;
+}
+
+static int run_execve(orig_execve_f_type f, const char *path, char *const argv[], char *const envp[], int use_runner) {
     if (in_exec_rehearsal()) {
         errno = 0;
         return 0;
     }
-    int ret = f(path, argv, envp);
-    if (ret < 0 && errno == EACCES && is_in_cortex_root(path)) {
-        const char *runner = getenv("CORTEX_EXEC_RUNNER");
-        if (runner && runner[0] != '\0') {
+    if (use_runner && is_in_cortex_root(path)) {
+        const char *runner = cortex_exec_runner();
+        if (runner) {
+            int r;
             if (argv && argv[0] && strcmp(argv[0], path) == 0) {
-                return f(runner, argv, envp);
+                r = f(runner, argv, envp);
+            } else {
+                char **bin_env = env_with_exec_bin(envp, path);
+                if (bin_env) {
+                    r = f(runner, argv, bin_env);
+                    int saved = errno;
+                    free_exec_bin_env(bin_env);
+                    errno = saved;
+                } else {
+                    errno = ENOMEM;
+                    r = -1;
+                }
             }
-            char **bin_env = env_with_exec_bin(envp, path);
-            if (bin_env) {
-                int r2 = f(runner, argv, bin_env);
-                int saved = errno;
-                free_exec_bin_env(bin_env);
-                errno = saved;
-                return r2;
-            }
+            if (r == 0 || (errno != ENOENT && errno != EACCES)) return r;
         }
     }
-    return ret;
+    return f(path, argv, envp);
 }
 
 // Scripts interpreted inside Ubuntu must receive the Ubuntu-visible path rather than the
@@ -330,10 +340,10 @@ static int cortex_execve(const char *filename, char *const argv[], char *const e
                     return -1;
                 }
                 char **new_env = ensure_hook_in_envp(envp, elf_target);
-                int ret = run_execve(orig_execve, ld_so, new_argv, new_env);
+                int ret = run_execve(orig_execve, ld_so, new_argv, new_env, 1);
                 if (errno == EACCES && chmod(ld_so, 0755) == 0) {
                     // ld.so without its exec bit (an unusual restore): fix it once and retry
-                    ret = run_execve(orig_execve, ld_so, new_argv, new_env);
+                    ret = run_execve(orig_execve, ld_so, new_argv, new_env, 1);
                 }
                 int saved_errno = errno;
                 free(new_argv);
@@ -373,7 +383,7 @@ static int cortex_execve(const char *filename, char *const argv[], char *const e
                 new_argv[pi] = (char *)prog;
                 prepare_static_program(static_elf); // ld.so is a static program itself
                 char **cortex_env = prepare_cortex_env(envp, target);
-                int ret = run_execve(orig_execve, static_elf, new_argv, cortex_env);
+                int ret = run_execve(orig_execve, static_elf, new_argv, cortex_env, 1);
                 int saved_errno = errno;
                 free_modified_env(cortex_env, envp);
                 free(new_argv);
@@ -402,7 +412,7 @@ static int cortex_execve(const char *filename, char *const argv[], char *const e
                 new_argv[pi + 2] = (char *)prog; // ld.so opens it itself: "ldd /usr/bin/adb" as well
                 prepare_static_program(static_elf); // ld.so is a static program itself
                 char **cortex_env = prepare_cortex_env(envp, target);
-                int ret = run_execve(orig_execve, static_elf, new_argv, cortex_env);
+                int ret = run_execve(orig_execve, static_elf, new_argv, cortex_env, 1);
                 int saved_errno = errno;
                 free_modified_env(cortex_env, envp);
                 free(new_argv);
@@ -427,7 +437,7 @@ static int cortex_execve(const char *filename, char *const argv[], char *const e
             int ret;
             if (is_host_interpreter(rewritten_interp)) {
                 char **sys_env = clean_env_for_system(envp);
-                ret = run_execve(orig_execve, rewritten_interp, new_argv, sys_env);
+                ret = run_execve(orig_execve, rewritten_interp, new_argv, sys_env, 0);
                 int saved_errno = errno;
                 free_modified_env(sys_env, envp);
                 errno = saved_errno;
@@ -443,7 +453,7 @@ static int cortex_execve(const char *filename, char *const argv[], char *const e
     } else {
         // Any binary outside CORTEX_ROOT is an Android host binary (e.g. /system/bin/su, /sbin/su, /data/adb/...)
         char **sys_env = clean_env_for_system(envp);
-        int ret = run_execve(orig_execve, target, argv, sys_env);
+        int ret = run_execve(orig_execve, target, argv, sys_env, 0);
         int saved_errno = errno;
         free_modified_env(sys_env, envp);
         errno = saved_errno;
@@ -453,7 +463,7 @@ static int cortex_execve(const char *filename, char *const argv[], char *const e
     if (static_elf) prepare_static_program(static_elf);
     char **cortex_env = prepare_cortex_env(envp, target);
     const char *exec_path = static_elf ? static_elf : target;
-    int ret = run_execve(orig_execve, exec_path, argv, cortex_env);
+    int ret = run_execve(orig_execve, exec_path, argv, cortex_env, static_elf != NULL);
     int saved_errno = errno;
     free_modified_env(cortex_env, envp);
     errno = saved_errno;
@@ -752,28 +762,31 @@ static int cortex_posix_spawn(pid_t *pid, const char *path,
 static int run_posix_spawn(orig_posix_spawn_f_type f, pid_t *pid, const char *path,
                            const posix_spawn_file_actions_t *file_actions,
                            const posix_spawnattr_t *attrp,
-                           char *const argv[], char *const envp[]) {
+                           char *const argv[], char *const envp[], int use_runner) {
     if (in_exec_rehearsal()) {
         if (pid) *pid = 0;
         return 0;
     }
     if (!f) return ENOSYS;
-    int ret = f(pid, path, file_actions, attrp, argv, envp);
-    if (ret == EACCES && is_in_cortex_root(path)) {
-        const char *runner = getenv("CORTEX_EXEC_RUNNER");
-        if (runner && runner[0] != '\0') {
+    if (use_runner && is_in_cortex_root(path)) {
+        const char *runner = cortex_exec_runner();
+        if (runner) {
+            int r;
             if (argv && argv[0] && strcmp(argv[0], path) == 0) {
-                return f(pid, runner, file_actions, attrp, argv, envp);
+                r = f(pid, runner, file_actions, attrp, argv, envp);
+            } else {
+                char **bin_env = env_with_exec_bin(envp, path);
+                if (bin_env) {
+                    r = f(pid, runner, file_actions, attrp, argv, bin_env);
+                    free_exec_bin_env(bin_env);
+                } else {
+                    r = ENOMEM;
+                }
             }
-            char **bin_env = env_with_exec_bin(envp, path);
-            if (bin_env) {
-                int r2 = f(pid, runner, file_actions, attrp, argv, bin_env);
-                free_exec_bin_env(bin_env);
-                return r2;
-            }
+            if (r == 0 || (r != ENOENT && r != EACCES)) return r;
         }
     }
-    return ret;
+    return f(pid, path, file_actions, attrp, argv, envp);
 }
 
 // A rootfs script: start its interpreter with the same file actions and attributes. Handing the
@@ -923,20 +936,21 @@ static int cortex_posix_spawn(pid_t *pid, const char *path,
         build_ld_library_path(orig_ep, probe.runpath, probe.runpath_is_rpath, elf_target, ld_lib_path, sizeof(ld_lib_path));
         char **new_argv = build_ldso_argv(ld_so, hook_so, ld_lib_path, elf_target, prog_name, argv);
         if (new_argv) {
-            ret = run_posix_spawn(orig_posix_spawn, pid, ld_so, file_actions, attrp, new_argv, new_envp);
+            ret = run_posix_spawn(orig_posix_spawn, pid, ld_so, file_actions, attrp, new_argv, new_envp, 1);
             if (ret == EACCES && chmod(ld_so, 0755) == 0) {
                 // ld.so without its exec bit (an unusual restore): fix it once and retry
-                ret = run_posix_spawn(orig_posix_spawn, pid, ld_so, file_actions, attrp, new_argv, new_envp);
+                ret = run_posix_spawn(orig_posix_spawn, pid, ld_so, file_actions, attrp, new_argv, new_envp, 1);
             }
             free(new_argv);
         }
     } else {
         const char *exec_path = target;
-        if (in_root && probe.is_elf && !probe.is_dynamic) {
+        int is_static_elf = (in_root && probe.is_elf && !probe.is_dynamic);
+        if (is_static_elf) {
             prepare_static_program(elf_target);
             exec_path = elf_target;
         }
-        ret = run_posix_spawn(orig_posix_spawn, pid, exec_path, file_actions, attrp, argv, new_envp);
+        ret = run_posix_spawn(orig_posix_spawn, pid, exec_path, file_actions, attrp, argv, new_envp, is_static_elf);
     }
 
     if (ret != 0) {

@@ -7,6 +7,7 @@
 #ifndef CORTEX_HOST_TEST
 
 static char g_real_exe[PATH_MAX] = {0};
+static char g_exec_runner[PATH_MAX] = {0};
 static int g_initialized = 0;
 
 static void init_cortex_hook(void) {
@@ -32,6 +33,10 @@ static void init_cortex_hook(void) {
     const char *curr_real_exe = getenv("CORTEX_REAL_EXE");
     if (curr_real_exe && curr_real_exe[0] != '\0') {
         cortex_copy_cstr(g_real_exe, sizeof(g_real_exe), curr_real_exe);
+    }
+    const char *curr_exec_runner = getenv("CORTEX_EXEC_RUNNER");
+    if (curr_exec_runner && curr_exec_runner[0] != '\0') {
+        cortex_copy_cstr(g_exec_runner, sizeof(g_exec_runner), curr_exec_runner);
     }
     if (g_cortex_root[0] != '\0') {
         const char *curr_tzdir = getenv("TZDIR");

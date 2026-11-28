@@ -209,6 +209,52 @@ out=$(run "$work/nt_parent" CORTEX_NT=1)
 check "a value of its own is left as it is" test "$out" = "CORTEX_NT=1"
 [ "$out" = "CORTEX_NT=1" ] || echo "        got: $out"
 
+# Under targetSdk >= 29 (W^X), CORTEX_EXEC_RUNNER (libcortex-exec.so) must be used directly for
+# valid rootfs ELFs in both execve() and posix_spawn(), must survive env -i, and must NOT mask
+# ENOENT for nonexistent files.
+aarch64-linux-gnu-gcc -std=gnu11 -static -O2 -w -o "$work/mock_runner" -x c - <<'EOC' || { echo "mock_runner did not build"; exit 1; }
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+int main(int argc, char **argv) {
+    const char *env = getenv("CORTEX_EXEC_RUNNER");
+    int is_ld = (argc > 0 && argv[0] && strstr(argv[0], "ld-linux") != NULL);
+    printf("runner=%s ld=%d\n", (env && env[0]) ? "set" : "unset", is_ld);
+    return 0;
+}
+EOC
+prog runner_check <<'EOC'
+#include <errno.h>
+#include <spawn.h>
+#include <stdio.h>
+#include <sys/wait.h>
+#include <unistd.h>
+int main(void) {
+    char *empty[] = { NULL };
+    char *miss[] = { "/bin/no_such_binary", NULL };
+    errno = 0;
+    int r = execve("/bin/no_such_binary", miss, empty);
+    printf("missing=%d errno=%d\n", r, errno == ENOENT ? 1 : 0);
+    fflush(stdout);
+    pid_t pid = 0;
+    char *args[] = { "nt_child", NULL };
+    int rc = posix_spawn(&pid, "/bin/nt_child", NULL, NULL, args, empty);
+    if (rc != 0) { printf("spawn_err=%d\n", rc); return 1; }
+    int st = 0;
+    waitpid(pid, &st, 0);
+    fflush(stdout);
+    execve("/bin/nt_child", args, empty);
+    return 2;
+}
+EOC
+out=$( (cd "$work" && env -i CORTEX_ROOT="$work/root" HOME="$work" CORTEX_EXEC_RUNNER="$work/mock_runner" \
+  timeout 60 qemu-aarch64 "$cross/ld-linux-aarch64.so.1" --preload "$work/hook.so" --library-path "$cross" "$work/runner_check" 2>&1 | grep -v "cannot be preloaded") )
+want="missing=-1 errno=1
+runner=set ld=1
+runner=set ld=1"
+check "CORTEX_EXEC_RUNNER is used directly by posix_spawn and execve, preserved across env -i, and does not mask ENOENT" test "$out" = "$want"
+[ "$out" = "$want" ] || echo "$out" | sed 's/^/        /'
+
 # The descriptors of an ordinary program are closed as asked
 prog plain_child <<'EOC'
 #include <fcntl.h>
