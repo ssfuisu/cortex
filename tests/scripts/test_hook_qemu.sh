@@ -116,14 +116,42 @@ check "getspnam reads the shadow file of the rootfs" test "$out" = "$expected_sh
 prog kept_child <<'EOC'
 #define _GNU_SOURCE
 #include <fcntl.h>
+#include <spawn.h>
 #include <stdio.h>
-#include <unistd.h>
+#include <stdlib.h>
 #include <sys/syscall.h>
-int main(void) {
+#include <sys/wait.h>
+#include <unistd.h>
+extern char **environ;
+int main(int argc, char **argv) {
+    if (argc > 1) {
+        int extra = atoi(argv[1]);
+        printf("posix_spawn 3=%s extra=%s\n",
+               fcntl(3, F_GETFD) >= 0 ? "kept" : "gone",
+               fcntl(extra, F_GETFD) < 0 ? "closed" : "open");
+        return 0;
+    }
     close(3);
     syscall(SYS_close_range, 3u, ~0u, 0);
     printf("descriptor 3 after close(): %s\n", fcntl(3, F_GETFD) >= 0 ? "kept" : "gone");
-    return 0;
+    fflush(stdout);
+    int extra = open("/dev/null", O_RDONLY);
+    if (extra <= 3) return 2;
+    char extra_str[16];
+    snprintf(extra_str, sizeof(extra_str), "%d", extra);
+    posix_spawn_file_actions_t fa;
+    posix_spawn_file_actions_init(&fa);
+    posix_spawn_file_actions_addclose(&fa, 3);
+    posix_spawn_file_actions_addclosefrom_np(&fa, 3);
+    pid_t pid = 0;
+    char *args[] = { "kept_child", extra_str, NULL };
+    int rc = posix_spawn(&pid, "/bin/kept_child", &fa, NULL, args, environ);
+    posix_spawn_file_actions_destroy(&fa);
+    close(extra);
+    if (rc != 0) return 3;
+    int st = 0;
+    waitpid(pid, &st, 0);
+    return WIFEXITED(st) ? WEXITSTATUS(st) : 4;
 }
 EOC
 prog kept_parent <<'EOC'
@@ -145,9 +173,12 @@ int main(int argc, char **argv) {
     return 3;
 }
 EOC
+mkdir -p "$work/root/bin" && cp "$work/kept_child" "$work/root/bin/kept_child"
 out=$(run "$work/kept_parent" "$work/root/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1" "$work/hook.so" "$work/root/lib/aarch64-linux-gnu" "$work/kept_child")
-check "a descriptor that is the translator's memory file stays open" test "$out" = "descriptor 3 after close(): kept"
-[ "$out" = "descriptor 3 after close(): kept" ] || echo "        got: $out"
+want="descriptor 3 after close(): kept
+posix_spawn 3=kept extra=closed"
+check "a descriptor that is the translator's memory file stays open" test "$out" = "$want"
+[ "$out" = "$want" ] || echo "        got: $out"
 
 # A program that found no translator's files tells the ones it starts, which then do not look (the
 # look is a system call to /proc/self/fd in every program that is started)
@@ -177,6 +208,52 @@ check "a program started by one that found no translator is told so" test "$out"
 out=$(run "$work/nt_parent" CORTEX_NT=1)
 check "a value of its own is left as it is" test "$out" = "CORTEX_NT=1"
 [ "$out" = "CORTEX_NT=1" ] || echo "        got: $out"
+
+# Under targetSdk >= 29 (W^X), CORTEX_EXEC_RUNNER (libcortex-exec.so) must be used directly for
+# valid rootfs ELFs in both execve() and posix_spawn(), must survive env -i, and must NOT mask
+# ENOENT for nonexistent files.
+aarch64-linux-gnu-gcc -std=gnu11 -static -O2 -w -o "$work/mock_runner" -x c - <<'EOC' || { echo "mock_runner did not build"; exit 1; }
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+int main(int argc, char **argv) {
+    const char *env = getenv("CORTEX_EXEC_RUNNER");
+    int is_ld = (argc > 0 && argv[0] && strstr(argv[0], "ld-linux") != NULL);
+    printf("runner=%s ld=%d\n", (env && env[0]) ? "set" : "unset", is_ld);
+    return 0;
+}
+EOC
+prog runner_check <<'EOC'
+#include <errno.h>
+#include <spawn.h>
+#include <stdio.h>
+#include <sys/wait.h>
+#include <unistd.h>
+int main(void) {
+    char *empty[] = { NULL };
+    char *miss[] = { "/bin/no_such_binary", NULL };
+    errno = 0;
+    int r = execve("/bin/no_such_binary", miss, empty);
+    printf("missing=%d errno=%d\n", r, errno == ENOENT ? 1 : 0);
+    fflush(stdout);
+    pid_t pid = 0;
+    char *args[] = { "nt_child", NULL };
+    int rc = posix_spawn(&pid, "/bin/nt_child", NULL, NULL, args, empty);
+    if (rc != 0) { printf("spawn_err=%d\n", rc); return 1; }
+    int st = 0;
+    waitpid(pid, &st, 0);
+    fflush(stdout);
+    execve("/bin/nt_child", args, empty);
+    return 2;
+}
+EOC
+out=$( (cd "$work" && env -i CORTEX_ROOT="$work/root" HOME="$work" CORTEX_EXEC_RUNNER="$work/mock_runner" \
+  timeout 60 qemu-aarch64 "$cross/ld-linux-aarch64.so.1" --preload "$work/hook.so" --library-path "$cross" "$work/runner_check" 2>&1 | grep -v "cannot be preloaded") )
+want="missing=-1 errno=1
+runner=set ld=1
+runner=set ld=1"
+check "CORTEX_EXEC_RUNNER is used directly by posix_spawn and execve, preserved across env -i, and does not mask ENOENT" test "$out" = "$want"
+[ "$out" = "$want" ] || echo "$out" | sed 's/^/        /'
 
 # The descriptors of an ordinary program are closed as asked
 prog plain_child <<'EOC'
@@ -931,11 +1008,11 @@ prog ids_main <<'EOC'
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
-static void start(char *const *env) {
+static void start(const char *prog, char *const *env) {
     pid_t pid = fork();
     if (pid == 0) {
-        char *args[] = { "ids_child", NULL };
-        execve("/bin/ids_child", args, env);
+        char *args[] = { (char *)prog, NULL };
+        execve(prog, args, env);
         _exit(3);
     }
     waitpid(pid, NULL, 0);
@@ -976,15 +1053,18 @@ int main(void) {
     unlink("/tmp/mine");
     unlink("/tmp/owned2");
     char *empty[] = { NULL };
-    start(empty);
+    start("/bin/ids_child", empty);
     char *forged[] = { "CORTEX_IDS=0,0,0:0,0,0", NULL };
-    start(forged);
+    start("/bin/ids_child", forged);
     char *become[] = { "CORTEX_BECOME=root", NULL };
-    start(become);
+    start("/bin/ids_child", become);
+    start("/bin/become_script", become);
     return 0;
 }
 EOC
 cp "$work/ids_child" "$work/root/bin/ids_child"
+printf '#!/bin/ids_child\n' > "$work/root/bin/become_script"
+chmod 755 "$work/root/bin/become_script"
 out=$(run "$work/ids_main")
 want="start uid=0
 chown: 65534:65534
@@ -997,8 +1077,62 @@ made by nobody: 65534:65534
 chown of root's file: -1 EPERM
 child uid=65534 euid=65534 gid=65534
 child uid=65534 euid=65534 gid=65534
+child uid=0 euid=0 gid=0
 child uid=0 euid=0 gid=0"
 check "a process becomes another user, keeps it across exec, and chown gives files owners" test "$out" = "$want"
+[ "$out" = "$want" ] || echo "$out" | sed 's/^/        /'
+
+# Programs that export their own getenv/setenv (GNU bash 5.3) must not have their pre-main
+# setenv() called by our constructor, or their getenv() hides environ and drops CORTEX_IDS when
+# started with a clean environment (e.g. sshd -> bash). Also verify LOCPATH propagation.
+aarch64-linux-gnu-gcc -std=gnu11 -O2 -w -rdynamic -o "$work/bash_env_shadow" -x c - <<'EOC'
+#define _GNU_SOURCE
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/wait.h>
+#include <unistd.h>
+
+static int g_table_created = 0;
+
+char *getenv(const char *name) {
+    if (g_table_created) return NULL;
+    extern char **environ;
+    if (!name || !environ) return NULL;
+    size_t n = strlen(name);
+    for (char **e = environ; *e; e++) {
+        if (strncmp(*e, name, n) == 0 && (*e)[n] == '=') return *e + n + 1;
+    }
+    return NULL;
+}
+
+int setenv(const char *name, const char *value, int overwrite) {
+    (void)name; (void)value; (void)overwrite;
+    g_table_created = 1;
+    return 0;
+}
+
+int main(void) {
+    setvbuf(stdout, NULL, _IONBF, 0);
+    printf("shadow=%d uid=%u euid=%u gid=%u\n", g_table_created,
+           (unsigned)getuid(), (unsigned)geteuid(), (unsigned)getgid());
+    pid_t pid = fork();
+    if (pid == 0) {
+        char *args[] = { (char *)"/bin/ids_child", NULL };
+        char *empty[] = { NULL };
+        execve("/bin/ids_child", args, empty);
+        _exit(3);
+    }
+    waitpid(pid, NULL, 0);
+    return 0;
+}
+EOC
+out=$(env -i CORTEX_ROOT="$work/root" CORTEX_IDS="1000,1000,1000:1000,1000,1000:1000,27" \
+  timeout 60 qemu-aarch64 "$cross/ld-linux-aarch64.so.1" \
+  --preload "$work/hook.so" --library-path "$cross" "$work/bash_env_shadow" 2>&1 | grep -v "cannot be preloaded")
+want="shadow=0 uid=1000 euid=1000 gid=1000
+child uid=1000 euid=1000 gid=1000"
+check "CORTEX_IDS survives main-executable getenv/setenv interposition (bash 5.3 under clean env)" test "$out" = "$want"
 [ "$out" = "$want" ] || echo "$out" | sed 's/^/        /'
 
 # A port below 1024 is root's and Android refuses it to an app: the server gets the port 8000 above
@@ -1074,6 +1208,63 @@ EOC
 else
   echo "  skip  32-bit ARM checks (no arm-linux-gnueabihf-gcc or qemu-arm)"
 fi
+
+# #81: executing a shebang script via relative symlink, absolute symlink, or backing path spelling
+# passes the Ubuntu-visible path (never $CORTEX_ROOT/...) to the interpreter.
+mkdir -p "$work/root/usr/local/bin" "$work/root/usr/local/lib/pkg" "$work/root/bin"
+cp -f "$cross/libc.so.6" "$work/root/lib/ld-dummy" 2>/dev/null || true
+prog argdump <<'EOC'
+#include <stdio.h>
+int main(int argc, char **argv) {
+    for (int i = 0; i < argc; i++) printf("%d:%s\n", i, argv[i]);
+    return 0;
+}
+EOC
+cp -f "$work/argdump" "$work/root/usr/local/bin/argdump"
+chmod +x "$work/root/usr/local/bin/argdump"
+cat > "$work/root/usr/local/lib/pkg/entry.sh" <<'EOS'
+#!/usr/local/bin/argdump
+EOS
+chmod +x "$work/root/usr/local/lib/pkg/entry.sh"
+ln -sf "../lib/pkg/entry.sh" "$work/root/usr/local/bin/rel-entry"
+ln -sf "/usr/local/lib/pkg/entry.sh" "$work/root/usr/local/bin/abs-entry"
+prog spawn_script_check <<'EOC'
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/wait.h>
+#include <unistd.h>
+static void run_one(const char *path) {
+    pid_t pid = fork();
+    if (pid == 0) {
+        char *const argv[] = { (char *)path, "arg1", NULL };
+        execv(path, argv);
+        _exit(127);
+    }
+    int st = 0;
+    waitpid(pid, &st, 0);
+}
+int main(void) {
+    run_one("/usr/local/bin/abs-entry");
+    run_one("/usr/local/bin/rel-entry");
+    char backing[4096];
+    snprintf(backing, sizeof(backing), "%s/usr/local/bin/rel-entry", getenv("CORTEX_ROOT"));
+    run_one(backing);
+    return 0;
+}
+EOC
+out=$(cd "$work/root/usr/local/bin" && env -i CORTEX_ROOT="$work/root" HOME="$work" timeout 60 qemu-aarch64 "$cross/ld-linux-aarch64.so.1" \
+  --preload "$work/hook.so" --library-path "$cross" "$work/spawn_script_check" 2>&1 | grep -v "cannot be preloaded")
+want="0:/usr/local/bin/argdump
+1:/usr/local/bin/abs-entry
+2:arg1
+0:/usr/local/bin/argdump
+1:/usr/local/bin/rel-entry
+2:arg1
+0:/usr/local/bin/argdump
+1:/usr/local/bin/rel-entry
+2:arg1"
+check "shebang script execution through relative symlink or backing path keeps Ubuntu-visible path (#81)" test "$out" = "$want"
+[ "$out" = "$want" ] || echo "$out" | sed 's/^/        /'
 
 echo
 echo "$passed passed, $failed failed"

@@ -8,7 +8,6 @@ import androidx.preference.Preference
 import androidx.preference.PreferenceFragmentCompat
 import androidx.preference.SwitchPreferenceCompat
 import org.cortex.terminal.documents.CortexDocumentsProvider
-import org.cortex.terminal.runtime.RootMode
 
 class SettingsActivity : AppCompatActivity() {
 
@@ -159,16 +158,6 @@ class SettingsActivity : AppCompatActivity() {
                     CortexDocumentsProvider.setEnabled(requireContext(), newValue as Boolean)
                     true
                 }
-
-            // The switch is set by RootModeUi once root is checked (on) or the files are given back (off).
-            findPreference<SwitchPreferenceCompat>(RootMode.PREF_KEY)?.let { pref ->
-                pref.setOnPreferenceChangeListener { _, newValue ->
-                    val activity = requireActivity()
-                    val update: (Boolean) -> Unit = { on -> if (isAdded) pref.isChecked = on }
-                    if (newValue as Boolean) RootModeUi.enable(activity, update) else RootModeUi.disable(activity, update)
-                    false
-                }
-            }
 
             findPreference<Preference>("telegram_contact_pref")?.setOnPreferenceClickListener {
                 try {

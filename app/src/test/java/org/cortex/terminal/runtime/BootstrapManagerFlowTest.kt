@@ -139,9 +139,14 @@ class BootstrapManagerFlowTest {
         assertTrue(read("etc/nsswitch.conf").contains("hosts:          files dns\n"))
 
         val passwd = read("etc/passwd").lines()
-        assertEquals("root:x:0:0:root:${home.absolutePath}:/bin/bash", passwd[0])
-        assertTrue(passwd.contains("cortex:x:0:0:Cortex:${home.absolutePath}:/bin/bash"))
+        assertEquals("root:x:0:0:root:/root:/bin/bash", passwd[0])
+        assertTrue(passwd.contains("cortex:x:1000:1000:Cortex:${home.absolutePath}:/bin/bash"))
         assertTrue(read("etc/group").startsWith("root:x:0:\n"))
+        assertTrue(read("etc/group").lines().contains("sudo:x:27:cortex"))
+        assertTrue(read("etc/group").lines().contains("cortex:x:1000:"))
+        assertEquals("localhost\n", read("etc/hostname"))
+        assertTrue(read("etc/sudoers").contains("@includedir /etc/sudoers.d"))
+        assertTrue(read("etc/sudoers.d/cortex").contains("cortex ALL=(ALL:ALL) NOPASSWD: ALL"))
         // The system users and groups of every Ubuntu, which packages' scripts use (chown redis:adm,
         // setpriv --reuid=man): once there, with locked shadow entries
         assertTrue(passwd.contains("man:x:6:12:man:/var/cache/man:/usr/sbin/nologin"))
@@ -235,9 +240,9 @@ class BootstrapManagerFlowTest {
     fun updateInstalledSystem_bringsAnOlderSystemUpToDate() {
         extractedSystem()
         put(".cortex_version", "12600")
-        val packages = put("var/lib/apt/lists/ports.ubuntu.com_ubuntu-ports_dists_noble_main_binary-arm64_Packages", "old")
+        val packages = put("var/lib/apt/lists/ports.ubuntu.com_ubuntu-ports_dists_resolute_main_binary-arm64_Packages", "old")
         put("var/lib/apt/lists/partial/half-downloaded", "old")
-        val release = put("var/lib/apt/lists/ports.ubuntu.com_ubuntu-ports_dists_noble_InRelease", "kept")
+        val release = put("var/lib/apt/lists/ports.ubuntu.com_ubuntu-ports_dists_resolute_InRelease", "kept")
         assertTrue(BootstrapManager.needsUpdate(context))
 
         BootstrapManager.updateInstalledSystem(context)
@@ -256,7 +261,7 @@ class BootstrapManagerFlowTest {
     fun updateInstalledSystem_leavesThePackageListsAloneWhileAptRuns() {
         extractedSystem()
         put(".cortex_version", "12600")
-        val packages = put("var/lib/apt/lists/ports.ubuntu.com_ubuntu-ports_dists_noble_main_binary-arm64_Packages", "in use")
+        val packages = put("var/lib/apt/lists/ports.ubuntu.com_ubuntu-ports_dists_resolute_main_binary-arm64_Packages", "in use")
 
         FileLocks.tryLock(AptConfigurator.aptLockFiles(root))!!.use {
             BootstrapManager.updateInstalledSystem(context)
@@ -270,7 +275,7 @@ class BootstrapManagerFlowTest {
     fun updateInstalledSystem_onACurrentSystemDoesNothing() {
         extractedSystem()
         put(".cortex_version", BootstrapManager.CURRENT_BOOTSTRAP_VERSION.toString())
-        val packages = put("var/lib/apt/lists/ports.ubuntu.com_ubuntu-ports_dists_noble_main_binary-arm64_Packages", "current")
+        val packages = put("var/lib/apt/lists/ports.ubuntu.com_ubuntu-ports_dists_resolute_main_binary-arm64_Packages", "current")
         val before = snapshot(root)
 
         BootstrapManager.updateInstalledSystem(context)

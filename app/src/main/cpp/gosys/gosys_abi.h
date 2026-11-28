@@ -15,7 +15,7 @@
 #include <stdint.h>
 
 #ifndef GOSYS_VERSION
-#define GOSYS_VERSION 3u  // raised when the code or its header changes: patched programs are patched again
+#define GOSYS_VERSION 4u  // raised when the code or its header changes: patched programs are patched again
 #endif
 
 // The scratch memory for rewritten paths: a small state area and 64 slots, in zero-filled memory the
@@ -32,28 +32,28 @@
 #define GOSYS_STATE_SIZE 1024u  // [4] rewriting mode, [8] execve calls on their way, [64 + 8 * slot] who has the slot (0: nobody)
 #define GOSYS_SCRATCH_SIZE (GOSYS_STATE_SIZE + GOSYS_SLOTS * GOSYS_SLOT_SIZE)
 
-#define GOSYS_THUNK_BYTES 256u  // room for the small code that connects a call site to the code
+#define GOSYS_THUNK_BYTES 32u   // room for the small code that connects a call site to the code
 
-#define GOSYS_ROOT_MAX 448
-#define GOSYS_PATH_MAX 448
-#define GOSYS_LIBS_MAX 1024
+#define GOSYS_STRINGS_MAX 1488u // packed NUL-terminated strings: root, ldso, hook, libs, runner, exec_runner
 
 struct gosys_hdr {
     char magic[8];           // "CXGOSYS1"
     uint32_t version;        // GOSYS_VERSION
     uint32_t flags;
     int64_t scratch_rel;     // scratch memory, relative to this header (the same in any load address)
-    uint32_t root_len;       // the rootfs, as Android sees it
-    uint32_t ldso_len;       // the rootfs's dynamic linker
-    uint32_t hook_len;       // libcortex-hook.so; 0: none
-    uint32_t libs_len;       // the rootfs's library directories, ':' separated
-    uint32_t runner_len;     // the rootfs's bash, or env without it; 0: Ubuntu programs cannot be started
-    uint32_t reserved;
-    char root[GOSYS_ROOT_MAX];
-    char ldso[GOSYS_PATH_MAX];
-    char hook[GOSYS_PATH_MAX];
-    char libs[GOSYS_LIBS_MAX];
-    char runner[GOSYS_PATH_MAX];
+    uint16_t root_off;
+    uint16_t root_len;       // the rootfs, as Android sees it
+    uint16_t ldso_off;
+    uint16_t ldso_len;       // the rootfs's dynamic linker
+    uint16_t hook_off;
+    uint16_t hook_len;       // libcortex-hook.so; 0: none
+    uint16_t libs_off;
+    uint16_t libs_len;       // the rootfs's library directories, ':' separated
+    uint16_t runner_off;
+    uint16_t runner_len;     // the rootfs's bash, or env without it; 0: Ubuntu programs cannot be started
+    uint16_t exec_runner_off;
+    uint16_t exec_runner_len;// nativeLibraryDir libcortex-exec.so for targetSdk >= 29; 0: none
+    char strings[GOSYS_STRINGS_MAX];
 };
 
 #define GOSYS_FLAG_RUNNER_IS_BASH 1u  // gosys_hdr.flags

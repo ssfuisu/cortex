@@ -16,7 +16,9 @@ static char **clean_env_for_system(char *const envp[]) {
         char first = envp[i][0];
         if (!((first == 'L' && (strncmp(envp[i], "LD_PRELOAD=", 11) == 0 ||
                                 strncmp(envp[i], "LD_LIBRARY_PATH=", 16) == 0)) ||
-              (first == 'G' && strncmp(envp[i], "GLIBC_TUNABLES=", 15) == 0))) {
+              (first == 'G' && strncmp(envp[i], "GLIBC_TUNABLES=", 15) == 0) ||
+              (first == 'C' && (strncmp(envp[i], "CORTEX_EXEC_RUNNER=", 19) == 0 ||
+                                strncmp(envp[i], "CORTEX_EXEC_BIN=", 16) == 0)))) {
             if (first == 'P' && strncmp(envp[i], "PATH=", 5) == 0) {
                 has_path = 1;
                 size_t plen = strlen(envp[i]);
@@ -60,16 +62,20 @@ static char **prepare_cortex_env(char *const envp[], const char *real_exe) {
     // Every variable is looked at on every exec, so only the names that start with its first letter
     // are compared (this was 13 strncmp() calls for each of the 30 or so variables)
     int has_nt = 0;
+    int has_exec_runner = 0;
+    int has_locpath = 0;
     while (envp && envp[count]) {
         const char *e = envp[count];
         switch (e[0]) {
         case 'L':
             if (strncmp(e, "LD_PRELOAD=", 11) == 0) has_preload = 1;
             else if (strncmp(e, "LD_LIBRARY_PATH=", 16) == 0) has_ld_library_path = 1;
+            else if (strncmp(e, "LOCPATH=", 8) == 0) has_locpath = 1;
             break;
         case 'C':
             if (strncmp(e, "CORTEX_ROOT=", 12) == 0) has_root = 1;
             else if (strncmp(e, "CORTEX_NT=", 10) == 0) has_nt = 1;
+            else if (strncmp(e, "CORTEX_EXEC_RUNNER=", 19) == 0) has_exec_runner = 1;
             break;
         case 'G':
             if (strncmp(e, "GLIBC_TUNABLES=", 15) == 0) has_tunables = 1;
@@ -96,7 +102,7 @@ static char **prepare_cortex_env(char *const envp[], const char *real_exe) {
         count++;
     }
 
-    char **new_env = calloc(count + 21, sizeof(char *));
+    char **new_env = calloc(count + 23, sizeof(char *));
     int dst = 0;
     // The ids the program runs with (ids.c): this process's, whatever the environment it passes
     // says, first in the block (the other end of a socket finds them there in /proc/PID/environ).
@@ -157,6 +163,26 @@ static char **prepare_cortex_env(char *const envp[], const char *real_exe) {
         char *str = malloc(PATH_MAX + 16);
         if (str) {
             snprintf(str, PATH_MAX + 16, "CORTEX_ROOT=%s", g_cortex_root);
+            new_env[dst++] = str;
+        }
+    }
+    if (!has_exec_runner && g_exec_runner[0] != '\0') {
+        size_t rlen = strlen(g_exec_runner);
+        char *str = malloc(19 + rlen + 1);
+        if (str) {
+            memcpy(str, "CORTEX_EXEC_RUNNER=", 19);
+            memcpy(str + 19, g_exec_runner, rlen + 1);
+            new_env[dst++] = str;
+        }
+    }
+    if (!has_locpath && g_cortex_root[0] != '\0') {
+        static const char loc_rel[] = "/usr/lib/locale";
+        size_t size = 8 + g_cortex_root_len + sizeof(loc_rel);
+        char *str = malloc(size);
+        if (str) {
+            size_t n = cortex_append(str, size, 0, "LOCPATH=", 8);
+            n = cortex_append(str, size, n, g_cortex_root, g_cortex_root_len);
+            cortex_append(str, size, n, loc_rel, sizeof(loc_rel) - 1);
             new_env[dst++] = str;
         }
     }

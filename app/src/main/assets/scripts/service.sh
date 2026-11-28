@@ -66,28 +66,18 @@ is_service_process() {
     kill -0 "$pid" 2>/dev/null || return 1
 
     if [ -r "/proc/$pid/status" ]; then
-        local state_line
-        state_line="$(grep '^State:' "/proc/$pid/status" 2>/dev/null || true)"
-        case "$state_line" in
-            *Z*) return 1 ;;
-        esac
+        local state_line=""
+        while IFS= read -r state_line; do
+            case "$state_line" in
+                State:*Z*) return 1 ;;
+                State:*) break ;;
+            esac
+        done < "/proc/$pid/status" 2>/dev/null
     fi
 
     local daemon_base=""
     if [ -n "$daemon" ]; then
-        daemon_base="$(basename "$daemon")"
-    fi
-
-    if [ -L "/proc/$pid/exe" ]; then
-        local exe_path exe_base
-        exe_path="$(readlink -f "/proc/$pid/exe" 2>/dev/null || readlink "/proc/$pid/exe" 2>/dev/null || true)"
-        exe_path="${exe_path% (deleted)}"
-        if [ -n "$exe_path" ]; then
-            exe_base="$(basename "$exe_path" 2>/dev/null)"
-            if [ "$exe_base" = "$svc" ] || { [ -n "$daemon_base" ] && [ "$exe_base" = "$daemon_base" ]; }; then
-                return 0
-            fi
-        fi
+        daemon_base="${daemon##*/}"
     fi
 
     if [ -r "/proc/$pid/comm" ]; then
@@ -98,6 +88,7 @@ is_service_process() {
         fi
     fi
 
+    local have_cmdline=0
     if [ -r "/proc/$pid/cmdline" ]; then
         local arg0="" arg1="" token="" idx=0
         while IFS= read -r -d '' token || [ -n "$token" ]; do
@@ -112,9 +103,10 @@ is_service_process() {
         done < "/proc/$pid/cmdline"
 
         if [ -n "$arg0" ]; then
+            have_cmdline=1
             local arg0_clean="${arg0#-}"
-            local arg0_base
-            arg0_base="$(basename "${arg0_clean%% *}" 2>/dev/null)"
+            local arg0_first="${arg0_clean%% *}"
+            local arg0_base="${arg0_first##*/}"
             if [ "$arg0_base" = "$svc" ] || { [ -n "$daemon_base" ] && [ "$arg0_base" = "$daemon_base" ]; }; then
                 return 0
             fi
@@ -130,6 +122,18 @@ is_service_process() {
                     fi
                     ;;
             esac
+        fi
+    fi
+
+    if [ "$have_cmdline" -eq 1 ] && [ -L "/proc/$pid/exe" ]; then
+        local exe_path exe_base
+        exe_path="$(readlink "/proc/$pid/exe" 2>/dev/null || true)"
+        exe_path="${exe_path% (deleted)}"
+        if [ -n "$exe_path" ]; then
+            exe_base="${exe_path##*/}"
+            if [ "$exe_base" = "$svc" ] || { [ -n "$daemon_base" ] && [ "$exe_base" = "$daemon_base" ]; }; then
+                return 0
+            fi
         fi
     fi
 

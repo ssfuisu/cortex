@@ -51,7 +51,12 @@ static const char *select_exec_target(const char *target, char *resolved, size_t
     resolve_symlinks(target, resolved, resolved_size, 0);
     probe_exec_file(resolved, probe);
     if (probe->is_elf && !is_ld_linux(resolved)) return resolved;
-    if (strcmp(resolved, target) != 0) probe_exec_file(target, probe);
+    if (strcmp(resolved, target) != 0) {
+        struct exec_probe target_probe;
+        probe_exec_file(target, &target_probe);
+        // Keep the resolved probe when target is an unrewritten absolute symlink inside rootfs.
+        if (target_probe.n >= 0) *probe = target_probe;
+    }
     return target;
 }
 
@@ -131,12 +136,84 @@ static int in_exec_rehearsal(void) {
            pthread_equal(pthread_self(), g_exec_rehearsal_thread);
 }
 
-static int run_execve(orig_execve_f_type f, const char *path, char *const argv[], char *const envp[]) {
+// Copies envp while appending/replacing CORTEX_EXEC_BIN=<path> so libcortex-exec.so maps `path` while
+// preserving argv[0] for static binaries whose argv[0] differs from `path`.
+static char **env_with_exec_bin(char *const envp[], const char *path) {
+    int count = 0;
+    while (envp && envp[count]) count++;
+    char **out = (char **)malloc(sizeof(char *) * (size_t)(count + 2));
+    if (!out) return NULL;
+    int dst = 0;
+    for (int i = 0; i < count; i++) {
+        if (strncmp(envp[i], "CORTEX_EXEC_BIN=", 16) == 0) continue;
+        out[dst++] = envp[i];
+    }
+    size_t plen = strlen(path);
+    char *kv = (char *)malloc(16 + plen + 1);
+    if (!kv) {
+        free(out);
+        return NULL;
+    }
+    memcpy(kv, "CORTEX_EXEC_BIN=", 16);
+    memcpy(kv + 16, path, plen + 1);
+    out[dst++] = kv;
+    out[dst] = NULL;
+    return out;
+}
+
+static void free_exec_bin_env(char **env) {
+    if (!env) return;
+    int i = 0;
+    while (env[i]) i++;
+    if (i > 0 && strncmp(env[i - 1], "CORTEX_EXEC_BIN=", 16) == 0) free(env[i - 1]);
+    free(env);
+}
+
+static const char *cortex_exec_runner(void) {
+    if (g_exec_runner[0] != '\0') return g_exec_runner;
+    const char *r = getenv("CORTEX_EXEC_RUNNER");
+    return (r && r[0] != '\0') ? r : NULL;
+}
+
+static int run_execve(orig_execve_f_type f, const char *path, char *const argv[], char *const envp[], int use_runner) {
     if (in_exec_rehearsal()) {
         errno = 0;
         return 0;
     }
+    if (use_runner && is_in_cortex_root(path)) {
+        const char *runner = cortex_exec_runner();
+        if (runner) {
+            int r;
+            if (argv && argv[0] && strcmp(argv[0], path) == 0) {
+                r = f(runner, argv, envp);
+            } else {
+                char **bin_env = env_with_exec_bin(envp, path);
+                if (bin_env) {
+                    r = f(runner, argv, bin_env);
+                    int saved = errno;
+                    free_exec_bin_env(bin_env);
+                    errno = saved;
+                } else {
+                    errno = ENOMEM;
+                    r = -1;
+                }
+            }
+            if (r == 0 || (errno != ENOENT && errno != EACCES)) return r;
+        }
+    }
     return f(path, argv, envp);
+}
+
+// Scripts interpreted inside Ubuntu must receive the Ubuntu-visible path rather than the
+// Android backing path ($CORTEX_ROOT/...), so symlinks and ESM module URLs do not leak it (#81).
+static int target_is_symlink(const char *path) {
+    if (!path || path[0] == '\0') return 0;
+    struct stat st;
+    return lstat(path, &st) == 0 && S_ISLNK(st.st_mode);
+}
+
+static const char *script_arg_path(const char *caller_path, const char *target, const char *rewritten_interp) {
+    return script_arg_path_for(caller_path, target, is_host_interpreter(rewritten_interp), target_is_symlink(target));
 }
 
 // ldconfig writes no cache in Cortex (its cache is for paths that ld.so opens without the hook), but the
@@ -263,10 +340,10 @@ static int cortex_execve(const char *filename, char *const argv[], char *const e
                     return -1;
                 }
                 char **new_env = ensure_hook_in_envp(envp, elf_target);
-                int ret = run_execve(orig_execve, ld_so, new_argv, new_env);
+                int ret = run_execve(orig_execve, ld_so, new_argv, new_env, 1);
                 if (errno == EACCES && chmod(ld_so, 0755) == 0) {
                     // ld.so without its exec bit (an unusual restore): fix it once and retry
-                    ret = run_execve(orig_execve, ld_so, new_argv, new_env);
+                    ret = run_execve(orig_execve, ld_so, new_argv, new_env, 1);
                 }
                 int saved_errno = errno;
                 free(new_argv);
@@ -306,7 +383,7 @@ static int cortex_execve(const char *filename, char *const argv[], char *const e
                 new_argv[pi] = (char *)prog;
                 prepare_static_program(static_elf); // ld.so is a static program itself
                 char **cortex_env = prepare_cortex_env(envp, target);
-                int ret = run_execve(orig_execve, target, new_argv, cortex_env);
+                int ret = run_execve(orig_execve, static_elf, new_argv, cortex_env, 1);
                 int saved_errno = errno;
                 free_modified_env(cortex_env, envp);
                 free(new_argv);
@@ -335,7 +412,7 @@ static int cortex_execve(const char *filename, char *const argv[], char *const e
                 new_argv[pi + 2] = (char *)prog; // ld.so opens it itself: "ldd /usr/bin/adb" as well
                 prepare_static_program(static_elf); // ld.so is a static program itself
                 char **cortex_env = prepare_cortex_env(envp, target);
-                int ret = run_execve(orig_execve, target, new_argv, cortex_env);
+                int ret = run_execve(orig_execve, static_elf, new_argv, cortex_env, 1);
                 int saved_errno = errno;
                 free_modified_env(cortex_env, envp);
                 free(new_argv);
@@ -351,8 +428,8 @@ static int cortex_execve(const char *filename, char *const argv[], char *const e
             parse_shebang(probe.hdr, &interp, &interp_arg);
             char interp_buf[PATH_MAX];
             const char *rewritten_interp = shebang_interpreter(interp, interp_buf, sizeof(interp_buf));
-            const char *script = (caller_path && caller_path[0] != '/') ? caller_path : target;
-            char **new_argv = build_script_argv(rewritten_interp, interp_arg, script, argv);
+            const char *script = script_arg_path(caller_path, target, rewritten_interp);
+            char **new_argv = build_script_argv(strip_cortex_root(rewritten_interp), interp_arg, script, argv);
             if (!new_argv) {
                 errno = ENOMEM;
                 return -1;
@@ -360,7 +437,7 @@ static int cortex_execve(const char *filename, char *const argv[], char *const e
             int ret;
             if (is_host_interpreter(rewritten_interp)) {
                 char **sys_env = clean_env_for_system(envp);
-                ret = run_execve(orig_execve, rewritten_interp, new_argv, sys_env);
+                ret = run_execve(orig_execve, rewritten_interp, new_argv, sys_env, 0);
                 int saved_errno = errno;
                 free_modified_env(sys_env, envp);
                 errno = saved_errno;
@@ -368,11 +445,7 @@ static int cortex_execve(const char *filename, char *const argv[], char *const e
                 errno = ELOOP;
                 ret = -1;
             } else {
-                char **cortex_env = prepare_cortex_env(envp, NULL);
-                ret = cortex_execve(rewritten_interp, new_argv, cortex_env, depth + 1);
-                int saved_errno = errno;
-                free_modified_env(cortex_env, envp);
-                errno = saved_errno;
+                ret = cortex_execve(rewritten_interp, new_argv, envp, depth + 1);
             }
             free(new_argv);
             return ret;
@@ -380,7 +453,7 @@ static int cortex_execve(const char *filename, char *const argv[], char *const e
     } else {
         // Any binary outside CORTEX_ROOT is an Android host binary (e.g. /system/bin/su, /sbin/su, /data/adb/...)
         char **sys_env = clean_env_for_system(envp);
-        int ret = run_execve(orig_execve, target, argv, sys_env);
+        int ret = run_execve(orig_execve, target, argv, sys_env, 0);
         int saved_errno = errno;
         free_modified_env(sys_env, envp);
         errno = saved_errno;
@@ -389,7 +462,8 @@ static int cortex_execve(const char *filename, char *const argv[], char *const e
 
     if (static_elf) prepare_static_program(static_elf);
     char **cortex_env = prepare_cortex_env(envp, target);
-    int ret = run_execve(orig_execve, target, argv, cortex_env);
+    const char *exec_path = static_elf ? static_elf : target;
+    int ret = run_execve(orig_execve, exec_path, argv, cortex_env, static_elf != NULL);
     int saved_errno = errno;
     free_modified_env(cortex_env, envp);
     errno = saved_errno;
@@ -685,11 +759,41 @@ static int cortex_posix_spawn(pid_t *pid, const char *path,
                               const posix_spawnattr_t *attrp,
                               char *const argv[], char *const envp[], int depth);
 
+static int run_posix_spawn(orig_posix_spawn_f_type f, pid_t *pid, const char *path,
+                           const posix_spawn_file_actions_t *file_actions,
+                           const posix_spawnattr_t *attrp,
+                           char *const argv[], char *const envp[], int use_runner) {
+    if (in_exec_rehearsal()) {
+        if (pid) *pid = 0;
+        return 0;
+    }
+    if (!f) return ENOSYS;
+    if (use_runner && is_in_cortex_root(path)) {
+        const char *runner = cortex_exec_runner();
+        if (runner) {
+            int r;
+            if (argv && argv[0] && strcmp(argv[0], path) == 0) {
+                r = f(pid, runner, file_actions, attrp, argv, envp);
+            } else {
+                char **bin_env = env_with_exec_bin(envp, path);
+                if (bin_env) {
+                    r = f(pid, runner, file_actions, attrp, argv, bin_env);
+                    free_exec_bin_env(bin_env);
+                } else {
+                    r = ENOMEM;
+                }
+            }
+            if (r == 0 || (r != ENOENT && r != EACCES)) return r;
+        }
+    }
+    return f(pid, path, file_actions, attrp, argv, envp);
+}
+
 // A rootfs script: start its interpreter with the same file actions and attributes. Handing the
 // script to the kernel resolves "#!/bin/sh" to Android's own shell, which crashed on the glibc
 // hook in LD_PRELOAD (and "#!/usr/bin/env" etc. used to fall back to fork() + execve(), which
 // dropped the file actions).
-static int spawn_script(pid_t *pid, const char *script, struct exec_probe *probe,
+static int spawn_script(pid_t *pid, const char *caller_path, const char *target, struct exec_probe *probe,
                         const posix_spawn_file_actions_t *file_actions, const posix_spawnattr_t *attrp,
                         char *const argv[], char *const envp[], int depth) {
     char *interp;
@@ -697,7 +801,8 @@ static int spawn_script(pid_t *pid, const char *script, struct exec_probe *probe
     parse_shebang(probe->hdr, &interp, &interp_arg);
     char interp_buf[PATH_MAX];
     const char *rewritten_interp = shebang_interpreter(interp, interp_buf, sizeof(interp_buf));
-    char **new_argv = build_script_argv(rewritten_interp, interp_arg, script, argv);
+    const char *script = script_arg_path(caller_path, target, rewritten_interp);
+    char **new_argv = build_script_argv(strip_cortex_root(rewritten_interp), interp_arg, script, argv);
     if (!new_argv) return ENOMEM;
     int ret;
     if (is_host_interpreter(rewritten_interp)) {
@@ -798,8 +903,7 @@ static int cortex_posix_spawn(pid_t *pid, const char *path,
         if (!probe.is_elf && probe.n >= 2 && probe.hdr[0] == '#' && probe.hdr[1] == '!') {
             // Like the kernel, give up after a few nested "#!" interpreters.
             if (depth >= CORTEX_MAX_SHEBANG_DEPTH) return ELOOP;
-            const char *script = (caller_path && caller_path[0] != '/') ? caller_path : target;
-            return spawn_script(pid, script, &probe, file_actions, attrp, argv, orig_ep, depth);
+            return spawn_script(pid, caller_path, target, &probe, file_actions, attrp, argv, orig_ep, depth);
         }
     } else {
         probe.hdr[0] = '\0';
@@ -832,20 +936,21 @@ static int cortex_posix_spawn(pid_t *pid, const char *path,
         build_ld_library_path(orig_ep, probe.runpath, probe.runpath_is_rpath, elf_target, ld_lib_path, sizeof(ld_lib_path));
         char **new_argv = build_ldso_argv(ld_so, hook_so, ld_lib_path, elf_target, prog_name, argv);
         if (new_argv) {
-            if (orig_posix_spawn) {
-                ret = orig_posix_spawn(pid, ld_so, file_actions, attrp, new_argv, new_envp);
-                if (ret == EACCES && chmod(ld_so, 0755) == 0) {
-                    // ld.so without its exec bit (an unusual restore): fix it once and retry
-                    ret = orig_posix_spawn(pid, ld_so, file_actions, attrp, new_argv, new_envp);
-                }
+            ret = run_posix_spawn(orig_posix_spawn, pid, ld_so, file_actions, attrp, new_argv, new_envp, 1);
+            if (ret == EACCES && chmod(ld_so, 0755) == 0) {
+                // ld.so without its exec bit (an unusual restore): fix it once and retry
+                ret = run_posix_spawn(orig_posix_spawn, pid, ld_so, file_actions, attrp, new_argv, new_envp, 1);
             }
             free(new_argv);
         }
     } else {
-        if (in_root && probe.is_elf && !probe.is_dynamic) prepare_static_program(elf_target);
-        if (orig_posix_spawn) {
-            ret = orig_posix_spawn(pid, target, file_actions, attrp, argv, new_envp);
+        const char *exec_path = target;
+        int is_static_elf = (in_root && probe.is_elf && !probe.is_dynamic);
+        if (is_static_elf) {
+            prepare_static_program(elf_target);
+            exec_path = elf_target;
         }
+        ret = run_posix_spawn(orig_posix_spawn, pid, exec_path, file_actions, attrp, argv, new_envp, is_static_elf);
     }
 
     if (ret != 0) {

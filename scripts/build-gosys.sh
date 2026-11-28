@@ -14,12 +14,14 @@ out=${1:-$src/gosys_blob.h}
 
 if command -v aarch64-linux-gnu-gcc >/dev/null 2>&1; then
   CC=(aarch64-linux-gnu-gcc)
+  CC_EXTRA=(-fno-tree-loop-distribute-patterns -mno-outline-atomics)
   LD=(aarch64-linux-gnu-ld)
   OBJCOPY=(aarch64-linux-gnu-objcopy)
   NM=(aarch64-linux-gnu-nm)
   OBJDUMP=(aarch64-linux-gnu-objdump)
 elif command -v clang >/dev/null 2>&1 && command -v ld.lld >/dev/null 2>&1; then
   CC=(clang --target=aarch64-linux-gnu)
+  CC_EXTRA=(-mbranch-protection=none)
   LD=(ld.lld)
   OBJCOPY=(llvm-objcopy)
   NM=(llvm-nm)
@@ -32,10 +34,10 @@ fi
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
-"${CC[@]}" -std=gnu11 -O2 -Wall -Wextra -Werror \
+"${CC[@]}" -std=gnu11 -Os -Wall -Wextra -Werror \
   -ffreestanding -fno-builtin -nostdlib -fPIE -fvisibility=hidden -fno-stack-protector \
-  -fno-asynchronous-unwind-tables -fno-unwind-tables -fno-tree-loop-distribute-patterns \
-  -mcmodel=tiny -mgeneral-regs-only -mno-outline-atomics -ffixed-x18 -ffixed-x28 \
+  -fno-asynchronous-unwind-tables -fno-unwind-tables "${CC_EXTRA[@]}" \
+  -mcmodel=tiny -mgeneral-regs-only -ffixed-x18 -ffixed-x28 \
   -c "$src/gosys.c" -o "$tmp/gosys.o"
 "${LD[@]}" -T "$src/gosys.ld" -nostdlib -o "$tmp/gosys.elf" "$tmp/gosys.o"
 "${OBJCOPY[@]}" -O binary "$tmp/gosys.elf" "$tmp/gosys.bin"
@@ -51,7 +53,7 @@ if "${OBJDUMP[@]}" -d "$tmp/gosys.elf" | grep -q -w adrp; then
   echo "build-gosys.sh: gosys.c uses adrp, which is not position-independent at any address" >&2
   exit 1
 fi
-sections=$("${OBJDUMP[@]}" -h "$tmp/gosys.elf" | awk '$1 ~ /^[0-9]+$/ {print $2}' | tr '\n' ' ')
+sections=$("${OBJDUMP[@]}" -h "$tmp/gosys.elf" | awk '$1 ~ /^[1-9][0-9]*$/ {print $2}' | tr '\n' ' ')
 for s in $sections; do
   case $s in
     .hdr|.thunks|.text|.rodata|.trailer|.symtab|.strtab|.shstrtab) ;;

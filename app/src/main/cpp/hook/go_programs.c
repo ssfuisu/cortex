@@ -113,24 +113,36 @@ static uint32_t go_branch(uint32_t base, int64_t delta) {
 
 static uint64_t go_align_up(uint64_t v, uint64_t a) { return (v + a - 1) & ~(a - 1); }
 
+static int go_pack_str(struct gosys_hdr *h, size_t *used, uint16_t *out_off, uint16_t *out_len,
+                       const char *src, size_t len) {
+    if (!src || len == 0) return 0;
+    if (len > UINT16_MAX || *used + len + 1 > GOSYS_STRINGS_MAX) return -1;
+    *out_off = (uint16_t)*used;
+    *out_len = (uint16_t)len;
+    memcpy(h->strings + *used, src, len);
+    h->strings[*used + len] = '\0';
+    *used += len + 1;
+    return 0;
+}
+
 // The strings the added code needs, as they are now
 static int go_make_header(struct gosys_hdr *h) {
-    if (g_cortex_root_len == 0 || g_cortex_root_len >= GOSYS_ROOT_MAX) return -1;
-    memcpy(h->root, g_cortex_root, g_cortex_root_len);
-    h->root_len = (uint32_t)g_cortex_root_len;
+    size_t str_used = 1; // offset 0 stays NUL so unset string fields safely read as ""
+    if (g_cortex_root_len == 0 ||
+        go_pack_str(h, &str_used, &h->root_off, &h->root_len, g_cortex_root, g_cortex_root_len) != 0) {
+        return -1;
+    }
 
     char buf[PATH_MAX];
-    if (find_dynamic_linker_for_machine(g_cortex_root, EM_AARCH64, buf, sizeof(buf)) && strlen(buf) < GOSYS_PATH_MAX) {
-        h->ldso_len = (uint32_t)strlen(buf);
-        memcpy(h->ldso, buf, h->ldso_len);
+    if (find_dynamic_linker_for_machine(g_cortex_root, EM_AARCH64, buf, sizeof(buf))) {
+        go_pack_str(h, &str_used, &h->ldso_off, &h->ldso_len, buf, strlen(buf));
     }
     static const char *const hooks[] = { "/usr/lib/libcortex-hook.so", "/lib/libcortex-hook.so" };
     for (size_t i = 0; i < sizeof(hooks) / sizeof(hooks[0]); i++) {
         size_t n = cortex_append(buf, sizeof(buf), 0, g_cortex_root, g_cortex_root_len);
         n = cortex_append(buf, sizeof(buf), n, hooks[i], strlen(hooks[i]));
-        if (n < GOSYS_PATH_MAX && access(buf, F_OK) == 0) {
-            h->hook_len = (uint32_t)n;
-            memcpy(h->hook, buf, n);
+        if (n < sizeof(buf) && access(buf, F_OK) == 0) {
+            go_pack_str(h, &str_used, &h->hook_off, &h->hook_len, buf, n);
             break;
         }
     }
@@ -139,10 +151,10 @@ static int go_make_header(struct gosys_hdr *h) {
     for (size_t i = 0; i < sizeof(runners) / sizeof(runners[0]); i++) {
         size_t n = cortex_append(buf, sizeof(buf), 0, g_cortex_root, g_cortex_root_len);
         n = cortex_append(buf, sizeof(buf), n, runners[i], strlen(runners[i]));
-        if (n < GOSYS_PATH_MAX && access(buf, F_OK) == 0) {
-            h->runner_len = (uint32_t)n;
-            memcpy(h->runner, buf, n);
-            if (i < 2) h->flags |= GOSYS_FLAG_RUNNER_IS_BASH;
+        if (n < sizeof(buf) && access(buf, F_OK) == 0) {
+            if (go_pack_str(h, &str_used, &h->runner_off, &h->runner_len, buf, n) == 0 && i < 2) {
+                h->flags |= GOSYS_FLAG_RUNNER_IS_BASH;
+            }
             break;
         }
     }
@@ -155,11 +167,17 @@ static int go_make_header(struct gosys_hdr *h) {
         used = cortex_append(buf, sizeof(buf), used, g_cortex_root, g_cortex_root_len);
         used = cortex_append(buf, sizeof(buf), used, d, strlen(d));
     }
-    if (used < GOSYS_LIBS_MAX) {
-        h->libs_len = (uint32_t)used;
-        memcpy(h->libs, buf, used);
+    if (used < sizeof(buf)) {
+        go_pack_str(h, &str_used, &h->libs_off, &h->libs_len, buf, used);
     }
-    if (h->ldso_len == 0 || h->runner_len == 0) h->runner_len = 0; // Ubuntu programs cannot be started
+    const char *exec_runner = g_exec_runner[0] != '\0' ? g_exec_runner : getenv("CORTEX_EXEC_RUNNER");
+    if (exec_runner && exec_runner[0] == '/') {
+        go_pack_str(h, &str_used, &h->exec_runner_off, &h->exec_runner_len, exec_runner, strlen(exec_runner));
+    }
+    if (h->ldso_len == 0 || h->runner_len == 0) {
+        h->runner_len = 0; // Ubuntu programs cannot be started
+        h->runner_off = 0;
+    }
     return 0;
 }
 

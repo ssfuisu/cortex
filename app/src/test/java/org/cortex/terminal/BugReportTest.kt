@@ -22,8 +22,8 @@ class BugReportTest {
 
     @Test
     fun osRelease_isThePrettyName() {
-        val text = "NAME=\"Ubuntu\"\nVERSION_ID=\"24.04\"\nPRETTY_NAME=\"Ubuntu 24.04.3 LTS\"\nID=ubuntu\n"
-        assertEquals("Ubuntu 24.04.3 LTS", BugReport.osRelease(text))
+        val text = "NAME=\"Ubuntu\"\nVERSION_ID=\"26.04\"\nPRETTY_NAME=\"Ubuntu 26.04 LTS\"\nID=ubuntu\n"
+        assertEquals("Ubuntu 26.04 LTS", BugReport.osRelease(text))
         assertEquals("Debian", BugReport.osRelease("PRETTY_NAME=Debian\n"))
         assertNull(BugReport.osRelease("NAME=Ubuntu\n"))
         assertNull(BugReport.osRelease(null))

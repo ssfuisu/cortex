@@ -77,7 +77,7 @@ class ElfLinkerPatcherTest {
             segments = listOf(Triple(0x5 /* PF_R | PF_X */, 0x80, codePayload))
         )
 
-        val file = File(tempFolder.root, "ld-2.39.so")
+        val file = File(tempFolder.root, "ld-linux-aarch64.so.1")
         file.writeBytes(elfBytes)
 
         ElfLinkerPatcher.patchDynamicLinker(file)
@@ -180,7 +180,7 @@ class ElfLinkerPatcherTest {
         // 1. At odd halfword offset 0x82: Thumb-2 movw r7, #338 (40 f2 52 17) + svc #0 (00 df)
         byteArrayOf(0x40, 0xf2.toByte(), 0x52, 0x17, 0x00, 0xdf.toByte()).copyInto(arr, 0x82)
 
-        // 2. At offset 0x90: Thumb-2 movw r7, #435 (40 f2 b3 17) + svc #0 (00 df) (exact Ubuntu 24.04 armhf clone3 sequence)
+        // 2. At offset 0x90: Thumb-2 movw r7, #435 (40 f2 b3 17) + svc #0 (00 df) (Ubuntu armhf clone3 sequence)
         byteArrayOf(0x40, 0xf2.toByte(), 0xb3.toByte(), 0x17, 0x00, 0xdf.toByte()).copyInto(arr, 0x90)
 
         // 3. At offset 0xa0: Thumb-2 movw r7, #398 (40 f2 8e 17) + svc #0 (00 df)
@@ -405,7 +405,7 @@ class ElfLinkerPatcherTest {
             segments = listOf(Triple(0x5, 0x80, movX8_435 + svc0))
         )
 
-        val outsideTarget = File(outsideDir, "libc-2.39.so")
+        val outsideTarget = File(outsideDir, "libc-2.43.so")
         outsideTarget.writeBytes(unpatchedElf)
 
         val rootCanonical = rootDir.canonicalFile.path

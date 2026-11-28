@@ -13,8 +13,6 @@
 set -u
 
 ROOT="${CORTEX_ROOT:-}"
-# In root mode the rootfs is the chroot itself
-[ -z "$ROOT" ] && [ -n "${CORTEX_CHROOT:-}" ] && ROOT=/
 if [ -z "$ROOT" ] || [ ! -d "$ROOT" ]; then
     echo "cortex-backup: CORTEX_ROOT is not set or not a directory (run this inside Cortex)." >&2
     exit 1

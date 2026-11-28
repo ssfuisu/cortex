@@ -448,14 +448,14 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** Shows the sessions as tabs: the number of each, and ROOT for those that run as root. */
+    /** Shows the sessions as tabs: the number of each (or custom name). */
     private fun refreshTabs() {
         if (!::sessionManager.isInitialized) return
         val tabs: List<SessionTabsView.Tab>
         val active: Int
         synchronized(sessionManager.sessions) {
             tabs = sessionManager.sessions.mapIndexed { i, s ->
-                SessionTabsView.Tab(s.customName ?: getString(R.string.session_label, i + 1), s.isRoot, s.customName)
+                SessionTabsView.Tab(s.customName ?: getString(R.string.session_label, i + 1), s.customName)
             }
             active = sessionManager.currentSessionIndex
         }

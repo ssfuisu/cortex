@@ -171,6 +171,8 @@ class CortexService : Service() {
         }
         // cortex-api: Android features for the shell, while sessions can run.
         org.cortex.terminal.api.ApiServer.start(this)
+        // Shared audio playback bridge for both CLI sessions and the X11 desktop (#79).
+        CortexAudio.start(org.cortex.terminal.desktop.DesktopAddon.audioPipe(this))
         // The web servers that programs in Cortex start
         localServers = LocalServers(applicationContext, org.cortex.terminal.runtime.Environment.getCortexRoot(this)).also { it.start() }
     }
@@ -391,6 +393,7 @@ class CortexService : Service() {
     override fun onDestroy() {
         localServers?.stop()
         localServers = null
+        CortexAudio.stop()
         org.cortex.terminal.api.ApiServer.stop(this)
         releaseWakeLock()
         instance = null

@@ -23,11 +23,11 @@ class DevPackagesTest {
     private fun stanza(name: String, version: String, status: String = "install ok installed", extra: String = "") =
         "Package: $name\nStatus: $status\nArchitecture: arm64\nVersion: $version\n$extra"
 
-    private val libc = stanza("libc6", "2.39-0ubuntu8.9", "hold ok installed")
-    private val bash = stanza("bash", "5.2.21-2ubuntu4")
+    private val libc = stanza("libc6", "2.43-2ubuntu2.7", "hold ok installed")
+    private val bash = stanza("bash", "5.3-2ubuntu1")
 
     private fun overlayStanzas() = DevPackages.PACKAGES.joinToString("\n") {
-        stanza(it, "2.39-0ubuntu8.9", extra = "Depends: libc6 (>= 2.39)\n")
+        stanza(it, "2.43-2ubuntu2.7", extra = "Depends: libc6 (>= 2.43)\n")
     }
 
     private fun newRoot(status: String? = "$libc\n$bash\n"): File {
@@ -82,7 +82,7 @@ class DevPackagesTest {
         assertEquals(outcome.toString(), DevPackages.Result.INSTALLED, outcome.result)
         val status = File(root, "var/lib/dpkg/status").readText()
         for (name in DevPackages.PACKAGES) assertTrue("$name must be registered", DevPackages.isInstalled(status, name))
-        assertEquals("2.39-0ubuntu8.9", DevPackages.installedVersion(status, "libc6-dev"))
+        assertEquals("2.43-2ubuntu2.7", DevPackages.installedVersion(status, "libc6-dev"))
         assertTrue("existing stanzas stay", status.startsWith(libc))
         assertTrue(status.contains("Package: bash"))
         assertTrue(File(root, "usr/include/stdio.h").exists())
@@ -104,9 +104,9 @@ class DevPackagesTest {
     }
 
     @Test
-    fun anOlderGlibc2_39LibcIsFine() {
-        // the overlay's Depends say "libc6 (>= 2.39)", so an installation from before the last security update qualifies
-        val root = newRoot(stanza("libc6", "2.39-0ubuntu8.5", "hold ok installed") + "\n")
+    fun anOlderGlibc2_43LibcIsFine() {
+        // the overlay's Depends say "libc6 (>= 2.43)", so an installation from before the last security update qualifies
+        val root = newRoot(stanza("libc6", "2.43-2ubuntu2", "hold ok installed") + "\n")
 
         val outcome = install(root, FakeExtractor(overlayStanzas()))
 
@@ -143,7 +143,7 @@ class DevPackagesTest {
 
     @Test
     fun leavesAnInstallationAloneThatHasThePackagesAlready() {
-        val root = newRoot("$libc\n${stanza("libc6-dev", "2.39-0ubuntu8.9")}\n")
+        val root = newRoot("$libc\n${stanza("libc6-dev", "2.43-2ubuntu2.7")}\n")
         val extractor = FakeExtractor(overlayStanzas())
 
         val outcome = install(root, extractor)
@@ -274,12 +274,12 @@ class DevPackagesTest {
 
     @Test
     fun mergeAppendsOnlyUnknownPackages() {
-        val current = "${stanza("a", "1")}\n${stanza("libc6-dev", "2.39-0ubuntu8.5")}\n"
+        val current = "${stanza("a", "1")}\n${stanza("libc6-dev", "2.43-2ubuntu2")}\n"
         val additions = overlayStanzas()
 
         val merged = DevPackages.mergeStatus(current, additions)!!
 
-        assertEquals("the installed libc6-dev keeps its version", "2.39-0ubuntu8.5", DevPackages.installedVersion(merged, "libc6-dev"))
+        assertEquals("the installed libc6-dev keeps its version", "2.43-2ubuntu2", DevPackages.installedVersion(merged, "libc6-dev"))
         for (name in DevPackages.PACKAGES) {
             assertEquals(name, 1, Regex("^Package: ${Regex.escape(name)}$", RegexOption.MULTILINE).findAll(merged).count())
         }
@@ -289,7 +289,7 @@ class DevPackagesTest {
     @Test
     fun aLeftoverStanzaOfARemovedPackageDoesNotCountAsInstalled() {
         // libc6-dev was removed but not purged before the overlay ever ran: it must still be installed, once
-        val leftover = stanza("libc6-dev", "2.39-0ubuntu8.5", "deinstall ok config-files")
+        val leftover = stanza("libc6-dev", "2.43-2ubuntu2", "deinstall ok config-files")
         val root = newRoot("$libc\n$bash\n$leftover\n")
         val extractor = FakeExtractor(overlayStanzas())
 
@@ -297,7 +297,7 @@ class DevPackagesTest {
 
         assertEquals(outcome.toString(), DevPackages.Result.INSTALLED, outcome.result)
         val status = File(root, "var/lib/dpkg/status").readText()
-        assertEquals("2.39-0ubuntu8.9", DevPackages.installedVersion(status, "libc6-dev"))
+        assertEquals("2.43-2ubuntu2.7", DevPackages.installedVersion(status, "libc6-dev"))
         assertEquals("one stanza per package, the stale one is gone", 1,
             Regex("^Package: libc6-dev$", RegexOption.MULTILINE).findAll(status).count())
         assertFalse(status.contains("config-files"))

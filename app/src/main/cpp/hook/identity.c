@@ -334,13 +334,25 @@ static int cortex_lookup_group(const char *search_name, gid_t search_gid, int by
 
     // 2. Fallbacks for well-known groups if absent from file
     if (!found) {
+        int app = ids_app_mode();
         if (by_name) {
             if (!search_name) return ENOENT;
-            if (strcmp(search_name, "root") == 0 || strcmp(search_name, "cortex") == 0) {
-                snprintf(found_name, sizeof(found_name), "%s", search_name);
+            if (strcmp(search_name, "root") == 0) {
+                snprintf(found_name, sizeof(found_name), "root");
                 snprintf(found_pass, sizeof(found_pass), "x");
                 found_gid = 0;
-                snprintf(found_members, sizeof(found_members), "%s", search_name);
+                snprintf(found_members, sizeof(found_members), "root");
+                found = 1;
+            } else if (strcmp(search_name, "cortex") == 0) {
+                snprintf(found_name, sizeof(found_name), "cortex");
+                snprintf(found_pass, sizeof(found_pass), "x");
+                found_gid = app ? real_gid() : 1000;
+                found = 1;
+            } else if (strcmp(search_name, "sudo") == 0) {
+                snprintf(found_name, sizeof(found_name), "sudo");
+                snprintf(found_pass, sizeof(found_pass), "x");
+                found_gid = 27;
+                snprintf(found_members, sizeof(found_members), "cortex");
                 found = 1;
             } else if (strcmp(search_name, "_ssh") == 0) {
                 snprintf(found_name, sizeof(found_name), "_ssh");
@@ -358,10 +370,15 @@ static int cortex_lookup_group(const char *search_name, gid_t search_gid, int by
                 found_gid = 65534;
                 found = 1;
             }
-        } else if (search_gid != 0 && search_gid == real_gid() && ids_app_mode()) {
+        } else if ((search_gid != 0 && search_gid == real_gid() && app) || (!app && search_gid == 1000)) {
             snprintf(found_name, sizeof(found_name), "cortex");
             snprintf(found_pass, sizeof(found_pass), "x");
             found_gid = search_gid;
+            found = 1;
+        } else if (search_gid == 27) {
+            snprintf(found_name, sizeof(found_name), "sudo");
+            snprintf(found_pass, sizeof(found_pass), "x");
+            found_gid = 27;
             snprintf(found_members, sizeof(found_members), "cortex");
             found = 1;
         } else {
@@ -538,14 +555,14 @@ static int cortex_lookup_passwd(const char *search_name, uid_t search_uid, int b
                 snprintf(found_shell, sizeof(found_shell), "/bin/bash");
                 found = 1;
             } else if (strcmp(search_name, "cortex") == 0) {
-                // The app's own user under "cortex-api no-fakeroot", root's otherwise
+                // Normal user `cortex` (uid=1000, gid=1000); app's real uid in no-fakeroot mode.
                 int app = ids_app_mode();
                 snprintf(found_name, sizeof(found_name), "cortex");
                 snprintf(found_pass, sizeof(found_pass), "x");
-                found_uid = app ? real_uid() : 0;
-                found_gid = app ? real_gid() : 0;
+                found_uid = app ? real_uid() : 1000;
+                found_gid = app ? real_gid() : 1000;
                 snprintf(found_gecos, sizeof(found_gecos), "Cortex");
-                snprintf(found_dir, sizeof(found_dir), "%s", app ? "/home" : "/home/cortex");
+                snprintf(found_dir, sizeof(found_dir), "/home");
                 snprintf(found_shell, sizeof(found_shell), "/bin/bash");
                 found = 1;
             } else if (strcmp(search_name, "_ssh") == 0) {
@@ -576,12 +593,12 @@ static int cortex_lookup_passwd(const char *search_name, uid_t search_uid, int b
                 snprintf(found_shell, sizeof(found_shell), "/usr/sbin/nologin");
                 found = 1;
             }
-        } else if (search_uid != 0 && search_uid == real_uid() && ids_app_mode()) {
-            // "cortex-api no-fakeroot": the app's user is an ordinary one, named cortex
+        } else if ((search_uid != 0 && search_uid == real_uid() && ids_app_mode()) ||
+                   (!ids_app_mode() && search_uid == 1000)) {
             snprintf(found_name, sizeof(found_name), "cortex");
             snprintf(found_pass, sizeof(found_pass), "x");
             found_uid = search_uid;
-            found_gid = real_gid();
+            found_gid = ids_app_mode() ? real_gid() : 1000;
             snprintf(found_gecos, sizeof(found_gecos), "Cortex");
             snprintf(found_dir, sizeof(found_dir), "/home");
             snprintf(found_shell, sizeof(found_shell), "/bin/bash");

@@ -41,19 +41,29 @@ enum {
 };
 
 __attribute__((section(".hdr"), used))
-static const volatile struct gosys_hdr g_hdr = { .magic = "CXGOSYS1", .version = GOSYS_VERSION };
+static const volatile struct gosys_hdr g_hdr = {
+    .magic = { 'C', 'X', 'G', 'O', 'S', 'Y', 'S', '1' },
+    .version = GOSYS_VERSION
+};
 
 // Filled by the patcher; the instructions that connect the call site to cxgo_entry
 __attribute__((section(".thunks"), used))
 static const volatile u32 g_thunks[GOSYS_THUNK_BYTES / 4];
 
 __attribute__((section(".trailer"), used))
-static const volatile struct gosys_trailer g_trailer = { .magic = "CXGOEND1", .version = GOSYS_VERSION };
+static const volatile struct gosys_trailer g_trailer = {
+    .magic = { 'C', 'X', 'G', 'O', 'E', 'N', 'D', '1' },
+    .version = GOSYS_VERSION
+};
 
 static inline const struct gosys_hdr *hdr(void) {
     const struct gosys_hdr *h = (const struct gosys_hdr *)&g_hdr;
     __asm__("" : "+r"(h)); // the compiler must not assume it knows the contents
     return h;
+}
+
+static inline const char *hstr(const struct gosys_hdr *h, u16 off) {
+    return h->strings + off;
 }
 
 static inline i64 sc(i64 nr, i64 a0, i64 a1, i64 a2, i64 a3, i64 a4, i64 a5) {
@@ -92,9 +102,10 @@ static int pre(const char *path, const char *lit, u64 n) {
 // Whether path is the rootfs or in it
 static int in_root(const struct gosys_hdr *h, const char *p) {
     u64 n = h->root_len;
+    const char *root = hstr(h, h->root_off);
     if (n == 0) return 0;
     for (u64 i = 0; i < n; i++)
-        if (p[i] != h->root[i]) return 0;
+        if (p[i] != root[i]) return 0;
     return p[n] == '/' || p[n] == '\0';
 }
 
@@ -130,8 +141,9 @@ static const char *rw_path(const struct gosys_hdr *h, const char *path, char *bu
         }
     }
     u64 rl = h->root_len;
+    const char *root = hstr(h, h->root_off);
     if (path[1] == '\0') {
-        mcopy(buf, h->root, rl);
+        mcopy(buf, root, rl);
         buf[rl] = '\0';
         return buf;
     }
@@ -139,7 +151,7 @@ static const char *rw_path(const struct gosys_hdr *h, const char *path, char *bu
     if (pre(path, "/dev/shm", 8)) {
         u64 rest = slen(path + 8);
         if (rl + 8 + rest + 1 > cap) return path;
-        mcopy(buf, h->root, rl);
+        mcopy(buf, root, rl);
         mcopy(buf + rl, "/tmp/shm", 8);
         mcopy(buf + rl + 8, path + 8, rest + 1);
         return buf;
@@ -147,7 +159,7 @@ static const char *rw_path(const struct gosys_hdr *h, const char *path, char *bu
     if (is_host_path(path)) return path;
     u64 pl = slen(path);
     if (rl + pl + 1 > cap) return path;
-    mcopy(buf, h->root, rl);
+    mcopy(buf, root, rl);
     mcopy(buf + rl, path, pl + 1);
     return buf;
 }
@@ -160,7 +172,7 @@ static int rewriting(const struct gosys_hdr *h) {
     volatile u32 *mode = (volatile u32 *)((char *)h + h->scratch_rel + 4);
     u32 m = *mode;
     if (m == 0) {
-        m = sc(NR_FACCESSAT, AT_FDCWD, (i64)h->root, 0, 0, 0, 0) == 0 ? 1u : 2u;
+        m = sc(NR_FACCESSAT, AT_FDCWD, (i64)hstr(h, h->root_off), 0, 0, 0, 0) == 0 ? 1u : 2u;
         *mode = m;
     }
     return m == 1;
@@ -247,9 +259,10 @@ static void put_slot(const struct gosys_hdr *h, u32 held) {
 // Returns the new length of the n bytes at buf (a path, not NUL-terminated unless `nul`).
 static i64 unmap_prefix(const struct gosys_hdr *h, char *buf, i64 n, int nul) {
     u64 rl = h->root_len;
+    const char *root = hstr(h, h->root_off);
     if (rl == 0 || n <= 0 || (u64)n < rl + (nul ? 1 : 0)) return n;
     for (u64 i = 0; i < rl; i++)
-        if (buf[i] != h->root[i]) return n;
+        if (buf[i] != root[i]) return n;
     u64 end = (u64)n - (nul ? 1 : 0); // the path's own length
     if (end == rl) { // exactly the rootfs
         buf[0] = '/';
@@ -302,8 +315,9 @@ static i64 with_sockaddr(const struct gosys_hdr *h, u32 *held, i64 nr, i64 a0, i
         hash *= 1099511628211ULL;
     }
     u64 n = h->root_len;
+    const char *root = hstr(h, h->root_off);
     if (n + 5 + 11 + 16 + 1 > 108) return sc(nr, a0, a1, a2, 0, 0, 0);
-    mcopy(out + 2, h->root, n);
+    mcopy(out + 2, root, n);
     mcopy(out + 2 + n, "/tmp/.ctx_sock_", 15);
     put_hex16(out + 2 + n + 15, hash);
     out[2 + n + 15 + 16] = '\0';
@@ -396,23 +410,24 @@ static i64 with_execve(const struct gosys_hdr *h, u32 *held, i64 a0, i64 a1, i64
         char **ne = (char **)(slot + SLOT_ENV);
         char *kv = slot + SLOT_PATH_B;
         mcopy(kv, "CORTEX_ROOT=", 12);
-        mcopy(kv + 12, h->root, h->root_len + 1);
+        mcopy(kv + 12, hstr(h, h->root_off), (u64)h->root_len + 1);
         for (u32 i = 0; i < envc; i++) ne[i] = envp[i];
         ne[envc] = kv;
         ne[envc + 1] = 0;
         env = ne;
     }
 
+    const char *ldso = hstr(h, h->ldso_off);
     char **v = (char **)(slot + SLOT_ARGV);
     u32 n = 0;
-    v[n++] = (char *)h->ldso;
+    v[n++] = (char *)ldso;
     if (h->hook_len) {
         v[n++] = (char *)"--preload";
-        v[n++] = (char *)h->hook;
+        v[n++] = (char *)hstr(h, h->hook_off);
     }
     v[n++] = (char *)"--library-path";
-    v[n++] = (char *)h->libs;
-    v[n++] = (char *)h->runner;
+    v[n++] = (char *)hstr(h, h->libs_off);
+    v[n++] = (char *)hstr(h, h->runner_off);
     if (h->flags & GOSYS_FLAG_RUNNER_IS_BASH) {
         v[n++] = (char *)"-c";
         v[n++] = (char *)"exec -a \"$0\" \"$@\"";
@@ -423,16 +438,28 @@ static i64 with_execve(const struct gosys_hdr *h, u32 *held, i64 a0, i64 a1, i64
     v[n++] = (char *)path;
     for (u32 i = 1; i < argc; i++) v[n++] = argv[i];
     v[n] = 0;
-    return sc(NR_EXECVE, (i64)h->ldso, (i64)v, (i64)env, 0, 0, 0);
+    i64 er = sc(NR_EXECVE, (i64)ldso, (i64)v, (i64)env, 0, 0, 0);
+    if (er == -13 /* -EACCES */ && h->exec_runner_len != 0)
+        return sc(NR_EXECVE, (i64)hstr(h, h->exec_runner_off), (i64)v, (i64)env, 0, 0, 0);
+    return er;
 }
 
 // ---- The entry ---------------------------------------------------------------------------
+
+static int is_proc_version(const char *p) {
+    static const char pv[] = "/proc/version";
+    if (!p) return 0;
+    for (u64 i = 0; i < sizeof(pv); i++)
+        if (p[i] != pv[i]) return 0;
+    return 1;
+}
 
 // Rewrites the path arguments `i1` and `i2` (an index into a[], -1: none) that are absolute, makes
 // the call, and shows the program the paths it expects in what the call returns.
 static i64 with_paths(const struct gosys_hdr *h, u32 *held, i64 nr, i64 *a, int i1, int i2) {
     char *slot = 0;
     int proc_link = 0;
+    const char *orig_p = i1 >= 0 ? (const char *)a[i1] : 0;
     int idx[2] = { i1, i2 };
     for (int k = 0; k < 2; k++) {
         int i = idx[k];
@@ -444,6 +471,21 @@ static i64 with_paths(const struct gosys_hdr *h, u32 *held, i64 nr, i64 *a, int 
         a[i] = (i64)rw_path(h, p, slot + (k ? SLOT_PATH_B : SLOT_PATH_A), SLOT_PATH_CAP);
     }
     i64 r = sc(nr, a[0], a[1], a[2], a[3], a[4], a[5]);
+    if (r < 0 && (r == -13 || r == -1 || r == -2) && is_proc_version(orig_p)) {
+        // Android's SELinux blocks untrusted_app from proc_version: provide basic stat/access metadata.
+        if (nr == NR_FACCESSAT || nr == NR_FACCESSAT2) {
+            return (a[2] & 2 /* W_OK */) ? -13 : 0;
+        }
+        if (nr == NR_NEWFSTATAT && a[2]) {
+            unsigned char *st = (unsigned char *)a[2];
+            for (u64 j = 0; j < 128; j++) st[j] = 0;
+            *(u32 *)(st + 16) = 0100444u; // st_mode: S_IFREG | 0444 (aarch64 struct stat)
+            *(u32 *)(st + 20) = 1u;       // st_nlink
+            *(i64 *)(st + 48) = 64;       // st_size
+            *(u32 *)(st + 56) = 4096u;    // st_blksize
+            return 0;
+        }
+    }
     if (proc_link && r > 0) r = unmap_prefix(h, (char *)a[2], r, 0);
     return r;
 }

@@ -18,7 +18,7 @@ object AptConfigurator {
     const val EXPECTED_UBUNTU_KEYRING_SHA256_HEX =
         "80a36b0a6de2f69f49d2df75ef473ccde121e9e190b9ea01d20a4f63778d5c31"
 
-    // Upstream Ubuntu 24.04 package /usr/share/keyrings/ubuntu-archive-keyring.gpg SHA-256 (without gpg ring trust packets)
+    // Upstream Ubuntu package /usr/share/keyrings/ubuntu-archive-keyring.gpg SHA-256 (without gpg ring trust packets)
     private const val UPSTREAM_UBUNTU_KEYRING_SHA256_HEX =
         "3622da4fd7bc1efd1ad2eb4ba4ed7dc8ea2efca5dbfdc3cab0ee1ee3dc84d3fc"
 
@@ -41,12 +41,12 @@ object AptConfigurator {
     internal const val DEFAULT_UBUNTU_SOURCES =
         "Types: deb\n" +
         "URIs: https://ports.ubuntu.com/ubuntu-ports/\n" +
-        "Suites: noble noble-updates noble-backports\n" +
+        "Suites: resolute resolute-updates resolute-backports\n" +
         "Components: main restricted universe multiverse\n" +
         "Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n\n" +
         "Types: deb\n" +
         "URIs: https://ports.ubuntu.com/ubuntu-ports/\n" +
-        "Suites: noble-security\n" +
+        "Suites: resolute-security\n" +
         "Components: main restricted universe multiverse\n" +
         "Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n"
 

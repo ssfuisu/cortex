@@ -21,6 +21,7 @@ object ElfLinkerPatcher {
 
     private val LINKER_CANDIDATES = listOf(
         "usr/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1",
+        "usr/lib/aarch64-linux-gnu/ld-2.43.so",
         "usr/lib/aarch64-linux-gnu/ld-2.39.so",
         "lib/ld-linux-aarch64.so.1",
         "lib/aarch64-linux-gnu/ld-linux-aarch64.so.1",
@@ -28,6 +29,7 @@ object ElfLinkerPatcher {
         "usr/lib64/ld-linux-aarch64.so.1",
         "lib64/ld-linux-aarch64.so.1",
         "usr/lib/arm-linux-gnueabihf/ld-linux-armhf.so.3",
+        "usr/lib/arm-linux-gnueabihf/ld-2.43.so",
         "usr/lib/arm-linux-gnueabihf/ld-2.39.so",
         "lib/ld-linux-armhf.so.3",
         "lib/arm-linux-gnueabihf/ld-linux-armhf.so.3",
@@ -214,75 +216,66 @@ object ElfLinkerPatcher {
         return null
     }
 
+    private fun chmodOwnerRwx(file: File) {
+        file.setExecutable(true, true)
+        file.setReadable(true, true)
+        file.setWritable(true, true)
+        try { Os.chmod(file.absolutePath, 448) } catch (_: Exception) {}
+    }
+
+    private fun ensureArchLinkerPermissionsAndLink(
+        root: File,
+        dirRel: String,
+        linkName: String,
+        versionedNames: List<String>
+    ): File? {
+        val dir = File(root, dirRel)
+        val ldLink = File(dir, linkName)
+        val ldReal = versionedNames.map { File(dir, it) }.firstOrNull { it.exists() }
+        if (ldReal != null) {
+            chmodOwnerRwx(ldReal)
+            if (!ldLink.exists() && !isSymlink(ldLink)) {
+                if (!createSymlink(ldReal.name, ldLink)) {
+                    try { ldReal.copyTo(ldLink, overwrite = true) } catch (_: Exception) {}
+                }
+            }
+        }
+        if (ldLink.exists() || isSymlink(ldLink)) {
+            chmodOwnerRwx(ldLink)
+        }
+        return if (ldLink.exists()) ldLink else if (ldReal?.exists() == true) ldReal else null
+    }
+
+    private fun ensureDirectLibLink(libDir: File, linkName: String, src: File?) {
+        if (src == null) return
+        val direct = File(libDir, linkName)
+        if (direct.exists() || isSymlink(direct)) return
+        if (!createSymlink(src.absolutePath, direct)) {
+            try { src.copyTo(direct, overwrite = true) } catch (_: Exception) {}
+        }
+        chmodOwnerRwx(direct)
+    }
+
     fun ensureDynamicLinkerSymlinks(root: File) {
         try {
-            // Check arm64
-            val ld64Real = File(root, "usr/lib/aarch64-linux-gnu/ld-2.39.so")
-            val ld64Link = File(root, "usr/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1")
-            if (ld64Real.exists()) {
-                ld64Real.setExecutable(true, true)
-                ld64Real.setReadable(true, true)
-                ld64Real.setWritable(true, true)
-                try { Os.chmod(ld64Real.absolutePath, 448) } catch (_: Exception) {}
-                if (!ld64Link.exists() && !isSymlink(ld64Link)) {
-                    if (!createSymlink("ld-2.39.so", ld64Link)) {
-                        try { ld64Real.copyTo(ld64Link, overwrite = true) } catch (_: Exception) {}
-                    }
-                }
-                ld64Link.setExecutable(true, true)
-                ld64Link.setReadable(true, true)
-                ld64Link.setWritable(true, true)
-                try { Os.chmod(ld64Link.absolutePath, 448) } catch (_: Exception) {}
-            }
-
-            // Check arm32
-            val ld32Real = File(root, "usr/lib/arm-linux-gnueabihf/ld-2.39.so")
-            val ld32Link = File(root, "usr/lib/arm-linux-gnueabihf/ld-linux-armhf.so.3")
-            if (ld32Real.exists()) {
-                ld32Real.setExecutable(true, true)
-                ld32Real.setReadable(true, true)
-                ld32Real.setWritable(true, true)
-                try { Os.chmod(ld32Real.absolutePath, 448) } catch (_: Exception) {}
-                if (!ld32Link.exists() && !isSymlink(ld32Link)) {
-                    if (!createSymlink("ld-2.39.so", ld32Link)) {
-                        try { ld32Real.copyTo(ld32Link, overwrite = true) } catch (_: Exception) {}
-                    }
-                }
-                ld32Link.setExecutable(true, true)
-                ld32Link.setReadable(true, true)
-                ld32Link.setWritable(true, true)
-                try { Os.chmod(ld32Link.absolutePath, 448) } catch (_: Exception) {}
-            }
+            val src64 = ensureArchLinkerPermissionsAndLink(
+                root,
+                "usr/lib/aarch64-linux-gnu",
+                "ld-linux-aarch64.so.1",
+                listOf("ld-2.43.so", "ld-2.39.so")
+            )
+            val src32 = ensureArchLinkerPermissionsAndLink(
+                root,
+                "usr/lib/arm-linux-gnueabihf",
+                "ld-linux-armhf.so.3",
+                listOf("ld-2.43.so", "ld-2.39.so")
+            )
 
             // Ensure /lib has a direct link or copy to dynamic linker if /lib is not already symlinked
             val libDir = File(root, "lib")
             if (libDir.exists() && !isSymlink(libDir)) {
-                val direct64 = File(libDir, "ld-linux-aarch64.so.1")
-                if (!direct64.exists() && !isSymlink(direct64)) {
-                    val src = if (ld64Link.exists()) ld64Link else if (ld64Real.exists()) ld64Real else null
-                    if (src != null) {
-                        if (!createSymlink(src.absolutePath, direct64)) {
-                            try { src.copyTo(direct64, overwrite = true) } catch (_: Exception) {}
-                        }
-                        direct64.setExecutable(true, true)
-                        direct64.setReadable(true, true)
-                        direct64.setWritable(true, true)
-                        try { Os.chmod(direct64.absolutePath, 448) } catch (_: Exception) {}
-                    }
-                }
-                val direct32 = File(libDir, "ld-linux-armhf.so.3")
-                if (!direct32.exists() && !isSymlink(direct32)) {
-                    val src = if (ld32Link.exists()) ld32Link else if (ld32Real.exists()) ld32Real else null
-                    if (src != null) {
-                        if (!createSymlink(src.absolutePath, direct32)) {
-                            try { src.copyTo(direct32, overwrite = true) } catch (_: Exception) {}
-                        }
-                        direct32.setExecutable(true, true)
-                        direct32.setReadable(true, true)
-                        direct32.setWritable(true, true)
-                        try { Os.chmod(direct32.absolutePath, 448) } catch (_: Exception) {}
-                    }
-                }
+                ensureDirectLibLink(libDir, "ld-linux-aarch64.so.1", src64)
+                ensureDirectLibLink(libDir, "ld-linux-armhf.so.3", src32)
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to ensure dynamic linker symlinks", e)

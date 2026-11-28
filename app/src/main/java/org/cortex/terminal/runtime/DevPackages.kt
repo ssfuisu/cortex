@@ -57,7 +57,7 @@ object DevPackages {
     val PACKAGES = listOf("libc6-dev", "libc-dev-bin", "libcrypt-dev", "linux-libc-dev", "rpcsvc-proto")
 
     /** The glibc series the overlay was built for. */
-    const val GLIBC_SERIES = "2.39"
+    const val GLIBC_SERIES = "2.43"
 
     /** Path of the stanzas inside the overlay, relative to the root file system. */
     const val STATUS_RESOURCE = "var/lib/cortex/devpkgs/status"

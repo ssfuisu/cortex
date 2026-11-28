@@ -21,8 +21,8 @@ spec = importlib.util.spec_from_file_location("build_dev_overlay", SCRIPT)
 overlay = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(overlay)
 
-LIBC = "2.39-0ubuntu8.9"
-LIBCRYPT = "1:4.4.36-4build1"
+LIBC = "2.43-2ubuntu2.7"
+LIBCRYPT = "1:4.5.1-1"
 BENIGN = '#!/bin/sh\nset -e\n# Automatically added by dh_installdeb\ndpkg-maintscript-helper symlink_to_dir /usr/share/doc/libcrypt-dev libcrypt1 1:4.4.27-1.1\\~ -- "$@"\n'
 
 
@@ -53,11 +53,11 @@ def fixture_meta(arch):
     return {
         "libc6-dev": dict(version=LIBC, multiarch="same",
                           depends="libc6 (= %s), libc-dev-bin (= %s), linux-libc-dev, libcrypt-dev, rpcsvc-proto" % (LIBC, LIBC)),
-        "libc-dev-bin": dict(version=LIBC, multiarch="foreign", depends="libc6 (>> 2.39), libc6 (<< 2.40)"),
+        "libc-dev-bin": dict(version=LIBC, multiarch="foreign", depends="libc6 (>> 2.43), libc6 (<< 2.44)"),
         "libcrypt-dev": dict(version=LIBCRYPT, multiarch="same", depends="libcrypt1 (= %s)" % LIBCRYPT,
                              scripts={s: BENIGN for s in overlay.MAINTAINER_SCRIPTS}),
-        "linux-libc-dev": dict(version="6.8.0-147.147", multiarch="same", depends=None),
-        "rpcsvc-proto": dict(version="1.4.2-0ubuntu7", multiarch="foreign", depends="libc6 (>= 2.38)"),
+        "linux-libc-dev": dict(version="7.0.0-44.44", multiarch="same", depends=None),
+        "rpcsvc-proto": dict(version="1.4.3-1build1", multiarch="foreign", depends="libc6 (>= 2.38)"),
     }
 
 
@@ -166,9 +166,9 @@ class OverlayTest(unittest.TestCase):
         for s in stanzas:
             self.assertEqual("Status: install ok installed", s.split("\n")[1], "dpkg writes the status second")
         libc_dev = [s for s in stanzas if s.startswith("Package: libc6-dev\n")][0]
-        self.assertIn("Depends: libc6 (>= 2.39), libc-dev-bin (= %s), linux-libc-dev, libcrypt-dev, rpcsvc-proto" % LIBC, libc_dev)
+        self.assertIn("Depends: libc6 (>= 2.43), libc-dev-bin (= %s), linux-libc-dev, libcrypt-dev, rpcsvc-proto" % LIBC, libc_dev)
         libcrypt = [s for s in stanzas if s.startswith("Package: libcrypt-dev\n")][0]
-        self.assertIn("Depends: libcrypt1 (>= 1:4.4.36)\n", libcrypt)
+        self.assertIn("Depends: libcrypt1 (>= 1:4.5.1)\n", libcrypt)
         self.assertIn("Description: test package\n long description line", libc_dev, "continuation lines are kept")
         self.assertTrue(text.endswith("\n"))
 
@@ -230,11 +230,11 @@ class OverlayTest(unittest.TestCase):
         self.assertIn("triggers", message)
 
     def test_refuses_another_glibc_series(self):
-        message = self.refused(meta_override={"libc6-dev": {"version": "2.40-1"}, "libc-dev-bin": {"version": "2.40-1"}})
-        self.assertIn("2.39", message)
+        message = self.refused(meta_override={"libc6-dev": {"version": "2.44-1"}, "libc-dev-bin": {"version": "2.44-1"}})
+        self.assertIn("2.43", message)
 
     def test_refuses_libc6_dev_and_libc_dev_bin_of_different_versions(self):
-        message = self.refused(meta_override={"libc-dev-bin": {"version": "2.39-0ubuntu8.8"}})
+        message = self.refused(meta_override={"libc-dev-bin": {"version": "2.43-2ubuntu2"}})
         self.assertIn("differ", message)
 
     def test_refuses_packages_of_the_wrong_architecture(self):
@@ -277,7 +277,7 @@ class OverlayTest(unittest.TestCase):
 
     def test_a_failed_build_leaves_no_output_behind(self):
         out = os.path.join(self.tmp, "never.tar.gz")
-        debs = self.debs(meta_override={"libc-dev-bin": {"version": "2.39-0ubuntu8.8"}})
+        debs = self.debs(meta_override={"libc-dev-bin": {"version": "2.43-2ubuntu2"}})
         with self.assertRaises(overlay.OverlayError):
             overlay.build_overlay(debs, "arm64", out, log=lambda _: None)
         self.assertFalse(os.path.exists(out))
@@ -313,23 +313,23 @@ class OverlayTest(unittest.TestCase):
 
 class HelperTest(unittest.TestCase):
     def test_relax_depends_changes_only_the_exact_libc6_and_libcrypt1(self):
-        text = "libc6 (= 2.39-0ubuntu8.9), libc-dev-bin (= 2.39-0ubuntu8.9), libcrypt1 (= 1:4.4.36-4build1), foo (>= 1)"
+        text = "libc6 (= 2.43-2ubuntu2.7), libc-dev-bin (= 2.43-2ubuntu2.7), libcrypt1 (= 1:4.5.1-1), foo (>= 1)"
         self.assertEqual(
-            "libc6 (>= 2.39), libc-dev-bin (= 2.39-0ubuntu8.9), libcrypt1 (>= 1:4.4.36), foo (>= 1)",
-            overlay.relax_depends(text, "2.39", "1:4.4.36"))
+            "libc6 (>= 2.43), libc-dev-bin (= 2.43-2ubuntu2.7), libcrypt1 (>= 1:4.5.1), foo (>= 1)",
+            overlay.relax_depends(text, "2.43", "1:4.5.1"))
 
     def test_relax_depends_leaves_ranges_alone(self):
-        text = "libc6 (>> 2.39), libc6 (<< 2.40)"
-        self.assertEqual(text, overlay.relax_depends(text, "2.39", "1:4.4.36"))
+        text = "libc6 (>> 2.43), libc6 (<< 2.44)"
+        self.assertEqual(text, overlay.relax_depends(text, "2.43", "1:4.5.1"))
 
     def test_relax_depends_does_not_touch_similar_names(self):
         text = "libc6-dev (= 1), mylibc6 (= 2)"
-        self.assertEqual(text, overlay.relax_depends(text, "2.39", "1:4.4.36"))
+        self.assertEqual(text, overlay.relax_depends(text, "2.43", "1:4.5.1"))
 
     def test_upstream_version_keeps_the_epoch_and_drops_the_revision(self):
-        self.assertEqual("1:4.4.36", overlay.upstream_version("1:4.4.36-4build1"))
-        self.assertEqual("2.39", overlay.upstream_version("2.39-0ubuntu8.9"))
-        self.assertEqual("6.8.0", overlay.upstream_version("6.8.0"))
+        self.assertEqual("1:4.5.1", overlay.upstream_version("1:4.5.1-1"))
+        self.assertEqual("2.43", overlay.upstream_version("2.43-2ubuntu2.7"))
+        self.assertEqual("7.0.0", overlay.upstream_version("7.0.0"))
 
     def test_list_entries_follow_dpkg(self):
         self.assertEqual("/.", overlay.list_entry("./"))

@@ -38,7 +38,7 @@ m = re.search(r'k_rootfs_lib_dirs\[\]\s*=\s*\{(.*?)\};', c, re.S)
 sources['hook/paths.c'] = re.findall(r'"([^"]+)"', m.group(1)) if m else []
 
 su = read('app/src/main/assets/scripts/su.sh')
-m = re.search(r'^CORTEX_LD="([^"]+)"', su, re.M)
+m = re.search(r'^[ \t]*(?:local[ \t]+)?CORTEX_LD="([^"]+)"', su, re.M)
 sources['su.sh'] = dirs_from_shell_value(m.group(1)) if m else []
 
 extra = read('scripts/setup-extra-rootfs.sh')

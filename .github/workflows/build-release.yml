@@ -137,20 +137,11 @@ jobs:
           scripts/build-gosys.sh
           aarch64-linux-gnu-gcc -std=gnu11 -shared -fPIC -O3 -fno-delete-null-pointer-checks -Wall -Wno-nonnull-compare -Wl,-z,max-page-size=16384 -o hook-libs/libcortex-hook-arm64.so app/src/main/cpp/cortex-hook.c -ldl
           arm-linux-gnueabihf-gcc -std=gnu11 -shared -fPIC -O3 -fno-delete-null-pointer-checks -Wall -Wno-nonnull-compare -Wl,-z,max-page-size=16384 -o hook-libs/libcortex-hook-arm.so app/src/main/cpp/cortex-hook.c -ldl
-          # Root mode's helper: a static executable, run as root before any chroot exists
-          aarch64-linux-gnu-gcc -std=gnu11 -static -O2 -Wall -Wextra -Werror -Wl,-z,max-page-size=16384 -o hook-libs/cortex-chroot-arm64.elf app/src/main/cpp/root/cortex-chroot.c
-          arm-linux-gnueabihf-gcc -std=gnu11 -static -O2 -Wall -Wextra -Werror -Wl,-z,max-page-size=16384 -o hook-libs/cortex-chroot-arm.elf app/src/main/cpp/root/cortex-chroot.c
-          for helper in hook-libs/cortex-chroot-*.elf; do
-            if readelf -lW "$helper" | grep -q "INTERP"; then
-              echo "ERROR: $helper is not statically linked"
-              exit 1
-            fi
-          done
 
-          echo "Verifying 16 KB page alignment of LOAD segments in libcortex-hook-arm64.so and cortex-chroot-arm64.elf..."
+          echo "Verifying 16 KB page alignment of LOAD segments in libcortex-hook-arm64.so..."
           python3 - << 'EOF'
           import subprocess, sys
-          for path in ("hook-libs/libcortex-hook-arm64.so", "hook-libs/cortex-chroot-arm64.elf"):
+          for path in ("hook-libs/libcortex-hook-arm64.so",):
               out = subprocess.check_output(["readelf", "-lW", path], text=True)
               loads = [line.strip() for line in out.splitlines() if line.strip().startswith("LOAD")]
               if not loads:
@@ -166,11 +157,11 @@ jobs:
           EOF
 
           echo "Verifying Glibc version requirements in hook libraries..."
-          if readelf -V hook-libs/*.so | grep -E "GLIBC_2\.([4-9][0-9])"; then
-            echo "ERROR: libcortex-hook.so requires GLIBC version higher than 2.39!"
+          if readelf -V hook-libs/*.so | grep -E "GLIBC_2\.(4[4-9]|[5-9][0-9])"; then
+            echo "ERROR: libcortex-hook.so requires GLIBC version higher than 2.43!"
             exit 1
           fi
-          echo "All hook libraries verified: fully compatible with Ubuntu 24.04 LTS (glibc <= 2.39)."
+          echo "All hook libraries verified: compatible with Ubuntu 26.04 LTS (glibc <= 2.43)."
 
       - name: Cache Prepared Ubuntu Bootstrap Archives
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -180,13 +171,13 @@ jobs:
             app/src/main/assets/bootstrap-arm64.tar.zst
             app/src/main/assets/bootstrap-arm.tar.zst
             app/src/main/assets/cacert.pem
-          key: bootstrap-rootfs-v5-${{ hashFiles('scripts/setup-extra-rootfs.sh', 'scripts/patch-bootstrap-ld.py', 'app/src/main/cpp/cortex-hook.c', 'app/src/main/cpp/hook/**', 'app/src/main/assets/*.gpg', '.github/workflows/build-release.yml') }}
+          key: bootstrap-rootfs-v6-${{ hashFiles('scripts/setup-extra-rootfs.sh', 'scripts/patch-bootstrap-ld.py', 'app/src/main/assets/scripts/**', 'app/src/main/cpp/cortex-hook.c', 'app/src/main/cpp/hook/**', 'app/src/main/assets/*.gpg', '.github/workflows/build-release.yml') }}
 
       - name: Set up QEMU for multi-arch containers
         if: steps.cache-bootstrap.outputs.cache-hit != 'true'
         uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
 
-      - name: Bundle Ubuntu 24.04 LTS Glibc Bootstrap into APK
+      - name: Bundle Ubuntu 26.04 LTS Glibc Bootstrap into APK
         env:
           CACHE_HIT: ${{ steps.cache-bootstrap.outputs.cache-hit }}
         run: |
@@ -202,8 +193,6 @@ jobs:
 
           cp hook-libs/libcortex-hook-arm64.so app/src/main/assets/libcortex-hook-arm64.so
           cp hook-libs/libcortex-hook-arm.so app/src/main/assets/libcortex-hook-arm.so
-          cp hook-libs/cortex-chroot-arm64.elf app/src/main/assets/cortex-chroot-arm64.elf
-          cp hook-libs/cortex-chroot-arm.elf app/src/main/assets/cortex-chroot-arm.elf
 
           if [ "$CACHE_HIT" = "true" ] && [ -f app/src/main/assets/bootstrap-arm64.tar.zst ] && [ -f app/src/main/assets/bootstrap-arm.tar.zst ]; then
             echo "Using cached pre-built Ubuntu bootstrap archives. Skipping rootfs generation."
@@ -239,13 +228,13 @@ jobs:
           printf 'APT::Sandbox::User "root";\nAPT::Sandbox::Seccomp "false";\nAcquire::ForceIPv4 "true";\nAcquire::Connect::AddrConfig "false";\nAcquire::SRV "false";\nAcquire::Languages "none";\nAcquire::GzipIndexes "true";\nDir::dpkg::cputable "/usr/share/dpkg/cputable";\nDir::dpkg::tupletable "/usr/share/dpkg/tupletable";\nDir::dpkg::triplettable "/usr/share/dpkg/triplettable";\nDPkg::Install::Recursive "false";\nDpkg::Progress-Fancy "false";\nAPT::Color "false";\nDPkg::Options {\n   "--force-confdef";\n   "--force-confold";\n   "--force-unsafe-io";\n};\n' > extra-rootfs/etc/apt/apt.conf.d/01sandbox
           mkdir -p extra-rootfs/etc/apt/sources.list.d
           rm -f extra-rootfs/etc/apt/sources.list
-          printf 'Types: deb\nURIs: https://ports.ubuntu.com/ubuntu-ports/\nSuites: noble noble-updates noble-backports\nComponents: main restricted universe multiverse\nSigned-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n\nTypes: deb\nURIs: https://ports.ubuntu.com/ubuntu-ports/\nSuites: noble-security\nComponents: main restricted universe multiverse\nSigned-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n' > extra-rootfs/etc/apt/sources.list.d/ubuntu.sources
+          printf 'Types: deb\nURIs: https://ports.ubuntu.com/ubuntu-ports/\nSuites: resolute resolute-updates resolute-backports\nComponents: main restricted universe multiverse\nSigned-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n\nTypes: deb\nURIs: https://ports.ubuntu.com/ubuntu-ports/\nSuites: resolute-security\nComponents: main restricted universe multiverse\nSigned-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n' > extra-rootfs/etc/apt/sources.list.d/ubuntu.sources
           chmod 0644 extra-rootfs/etc/apt/sources.list.d/ubuntu.sources
           echo "# Disabled for Cortex" > extra-rootfs/etc/apt/apt.conf.d/docker-clean
           mkdir -p extra-rootfs/etc/apt/preferences.d
           printf 'Explanation: Pin core glibc and linker packages to prevent upgrading to stock upstream packages that fail Android SECCOMP\nPackage: libc6 libc6-dev libc6-dbg\nPin: release *\nPin-Priority: -1\n\nPackage: libc-bin\nPin: release *\nPin-Priority: -1\n\nPackage: libc-dev-bin\nPin: release *\nPin-Priority: -1\n\nPackage: locales\nPin: release *\nPin-Priority: -1\n' > extra-rootfs/etc/apt/preferences.d/01cortex-pins
           printf 'force-confdef\nforce-confold\nforce-unsafe-io\nno-debsig\n' > extra-rootfs/etc/dpkg/dpkg.cfg.d/01cortex
-          printf 'export DPKG_DEB_THREADS_MAX=1\nexport XZ_OPT=-T1\nexport XZ_DEFAULTS=-T1\nexport TAR_OPTIONS=--no-same-owner\nexport DEBIAN_FRONTEND=noninteractive\nexport DEBCONF_FRONTEND=noninteractive\nexport DEBCONF_NONINTERACTIVE_SEEN=true\nunset PREFIX\nexport GODEBUG=netdns=cgo\nshopt -s checkwinsize 2>/dev/null\nexport PATH="/home/.opencode/bin:/home/.local/bin:$HOME/.opencode/bin:$HOME/.local/bin:$PATH"\nif [ -n "$CORTEX_ROOT" ]; then\n  export SSL_CERT_FILE="$CORTEX_ROOT/etc/ssl/certs/ca-certificates.crt"\n  export SSL_CERT_DIR="$CORTEX_ROOT/etc/ssl/certs:/system/etc/security/cacerts"\n  export CURL_CA_BUNDLE="$CORTEX_ROOT/etc/ssl/certs/ca-certificates.crt"\n  export NODE_EXTRA_CA_CERTS="$CORTEX_ROOT/etc/ssl/certs/ca-certificates.crt"\n  export REQUESTS_CA_BUNDLE="$CORTEX_ROOT/etc/ssl/certs/ca-certificates.crt"\nelse\n  export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt\n  export CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt\nfi\nexport TZDIR=/usr/share/zoneinfo\npython3 -c "import glob, os; [os.remove(f) for f in glob.glob(\"/var/lib/apt/lists/*_Packages\") if any(b and not b.startswith(b\"Package:\") for b in [x.strip() for x in open(f, \"rb\").read().split(b\"\\n\\n\")])]\" 2>/dev/null || true\nrm -rf /var/lib/apt/lists/partial/* 2>/dev/null || true\nif [ -d /etc/cortex/autostart ]; then\n  for s in /etc/cortex/autostart/*; do\n    if [ -f "$s" ]; then\n      sname="$(basename "$s")"\n      service "$sname" start >/dev/null 2>&1 || true\n    fi\n  done\nfi\n' > extra-rootfs/etc/profile.d/01cortex.sh
+          printf 'export DPKG_DEB_THREADS_MAX=1\nexport XZ_OPT=-T1\nexport XZ_DEFAULTS=-T1\nexport TAR_OPTIONS=--no-same-owner\nexport DEBIAN_FRONTEND=noninteractive\nexport DEBCONF_FRONTEND=noninteractive\nexport DEBCONF_NONINTERACTIVE_SEEN=true\nunset PREFIX\nexport GODEBUG=netdns=cgo\nshopt -s checkwinsize 2>/dev/null\nexport PATH="/home/.local/bin:$HOME/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"\nif [ -n "$CORTEX_ROOT" ]; then\n  export SSL_CERT_FILE="$CORTEX_ROOT/etc/ssl/certs/ca-certificates.crt"\n  export SSL_CERT_DIR="$CORTEX_ROOT/etc/ssl/certs:/system/etc/security/cacerts"\n  export CURL_CA_BUNDLE="$CORTEX_ROOT/etc/ssl/certs/ca-certificates.crt"\n  export NODE_EXTRA_CA_CERTS="$CORTEX_ROOT/etc/ssl/certs/ca-certificates.crt"\n  export REQUESTS_CA_BUNDLE="$CORTEX_ROOT/etc/ssl/certs/ca-certificates.crt"\nelse\n  export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt\n  export CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt\nfi\nexport TZDIR=/usr/share/zoneinfo\nif [ -d /etc/cortex/autostart ]; then\n  for s in /etc/cortex/autostart/*; do\n    if [ -f "$s" ]; then\n      sname="$(basename "$s")"\n      service "$sname" start >/dev/null 2>&1 || true\n    fi\n  done\nfi\n' > extra-rootfs/etc/profile.d/01cortex.sh
 
           printf '#!/bin/sh\nexit 101\n' > extra-rootfs/usr/sbin/policy-rc.d
           printf '#!/bin/sh\nexit 0\n' > extra-rootfs/usr/sbin/ldconfig
@@ -259,8 +248,6 @@ jobs:
           done
           mkdir -p extra-rootfs/boot extra-rootfs/media extra-rootfs/mnt extra-rootfs/srv extra-rootfs/opt extra-rootfs/run extra-rootfs/tmp
           chmod 0755 extra-rootfs/boot extra-rootfs/media extra-rootfs/mnt extra-rootfs/srv extra-rootfs/opt extra-rootfs/usr/sbin/*
-          printf 'root:x:0:\ndaemon:x:1:\ncortex:x:0:\n' > extra-rootfs/etc/group
-          printf 'root:x:0:0:root:/home:/bin/bash\ncortex:x:0:0:Cortex:/home:/bin/bash\n' > extra-rootfs/etc/passwd
           bash scripts/setup-extra-rootfs.sh
           rm -rf extra-rootfs/dev extra-rootfs/bin extra-rootfs/sbin 2>/dev/null || true
 
@@ -268,46 +255,60 @@ jobs:
           printf 'nameserver 8.8.8.8\nnameserver 1.1.1.1\noptions timeout:1 attempts:2 rotate\n' > extra-rootfs/etc/resolv.conf
           printf 'passwd:         files\ngroup:          files\nshadow:         files\ngshadow:        files\n\nhosts:          files dns\nnetworks:       files\n\nprotocols:      db files\nservices:       db files\nethers:         db files\nrpc:            db files\n' > extra-rootfs/etc/nsswitch.conf
 
-          echo "Preparing 64-bit Ubuntu 24.04 LTS minimal bootstrap..."
-          docker pull --platform linux/arm64 ubuntu:24.04
-          CID_64=$(docker create --platform linux/arm64 ubuntu:24.04 sleep 1800)
+          prepare_ubuntu_container() {
+            local cid="$1"
+            docker exec -e DEBIAN_FRONTEND=noninteractive "$cid" apt-get update -o Acquire::Retries=3
+            # Ubuntu 26.04 defaults to rust-coreutils, which uses ARMv8.1 LSE atomics (cas) that crash
+            # Android's ndk_translation emulator runner and older ARMv8.0 cores. Switch to GNU coreutils.
+            docker exec -e DEBIAN_FRONTEND=noninteractive "$cid" apt-get -y --allow-remove-essential --no-install-recommends install coreutils-from-gnu coreutils coreutils-from-uutils-
+            docker exec -e DEBIAN_FRONTEND=noninteractive "$cid" apt-get -y --allow-remove-essential purge rust-coreutils
+            docker exec -e DEBIAN_FRONTEND=noninteractive "$cid" apt-get -y --no-install-recommends upgrade
+            docker exec -e DEBIAN_FRONTEND=noninteractive "$cid" apt-get -y --no-install-recommends install sudo
+            docker exec "$cid" sh -c 'id --version | grep -q "GNU coreutils" && [ ! -e /usr/bin/coreutils ]'
+            docker exec "$cid" sh -c '
+              set -e
+              rm -rf /home/ubuntu && mkdir -p /home /root /etc/sudoers.d
+              chmod 0700 /home /root
+              awk -F: -v OFS=: "BEGIN{print \"root:x:0:0:root:/root:/bin/bash\"} \$1!=\"root\" && \$1!=\"ubuntu\" && \$1!=\"cortex\" {print} END{print \"cortex:x:1000:1000:Cortex:/home:/bin/bash\"}" /etc/passwd > /etc/passwd.new && mv /etc/passwd.new /etc/passwd
+              awk -F: -v OFS=: "\$1==\"ubuntu\" || \$1==\"cortex\" {next} \$1==\"sudo\" {found=1; n=split(\$4,a,\",\"); out=\"\"; for(i=1;i<=n;i++) if(a[i]!=\"\" && a[i]!=\"ubuntu\" && a[i]!=\"cortex\") out=(out?out \",\":\"\") a[i]; \$4=(out?out \",\":\"\") \"cortex\"; print; next} {print} END{if(!found) print \"sudo:x:27:cortex\"; print \"cortex:x:1000:\"}" /etc/group > /etc/group.new && mv /etc/group.new /etc/group
+              if [ -f /etc/shadow ]; then
+                awk -F: -v OFS=: "\$1==\"ubuntu\" || \$1==\"cortex\" {next} {print} END{print \"cortex:*:19000:0:99999:7:::\"}" /etc/shadow > /etc/shadow.new && mv /etc/shadow.new /etc/shadow
+                chmod 0640 /etc/shadow
+              fi
+              chmod 0644 /etc/passwd /etc/group
+              chown 1000:1000 /home
+              printf "localhost\n" > /etc/hostname && chmod 0644 /etc/hostname
+              printf "cortex ALL=(ALL:ALL) NOPASSWD: ALL\n" > /etc/sudoers.d/cortex
+              chmod 0440 /etc/sudoers.d/cortex /etc/sudoers
+              visudo -c
+            '
+            docker exec "$cid" apt-get clean
+            docker exec "$cid" rm -f /var/lib/apt/lists/lock /var/lib/dpkg/lock* /var/cache/apt/archives/lock 2>/dev/null || true
+            docker exec "$cid" rm -rf /var/cache/apt/archives/*.deb /tmp/* 2>/dev/null || true
+            # No package lists in the app: they are out of date by the time anyone installs it and took
+            # 58 MB of the archive (lz4, which the APK's deflate cannot shrink). /usr/local/bin/apt runs
+            # "apt-get update" before the first command that needs them (apt-autoupdate.sh).
+            docker exec "$cid" sh -c 'find /var/lib/apt/lists -mindepth 1 -maxdepth 1 ! -name partial -exec rm -rf {} +'
+          }
+
+          echo "Preparing 64-bit Ubuntu 26.04 LTS minimal bootstrap..."
+          docker pull --platform linux/arm64 ubuntu:26.04
+          CID_64=$(docker create --platform linux/arm64 ubuntu:26.04 sleep 1800)
           docker cp hook-libs/libcortex-hook-arm64.so "$CID_64":/usr/lib/libcortex-hook.so
           docker cp extra-rootfs/. "$CID_64":/
           docker start "$CID_64"
-
-          echo "Updating the packages of the ARM64 image..."
-          docker exec -e DEBIAN_FRONTEND=noninteractive "$CID_64" apt-get update -o Acquire::Retries=3
-          docker exec -e DEBIAN_FRONTEND=noninteractive "$CID_64" apt-get -y --no-install-recommends upgrade
-          docker exec "$CID_64" apt-get clean
-          docker exec "$CID_64" rm -f /var/lib/apt/lists/lock /var/lib/dpkg/lock* /var/cache/apt/archives/lock 2>/dev/null || true
-          docker exec "$CID_64" rm -rf /var/cache/apt/archives/*.deb /tmp/* 2>/dev/null || true
-          # No package lists in the app: they are out of date by the time anyone installs it and took
-          # 58 MB of the archive (lz4, which the APK's deflate cannot shrink). /usr/local/bin/apt runs
-          # "apt-get update" before the first command that needs them (apt-autoupdate.sh).
-          docker exec "$CID_64" sh -c 'find /var/lib/apt/lists -mindepth 1 -maxdepth 1 ! -name partial -exec rm -rf {} +'
-
+          prepare_ubuntu_container "$CID_64"
           docker stop "$CID_64"
           docker export "$CID_64" > app/src/main/assets/bootstrap-arm64.tar
           docker rm -f "$CID_64"
 
-          echo "Preparing 32-bit Ubuntu 24.04 LTS minimal bootstrap..."
-          docker pull --platform linux/arm/v7 ubuntu:24.04
-          CID_32=$(docker create --platform linux/arm/v7 ubuntu:24.04 sleep 1800)
+          echo "Preparing 32-bit Ubuntu 26.04 LTS minimal bootstrap..."
+          docker pull --platform linux/arm/v7 ubuntu:26.04
+          CID_32=$(docker create --platform linux/arm/v7 ubuntu:26.04 sleep 1800)
           docker cp hook-libs/libcortex-hook-arm.so "$CID_32":/usr/lib/libcortex-hook.so
           docker cp extra-rootfs/. "$CID_32":/
           docker start "$CID_32"
-
-          echo "Updating the packages of the ARMv7 image..."
-          docker exec -e DEBIAN_FRONTEND=noninteractive "$CID_32" apt-get update -o Acquire::Retries=3
-          docker exec -e DEBIAN_FRONTEND=noninteractive "$CID_32" apt-get -y --no-install-recommends upgrade
-          docker exec "$CID_32" apt-get clean
-          docker exec "$CID_32" rm -f /var/lib/apt/lists/lock /var/lib/dpkg/lock* /var/cache/apt/archives/lock 2>/dev/null || true
-          docker exec "$CID_32" rm -rf /var/cache/apt/archives/*.deb /tmp/* 2>/dev/null || true
-          # No package lists in the app: they are out of date by the time anyone installs it and took
-          # 58 MB of the archive (lz4, which the APK's deflate cannot shrink). /usr/local/bin/apt runs
-          # "apt-get update" before the first command that needs them (apt-autoupdate.sh).
-          docker exec "$CID_32" sh -c 'find /var/lib/apt/lists -mindepth 1 -maxdepth 1 ! -name partial -exec rm -rf {} +'
-
+          prepare_ubuntu_container "$CID_32"
           docker stop "$CID_32"
           docker export "$CID_32" > app/src/main/assets/bootstrap-arm.tar
           docker rm -f "$CID_32"
@@ -365,7 +366,6 @@ jobs:
           gcc -std=gnu11 -O2 -Wall -Wextra tests/bench/micro.c -o /tmp/micro_bench
           bash tests/scripts/test_shell_scripts.sh
           python3 -m unittest discover -s tests/scripts -p 'test_dev_overlay.py'
-          sudo CORTEX_REQUIRE_ROOT_TESTS=1 bash tests/root/test_cortex_chroot.sh
           ./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --build-cache --parallel --stacktrace
 
           DEBUG_ARM64_APK=$(find app/build/outputs/apk/debug -name "*arm64-v8a*.apk" | head -n 1)
@@ -374,21 +374,26 @@ jobs:
             exit 1
           fi
           rm -rf /tmp/apk-check && mkdir -p /tmp/apk-check
-          unzip -q "$DEBUG_ARM64_APK" "lib/arm64-v8a/libcortex-pty.so" -d /tmp/apk-check
+          unzip -q "$DEBUG_ARM64_APK" "lib/arm64-v8a/libcortex-pty.so" "lib/arm64-v8a/libcortex-exec.so" -d /tmp/apk-check
           python3 - << 'EOF'
           import subprocess, sys
-          out = subprocess.check_output(["readelf", "-lW", "/tmp/apk-check/lib/arm64-v8a/libcortex-pty.so"], text=True)
-          loads = [line.strip() for line in out.splitlines() if line.strip().startswith("LOAD")]
-          if not loads:
-              print("ERROR: No PT_LOAD segments found in libcortex-pty.so")
-              sys.exit(1)
-          for line in loads:
-              align_str = line.split()[-1]
-              align = int(align_str, 16) if align_str.startswith("0x") else int(align_str)
-              if align < 0x4000:
-                  print(f"ERROR: PT_LOAD alignment {hex(align)} < 0x4000 in: {line}")
+          for path in ("/tmp/apk-check/lib/arm64-v8a/libcortex-pty.so", "/tmp/apk-check/lib/arm64-v8a/libcortex-exec.so"):
+              out = subprocess.check_output(["readelf", "-lW", path], text=True)
+              loads = [line.strip() for line in out.splitlines() if line.strip().startswith("LOAD")]
+              if not loads:
+                  print(f"ERROR: No PT_LOAD segments found in {path}")
                   sys.exit(1)
-          print(f"Verified {len(loads)} PT_LOAD segments in debug libcortex-pty.so all have alignment >= 0x4000.")
+              for line in loads:
+                  align_str = line.split()[-1]
+                  align = int(align_str, 16) if align_str.startswith("0x") else int(align_str)
+                  if align < 0x4000:
+                      print(f"ERROR: PT_LOAD alignment {hex(align)} < 0x4000 in {path}: {line}")
+                      sys.exit(1)
+              print(f"Verified {len(loads)} PT_LOAD segments in {path} all have alignment >= 0x4000.")
+          rel = subprocess.check_output(["readelf", "-r", "/tmp/apk-check/lib/arm64-v8a/libcortex-exec.so"], text=True)
+          if "There are no relocations" not in rel:
+              print(f"ERROR: libcortex-exec.so has relocations:\n{rel}")
+              sys.exit(1)
           EOF
 
       - name: Upload the Debug APKs for the Emulator Test
@@ -413,7 +418,6 @@ jobs:
           gcc -std=gnu11 -O2 -Wall -Wextra tests/bench/micro.c -o /tmp/micro_bench
           bash tests/scripts/test_shell_scripts.sh
           python3 -m unittest discover -s tests/scripts -p 'test_dev_overlay.py'
-          sudo CORTEX_REQUIRE_ROOT_TESTS=1 bash tests/root/test_cortex_chroot.sh
           ./gradlew testDebugUnitTest lintDebug assembleRelease assembleDebugAndroidTest --build-cache --parallel --stacktrace
 
       - name: Prepare and Verify Signed APKs
@@ -460,10 +464,10 @@ jobs:
 
           # Verify 16 KB page alignment on arm64 native libraries inside the built APK
           rm -rf /tmp/apk-check && mkdir -p /tmp/apk-check
-          unzip -q "$ARM64_RAW" "lib/arm64-v8a/libcortex-pty.so" "assets/libcortex-hook-arm64.so" -d /tmp/apk-check
+          unzip -q "$ARM64_RAW" "lib/arm64-v8a/libcortex-pty.so" "lib/arm64-v8a/libcortex-exec.so" "assets/libcortex-hook-arm64.so" -d /tmp/apk-check
           python3 - << 'EOF'
           import subprocess, sys
-          for path in ("/tmp/apk-check/lib/arm64-v8a/libcortex-pty.so", "/tmp/apk-check/assets/libcortex-hook-arm64.so"):
+          for path in ("/tmp/apk-check/lib/arm64-v8a/libcortex-pty.so", "/tmp/apk-check/lib/arm64-v8a/libcortex-exec.so", "/tmp/apk-check/assets/libcortex-hook-arm64.so"):
               out = subprocess.check_output(["readelf", "-lW", path], text=True)
               loads = [line.strip() for line in out.splitlines() if line.strip().startswith("LOAD")]
               if not loads:
@@ -476,6 +480,10 @@ jobs:
                       print(f"ERROR: PT_LOAD alignment {hex(align)} < 0x4000 in {path}: {line}")
                       sys.exit(1)
               print(f"Verified {len(loads)} PT_LOAD segments in {path} all have alignment >= 0x4000.")
+          rel = subprocess.check_output(["readelf", "-r", "/tmp/apk-check/lib/arm64-v8a/libcortex-exec.so"], text=True)
+          if "There are no relocations" not in rel:
+              print(f"ERROR: libcortex-exec.so has relocations:\n{rel}")
+              sys.exit(1)
           EOF
 
           echo "Assets in the raw APKs (before stripping):"
@@ -483,14 +491,14 @@ jobs:
 
           # 1. Strip opposite arch assets from 64-bit APK to minimize download size
           echo "Optimizing 64-bit APK size: stripping 32-bit assets..."
-          zip -d "$ARM64_RAW" "assets/bootstrap-arm.tar*" "assets/devpkgs-arm.tar*" "assets/libcortex-hook-arm.so" "assets/cortex-chroot-arm.elf" || true
+          zip -d "$ARM64_RAW" "assets/bootstrap-arm.tar*" "assets/devpkgs-arm.tar*" "assets/libcortex-hook-arm.so" || true
           $ZIPALIGN -f -p 4 "$ARM64_RAW" release-apks/arm64-aligned.apk
           sign_apk release-apks/arm64-aligned.apk release-apks/Cortex-arm64-v8a-signed.apk
           rm -f release-apks/arm64-aligned.apk
 
           # 2. Strip opposite arch assets from 32-bit APK to minimize download size
           echo "Optimizing 32-bit APK size: stripping 64-bit assets..."
-          zip -d "$ARM32_RAW" "assets/bootstrap-arm64.tar*" "assets/devpkgs-arm64.tar*" "assets/libcortex-hook-arm64.so" "assets/cortex-chroot-arm64.elf" || true
+          zip -d "$ARM32_RAW" "assets/bootstrap-arm64.tar*" "assets/devpkgs-arm64.tar*" "assets/libcortex-hook-arm64.so" || true
           $ZIPALIGN -f -p 4 "$ARM32_RAW" release-apks/arm32-aligned.apk
           sign_apk release-apks/arm32-aligned.apk release-apks/Cortex-armeabi-v7a-signed.apk
           rm -f release-apks/arm32-aligned.apk
@@ -533,13 +541,13 @@ jobs:
             fi
           done
 
-          # Each APK carries the bootstrap, the hook, root mode's helper and the C development overlay of its own architecture only
+          # Each APK carries the bootstrap, the hook and the C development overlay of its own architecture only
           check_assets() {
             unzip -l "$1" > /tmp/apk-assets.txt
-            for need in "assets/bootstrap-$2.tar.zst" "assets/devpkgs-$2.tar" "assets/libcortex-hook-$2.so" "assets/cortex-chroot-$2.elf"; do
+            for need in "assets/bootstrap-$2.tar.zst" "assets/devpkgs-$2.tar" "assets/libcortex-hook-$2.so"; do
               grep -q "$need" /tmp/apk-assets.txt || { echo "ERROR: $1 has no $need"; exit 1; }
             done
-            for stray in "assets/bootstrap-$3.tar" "assets/devpkgs-$3.tar" "assets/libcortex-hook-$3.so" "assets/cortex-chroot-$3.elf"; do
+            for stray in "assets/bootstrap-$3.tar" "assets/devpkgs-$3.tar" "assets/libcortex-hook-$3.so"; do
               if grep -q "$stray" /tmp/apk-assets.txt; then echo "ERROR: $1 still carries $stray"; exit 1; fi
             done
             # Stored as it is (already compressed), so that the extractor reads it straight from the APK
@@ -648,7 +656,7 @@ jobs:
             if grep -q '[^[:space:]]' changes.md; then
               cat changes.md
             else
-              echo "Cortex runs Ubuntu 24.04 LTS (glibc 2.39) on Android through an \`LD_PRELOAD\` library: no root, no PRoot, no virtual machine."
+              echo "Cortex runs Ubuntu 26.04 LTS (glibc 2.43) on Android through an \`LD_PRELOAD\` library: no root, no PRoot, no virtual machine."
             fi
             echo
             echo "#### Downloads"

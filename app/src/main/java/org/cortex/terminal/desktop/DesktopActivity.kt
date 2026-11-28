@@ -27,6 +27,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.preference.PreferenceManager
 import org.cortex.terminal.R
 import org.cortex.terminal.emulator.TerminalColor
+import org.cortex.terminal.service.CortexAudio
 import org.cortex.terminal.service.CortexService
 import org.cortex.terminal.view.Chrome
 import kotlin.concurrent.thread
@@ -52,7 +53,6 @@ class DesktopActivity : AppCompatActivity() {
     private var client: RfbClient? = null
     @Volatile
     private var connecting: LocalSocket? = null
-    private var audio: DesktopAudio? = null
     private var lastClipboardFromDesktop: String? = null
     private var started = false
     @Volatile
@@ -266,7 +266,7 @@ class DesktopActivity : AppCompatActivity() {
                     started = true
                     desktop.requestFocus()
                     sendClipboard()
-                    audio = DesktopAudio(DesktopAddon.audioPipe(app)).also { it.start() }
+                    CortexAudio.start(DesktopAddon.audioPipe(app))
                 }
             }
         }
@@ -343,8 +343,6 @@ class DesktopActivity : AppCompatActivity() {
 
     private fun onDisconnected() {
         disconnect()
-        audio?.stop()
-        audio = null
         showStatus(getString(R.string.desktop_disconnected), getString(R.string.desktop_retry)) { connectOrStart() }
     }
 
@@ -352,8 +350,6 @@ class DesktopActivity : AppCompatActivity() {
         generation++
         connecting?.let { try { it.close() } catch (e: Exception) { } }
         connecting = null
-        audio?.stop()
-        audio = null
         val s = socket
         socket = null
         client = null
@@ -388,7 +384,7 @@ class DesktopActivity : AppCompatActivity() {
         val w = if (desktop.width > 0) desktop.width else metrics.widthPixels
         val h = if (desktop.height > 0) desktop.height else metrics.heightPixels
         val scale = PreferenceManager.getDefaultSharedPreferences(this)
-            .getString(DesktopAddon.PREF_SCALE, "100")?.toIntOrNull() ?: 100
+            .getString(DesktopAddon.PREF_SCALE, "65")?.toIntOrNull() ?: 65
         return DesktopAddon.desktopSize(w, h, metrics.density, scale)
     }
 

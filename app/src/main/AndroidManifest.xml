@@ -48,7 +48,7 @@
         android:extractNativeLibs="true"
         android:localeConfig="@xml/locales_config"
         android:requestLegacyExternalStorage="true"
-        tools:targetApi="33">
+        tools:targetApi="35">
 
         <activity
             android:name=".MainActivity"

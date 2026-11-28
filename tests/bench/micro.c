@@ -100,7 +100,7 @@ static void t_lstat_alt_link(long n, const char *root) {
 }
 
 static void t_lstat_link(long n, const char *root) {
-    char p[PATH_MAX]; path_of(p, root, "/bin"); /* a symlink to usr/bin on Ubuntu 24.04 */
+    char p[PATH_MAX]; path_of(p, root, "/bin"); /* a symlink to usr/bin on Ubuntu 26.04 */
     struct stat st;
     for (long i = 0; i < n; i++) {
         if (lstat(p, &st) != 0 || !S_ISLNK(st.st_mode)) die("lstat(link)", p);

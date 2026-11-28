@@ -12,7 +12,7 @@ import java.util.zip.GZIPInputStream
 
 object BootstrapManager {
     private const val TAG = "BootstrapManager"
-    const val CURRENT_BOOTSTRAP_VERSION = 12705
+    const val CURRENT_BOOTSTRAP_VERSION = 12900
 
     fun initializeFileSystem(context: Context) {
         val root = Environment.getCortexRoot(context)
@@ -868,6 +868,10 @@ object BootstrapManager {
                     setMode(hostsFile, 384)
                 }
             }
+            val hostnameFile = File(etcDir, "hostname")
+            if (!hostnameFile.exists()) {
+                FileInstaller.install(hostnameFile, "localhost\n", 420)
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to ensure hosts", e)
         }
@@ -1075,18 +1079,31 @@ object BootstrapManager {
         try {
             val etcDir = File(root, "etc")
             if (!etcDir.exists()) etcDir.mkdirs()
+            val rootHomeDir = File(root, "root")
+            if (!rootHomeDir.exists()) rootHomeDir.mkdirs()
             val passwdFile = File(etcDir, "passwd")
             var passwdText = if (passwdFile.exists()) passwdFile.readText() else ""
             val homePath = home.absolutePath
-            if (!passwdText.contains("root:x:0:0")) {
-                passwdText = "root:x:0:0:root:$homePath:/bin/bash\n" + passwdText
+            val rootHomePath = "/root"
+            if (!Regex("^root:", RegexOption.MULTILINE).containsMatchIn(passwdText)) {
+                passwdText = "root:x:0:0:root:$rootHomePath:/bin/bash\n" + passwdText
             } else {
-                passwdText = passwdText.replace(Regex("root:x:0:0:root:[^:]+:/bin/bash"), "root:x:0:0:root:$homePath:/bin/bash")
+                passwdText = passwdText.replace(
+                    Regex("^root:x:0:0:root:[^:]*:([^\n]*)", RegexOption.MULTILINE),
+                    "root:x:0:0:root:$rootHomePath:\$1"
+                )
             }
-            if (!passwdText.contains("cortex:")) {
-                passwdText += "cortex:x:0:0:Cortex:$homePath:/bin/bash\n"
+            if (!Regex("^cortex:", RegexOption.MULTILINE).containsMatchIn(passwdText)) {
+                passwdText += "cortex:x:1000:1000:Cortex:$homePath:/bin/bash\n"
             } else {
-                passwdText = passwdText.replace(Regex("cortex:x:0:0:Cortex:[^:]+:/bin/bash"), "cortex:x:0:0:Cortex:$homePath:/bin/bash")
+                passwdText = passwdText.replace(
+                    Regex("^cortex:x:0:0:Cortex:[^:]*:([^\n]*)", RegexOption.MULTILINE),
+                    "cortex:x:1000:1000:Cortex:$homePath:\$1"
+                )
+                passwdText = passwdText.replace(
+                    Regex("^cortex:x:1000:1000:Cortex:[^:]*:([^\n]*)", RegexOption.MULTILINE),
+                    "cortex:x:1000:1000:Cortex:$homePath:\$1"
+                )
             }
             if (!passwdText.contains("_ssh:")) {
                 passwdText += "_ssh:x:100:100:OpenSSH daemon:/run/sshd:/usr/sbin/nologin\n"
@@ -1105,11 +1122,21 @@ object BootstrapManager {
 
             val groupFile = File(etcDir, "group")
             var groupText = if (groupFile.exists()) groupFile.readText() else ""
-            if (!groupText.contains("root:x:0:")) {
+            if (!Regex("^root:", RegexOption.MULTILINE).containsMatchIn(groupText)) {
                 groupText = "root:x:0:\n" + groupText
             }
-            if (!groupText.contains("cortex:")) {
-                groupText += "cortex:x:0:\n"
+            if (!Regex("^sudo:", RegexOption.MULTILINE).containsMatchIn(groupText)) {
+                groupText += "sudo:x:27:cortex\n"
+            } else {
+                groupText = groupText.replace(Regex("^(sudo:x:[0-9]+:)([^\n]*)$", RegexOption.MULTILINE)) { m ->
+                    val members = m.groupValues[2].split(',').filter { it.isNotEmpty() }
+                    if ("cortex" in members) m.value else m.groupValues[1] + (members + "cortex").joinToString(",")
+                }
+            }
+            if (!Regex("^cortex:", RegexOption.MULTILINE).containsMatchIn(groupText)) {
+                groupText += "cortex:x:1000:\n"
+            } else {
+                groupText = groupText.replace(Regex("^cortex:x:0:([^\n]*)", RegexOption.MULTILINE), "cortex:x:1000:\$1")
             }
             if (!groupText.contains("_ssh:")) {
                 groupText += "_ssh:x:100:\n"
@@ -1133,13 +1160,47 @@ object BootstrapManager {
             val gshadowFile = File(etcDir, "gshadow")
             var gshadowText = if (gshadowFile.exists()) gshadowFile.readText() else ""
             if (!gshadowText.contains("root:")) gshadowText = "root:*::\n" + gshadowText
+            if (!gshadowText.contains("sudo:")) gshadowText += "sudo:*::cortex\n"
             if (!gshadowText.contains("cortex:")) gshadowText += "cortex:*::\n"
             if (!gshadowText.contains("_ssh:")) gshadowText += "_ssh:*::\n"
             if (!gshadowText.contains("ssh:")) gshadowText += "ssh:*::\n"
             gshadowText = BaseUsers.mergeShadow(gshadowText, baseGroup.added, BaseUsers::gshadowEntry)
             FileInstaller.install(gshadowFile, gshadowText, 420)
+
+            ensureSudoers(etcDir)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to ensure passwd/group", e)
+        }
+    }
+
+    private fun ensureSudoers(etcDir: File) {
+        val sudoersD = File(etcDir, "sudoers.d")
+        if (!sudoersD.exists()) sudoersD.mkdirs()
+        setMode(sudoersD, 493) // 0755
+
+        val sudoersFile = File(etcDir, "sudoers")
+        if (!sudoersFile.exists()) {
+            FileInstaller.install(
+                sudoersFile,
+                "Defaults\tenv_reset\n" +
+                    "Defaults\tmail_badpass\n" +
+                    "Defaults\tsecure_path=\"/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin\"\n\n" +
+                    "root\tALL=(ALL:ALL) ALL\n" +
+                    "%admin\tALL=(ALL) ALL\n" +
+                    "%sudo\tALL=(ALL:ALL) ALL\n\n" +
+                    "@includedir /etc/sudoers.d\n",
+                288 // 0440
+            )
+        }
+
+        val cortexSudoers = File(sudoersD, "cortex")
+        if (!cortexSudoers.exists()) {
+            FileInstaller.install(
+                cortexSudoers,
+                "# Configured for passwordless sudo access (visudo compatible)\n" +
+                    "cortex ALL=(ALL:ALL) NOPASSWD: ALL\n",
+                288 // 0440
+            )
         }
     }
 
@@ -1501,22 +1562,15 @@ object BootstrapManager {
             val envSh = File(profileD, "00-env.sh")
             val envContent = "# Cortex environment. Managed by the app and rewritten on every start;\n" +
                 "# put personal settings in ~/.bashrc and ~/.profile instead.\n" +
-                "if [ -n \"\${CORTEX_CHROOT:-}\" ] || [ ! -d /system/bin ]; then\n" +
-                "    # Root mode: a real chroot of this rootfs (Android's /system is not in it), so the\n" +
-                "    # preloaded library is not used. Marked again for shells that reset the environment.\n" +
-                "    export CORTEX_CHROOT=1\n" +
-                "    unset CORTEX_ROOT LD_PRELOAD LD_LIBRARY_PATH\n" +
-                "else\n" +
-                "    if [ -z \"\$CORTEX_ROOT\" ]; then\n" +
-                "        if [ -d \"\$HOME/../etc\" ]; then\n" +
-                "            export CORTEX_ROOT=\"\$(cd \"\$HOME/..\" && pwd)\"\n" +
-                "        else\n" +
-                "            export CORTEX_ROOT=\"" + root.absolutePath + "\"\n" +
-                "        fi\n" +
+                "if [ -z \"\${CORTEX_ROOT:-}\" ]; then\n" +
+                "    if [ -d \"\$HOME/../etc\" ]; then\n" +
+                "        export CORTEX_ROOT=\"\$(cd \"\$HOME/..\" && pwd)\"\n" +
+                "    else\n" +
+                "        export CORTEX_ROOT=\"" + root.absolutePath + "\"\n" +
                 "    fi\n" +
-                "    export LD_LIBRARY_PATH=\"" + LibraryPath.forRoot("\$CORTEX_ROOT") + "\"\n" +
-                "    export LD_PRELOAD=\"\$CORTEX_ROOT/usr/lib/libcortex-hook.so\"\n" +
                 "fi\n" +
+                "export LD_LIBRARY_PATH=\"" + LibraryPath.forRoot("\$CORTEX_ROOT") + "\"\n" +
+                "export LD_PRELOAD=\"\$CORTEX_ROOT/usr/lib/libcortex-hook.so\"\n" +
                 "export SHELL=\"\${SHELL:-/bin/bash}\"\n" +
                 "# Ubuntu's default PATH (normally already set by /etc/profile) plus ~/.local/bin,\n" +
                 "# each entry only once.\n" +
@@ -1536,8 +1590,15 @@ object BootstrapManager {
                 "if [ -z \"\${DISPLAY:-}\" ] && [ -S /tmp/.cortex-desktop/vnc.sock ] && [ -r /tmp/.cortex-desktop/display ]; then\n" +
                 "    export DISPLAY=\":\$(cat /tmp/.cortex-desktop/display)\"\n" +
                 "fi\n" +
-                "if [ -z \"\${PULSE_SERVER:-}\" ] && [ -r /tmp/.cortex-desktop/pulse.server ]; then\n" +
-                "    export PULSE_SERVER=\"\$(cat /tmp/.cortex-desktop/pulse.server)\"\n" +
+                "if [ -z \"\${PULSE_SERVER:-}\" ]; then\n" +
+                "    if [ ! -S /tmp/.cortex-desktop/pulse.sock ] && command -v pulseaudio >/dev/null 2>&1 && [ -x /usr/local/bin/cortex-audio ]; then\n" +
+                "        /usr/local/bin/cortex-audio ensure >/dev/null 2>&1 || true\n" +
+                "    fi\n" +
+                "    if [ -r /tmp/.cortex-desktop/pulse.server ]; then\n" +
+                "        export PULSE_SERVER=\"\$(cat /tmp/.cortex-desktop/pulse.server)\"\n" +
+                "    elif [ -S /tmp/.cortex-desktop/pulse.sock ]; then\n" +
+                "        export PULSE_SERVER=\"unix:/tmp/.cortex-desktop/pulse.sock\"\n" +
+                "    fi\n" +
                 "fi\n"
             FileInstaller.install(envSh, envContent, 384) // 0600
         } catch (e: Exception) {

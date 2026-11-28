@@ -25,6 +25,8 @@ import android.view.ViewGroup
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.inputmethod.BaseInputConnection
 import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.ExtractedText
+import android.view.inputmethod.ExtractedTextRequest
 import android.view.inputmethod.InputConnection
 import android.view.inputmethod.InputMethodManager
 import android.view.inputmethod.SurroundingText
@@ -1723,11 +1725,19 @@ class TerminalView @JvmOverloads constructor(
         imm?.toggleSoftInput(InputMethodManager.SHOW_FORCED, 0)
     }
 
+    private var clearImeComposing: (() -> Unit)? = null
+
     override fun onCheckIsTextEditor(): Boolean = true
 
     override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection {
-        outAttrs.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
-        outAttrs.imeOptions = EditorInfo.IME_FLAG_NO_FULLSCREEN
+        // Avoid TYPE_TEXT_VARIATION_VISIBLE_PASSWORD, which forces ASCII and disables Korean/CJK
+        // IME composition and physical keyboard language switching (#78).
+        outAttrs.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+        var imeOptions = EditorInfo.IME_FLAG_NO_FULLSCREEN
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            imeOptions = imeOptions or EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING
+        }
+        outAttrs.imeOptions = imeOptions
 
         val mimeTypes = arrayOf(
             "image/png",
@@ -1743,15 +1753,48 @@ class TerminalView @JvmOverloads constructor(
         outAttrs.initialSelEnd = IME_LINE.length
 
         val baseConnection = object : BaseInputConnection(this, false) {
-            private var composingLength = 0
+            private val composingText = StringBuilder()
             private var batchDepth = 0
             private var linePending = false
 
-            override fun getTextBeforeCursor(n: Int, flags: Int): CharSequence = IME_LINE.takeLast(n.coerceAtLeast(0))
+            private fun bufferText(): String = IME_LINE + composingText.toString()
+
+            private fun commonPrefixChars(a: String, b: String): Int {
+                var i = 0
+                while (i < a.length && i < b.length) {
+                    val ca = Character.codePointAt(a, i)
+                    val cb = Character.codePointAt(b, i)
+                    if (ca != cb) break
+                    i += Character.charCount(ca)
+                }
+                return i
+            }
+
+            fun resetComposingState() {
+                if (composingText.isNotEmpty()) {
+                    composingText.setLength(0)
+                    lineIsBack()
+                }
+            }
+
+            override fun getTextBeforeCursor(n: Int, flags: Int): CharSequence =
+                bufferText().takeLast(n.coerceAtLeast(0))
 
             override fun getTextAfterCursor(n: Int, flags: Int): CharSequence = ""
 
             override fun getSelectedText(flags: Int): CharSequence? = selectedTerminalText()
+
+            override fun getExtractedText(request: ExtractedTextRequest?, flags: Int): ExtractedText {
+                val full = bufferText()
+                return ExtractedText().apply {
+                    text = full
+                    startOffset = 0
+                    selectionStart = full.length
+                    selectionEnd = full.length
+                    partialStartOffset = -1
+                    partialEndOffset = -1
+                }
+            }
 
             /** The keyboard's own Select all, Copy, Cut and Paste buttons (the system's names for them). */
             override fun performContextMenuAction(id: Int): Boolean = when (id) {
@@ -1774,8 +1817,9 @@ class TerminalView @JvmOverloads constructor(
 
             @RequiresApi(Build.VERSION_CODES.S)
             override fun getSurroundingText(beforeLength: Int, afterLength: Int, flags: Int): SurroundingText {
-                val before = IME_LINE.takeLast(beforeLength.coerceAtLeast(0))
-                return SurroundingText(before, before.length, before.length, IME_LINE.length - before.length)
+                val full = bufferText()
+                val before = full.takeLast(beforeLength.coerceAtLeast(0))
+                return SurroundingText(before, before.length, before.length, full.length - before.length)
             }
 
             override fun beginBatchEdit(): Boolean {
@@ -1793,9 +1837,8 @@ class TerminalView @JvmOverloads constructor(
             }
 
             /**
-             * After the keyboard deleted, its line is IME_LINE again: told so (once its batch of edits is
-             * over), it has something to delete for the next repeat of a held backspace. Not while it
-             * composes a word, whose place it keeps itself.
+             * Reports the current virtual cursor & composing span to the IME (deferred until the
+             * active batch edit finishes) so Jamo/Hangul and backspace repeat state stay accurate.
              */
             private fun lineIsBack() {
                 if (batchDepth > 0) {
@@ -1806,9 +1849,11 @@ class TerminalView @JvmOverloads constructor(
             }
 
             private fun reportLine() {
-                if (composingLength != 0) return
                 val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager ?: return
-                imm.updateSelection(this@TerminalView, IME_LINE.length, IME_LINE.length, -1, -1)
+                val pos = IME_LINE.length + composingText.length
+                val compStart = if (composingText.isNotEmpty()) IME_LINE.length else -1
+                val compEnd = if (composingText.isNotEmpty()) pos else -1
+                imm.updateSelection(this@TerminalView, pos, pos, compStart, compEnd)
             }
 
             /** Types [str], an emoji (a pair of chars) as one character and a line break as Enter. */
@@ -1826,73 +1871,118 @@ class TerminalView @JvmOverloads constructor(
                 }
             }
 
+            private fun replaceComposingWith(oldStr: String, newStr: String) {
+                val prefix = commonPrefixChars(oldStr, newStr)
+                val delCount = oldStr.codePointCount(prefix, oldStr.length)
+                for (i in 0 until delCount) {
+                    sendKeySequence(KeyEvent.KEYCODE_DEL)
+                }
+                if (prefix < newStr.length) {
+                    sendCharacters(newStr.substring(prefix))
+                }
+            }
+
             override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
                 // Nothing committed over a selection is how a keyboard deletes it
-                if (text.isNullOrEmpty() && composingLength == 0 && deleteSelection()) {
+                if (text.isNullOrEmpty() && composingText.isEmpty() && deleteSelection()) {
                     lineIsBack()
                     return true
                 }
                 clearSelection()
-                // What the keyboard was composing (the pinyin of a Chinese word, the kana of a Japanese
-                // one) is on the line already: the text it commits replaces it
-                for (i in 0 until composingLength) {
-                    sendKeySequence(KeyEvent.KEYCODE_DEL)
-                }
-                composingLength = 0
-                if (!text.isNullOrEmpty()) {
-                    if (text == "\n" || text == "\r" || text == "\r\n") {
-                        sendKeySequence(KeyEvent.KEYCODE_ENTER)
-                        return true
+                val prev = composingText.toString()
+                composingText.setLength(0)
+
+                if (text.isNullOrEmpty()) {
+                    val delCount = prev.codePointCount(0, prev.length)
+                    for (i in 0 until delCount) {
+                        sendKeySequence(KeyEvent.KEYCODE_DEL)
                     }
-                    // Several lines at once come from the keyboard's clipboard: a paste, which keeps its
-                    // lines when the program takes bracketed pastes.
-                    if (text.length > 1 && session?.emulator?.isBracketedPasteMode == true &&
-                        text.any { it == '\n' || it == '\r' }
-                    ) {
-                        val paste = pastedText(text.toString())
-                        if (paste.isNotEmpty()) {
-                            scrollOffset = 0
-                            session?.write(paste)
-                        }
-                        return true
-                    }
-                    val str = if (text.length > 1) sanitizePastedText(text.toString()) else text.toString()
-                    sendCharacters(str)
+                    lineIsBack()
+                    return true
                 }
+
+                if (text == "\n" || text == "\r" || text == "\r\n") {
+                    val delCount = prev.codePointCount(0, prev.length)
+                    for (i in 0 until delCount) {
+                        sendKeySequence(KeyEvent.KEYCODE_DEL)
+                    }
+                    sendKeySequence(KeyEvent.KEYCODE_ENTER)
+                    lineIsBack()
+                    return true
+                }
+
+                // Several lines at once come from the keyboard's clipboard: a paste, which keeps its
+                // lines when the program takes bracketed pastes.
+                if (text.length > 1 && session?.emulator?.isBracketedPasteMode == true &&
+                    text.any { it == '\n' || it == '\r' }
+                ) {
+                    val delCount = prev.codePointCount(0, prev.length)
+                    for (i in 0 until delCount) {
+                        sendKeySequence(KeyEvent.KEYCODE_DEL)
+                    }
+                    val paste = pastedText(text.toString())
+                    if (paste.isNotEmpty()) {
+                        scrollOffset = 0
+                        session?.write(paste)
+                    }
+                    lineIsBack()
+                    return true
+                }
+
+                val str = if (text.length > 1) sanitizePastedText(text.toString()) else text.toString()
+                replaceComposingWith(prev, str)
+                lineIsBack()
                 return true
             }
 
             override fun setComposingText(text: CharSequence?, newCursorPosition: Int): Boolean {
                 clearSelection()
+                val prev = composingText.toString()
                 val str = text?.toString() ?: ""
-                for (i in 0 until composingLength) {
-                    sendKeySequence(KeyEvent.KEYCODE_DEL)
-                }
-                sendCharacters(str)
-                // The line editor deletes a character (an emoji is one) for each backspace
-                composingLength = str.codePointCount(0, str.length)
+                replaceComposingWith(prev, str)
+                composingText.setLength(0)
+                composingText.append(str)
+                lineIsBack()
                 return true
             }
 
-            override fun setComposingRegion(start: Int, end: Int): Boolean = true
+            override fun setComposingRegion(start: Int, end: Int): Boolean {
+                val full = bufferText()
+                if (start < 0 || end <= start || end > full.length) {
+                    composingText.setLength(0)
+                } else {
+                    val clampedStart = start.coerceAtLeast(IME_LINE.length)
+                    if (end > clampedStart) {
+                        val sub = full.substring(clampedStart, end)
+                        composingText.setLength(0)
+                        composingText.append(sub)
+                    } else {
+                        composingText.setLength(0)
+                    }
+                }
+                lineIsBack()
+                return true
+            }
 
             override fun finishComposingText(): Boolean {
-                composingLength = 0
+                composingText.setLength(0)
+                lineIsBack()
                 return true
             }
 
             override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
                 if (deleteSelection()) {
-                    composingLength = 0 // the line it was composed on is gone
+                    composingText.setLength(0) // the line it was composed on is gone
                     lineIsBack()
                     return true
                 }
-                if (beforeLength == 0 && afterLength == 0) {
-                    sendKeySequence(KeyEvent.KEYCODE_DEL)
-                } else {
-                    for (i in 0 until beforeLength) {
-                        sendKeySequence(KeyEvent.KEYCODE_DEL)
+                val toDelete = if (beforeLength == 0 && afterLength == 0) 1 else beforeLength.coerceAtLeast(0)
+                for (i in 0 until toDelete) {
+                    if (composingText.isNotEmpty()) {
+                        val lastLen = Character.charCount(Character.codePointBefore(composingText, composingText.length))
+                        composingText.setLength(composingText.length - lastLen)
                     }
+                    sendKeySequence(KeyEvent.KEYCODE_DEL)
                 }
                 lineIsBack()
                 return true
@@ -1903,12 +1993,18 @@ class TerminalView @JvmOverloads constructor(
 
             override fun performEditorAction(actionCode: Int): Boolean {
                 clearSelection()
+                composingText.setLength(0)
                 sendKeySequence(KeyEvent.KEYCODE_ENTER)
+                lineIsBack()
                 return true
             }
 
             override fun sendKeyEvent(event: KeyEvent): Boolean {
                 if (event.action == KeyEvent.ACTION_DOWN) {
+                    if (event.keyCode == KeyEvent.KEYCODE_DEL && composingText.isNotEmpty()) {
+                        val lastLen = Character.charCount(Character.codePointBefore(composingText, composingText.length))
+                        composingText.setLength(composingText.length - lastLen)
+                    }
                     val handled = onKeyDown(event.keyCode, event)
                     if (event.keyCode == KeyEvent.KEYCODE_DEL || event.keyCode == KeyEvent.KEYCODE_FORWARD_DEL) lineIsBack()
                     return handled
@@ -1916,6 +2012,7 @@ class TerminalView @JvmOverloads constructor(
                 return true
             }
         }
+        clearImeComposing = { baseConnection.resetComposingState() }
 
         val callback = InputConnectionCompat.OnCommitContentListener { inputContentInfo, flags, _ ->
             try {
@@ -2050,6 +2147,9 @@ class TerminalView @JvmOverloads constructor(
             }
             KeyEvent.KEYCODE_DEL, KeyEvent.KEYCODE_FORWARD_DEL -> if (deleteSelection()) return true
         }
+        if (KeyEvent.isModifierKey(keyCode) || isImeLanguageKey(keyCode)) {
+            return super.onKeyDown(keyCode, event)
+        }
         clearSelection()
         scrollOffset = 0
         // A hardware keyboard's Ctrl, Alt and Shift count as the on-screen CTRL and ALT do (#47): they were
@@ -2058,6 +2158,7 @@ class TerminalView @JvmOverloads constructor(
         val ctrl = isCtrlPressed || event.isCtrlPressed
         val alt = isAltPressed || isMetaAlt(event.metaState)
         if (sendKeySequence(keyCode, ctrl, alt, event.isShiftPressed)) {
+            if (keyCode != KeyEvent.KEYCODE_DEL) clearImeComposing?.invoke()
             return true
         }
 
@@ -2065,11 +2166,39 @@ class TerminalView @JvmOverloads constructor(
         // none; Ctrl and Alt are then added as the terminal does (Ctrl+C is 0x03)
         val unicode = event.getUnicodeChar(charMetaState(event.metaState))
         if (unicode > 0) {
+            clearImeComposing?.invoke()
             sendChar(unicode.toChar(), ctrl, alt)
             return true
         }
 
         return super.onKeyDown(keyCode, event)
+    }
+
+    override fun onKeyMultiple(keyCode: Int, repeatCount: Int, event: KeyEvent): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_UNKNOWN) {
+            val chars = event.characters
+            if (!chars.isNullOrEmpty()) {
+                clearImeComposing?.invoke()
+                clearSelection()
+                scrollOffset = 0
+                sendText(chars)
+                return true
+            }
+        }
+        return super.onKeyMultiple(keyCode, repeatCount, event)
+    }
+
+    private fun isImeLanguageKey(keyCode: Int): Boolean = when (keyCode) {
+        KeyEvent.KEYCODE_LANGUAGE_SWITCH,
+        KeyEvent.KEYCODE_SWITCH_CHARSET,
+        KeyEvent.KEYCODE_KANA,
+        KeyEvent.KEYCODE_EISU,
+        KeyEvent.KEYCODE_ZENKAKU_HANKAKU,
+        KeyEvent.KEYCODE_HENKAN,
+        KeyEvent.KEYCODE_MUHENKAN,
+        KeyEvent.KEYCODE_KATAKANA_HIRAGANA,
+        KeyEvent.KEYCODE_RO -> true
+        else -> false
     }
 
     override fun onInitializeAccessibilityNodeInfo(info: AccessibilityNodeInfo) {

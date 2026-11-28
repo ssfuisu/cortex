@@ -4,6 +4,8 @@
 // Start-up (CORTEX_ROOT, certificate and time zone defaults), /proc/self/exe, rewrite_path() and
 // the short names of Unix sockets.
 
+static char g_exec_runner[PATH_MAX] = {0};
+
 #ifndef CORTEX_HOST_TEST
 
 static char g_real_exe[PATH_MAX] = {0};
@@ -11,7 +13,7 @@ static int g_initialized = 0;
 
 static void init_cortex_hook(void) {
     if (g_initialized) return;
-    const char *root = getenv("CORTEX_ROOT");
+    const char *root = cortex_libc_getenv("CORTEX_ROOT");
     if (root && strlen(root) > 0) {
         size_t len = strlen(root);
         if (len > sizeof(g_cortex_root) - 1) len = sizeof(g_cortex_root) - 1;
@@ -29,46 +31,50 @@ static void init_cortex_hook(void) {
             }
         }
     }
-    const char *curr_real_exe = getenv("CORTEX_REAL_EXE");
+    const char *curr_real_exe = cortex_libc_getenv("CORTEX_REAL_EXE");
     if (curr_real_exe && curr_real_exe[0] != '\0') {
         cortex_copy_cstr(g_real_exe, sizeof(g_real_exe), curr_real_exe);
     }
+    const char *curr_exec_runner = cortex_libc_getenv("CORTEX_EXEC_RUNNER");
+    if (curr_exec_runner && curr_exec_runner[0] != '\0') {
+        cortex_copy_cstr(g_exec_runner, sizeof(g_exec_runner), curr_exec_runner);
+    }
     if (g_cortex_root[0] != '\0') {
-        const char *curr_tzdir = getenv("TZDIR");
+        const char *curr_tzdir = cortex_libc_getenv("TZDIR");
         if (!curr_tzdir || curr_tzdir[0] == '\0') {
             char tzdir_buf[PATH_MAX];
             snprintf(tzdir_buf, sizeof(tzdir_buf), "%s/usr/share/zoneinfo", g_cortex_root);
-            setenv("TZDIR", tzdir_buf, 0);
+            cortex_libc_setenv("TZDIR", tzdir_buf, 0);
         }
 
-        const char *curr_cert = getenv("SSL_CERT_FILE");
+        const char *curr_cert = cortex_libc_getenv("SSL_CERT_FILE");
         if (!curr_cert || curr_cert[0] == '\0' || strcmp(curr_cert, "/etc/ssl/certs/ca-certificates.crt") == 0) {
             char cert_buf[PATH_MAX];
             snprintf(cert_buf, sizeof(cert_buf), "%s/etc/ssl/certs/ca-certificates.crt", g_cortex_root);
-            setenv("SSL_CERT_FILE", cert_buf, 1);
+            cortex_libc_setenv("SSL_CERT_FILE", cert_buf, 1);
         }
 
-        const char *curr_cert_dir = getenv("SSL_CERT_DIR");
+        const char *curr_cert_dir = cortex_libc_getenv("SSL_CERT_DIR");
         if (!curr_cert_dir || curr_cert_dir[0] == '\0' || strcmp(curr_cert_dir, "/etc/ssl/certs") == 0) {
             char cert_dir_buf[PATH_MAX];
             snprintf(cert_dir_buf, sizeof(cert_dir_buf), "%s/etc/ssl/certs:/system/etc/security/cacerts", g_cortex_root);
-            setenv("SSL_CERT_DIR", cert_dir_buf, 1);
+            cortex_libc_setenv("SSL_CERT_DIR", cert_dir_buf, 1);
         }
 
-        const char *curr_curl = getenv("CURL_CA_BUNDLE");
+        const char *curr_curl = cortex_libc_getenv("CURL_CA_BUNDLE");
         if (!curr_curl || curr_curl[0] == '\0' || strcmp(curr_curl, "/etc/ssl/certs/ca-certificates.crt") == 0) {
             char curl_buf[PATH_MAX];
             snprintf(curl_buf, sizeof(curl_buf), "%s/etc/ssl/certs/ca-certificates.crt", g_cortex_root);
-            setenv("CURL_CA_BUNDLE", curl_buf, 1);
+            cortex_libc_setenv("CURL_CA_BUNDLE", curl_buf, 1);
         }
 
-        const char *curr_godebug = getenv("GODEBUG");
+        const char *curr_godebug = cortex_libc_getenv("GODEBUG");
         if (!curr_godebug || curr_godebug[0] == '\0') {
-            setenv("GODEBUG", "netdns=cgo", 0);
+            cortex_libc_setenv("GODEBUG", "netdns=cgo", 0);
         } else if (strstr(curr_godebug, "netdns") == NULL) {
             char godebug_buf[512];
             snprintf(godebug_buf, sizeof(godebug_buf), "%s,netdns=cgo", curr_godebug);
-            setenv("GODEBUG", godebug_buf, 1);
+            cortex_libc_setenv("GODEBUG", godebug_buf, 1);
         }
     }
     g_initialized = 1;
@@ -79,9 +85,9 @@ static void init_cortex_hook(void) {
 // to execv() before its first call into the hook handed the exec code a block that was freed by the
 // time it was read.
 __attribute__((constructor(103))) static void init_cortex_hook_early(void) {
-    init_cortex_hook();
-    // The ids this program was started with, before it can clear its environment (env -i)
+    // The ids this program was started with, before anything can clear or shadow the environment.
     ids_load();
+    init_cortex_hook();
 }
 
 void tzset(void) {
@@ -89,11 +95,11 @@ void tzset(void) {
     if (!orig_tzset) orig_tzset = (void (*)(void))dlsym(RTLD_NEXT, "tzset");
     init_cortex_hook();
     if (g_cortex_root[0] != '\0') {
-        const char *curr_tzdir = getenv("TZDIR");
+        const char *curr_tzdir = cortex_libc_getenv("TZDIR");
         if (!curr_tzdir || curr_tzdir[0] == '\0') {
             char tzdir_buf[PATH_MAX];
             snprintf(tzdir_buf, sizeof(tzdir_buf), "%s/usr/share/zoneinfo", g_cortex_root);
-            setenv("TZDIR", tzdir_buf, 0);
+            cortex_libc_setenv("TZDIR", tzdir_buf, 0);
         }
     }
     if (orig_tzset) orig_tzset();
@@ -185,7 +191,7 @@ static const char *rewrite_path(const char *path, char *buffer, size_t bufsize) 
 }
 
 // Whether the rootfs keeps bin (pair CORTEX_USRMERGE_BIN) or sbin as a symlink into /usr, as
-// Ubuntu 24.04 does. Checked once per process with one readlink().
+// Ubuntu 26.04 does. Checked once per process with one readlink().
 static int rootfs_pair_is_merged(int pair) {
     static int known[3] = { 0, -1, -1 };
     if (known[pair] >= 0) return known[pair];

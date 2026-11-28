@@ -5,19 +5,19 @@ plugins {
 
 android {
     namespace = "org.cortex.terminal"
-    compileSdk = 34
+    compileSdk = 35
 
     ndkVersion = "26.1.10909125"
 
     defaultConfig {
         applicationId = "org.cortex.terminal"
         minSdk = 24
-        // Target SDK 28 is required to allow direct execve of binaries and glibc dynamic linker
-        // from the app's writable data directory (filesDir). Android 10+ (targetSdk >= 29)
-        // enforces SELinux W^X restrictions preventing execution from writable app data storage.
-        targetSdk = 28
-        versionCode = 12800
-        versionName = "1.28.0"
+        // Target Android 15 (API 35) so Android / Play Protect installs cleanly without legacy
+        // privacy warnings. Writable rootfs binaries (app_data_file) execute via libcortex-exec.so
+        // in nativeLibraryDir (apk_data_file), which holds execute_no_trans under targetSdk >= 29.
+        targetSdk = 35
+        versionCode = 12900
+        versionName = "1.29.0"
         // UbuntuOnDeviceTest (app/src/androidTest), on Firebase Test Lab
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

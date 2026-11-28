@@ -61,22 +61,21 @@ class ChromeViewsTest {
     }
 
     @Test
-    fun theTabsShowOneTabForEachSessionAndMarkRootOnes() {
+    fun theTabsShowOneTabForEachSession() {
         val tabs = SessionTabsView(activity)
-        tabs.update(listOf(SessionTabsView.Tab("Session 1", false), SessionTabsView.Tab("Session 2", true)), 1)
+        tabs.update(listOf(SessionTabsView.Tab("Session 1"), SessionTabsView.Tab("Session 2")), 1)
         assertEquals(2, tabRows(tabs).childCount)
-        // The number and nothing else (no directory); the one on screen (2) also has ROOT and the close button
+        // The number and nothing else (no directory); the one on screen (2) also has the close button
         assertEquals(listOf("1"), texts(tabRows(tabs).getChildAt(0)))
-        assertEquals(listOf("2", "ROOT", "✕"), texts(tabRows(tabs).getChildAt(1)))
-        // The words stay for a screen reader, and so does the root badge
+        assertEquals(listOf("2", "✕"), texts(tabRows(tabs).getChildAt(1)))
         assertEquals("Session 1", tabRows(tabs).getChildAt(0).contentDescription)
-        assertEquals("Session 2, ROOT", tabRows(tabs).getChildAt(1).contentDescription)
+        assertEquals("Session 2", tabRows(tabs).getChildAt(1).contentDescription)
     }
 
     @Test
     fun onlyTheTabOnScreenHasACloseButton() {
         val tabs = SessionTabsView(activity)
-        tabs.update(listOf(SessionTabsView.Tab("a", false), SessionTabsView.Tab("b", false)), 0)
+        tabs.update(listOf(SessionTabsView.Tab("a"), SessionTabsView.Tab("b")), 0)
         val closes = texts(tabs).count { it == "✕" }
         assertEquals(1, closes)
     }
@@ -88,7 +87,7 @@ class ChromeViewsTest {
         var started = 0
         tabs.onSelect = { selected = it }
         tabs.onNew = { started++ }
-        tabs.update(listOf(SessionTabsView.Tab("a", false), SessionTabsView.Tab("b", false)), 0)
+        tabs.update(listOf(SessionTabsView.Tab("a"), SessionTabsView.Tab("b")), 0)
         tabRows(tabs).getChildAt(1).performClick()
         assertEquals(1, selected)
         tabs.getChildAt(1).performClick() // the button after the strip
@@ -100,7 +99,7 @@ class ChromeViewsTest {
         val tabs = SessionTabsView(activity)
         var closed = -1
         tabs.onClose = { closed = it }
-        tabs.update(listOf(SessionTabsView.Tab("a", false), SessionTabsView.Tab("b", false)), 1)
+        tabs.update(listOf(SessionTabsView.Tab("a"), SessionTabsView.Tab("b")), 1)
         val row = tabRows(tabs).getChildAt(1) as ViewGroup
         val close = (0 until row.childCount).map { row.getChildAt(it) }.filterIsInstance<TextView>().first { it.text == "✕" }
         close.performClick()
@@ -110,7 +109,7 @@ class ChromeViewsTest {
     @Test
     fun theTabsFollowTheSchemeWhenItChanges() {
         val tabs = SessionTabsView(activity)
-        tabs.update(listOf(SessionTabsView.Tab("a", false)), 0)
+        tabs.update(listOf(SessionTabsView.Tab("a")), 0)
         Chrome.apply(TerminalColor.SCHEMES.getValue("nord"))
         tabs.applyPalette()
         assertEquals(1, tabRows(tabs).childCount)
@@ -140,7 +139,6 @@ class ChromeViewsTest {
         // The name of the session and the button that closes it; no number box and no directory
         assertNotNull(binding.sessionLabelText)
         assertNotNull(binding.btnSessionClose)
-        assertNotNull(binding.sessionRootBadge)
     }
 
     @Test

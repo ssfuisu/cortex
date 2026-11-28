@@ -4,6 +4,50 @@ What changed in each version of Cortex Terminal, newest first. The release workf
 of a GitHub release from the section of its version here. Older versions are described on the
 [GitHub releases](https://github.com/ssfuisu/cortex/releases) page.
 
+## 1.29.0 (2026-11-27)
+
+### Changed
+
+- **Ubuntu 26.04 LTS (`resolute`, glibc 2.43).** Upgraded the bundled root file system, apt sources,
+  dynamic linker patcher, and C development overlay (`devpkgs`) from Ubuntu 24.04 (`noble`, glibc
+  2.39) to Ubuntu 26.04 (`resolute`, glibc 2.43), while preserving apt sources for upgraded 24.04
+  installations.
+- **Default session user is now `cortex@localhost` with passwordless `sudo`.** Sessions start as
+  ordinary user `cortex` (`uid=1000`, `gid=1000`, member of `sudo`) with `/etc/hostname` set to
+  `localhost` and `cortex ALL=(ALL:ALL) NOPASSWD: ALL` in `/etc/sudoers.d/cortex` (plus `sudo` /
+  `visudo` installed in the base image). Files under `/home` default to `1000:1000`.
+- **Android `targetSdk` raised from `28` to `35`.** Removes the Android warning about outdated
+  platform/privacy targeting when installing the APK. Ubuntu executables running from writable app
+  storage are launched via a freestanding `libcortex-exec.so` trampoline stored in the APK's native
+  library directory (`apk_data_file`).
+- **Removed Root Chroot Mode and separated Android host root from Ubuntu `sudo`/`su`.** Removed the
+  in-app root chroot setting and native `cortex-chroot` binary. `sudo` and `su` now operate strictly
+  inside Ubuntu without invoking Android phone `su`, while `tsu` / `android-su` (and `su --android`)
+  explicitly invoke the device's Android root binary with isolated environment variables.
+- **Smaller default Desktop Mode scaling for phones.** Set default desktop scale to `65%` (options
+  `50%`, `65%`, `90%`) and `Xvnc` DPI to `96` so desktop apps fit phone screens cleanly out of the
+  box.
+
+### Fixed
+
+- **LibreOffice `ERROR: /proc not mounted` startup failure.** Added synthetic `/proc/version`
+  fallback across `open`/`openat`/`openat2`/`fopen`/`stat`/`lstat`/`fstatat`/`statx`/`__xstat` in
+  `libcortex-hook.so` and in the static Go trampoline (`gosys`).
+- **Korean Hangul, CJK IME composing, and hardware keyboard language switching**
+  ([#78](https://github.com/ssfuisu/cortex/issues/78)). Replaced `TYPE_TEXT_VARIATION_VISIBLE_PASSWORD`
+  with `IME_FLAG_NO_PERSONALIZED_LEARNING`, added full composing buffer state and selection updates
+  in `TerminalView`'s `InputConnection`, handled `ACTION_MULTIPLE` text commits, and ignored
+  standalone IME language switch key events (`KEYCODE_LANGUAGE_SWITCH`, `ZENKAKU_HANKAKU`, etc.).
+- **No audio in CLI sessions and desktop audio latency**
+  ([#79](https://github.com/ssfuisu/cortex/issues/79)). Shared the low-latency `CortexAudio`
+  AudioTrack streamer in `CortexService` across all sessions, added `cortex-audio` to bring up the
+  PulseAudio unix socket + FIFO bridge automatically in CLI login shells, and tuned buffer sizing to
+  ~40 ms with idle track release.
+- **Relative symlink script execution resolved to Android backing path**
+  ([#81](https://github.com/ssfuisu/cortex/issues/81)). Preserved `/proc/self/fd`-independent logical
+  root-relative paths when running relative symlinks (`./dsh` -> `/.../dsh` via `g_cortex_root`
+  stripping) instead of leaking `$CORTEX_ROOT` into Node.js ESM `import.meta.url`.
+
 ## 1.28.0 (2026-11-14)
 
 ### Added

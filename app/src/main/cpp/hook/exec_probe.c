@@ -45,22 +45,26 @@ static int find_dynamic_linker_for_machine(const char *cortex_root, uint16_t e_m
 
     const char *aarch64_cands[] = {
         "/usr/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1",
+        "/usr/lib/aarch64-linux-gnu/ld-2.43.so",
         "/usr/lib/aarch64-linux-gnu/ld-2.39.so",
         "/lib/ld-linux-aarch64.so.1",
         "/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1",
         "/usr/lib/ld-linux-aarch64.so.1",
         "/usr/lib64/ld-linux-aarch64.so.1",
         "/lib64/ld-linux-aarch64.so.1",
+        "/lib/aarch64-linux-gnu/ld-2.43.so",
         "/lib/aarch64-linux-gnu/ld-2.39.so",
         NULL
     };
 
     const char *armhf_cands[] = {
         "/usr/lib/arm-linux-gnueabihf/ld-linux-armhf.so.3",
+        "/usr/lib/arm-linux-gnueabihf/ld-2.43.so",
         "/usr/lib/arm-linux-gnueabihf/ld-2.39.so",
         "/lib/ld-linux-armhf.so.3",
         "/lib/arm-linux-gnueabihf/ld-linux-armhf.so.3",
         "/usr/lib/ld-linux-armhf.so.3",
+        "/lib/arm-linux-gnueabihf/ld-2.43.so",
         "/lib/arm-linux-gnueabihf/ld-2.39.so",
         "/usr/lib/arm-linux-gnueabi/ld-linux.so.3",
         "/lib/arm-linux-gnueabi/ld-linux.so.3",
@@ -70,6 +74,7 @@ static int find_dynamic_linker_for_machine(const char *cortex_root, uint16_t e_m
     const char *x86_64_cands[] = {
         "/lib64/ld-linux-x86-64.so.2",
         "/usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2",
+        "/usr/lib/x86_64-linux-gnu/ld-2.43.so",
         "/usr/lib/x86_64-linux-gnu/ld-2.39.so",
         "/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2",
         NULL
@@ -1287,6 +1292,32 @@ static int is_host_interpreter(const char *interp) {
 
 // argv for running `script` with its interpreter: interp [arg] script args... (the script's own
 // argv[0] is dropped, as the kernel does). free() the result.
+static int is_in_cortex_root(const char *path) {
+    return path && g_cortex_root_len > 0 &&
+           strncmp(path, g_cortex_root, g_cortex_root_len) == 0 &&
+           (path[g_cortex_root_len] == '/' || path[g_cortex_root_len] == '\0');
+}
+
+static const char *strip_cortex_root(const char *path) {
+    if (!is_in_cortex_root(path)) return path;
+    const char *stripped = path + g_cortex_root_len;
+    return stripped[0] != '\0' ? stripped : "/";
+}
+
+// Scripts interpreted inside Ubuntu must receive the Ubuntu-visible path rather than the
+// Android backing path ($CORTEX_ROOT/...), so symlinks and ESM module URLs do not leak it (#81).
+static const char *script_arg_path_for(const char *caller_path, const char *target, int is_host, int target_is_link) {
+    if (is_host) return target;
+    if (is_in_cortex_root(target)) {
+        if (caller_path && caller_path[0] != '/' && !target_is_link) {
+            return caller_path;
+        }
+        return strip_cortex_root(target);
+    }
+    if (caller_path && caller_path[0] != '/') return caller_path;
+    return target;
+}
+
 static char **build_script_argv(const char *interp, const char *interp_arg, const char *script, char *const argv[]) {
     int argc = 0;
     while (argv && argv[argc]) argc++;

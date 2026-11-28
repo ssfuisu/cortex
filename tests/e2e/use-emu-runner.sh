@@ -11,13 +11,13 @@ RUNNER="$DATA/cortex-emu-runner"
 BINFMT=/proc/sys/fs/binfmt_misc
 set -e
 
-# In the app's own directory, with its owner and SELinux label, so that its processes may run it.
+# In the app's own directory, labeled apk_data_file so targetSdk >= 29 (untrusted_app) allows
+# binfmt_misc to execute cortex-emu-runner (app_data_file lacks execute_no_trans).
 uid=$(stat -c %u "$DATA")
-label=$(ls -Zd "$DATA" | awk '{ print $1 }')
 cp "$2" "$RUNNER"
 chown "$uid:$uid" "$RUNNER"
 chmod 755 "$RUNNER"
-chcon "$label" "$RUNNER"
+chcon u:object_r:apk_data_file:s0 "$RUNNER" || chcon "$(ls -Zd "$DATA" | awk '{ print $1 }')" "$RUNNER"
 
 # ELF class (64 or 32-bit) and machine (EM_AARCH64 or EM_ARM) of the image's own entries
 case "$NAME" in

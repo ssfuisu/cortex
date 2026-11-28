@@ -27,7 +27,7 @@ cleanup() {
 trap cleanup EXIT
 
 echo "=== 0. Checking LF line endings and syntax ==="
-for script_name in reload.sh service.sh systemctl.sh su.sh cortex-shell.sh cortex-backup.sh cortex-api.sh notify-send.sh apt-autoupdate.sh cortex-sshd.sh cortex-desktop.sh termux-clipboard.sh; do
+for script_name in reload.sh service.sh systemctl.sh su.sh cortex-shell.sh cortex-backup.sh cortex-api.sh cortex-audio.sh notify-send.sh apt-autoupdate.sh cortex-sshd.sh cortex-desktop.sh termux-clipboard.sh; do
     script_path="$ASSETS_SCRIPTS/$script_name"
     if LC_ALL=C grep -q $'\r' "$script_path"; then
         fail "$script_name contains CRLF line endings"
@@ -214,9 +214,11 @@ else
     fail "su.sh is missing sq() helper or RUN_SU array"
 fi
 
-# Functional test of su.sh with a mock HOST_SU
+# Separation between Ubuntu privilege elevation (`sudo`, `su`, `root`) and real Android root (`tsu`, `android-su`)
 SU_TEST_DIR="$TEST_TMP/su dir with spaces & 'quotes'"
-mkdir -p "$SU_TEST_DIR/bin" "$SU_TEST_DIR/root"
+mkdir -p "$SU_TEST_DIR/bin" "$SU_TEST_DIR/root" "$SU_TEST_DIR/etc/sudoers.d"
+printf 'root ALL=(ALL:ALL) ALL\n%%sudo ALL=(ALL:ALL) ALL\n@includedir /etc/sudoers.d\n' > "$SU_TEST_DIR/etc/sudoers"
+printf 'cortex ALL=(ALL:ALL) NOPASSWD: ALL\n' > "$SU_TEST_DIR/etc/sudoers.d/cortex"
 BASH_EXEC="$(command -v bash)"
 cp "$BASH_EXEC" "$SU_TEST_DIR/bin/bash" 2>/dev/null || ln -s "$BASH_EXEC" "$SU_TEST_DIR/bin/bash"
 
@@ -238,94 +240,105 @@ exec "$BASH_EXEC" "\$@"
 EOF
 chmod +x "$MOCK_SU"
 
+# 3a. tsu: preserves quotes cleanly and invokes Android HOST_SU (with clean env, never leaking CORTEX_IDS)
 PWN_SU_FILE="$TEST_TMP/su_injected"
 SU_OUT="$(
+    CORTEX_INVOKED_AS=tsu \
     CORTEX_HOST_SU="$MOCK_SU" \
     CORTEX_ROOT="$SU_TEST_DIR" \
     bash "$SU_SH" printf '%s|%s|%s' "arg with spaces" "arg'quote" "\$(touch \"$PWN_SU_FILE\")" 2>&1
 )"
 if [ -e "$PWN_SU_FILE" ]; then
-    fail "su.sh executed command injection payload in user arguments"
+    fail "tsu executed command injection payload in user arguments"
 elif [ "$SU_OUT" = "arg with spaces|arg'quote|\$(touch \"$PWN_SU_FILE\")" ]; then
-    pass "su.sh preserves complex arguments and prevents command injection"
+    pass "tsu preserves complex arguments and prevents command injection"
 else
-    fail "su.sh argument preservation failed: got '$SU_OUT'"
+    fail "tsu argument preservation failed: got '$SU_OUT'"
 fi
 
 SU_C_OUT="$(
+    CORTEX_INVOKED_AS=tsu \
     CORTEX_HOST_SU="$MOCK_SU" \
     CORTEX_ROOT="$SU_TEST_DIR" \
-    bash "$SU_SH" -c 'printf "%s|%s" "$USER" "$1"' _ "val'with'quote" 2>&1
+    CORTEX_IDS="1000,1000,1000:1000,1000,1000:1000,27" \
+    bash "$SU_SH" -c 'printf "%s|%s|%s" "$USER" "${CORTEX_IDS:-cleared}" "$1"' _ "val'with'quote" 2>&1
 )"
-if [ "$SU_C_OUT" = "root|val'with'quote" ]; then
-    pass "su.sh -c mode preserves USER and positional arguments with single quotes"
+if [ "$SU_C_OUT" = "root|cleared|val'with'quote" ]; then
+    pass "tsu -c preserves USER=root, clears CORTEX_IDS, and preserves positional quotes"
 else
-    fail "su.sh -c mode failed: got '$SU_C_OUT'"
+    fail "tsu -c mode failed: got '$SU_C_OUT'"
 fi
 
-# Root mode (CORTEX_CHROOT): sudo runs the command itself, su is Ubuntu's own su
-ROOTMODE_STUBS="$TEST_TMP/rootmode-stubs"
-mkdir -p "$ROOTMODE_STUBS"
-printf '#!%s\necho "runuser $*"\n' "$BASH_EXEC" > "$ROOTMODE_STUBS/runuser"
-printf '#!%s\necho "real-su $*"\n' "$BASH_EXEC" > "$ROOTMODE_STUBS/real-su"
-chmod +x "$ROOTMODE_STUBS/runuser" "$ROOTMODE_STUBS/real-su"
-rootmode() { env CORTEX_CHROOT=1 PATH="$ROOTMODE_STUBS:$PATH" CORTEX_REAL_SU="$ROOTMODE_STUBS/real-su" "$@"; }
-
-OUT="$(rootmode CORTEX_INVOKED_AS=sudo bash "$SU_SH" printf '%s|%s' "arg with spaces" "arg'quote" 2>&1)"
-[ "$OUT" = "arg with spaces|arg'quote" ] && pass "root mode: sudo runs the command with its arguments" || fail "root mode: sudo command: got '$OUT'"
-OUT="$(rootmode CORTEX_INVOKED_AS=sudo bash "$SU_SH" -E -H -n -- printf ok 2>&1)"
-[ "$OUT" = "ok" ] && pass "root mode: sudo ignores -E -H -n and --" || fail "root mode: sudo options: got '$OUT'"
-OUT="$(rootmode CORTEX_INVOKED_AS=sudo bash "$SU_SH" -u postgres psql -l 2>&1)"
-[ "$OUT" = "runuser -u postgres -- psql -l" ] && pass "root mode: sudo -u USER uses runuser" || fail "root mode: sudo -u: got '$OUT'"
-OUT="$(rootmode CORTEX_INVOKED_AS=sudo bash "$SU_SH" --user=www-data -i 2>&1)"
-[ "$OUT" = "runuser -l www-data" ] && pass "root mode: sudo -i --user=USER starts USER's login shell" || fail "root mode: sudo -i --user: got '$OUT'"
-OUT="$(rootmode CORTEX_INVOKED_AS=sudo bash "$SU_SH" -u root printf ok 2>&1)"
-[ "$OUT" = "ok" ] && pass "root mode: sudo -u root runs the command directly" || fail "root mode: sudo -u root: got '$OUT'"
-OUT="$(rootmode CORTEX_INVOKED_AS=su bash "$SU_SH" - postgres 2>&1)"
-[ "$OUT" = "real-su - postgres" ] && pass "root mode: su is the real su" || fail "root mode: su: got '$OUT'"
-OUT="$(rootmode CORTEX_INVOKED_AS=sudo bash "$SU_SH" bash -c 'echo "${CORTEX_INVOKED_AS:-unset}"' 2>&1)"
-[ "$OUT" = "unset" ] && pass "root mode: the invoked name is not passed on" || fail "root mode: CORTEX_INVOKED_AS leaked: got '$OUT'"
-if [ ! -d /system/bin ]; then
-    OUT="$(env -u CORTEX_ROOT -u CORTEX_CHROOT CORTEX_INVOKED_AS=sudo bash "$SU_SH" printf ok 2>&1)"
-    [ "$OUT" = "ok" ] && pass "root mode is recognised without CORTEX_CHROOT (no CORTEX_ROOT, no /system)" || fail "root mode detection: got '$OUT'"
-fi
-
-# Normal mode on a phone without root (no su to ask, or one that does not give root): sudo and su run
-# what they are given in Cortex's own root, instead of failing with "root not found"
-nomode() { env -u CORTEX_CHROOT -u CORTEX_HOST_SU CORTEX_ROOT="$SU_TEST_DIR" PATH="$ROOTMODE_STUBS:$PATH" SHELL="$BASH_EXEC" "$@"; }
-OUT="$(nomode CORTEX_INVOKED_AS=sudo bash "$SU_SH" printf '%s|%s' "arg with spaces" "arg'quote" 2>&1)"
-[ "$OUT" = "arg with spaces|arg'quote" ] && pass "no root: sudo runs the command with its arguments" || fail "no root: sudo command: got '$OUT'"
-OUT="$(nomode CORTEX_INVOKED_AS=sudo bash "$SU_SH" -E -n -- printf ok 2>&1)"
-[ "$OUT" = "ok" ] && pass "no root: sudo ignores its options" || fail "no root: sudo options: got '$OUT'"
-OUT="$(nomode CORTEX_INVOKED_AS=sudo bash "$SU_SH" -u postgres psql -l 2>&1)"
-[ "$OUT" = "runuser -u postgres -- psql -l" ] && pass "no root: sudo -u USER uses runuser" || fail "no root: sudo -u: got '$OUT'"
-OUT="$(nomode CORTEX_INVOKED_AS=su bash "$SU_SH" -c 'printf "%s|%s" "$1" "$2"' _ one 'two words' 2>&1)"
-[ "$OUT" = "one|two words" ] && pass "no root: su -c runs the command with the shell's arguments" || fail "no root: su -c: got '$OUT'"
-OUT="$(nomode CORTEX_INVOKED_AS=su bash "$SU_SH" root -c 'printf ok' 2>&1)"
-[ "$OUT" = "ok" ] && pass "no root: su root -c runs the command" || fail "no root: su root -c: got '$OUT'"
-OUT="$(nomode CORTEX_INVOKED_AS=su bash "$SU_SH" - postgres 2>&1)"
-[ "$OUT" = "runuser -l postgres" ] && pass "no root: su - USER uses runuser -l" || fail "no root: su - USER: got '$OUT'"
-OUT="$(nomode CORTEX_INVOKED_AS=su bash "$SU_SH" -s "$BASH_EXEC" postgres -c 'psql -l' 2>&1)"
-[ "$OUT" = "runuser -u postgres -- $BASH_EXEC -c psql -l" ] && pass "no root: su USER -c CMD uses runuser -u, and the shell of -s" || fail "no root: su USER -c: got '$OUT'"
-# Without -s the shell is the user's own (here nobody's, wherever the system keeps nologin), not the caller's
-NOBODY_SHELL="$(getent passwd nobody | cut -d: -f7)"
-if [ -n "$NOBODY_SHELL" ]; then
-    OUT="$(nomode CORTEX_INVOKED_AS=su bash "$SU_SH" nobody -c true 2>&1)"
-    [ "$OUT" = "runuser -u nobody -- $NOBODY_SHELL -c true" ] && pass "no root: su USER runs the shell USER has" || fail "no root: su USER shell: got '$OUT'"
-fi
+# tsu must refuse cleanly when no Android root exists (never masquerading as Ubuntu root)
 NOROOT_SU="$TEST_TMP/mock_su_no_root"
 printf '#!%s\nexit 1\n' "$BASH_EXEC" > "$NOROOT_SU"
 chmod +x "$NOROOT_SU"
-OUT="$(env -u CORTEX_CHROOT CORTEX_HOST_SU="$NOROOT_SU" CORTEX_ROOT="$SU_TEST_DIR" CORTEX_INVOKED_AS=sudo bash "$SU_SH" printf ok 2>&1)"
-[ "$OUT" = "ok" ] && pass "a su that does not give root: sudo runs the command in Cortex's root" || fail "su without root: got '$OUT'"
+if env CORTEX_HOST_SU="$NOROOT_SU" CORTEX_ROOT="$SU_TEST_DIR" CORTEX_INVOKED_AS=tsu bash "$SU_SH" id >/dev/null 2>&1; then
+    fail "tsu succeeded even though Android HOST_SU failed"
+else
+    pass "tsu fails explicitly when Android root access is unavailable"
+fi
+
+# 3b. sudo and su: strictly Ubuntu-only (must NEVER call CORTEX_HOST_SU even if available)
+STUBS="$TEST_TMP/ubuntu-stubs"
+mkdir -p "$STUBS"
+printf '#!%s\necho "runuser $*"\n' "$BASH_EXEC" > "$STUBS/runuser"
+printf '#!%s\nexit 99\n' "$BASH_EXEC" > "$STUBS/fail-host-su"
+chmod +x "$STUBS/runuser" "$STUBS/fail-host-su"
+ubuntu_id_stub() {
+    local uname="$1"
+    shift
+    local mock_bin="$TEST_TMP/id-$uname"
+    mkdir -p "$mock_bin"
+    cat > "$mock_bin/id" <<EID
+#!$BASH_EXEC
+case "\${1:-}" in
+    -u) echo "$([ "$uname" = root ] && echo 0 || [ "$uname" = cortex ] && echo 1000 || echo 65534)" ;;
+    -un) echo "$uname" ;;
+    -Gn) echo "$uname$([ "$uname" = cortex ] && echo ' sudo' || true)" ;;
+esac
+EID
+    chmod +x "$mock_bin/id"
+    env CORTEX_SUDOERS_ROOT="$SU_TEST_DIR" CORTEX_HOST_SU="$STUBS/fail-host-su" \
+        CORTEX_ROOT="$SU_TEST_DIR" PATH="$mock_bin:$STUBS:$PATH" SHELL="$BASH_EXEC" "$@"
+}
+
+OUT="$(ubuntu_id_stub cortex CORTEX_INVOKED_AS=sudo bash "$SU_SH" printf '%s|%s' "arg with spaces" "arg'quote" 2>&1)"
+[ "$OUT" = "arg with spaces|arg'quote" ] && pass "sudo elevates inside Ubuntu without invoking Android HOST_SU" || fail "sudo command: got '$OUT'"
+OUT="$(ubuntu_id_stub cortex CORTEX_INVOKED_AS=sudo bash "$SU_SH" -E -H -n -- printf ok 2>&1)"
+[ "$OUT" = "ok" ] && pass "sudo handles -E -H -n and --" || fail "sudo options: got '$OUT'"
+OUT="$(ubuntu_id_stub cortex CORTEX_INVOKED_AS=sudo bash "$SU_SH" -l 2>&1)"
+[[ "$OUT" == *"NOPASSWD: ALL"* ]] && pass "sudo -l reports NOPASSWD: ALL from /etc/sudoers.d/cortex" || fail "sudo -l: got '$OUT'"
+OUT="$(ubuntu_id_stub cortex CORTEX_INVOKED_AS=sudo bash "$SU_SH" env 2>&1 | grep -E '^(CORTEX_BECOME|USER)=' | sort | tr '\n' ' ')"
+[ "$OUT" = "CORTEX_BECOME=root USER=root " ] && pass "sudo sets CORTEX_BECOME=root and USER=root for child command" || fail "sudo env: got '$OUT'"
+OUT="$(ubuntu_id_stub cortex CORTEX_INVOKED_AS=sudo bash "$SU_SH" -u postgres psql -l 2>&1)"
+[ "$OUT" = "runuser -u postgres -- psql -l" ] && pass "sudo -u USER delegates to runuser" || fail "sudo -u: got '$OUT'"
+OUT="$(ubuntu_id_stub cortex CORTEX_INVOKED_AS=sudo bash "$SU_SH" --user=www-data -i 2>&1)"
+[ "$OUT" = "runuser -l www-data" ] && pass "sudo -i --user=USER starts USER login shell" || fail "sudo -i --user: got '$OUT'"
+if ubuntu_id_stub nobody CORTEX_INVOKED_AS=sudo bash "$SU_SH" id >/dev/null 2>&1; then
+    fail "sudo allowed unauthorized user nobody"
+else
+    pass "sudo rejects users not permitted in /etc/sudoers(.d)"
+fi
+
+OUT="$(ubuntu_id_stub cortex CORTEX_INVOKED_AS=su bash "$SU_SH" -c 'printf "%s|%s|%s" "$USER" "$1" "$2"' _ one 'two words' 2>&1)"
+[ "$OUT" = "root|one|two words" ] && pass "su switches to Ubuntu root cleanly without touching phone su" || fail "su -c: got '$OUT'"
+OUT="$(ubuntu_id_stub cortex CORTEX_INVOKED_AS=su bash "$SU_SH" - postgres 2>&1)"
+[ "$OUT" = "runuser -l postgres" ] && pass "su - USER switches Ubuntu users via runuser" || fail "su - USER: got '$OUT'"
+OUT="$(ubuntu_id_stub cortex CORTEX_INVOKED_AS=su bash "$SU_SH" -s "$BASH_EXEC" postgres -c 'psql -l' 2>&1)"
+[ "$OUT" = "runuser -u postgres -- $BASH_EXEC -c psql -l" ] && pass "su USER -c CMD uses runuser with -s shell" || fail "su USER -c: got '$OUT'"
+OUT="$(env CORTEX_HOST_SU="$MOCK_SU" CORTEX_ROOT="$SU_TEST_DIR" CORTEX_INVOKED_AS=su bash "$SU_SH" --android -c 'printf "%s" "$1"' _ ok 2>&1)"
+[ "$OUT" = "ok" ] && pass "su --android opts in explicitly to Android phone HOST_SU" || fail "su --android: got '$OUT'"
 
 TSU_DIR="$TEST_TMP/tsu-dir"
 mkdir -p "$TSU_DIR"
 printf '#!%s\necho "as=${CORTEX_INVOKED_AS:-none} $*"\n' "$BASH_EXEC" > "$TSU_DIR/su"
 cp "$ASSETS_SCRIPTS/tsu.sh" "$TSU_DIR/sudo"
-chmod +x "$TSU_DIR/su" "$TSU_DIR/sudo"
+cp "$ASSETS_SCRIPTS/tsu.sh" "$TSU_DIR/tsu"
+chmod +x "$TSU_DIR/su" "$TSU_DIR/sudo" "$TSU_DIR/tsu"
 OUT="$("$TSU_DIR/sudo" apt update 2>&1)"
-[ "$OUT" = "as=sudo apt update" ] && pass "tsu.sh passes the name it was started as to su" || fail "tsu.sh name: got '$OUT'"
+OUT2="$("$TSU_DIR/tsu" id 2>&1)"
+[ "$OUT" = "as=sudo apt update" ] && [ "$OUT2" = "as=tsu id" ] && pass "tsu.sh forwards invoked binary name to su" || fail "tsu.sh name: '$OUT' / '$OUT2'"
 
 echo "=== 3a. Kotlin comments hold no comment opener ==="
 # Kotlin comments nest: a "/*" inside one (a path such as ~/dir/* in a comment) opens a second comment
@@ -449,7 +462,7 @@ APT_T="$TEST_TMP/apt-auto"
 mkdir -p "$APT_T/bin" "$APT_T/lists/partial" "$APT_T/local"
 for tool in apt apt-get; do
     # stand-ins that record how they were called
-    printf '#!/bin/bash\necho "%s $*" >> "%s/calls"\nif [ "$1" = update ]; then : > "%s/lists/ports_noble_main_binary-arm64_Packages.lz4"; fi\nexit "${FAKE_STATUS:-0}"\n' \
+    printf '#!/bin/bash\necho "%s $*" >> "%s/calls"\nif [ "$1" = update ]; then : > "%s/lists/ports_resolute_main_binary-arm64_Packages.lz4"; fi\nexit "${FAKE_STATUS:-0}"\n' \
         "$tool" "$APT_T" "$APT_T" > "$APT_T/bin/$tool"
     chmod +x "$APT_T/bin/$tool"
     cp "$ASSETS_SCRIPTS/apt-autoupdate.sh" "$APT_T/local/$tool"
@@ -764,7 +777,7 @@ echo $! > "$SSHD_TEST_ROOT$pidfile"
 EOS
 printf '#!/bin/bash\nexit 0\n' > "$SBIN/ssh-keygen"
 printf '#!/bin/bash\n[ "$1" = network ] && printf "wlan0 192.168.1.23\\nwlan0 fe80::1\\nrmnet0 2a00:1450::5\\n"\n' > "$SBIN/cortex-api"
-printf '#!/bin/bash\necho root\n' > "$SBIN/id"
+printf '#!/bin/bash\n[ "${1:-}" = "-u" ] && echo 0 || echo root\n' > "$SBIN/id"
 chmod +x "$SR/usr/sbin/sshd" "$SBIN"/*
 echo 'root:*:19700:0:99999:7:::' > "$SR/etc/shadow"
 sshd_() {
@@ -998,6 +1011,59 @@ else
     kill "$PULSE_PID" 2>/dev/null
 fi
 pkill -f "$DR/tmp/.cortex-desktop/vnc.sock" 2>/dev/null
+
+echo "=== 6d. Testing cortex-audio.sh CLI audio bridge ==="
+AUDIO_SH="$ASSETS_SCRIPTS/cortex-audio.sh"
+AR="$TEST_TMP/audio_root"
+ABIN="$TEST_TMP/audio_bin"
+mkdir -p "$AR/tmp" "$AR/etc/alsa/conf.d" "$AR/etc/pulse" "$AR/usr/lib/aarch64-linux-gnu/alsa-lib" "$ABIN" "$TEST_TMP/audio_home"
+: > "$AR/usr/lib/aarch64-linux-gnu/alsa-lib/libasound_module_pcm_pulse.so"
+cat > "$ABIN/pulseaudio" <<'EOS'
+#!/bin/bash
+sock=""
+for arg in "$@"; do
+    case "$arg" in
+        *socket=*) sock="${arg#*socket=}"; sock="${sock%% *}" ;;
+    esac
+done
+[ -n "$sock" ] || exit 1
+exec -a pulseaudio python3 -c 'import socket, sys, time
+s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+s.bind(sys.argv[1])
+s.listen(1)
+time.sleep(300)' "$sock"
+EOS
+chmod +x "$ABIN/pulseaudio"
+audio_() {
+    CORTEX_AUDIO_ROOT="$AR" HOME="$TEST_TMP/audio_home" PATH="$ABIN:$PATH" bash "$AUDIO_SH" "$@"
+}
+audio_ status >/dev/null 2>&1; RC=$?
+if [ "$RC" = 3 ]; then
+    pass "cortex-audio status reports stopped when idle"
+else
+    fail "cortex-audio stopped status returned unexpected code"
+fi
+if audio_ start >/dev/null 2>&1 && audio_ status | grep -q "running" \
+    && [ -S "$AR/tmp/.cortex-desktop/pulse.sock" ] \
+    && [ -p "$AR/tmp/.cortex-desktop/audio.fifo" ] \
+    && grep -q "unix:$AR/tmp/.cortex-desktop/pulse.sock" "$AR/tmp/.cortex-desktop/pulse.server" \
+    && grep -q "type pulse" "$AR/etc/alsa/conf.d/99-cortex-pulse.conf" \
+    && grep -q "default-server = unix:$AR/tmp/.cortex-desktop/pulse.sock" "$AR/etc/pulse/client.conf"; then
+    pass "cortex-audio start brings up PulseAudio socket, FIFO, ALSA pulse default, and pulse.server (#79)"
+else
+    fail "cortex-audio start setup failed"
+fi
+if audio_ ensure >/dev/null 2>&1; then
+    pass "cortex-audio ensure succeeds idempotently when already running"
+else
+    fail "cortex-audio ensure failed while already running"
+fi
+audio_ stop >/dev/null 2>&1
+if ! audio_ status >/dev/null 2>&1 && [ ! -e "$AR/tmp/.cortex-desktop/pulse.sock" ] && [ ! -e "$AR/tmp/.cortex-desktop/pulse.server" ]; then
+    pass "cortex-audio stop stops PulseAudio and cleans socket"
+else
+    fail "cortex-audio stop left audio artifacts behind"
+fi
 
 echo "=== 7. Checking translations ==="
 if command -v python3 >/dev/null 2>&1; then

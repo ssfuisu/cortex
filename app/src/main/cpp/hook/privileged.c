@@ -56,7 +56,7 @@ static int g_no_translator = 0;
 __attribute__((constructor(102))) static void find_translator_files(void) {
     // The first program of a session looks; the ones it starts are told (a translator is there for
     // all the programs of a machine or for none, and where it is not known they look as before)
-    const char *known = getenv("CORTEX_NT");
+    const char *known = cortex_libc_getenv("CORTEX_NT");
     if (known && known[0] == '0' && known[1] == '\0') {
         g_no_translator = 1;
         return;
@@ -481,6 +481,39 @@ void closefrom(int lowfd) {
     close_range(lowfd < 0 ? 0U : (unsigned int)lowfd, ~0U, 0);
 }
 
+// glibc's posix_spawn() executes file_actions inside the vfork child via direct syscalls (bypassing
+// close() / close_range() hooks), so filter kept translator descriptors while building the actions
+// list (Python 3.14 subprocess.Popen passes POSIX_SPAWN_CLOSEFROM=3 by default).
+int posix_spawn_file_actions_addclose(posix_spawn_file_actions_t *file_actions, int fd) {
+    static int (*orig_addclose)(posix_spawn_file_actions_t *, int) = NULL;
+    if (!orig_addclose) {
+        orig_addclose = (int (*)(posix_spawn_file_actions_t *, int))dlsym(RTLD_NEXT, "posix_spawn_file_actions_addclose");
+    }
+    if (g_kept_fd_count > 0 && is_kept_fd(fd)) return 0;
+    return orig_addclose ? orig_addclose(file_actions, fd) : ENOSYS;
+}
+
+int posix_spawn_file_actions_addclosefrom_np(posix_spawn_file_actions_t *file_actions, int from) {
+    static int (*orig_addclosefrom)(posix_spawn_file_actions_t *, int) = NULL;
+    if (!orig_addclosefrom) {
+        orig_addclosefrom = (int (*)(posix_spawn_file_actions_t *, int))dlsym(RTLD_NEXT, "posix_spawn_file_actions_addclosefrom_np");
+    }
+    if (!orig_addclosefrom) return ENOSYS;
+    if (from < 0 || g_kept_fd_count == 0) return orig_addclosefrom(file_actions, from);
+
+    int cur = from;
+    for (int i = 0; i < g_kept_fd_count; i++) {
+        int k = g_kept_fds[i];
+        if (k < cur) continue;
+        for (int fd = cur; fd < k; fd++) {
+            int r = posix_spawn_file_actions_addclose(file_actions, fd);
+            if (r != 0) return r;
+        }
+        cur = k + 1;
+    }
+    return orig_addclosefrom(file_actions, cur);
+}
+
 static int close_range_all(unsigned int first, unsigned int last, int flags) {
     static int (*orig_close_range)(unsigned int, unsigned int, int) = NULL;
     if (!orig_close_range) {
@@ -636,7 +669,7 @@ long syscall(long number, ...) {
 
 #ifdef __NR_openat2
     if (number == __NR_openat2) {
-        return (long)openat2((int)arg1, (const char *)arg2, (struct cortex_open_how *)arg3, (size_t)arg4);
+        return (long)openat2((int)arg1, (const char *)arg2, (cortex_open_how_arg_t)arg3, (size_t)arg4);
     }
 #endif
 
@@ -769,6 +802,61 @@ long syscall(long number, ...) {
     }
 
     return call_orig_syscall(number, arg1, arg2, arg3, arg4, arg5, arg6);
+}
+
+static void cortex_read_hostname(char *out, size_t cap) {
+    if (cap == 0) return;
+    if (g_cortex_root[0] != '\0') {
+        char path[PATH_MAX];
+        size_t n = cortex_append(path, sizeof(path), 0, g_cortex_root, g_cortex_root_len);
+        cortex_append(path, sizeof(path), n, "/etc/hostname", 13);
+        int fd = (int)syscall(SYS_openat, AT_FDCWD, path, O_RDONLY | O_CLOEXEC, 0);
+        if (fd >= 0) {
+            char buf[256];
+            ssize_t r = (ssize_t)syscall(SYS_read, fd, buf, sizeof(buf) - 1);
+            syscall(SYS_close, fd);
+            if (r > 0) {
+                size_t len = 0;
+                while (len < (size_t)r && buf[len] != '\n' && buf[len] != '\r' && buf[len] != ' ' && buf[len] != '\t') {
+                    len++;
+                }
+                if (len > 0) {
+                    if (len >= cap) len = cap - 1;
+                    memcpy(out, buf, len);
+                    out[len] = '\0';
+                    return;
+                }
+            }
+        }
+    }
+    cortex_copy_cstr(out, cap, "localhost");
+}
+
+int gethostname(char *name, size_t len) {
+    if (!name) {
+        errno = EFAULT;
+        return -1;
+    }
+    char host[256];
+    cortex_read_hostname(host, sizeof(host));
+    size_t hlen = strlen(host);
+    if (len == 0 || hlen >= len) {
+        if (len > 0) memcpy(name, host, len);
+        errno = ENAMETOOLONG;
+        return -1;
+    }
+    memcpy(name, host, hlen + 1);
+    return 0;
+}
+
+int uname(struct utsname *buf) {
+    static int (*orig_uname)(struct utsname *) = NULL;
+    if (!orig_uname) orig_uname = (int (*)(struct utsname *))dlsym(RTLD_NEXT, "uname");
+    int ret = orig_uname ? orig_uname(buf) : (int)call_orig_syscall(SYS_uname, (unsigned long)buf, 0, 0, 0, 0, 0);
+    if (ret == 0 && buf) {
+        cortex_read_hostname(buf->nodename, sizeof(buf->nodename));
+    }
+    return ret;
 }
 
 #endif /* !CORTEX_HOST_TEST */

@@ -249,7 +249,16 @@ int close(int fd) {
     if (__atomic_load_n(&g_memfd_locks_used, __ATOMIC_RELAXED)) memfd_lock_closing(fd);
     clear_dns_redirect(fd);
     set_chosen_port_fd(fd, 0);
+    home_fd_set(fd, 0);
     return orig_close ? orig_close(fd) : -1;
+}
+
+int dup(int oldfd) {
+    static int (*orig_dup)(int) = NULL;
+    if (!orig_dup) orig_dup = (int (*)(int))dlsym(RTLD_NEXT, "dup");
+    int ret = orig_dup ? orig_dup(oldfd) : -1;
+    if (ret >= 0) home_fd_set(ret, home_fd_is(oldfd));
+    return ret;
 }
 
 int dup2(int oldfd, int newfd) {
@@ -259,7 +268,9 @@ int dup2(int oldfd, int newfd) {
         clear_dns_redirect(newfd);
         set_chosen_port_fd(newfd, is_chosen_port_fd(oldfd));
     }
-    return orig_dup2 ? orig_dup2(oldfd, newfd) : -1;
+    int ret = orig_dup2 ? orig_dup2(oldfd, newfd) : -1;
+    if (ret >= 0) home_fd_set(newfd, home_fd_is(oldfd));
+    return ret;
 }
 
 int dup3(int oldfd, int newfd, int flags) {
@@ -269,7 +280,9 @@ int dup3(int oldfd, int newfd, int flags) {
         clear_dns_redirect(newfd);
         set_chosen_port_fd(newfd, is_chosen_port_fd(oldfd));
     }
-    return orig_dup3 ? orig_dup3(oldfd, newfd, flags) : -1;
+    int ret = orig_dup3 ? orig_dup3(oldfd, newfd, flags) : -1;
+    if (ret >= 0) home_fd_set(newfd, home_fd_is(oldfd));
+    return ret;
 }
 
 static int get_dns_redirect(int fd, struct sockaddr_storage *orig, socklen_t *orig_len) {
