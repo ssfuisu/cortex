@@ -211,8 +211,13 @@ check "a value of its own is left as it is" test "$out" = "CORTEX_NT=1"
 
 # Under targetSdk >= 29 (W^X), CORTEX_EXEC_RUNNER (libcortex-exec.so) must be used directly for
 # valid rootfs ELFs in both execve() and posix_spawn(), must survive env -i, and must NOT mask
-# ENOENT for nonexistent files.
-aarch64-linux-gnu-gcc -std=gnu11 -static -O2 -w -o "$work/mock_runner" -x c - <<'EOC' || { echo "mock_runner did not build"; exit 1; }
+# ENOENT for nonexistent files. Build mock_runner for the host so binfmt_misc (when registered
+# without the preserve-argv0 'P' flag) never overwrites argv[0].
+if command -v gcc >/dev/null 2>&1; then
+  gcc -std=gnu11 -O2 -w -o "$work/mock_runner" -x c -
+else
+  aarch64-linux-gnu-gcc -std=gnu11 -static -O2 -w -o "$work/mock_runner" -x c -
+fi <<'EOC' || { echo "mock_runner did not build"; exit 1; }
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
