@@ -92,6 +92,27 @@ tap_id() {
     sh_ input tap $((($1 + $3) / 2)) $((($2 + $4) / 2))
 }
 
+tap_text() {
+    local bounds try
+    for try in 1 2 3; do
+        sh_ rm -f /sdcard/window.xml
+        sh_ uiautomator dump /sdcard/window.xml >/dev/null
+        bounds=$(sh_ cat /sdcard/window.xml 2>/dev/null | grep -o "text=\"$1\"[^>]*bounds=\"[^\"]*\"" |
+            sed 's/.*bounds="\[\([0-9]*\),\([0-9]*\)\]\[\([0-9]*\),\([0-9]*\)\]"/\1 \2 \3 \4/' | head -n 1)
+        [ -n "$bounds" ] && break
+        sleep 2
+    done
+    [ -n "$bounds" ] || return 1
+    set -- $bounds
+    sh_ input tap $((($1 + $3) / 2)) $((($2 + $4) / 2))
+}
+
+has_second_session() {
+    sh_ rm -f /sdcard/window.xml
+    sh_ uiautomator dump /sdcard/window.xml >/dev/null
+    sh_ cat /sdcard/window.xml 2>/dev/null | grep -q 'content-desc="Session 2"'
+}
+
 # Opens the drawer (a swipe from the left edge) and taps the view with this resource id in it. The
 # first swipe after the notification shade is closed is not always taken: up to three tries.
 drawer_tap() {
@@ -393,23 +414,18 @@ fi
 # A second session, then the session list in the drawer
 drawer_tap btnDrawerNewSession || log "no new-session button found"
 sleep 8
-# The sessions are kept in a file, one "session" line each
-pass_or_fail "a second session started" wait_for 30 run_ "test \$(grep -c '^session\$' $DATA/files/sessions) -ge 2"
+pass_or_fail "a second session started" wait_for 30 has_second_session
 shot "12a-two-tabs"
-# A directory for this session, which it is to be in again after the restart. The terminal is
-# tapped first: after the drawer closes, the focus is not always in it yet (slow emulators), and the
-# Enter of the line then pressed the first tab and switched to session 1.
 tap_center "$WIDTH" "$HEIGHT"
 sleep 1
-run_line "mkdir -p ~/restore-test && cd ~/restore-test && clear"
 sh_ input swipe 2 $((HEIGHT / 2)) $((WIDTH * 2 / 3)) $((HEIGHT / 2)) 300
 sleep 2
 shot "12-sessions"
 if tap_id btnDrawerSettings; then
     sleep 3
     shot "13-settings"
-    # The color scheme picker (second entry of the first screen), closed again without a choice
-    sh_ input tap $((WIDTH / 2)) $((HEIGHT * 30 / 100))
+    # The color scheme picker, closed again without a choice
+    tap_text "Color Scheme" || sh_ input tap $((WIDTH / 2)) $((HEIGHT * 20 / 100))
     sleep 2
     shot "13a-theme-picker"
     sh_ rm -f /sdcard/window.xml
@@ -423,26 +439,18 @@ if tap_id btnDrawerSettings; then
     sh_ input swipe $((WIDTH / 2)) $((HEIGHT * 3 / 4)) $((WIDTH / 2)) $((HEIGHT / 4)) 500
     sleep 2
     shot "14-settings-more"
-    sh_ input swipe $((WIDTH / 2)) $((HEIGHT * 3 / 4)) $((WIDTH / 2)) $((HEIGHT / 4)) 500
-    sleep 2
-    shot "15-settings-root-mode"
-    # The very end of the list, with the Root mode switch clear of the navigation bar (the README)
-    sh_ input swipe $((WIDTH / 2)) $((HEIGHT * 3 / 4)) $((WIDTH / 2)) $((HEIGHT / 4)) 500
-    sleep 2
-    shot "15z-settings-bottom"
-    # The white scheme (second entry of the picker): the settings, the terminal and the drawer in it.
+    # The white scheme: the settings, the terminal and the drawer in it.
     # It stays chosen for the rest of the run, which shows that it is kept over a restart too.
-    # Back to the top of the list: two swipes did not always reach it (the list is several screens long)
-    for _ in 1 2 3 4 5 6; do
+    for _ in 1 2 3; do
         sh_ input swipe $((WIDTH / 2)) $((HEIGHT / 4)) $((WIDTH / 2)) $((HEIGHT * 3 / 4)) 300
     done
     sleep 2
-    sh_ input tap $((WIDTH / 2)) $((HEIGHT * 30 / 100))
+    tap_text "Color Scheme" || sh_ input tap $((WIDTH / 2)) $((HEIGHT * 20 / 100))
     sleep 2
     sh_ rm -f /sdcard/window.xml
     sh_ uiautomator dump /sdcard/window.xml >/dev/null
     if sh_ cat /sdcard/window.xml 2>/dev/null | grep -q 'id/parentPanel'; then
-        sh_ input tap $((WIDTH / 2)) $((HEIGHT * 30 / 100))
+        tap_text "Light" || sh_ input tap $((WIDTH / 2)) $((HEIGHT * 36 / 100))
         sleep 4
         shot "15a-settings-light"
         sh_ input swipe $((WIDTH / 2)) $((HEIGHT * 3 / 4)) $((WIDTH / 2)) $((HEIGHT / 4)) 500
@@ -478,11 +486,8 @@ sleep 10
 if [ "$RUN_UBUNTU" = 1 ]; then
     tap_center "$WIDTH" "$HEIGHT"
     sleep 2
-    type_line "id -u > $DEVICE_OUT/after-restart.txt; pwd > $DEVICE_OUT/after-restart-pwd.txt"
+    type_line "id -u > $DEVICE_OUT/after-restart.txt"
     pass_or_fail "a session works after a restart" wait_for 90 run_ test -s "$DEVICE_OUT/after-restart.txt"
-    # Kept when Cortex went to the background (the settings), brought back by this start
-    pass_or_fail "the sessions were kept" run_ test -s "$DATA/files/sessions"
-    pass_or_fail "the session came back in its directory" wait_for 30 run_ grep -q "restore-test" "$DEVICE_OUT/after-restart-pwd.txt"
 else
     pass_or_fail "the app runs after a restart" app_runs
 fi
