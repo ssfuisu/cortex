@@ -27,7 +27,7 @@ cleanup() {
 trap cleanup EXIT
 
 echo "=== 0. Checking LF line endings and syntax ==="
-for script_name in reload.sh service.sh systemctl.sh su.sh cortex-shell.sh cortex-backup.sh cortex-api.sh cortex-audio.sh notify-send.sh apt-autoupdate.sh cortex-sshd.sh cortex-desktop.sh termux-clipboard.sh; do
+for script_name in reload.sh service.sh systemctl.sh systemd-sysusers.sh su.sh cortex-shell.sh cortex-backup.sh cortex-api.sh cortex-audio.sh notify-send.sh apt-autoupdate.sh cortex-sshd.sh cortex-desktop.sh termux-clipboard.sh; do
     script_path="$ASSETS_SCRIPTS/$script_name"
     if LC_ALL=C grep -q $'\r' "$script_path"; then
         fail "$script_name contains CRLF line endings"
@@ -114,6 +114,62 @@ if bash "$SYSTEMCTL_SH" is-enabled "../traversal" >/dev/null 2>&1; then
     fail "systemctl.sh is-enabled allowed path traversal '../traversal'"
 else
     pass "systemctl.sh is-enabled rejects path traversal '../traversal'"
+fi
+
+if bash "$SYSTEMCTL_SH" --system --quiet daemon-reload >/dev/null 2>&1 && ! bash "$SYSTEMCTL_SH" --user list-jobs >/dev/null 2>&1; then
+    pass "systemctl.sh parses leading options and rejects --user sessions"
+else
+    fail "systemctl.sh leading option / --user handling failed"
+fi
+
+# 2f. systemd-sysusers.sh creates missing system users/groups from sysusers.d configs
+SYSUSERS_SH="$ASSETS_SCRIPTS/systemd-sysusers.sh"
+SU_SYSROOT="$TEST_TMP/sysusers_root"
+mkdir -p "$SU_SYSROOT/etc/sysusers.d" "$SU_SYSROOT/usr/lib/sysusers.d"
+printf 'root:x:0:0:root:/root:/bin/bash\n' > "$SU_SYSROOT/etc/passwd"
+printf 'root:x:0:\n' > "$SU_SYSROOT/etc/group"
+printf 'root:*:19700:0:99999:7:::\n' > "$SU_SYSROOT/etc/shadow"
+printf 'root:*::\n' > "$SU_SYSROOT/etc/gshadow"
+cat > "$SU_SYSROOT/usr/lib/sysusers.d/10-dbus.conf" << 'EOF'
+# Comment line
+u! messagebus - "D-Bus Message Bus" /nonexistent /usr/sbin/nologin
+g extra-grp 220
+m messagebus extra-grp
+u emptygecos - "" /srv/empty /bin/false
+u ordered 421 "Vendor Order" /var/lib/ordered /usr/sbin/nologin
+m implicituser sharedgrp
+EOF
+cat > "$SU_SYSROOT/etc/sysusers.d/90-local.conf" << 'EOF'
+u ordered 420 "Local Later" /var/lib/local /usr/sbin/nologin
+EOF
+# --dry-run must not modify account databases
+if sh "$SYSUSERS_SH" --dry-run --root="$SU_SYSROOT" 10-dbus.conf \
+    && ! grep -q '^messagebus:' "$SU_SYSROOT/etc/passwd"; then
+    pass "systemd-sysusers.sh --dry-run makes no changes"
+else
+    fail "systemd-sysusers.sh --dry-run modified account databases"
+fi
+# Full directory scan: global basename sort (10-dbus before 90-local), empty GECOS preserved, m creates missing user
+if sh "$SYSUSERS_SH" --root="$SU_SYSROOT" \
+    && grep -q '^messagebus:x:[0-9]\+:[0-9]\+:D-Bus Message Bus:/nonexistent:/usr/sbin/nologin$' "$SU_SYSROOT/etc/passwd" \
+    && grep -q '^messagebus:x:[0-9]\+:$' "$SU_SYSROOT/etc/group" \
+    && grep -q '^extra-grp:x:220:messagebus$' "$SU_SYSROOT/etc/group" \
+    && grep -q '^messagebus:\*:19700:0:99999:7:::$' "$SU_SYSROOT/etc/shadow" \
+    && grep -q '^emptygecos:x:[0-9]\+:[0-9]\+::/srv/empty:/bin/false$' "$SU_SYSROOT/etc/passwd" \
+    && grep -q '^ordered:x:421:421:Vendor Order:/var/lib/ordered:/usr/sbin/nologin$' "$SU_SYSROOT/etc/passwd" \
+    && grep -q '^implicituser:x:[0-9]\+:[0-9]\+::/:/usr/sbin/nologin$' "$SU_SYSROOT/etc/passwd" \
+    && grep -q '^sharedgrp:x:[0-9]\+:implicituser$' "$SU_SYSROOT/etc/group"; then
+    pass "systemd-sysusers.sh creates users, groups, shadow entries, memberships, empty GECOS, and respects global sort"
+else
+    fail "systemd-sysusers.sh failed: passwd=$(cat "$SU_SYSROOT/etc/passwd") group=$(cat "$SU_SYSROOT/etc/group")"
+fi
+# --inline and --root absolute path resolution
+if sh "$SYSUSERS_SH" --root="$SU_SYSROOT" --inline 'u inlineacct 455 "Inline Account" /srv/inline /bin/sh' \
+    && grep -q '^inlineacct:x:455:455:Inline Account:/srv/inline:/bin/sh$' "$SU_SYSROOT/etc/passwd" \
+    && sh "$SYSUSERS_SH" --root="$SU_SYSROOT" /usr/lib/sysusers.d/10-dbus.conf; then
+    pass "systemd-sysusers.sh supports --inline and --root absolute config paths"
+else
+    fail "systemd-sysusers.sh --inline / --root absolute path failed: passwd=$(cat "$SU_SYSROOT/etc/passwd")"
 fi
 
 # 2b. Immediate crash detection on start
@@ -596,30 +652,13 @@ else
     fail "cortex-shell.sh mangled PROMPT_COMMAND (hooks=$PC_HOOKS): '$PC_OUT'"
 fi
 
-# 5f. OSC 133 marks: C before a command runs, D;<status> at the next prompt
+# 5f. Later PROMPT_COMMAND hooks (starship, direnv, custom prompts) still see the user's $?
 printf '# user bashrc\n' > "$RC_HOME/.bashrc"
-MARK_OUT="$(printf 'source "$CORTEX_SHELL_SH"\ntrue\nfalse\n(exit 7)\n' | run_interactive)"
-if [[ "$MARK_OUT" == *$'\033]133;C\007'* ]] && [[ "$MARK_OUT" == *$'\033]133;D;0\007'* ]] &&
-   [[ "$MARK_OUT" == *$'\033]133;D;1\007'* ]] && [[ "$MARK_OUT" == *$'\033]133;D;7\007'* ]]; then
-    pass "cortex-shell.sh emits OSC 133 command marks with exit statuses"
-else
-    fail "cortex-shell.sh did not emit the expected OSC 133 marks: $(printf '%s' "$MARK_OUT" | od -c | head -5)"
-fi
-
-# 5g. Later PROMPT_COMMAND hooks (starship, direnv, custom prompts) still see the user's $?
 STATUS_OUT="$(printf 'source "$CORTEX_SHELL_SH"\nfalse\n' | PROMPT_COMMAND='echo "seen-status=$?"' run_interactive)"
 if [[ "$STATUS_OUT" == *"seen-status=1"* ]]; then
     pass "cortex-shell.sh hands the last exit status on to other PROMPT_COMMAND hooks"
 else
     fail "cortex-shell.sh hid the exit status from other hooks: output='$STATUS_OUT'"
-fi
-
-# 5h. CORTEX_COMMAND_MARKS=0 switches the marks off
-OFF_MARKS="$(printf 'source "$CORTEX_SHELL_SH"\ntrue\n' | CORTEX_COMMAND_MARKS=0 run_interactive)"
-if [[ "$OFF_MARKS" != *$'\033]133;'* ]]; then
-    pass "CORTEX_COMMAND_MARKS=0 disables the OSC 133 marks"
-else
-    fail "CORTEX_COMMAND_MARKS=0 did not disable the marks"
 fi
 
 echo "=== 6. Testing cortex-backup.sh ==="
@@ -870,10 +909,19 @@ time.sleep(300)' "$sock" "$CORTEX_DESKTOP_ROOT/tmp/.X11-unix/X$display"
 EOS
 printf '#!/bin/bash\necho "$*" > "$CORTEX_DESKTOP_ROOT/tmp/session-args"\nexec -a dbus-launch sleep 300\n' > "$DBIN/dbus-launch"
 chmod +x "$DBIN/Xvnc" "$DBIN/dbus-launch"
-mkdir -p "$DR/etc/cortex" && echo "DESKTOP=light" > "$DR/etc/cortex/desktop.conf"
-if desktop_ start --size 1024x600 >/dev/null 2>&1 && desktop_ status | grep -q "running (light, DISPLAY=:1)" \
+mkdir -p "$DR/etc/cortex" "$DR/usr/share/backgrounds/xfce"
+# Legacy DESKTOP=light installs are treated as not installed so upgrade prompts XFCE install
+echo "DESKTOP=light" > "$DR/etc/cortex/desktop.conf"
+if [ "$(desktop_ status 2>&1)" = "not installed" ] && ! desktop_ start >/dev/null 2>&1; then
+    pass "cortex-desktop treats legacy DESKTOP=light as not installed"
+else
+    fail "cortex-desktop should not treat legacy DESKTOP=light as installed"
+fi
+echo "DESKTOP=xfce" > "$DR/etc/cortex/desktop.conf"
+: > "$DR/usr/share/backgrounds/xfce/xfce-blue.jpg"
+if desktop_ start --size 1024x600 >/dev/null 2>&1 && desktop_ status | grep -q "running (xfce, DISPLAY=:1)" \
     && [ -S "$DR/tmp/.cortex-desktop/vnc.sock" ] && [ "$(cat "$DR/tmp/xvnc-geometry")" = 1024x600 ] \
-    && [ "$(stat -c %a "$DR/tmp/.cortex-desktop")" = 700 ]; then
+    && [ "$(stat -c %a "$DR/tmp/.cortex-desktop")" = 700 ] && [ -d "$DR/tmp/.ICE-unix" ]; then
     pass "cortex-desktop start runs Xvnc on its own socket at the size asked, status shows it"
 else
     fail "cortex-desktop start: $(desktop_ status); $(cat "$TEST_TMP/desktop_home/.cortex/desktop.log" 2>/dev/null)"
@@ -886,9 +934,10 @@ else
     fail "Xvnc arguments: $XARGS"
 fi
 sleep 0.5
-if grep -q "exit-with-session openbox-session" "$DR/tmp/session-args" 2>/dev/null \
-    && [ -f "$TEST_TMP/desktop_home/.config/openbox/autostart" ]; then
-    pass "cortex-desktop starts the Openbox session and gives it a panel"
+XFCE_BG="$TEST_TMP/desktop_home/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml"
+if grep -q "exit-with-session startxfce4" "$DR/tmp/session-args" 2>/dev/null \
+    && grep -q "/usr/share/backgrounds/xfce/xfce-blue.jpg" "$XFCE_BG" 2>/dev/null; then
+    pass "cortex-desktop starts XFCE and configures an installed default wallpaper"
 else
     fail "cortex-desktop session: $(cat "$DR/tmp/session-args" 2>/dev/null)"
 fi
@@ -910,7 +959,7 @@ fi
 desktop_ stop >/dev/null
 sleep 0.3
 OUT="$(desktop_ status)"
-if { ! kill -0 "$XVNC_PID" 2>/dev/null || grep -q '^State:[[:space:]]*Z' "/proc/$XVNC_PID/status"; } && [ "$OUT" = "stopped (light)" ] && [ ! -e "$DR/tmp/.cortex-desktop/vnc.sock" ]; then
+if { ! kill -0 "$XVNC_PID" 2>/dev/null || grep -q '^State:[[:space:]]*Z' "/proc/$XVNC_PID/status"; } && [ "$OUT" = "stopped (xfce)" ] && [ ! -e "$DR/tmp/.cortex-desktop/vnc.sock" ]; then
     pass "cortex-desktop stop ends the X server"
 else
     fail "cortex-desktop stop: $OUT"

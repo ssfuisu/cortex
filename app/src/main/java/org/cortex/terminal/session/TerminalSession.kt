@@ -2,16 +2,13 @@ package org.cortex.terminal.session
 
 import android.content.Context
 import android.util.Log
-import org.cortex.terminal.R
 import org.cortex.terminal.emulator.TerminalEmulator
 import org.cortex.terminal.pty.PtyProcess
 import org.cortex.terminal.runtime.BootstrapManager
 import org.cortex.terminal.runtime.Environment
-import java.io.File
 import java.io.IOException
 import java.util.concurrent.Executors
 import kotlin.concurrent.thread
-import kotlin.concurrent.withLock
 
 class TerminalSession(
     private val context: Context,
@@ -41,43 +38,14 @@ class TerminalSession(
     @Volatile
     var customName: String? = null
 
-    /** 1-based position of this session in the drawer, for notification texts. */
-    var numberProvider: (() -> Int)? = null
-
-    /** Where the shell starts instead of the home directory (a session brought back), if it still exists. */
-    var startDirectory: String? = null
-
-    /** Output shown, dimmed, before the shell starts: the end of a session brought back. */
-    var restoredOutput: String? = null
-
-    /** The shell's directory now, when it is running. */
-    fun currentDirectory(): String? {
-        val pid = ptyProcess?.pid ?: return null
-        if (!isRunning) return null
-        return try {
-            android.system.Os.readlink("/proc/$pid/cwd").takeIf { it.startsWith("/") }
-        } catch (e: Exception) {
-            null
-        }
-    }
-
-    /** The end of the main screen's text, for [SessionStore]. */
-    fun transcript(): String = emulator.lock.withLock {
-        SessionStore.trimOutput(emulator.buffer.transcript(SessionStore.MAX_LINES))
-    }
-
     fun start() {
         if (isRunning) return
 
-        var shell = BootstrapManager.getInitialShellCommand(context)
+        val shell = BootstrapManager.getInitialShellCommand(context)
         val env = Environment.buildEnvironment(context)
-        var ptyEnv = env
-        var cwd = Environment.getHomeDir(context).absolutePath
-        startDirectory?.let { dir -> if (File(dir).isDirectory) cwd = dir }
-        restoredOutput?.let { showRestoredOutput(it) }
-        restoredOutput = null
+        val cwd = Environment.getHomeDir(context).absolutePath
 
-        var args = if (shell.endsWith("sh") || shell.endsWith("bash")) {
+        val args = if (shell.endsWith("sh") || shell.endsWith("bash")) {
             arrayOf("-l", "-i") // Interactive login shell
         } else {
             emptyArray()
@@ -87,7 +55,7 @@ class TerminalSession(
             ptyProcess = PtyProcess.create(
                 cmd = shell,
                 args = args,
-                envVars = ptyEnv,
+                envVars = env,
                 cwd = cwd,
                 rows = rows,
                 cols = cols,
@@ -142,10 +110,6 @@ class TerminalSession(
                 TerminalBridge.onClipboardRequest(context, text)
             }
 
-            emulator.onCommandFinished = { durationMs, exitCode ->
-                TerminalBridge.onCommandFinished(context, numberProvider?.invoke() ?: 1, durationMs, exitCode)
-            }
-
             emulator.onSendResponse = { response ->
                 write(response)
             }
@@ -153,16 +117,6 @@ class TerminalSession(
         } catch (e: Exception) {
             Log.e(tag, "Error launching session", e)
         }
-    }
-
-    private fun showRestoredOutput(output: String) {
-        val sb = StringBuilder()
-        if (output.isNotEmpty()) {
-            sb.append("\u001b[2m").append(output.replace("\n", "\r\n")).append("\u001b[0m\r\n")
-        }
-        sb.append("\u001b[2m── ").append(context.getString(R.string.session_restored)).append(" ──\u001b[0m\r\n")
-        val bytes = sb.toString().toByteArray(Charsets.UTF_8)
-        emulator.processInput(bytes, 0, bytes.size)
     }
 
     private val writeExecutor = Executors.newSingleThreadExecutor { runnable ->

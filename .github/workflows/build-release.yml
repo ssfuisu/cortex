@@ -240,12 +240,15 @@ jobs:
           printf '#!/bin/sh\nexit 0\n' > extra-rootfs/usr/sbin/ldconfig
           printf '#!/bin/sh\nexit 0\n' > extra-rootfs/usr/sbin/start-stop-daemon
           mkdir -p extra-rootfs/usr/sbin extra-rootfs/usr/bin
-          MAINT_TOOLS="systemd-machine-id-setup systemd-sysusers systemd-tmpfiles mandb update-mime-database update-desktop-database install-info install-sgmlcatalog"
+          MAINT_TOOLS="systemd-machine-id-setup systemd-tmpfiles mandb update-mime-database update-desktop-database install-info install-sgmlcatalog"
           for tool in $MAINT_TOOLS; do
             printf '#!/bin/sh\nexit 0\n' > extra-rootfs/usr/sbin/$tool
             printf '#!/bin/sh\nexit 0\n' > extra-rootfs/usr/bin/$tool
             chmod 0755 extra-rootfs/usr/sbin/$tool extra-rootfs/usr/bin/$tool
           done
+          cp app/src/main/assets/scripts/systemd-sysusers.sh extra-rootfs/usr/sbin/systemd-sysusers
+          cp app/src/main/assets/scripts/systemd-sysusers.sh extra-rootfs/usr/bin/systemd-sysusers
+          chmod 0755 extra-rootfs/usr/sbin/systemd-sysusers extra-rootfs/usr/bin/systemd-sysusers
           mkdir -p extra-rootfs/boot extra-rootfs/media extra-rootfs/mnt extra-rootfs/srv extra-rootfs/opt extra-rootfs/run extra-rootfs/tmp
           chmod 0755 extra-rootfs/boot extra-rootfs/media extra-rootfs/mnt extra-rootfs/srv extra-rootfs/opt extra-rootfs/usr/sbin/*
           bash scripts/setup-extra-rootfs.sh

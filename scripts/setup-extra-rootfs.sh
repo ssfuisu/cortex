@@ -286,10 +286,18 @@ MAINT_TOOLS="systemd-machine-id-setup systemd-sysusers systemd-tmpfiles mandb up
 for p in extra-rootfs/usr/sbin extra-rootfs/usr/bin; do
     mkdir -p "$p"
     for tool in $MAINT_TOOLS; do
-        printf '#!/bin/sh\nexit 0\n' > "$p/$tool"
+        if [ "$tool" = "systemd-sysusers" ] && [ -f "$SCRIPT_ASSETS/systemd-sysusers.sh" ]; then
+            cp "$SCRIPT_ASSETS/systemd-sysusers.sh" "$p/$tool"
+        else
+            printf '#!/bin/sh\nexit 0\n' > "$p/$tool"
+        fi
         chmod 0755 "$p/$tool"
     done
 done
+if [ -f "$SCRIPT_ASSETS/systemctl.sh" ]; then
+    cp "$SCRIPT_ASSETS/systemctl.sh" extra-rootfs/usr/local/bin/systemctl
+    chmod 0755 extra-rootfs/usr/local/bin/systemctl
+fi
 
 # Pre-seed man-db auto-update disabled to prevent background re-indexing
 mkdir -p extra-rootfs/var/lib/man-db extra-rootfs/var/cache/man

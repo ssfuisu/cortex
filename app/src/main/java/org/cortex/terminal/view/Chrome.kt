@@ -43,7 +43,7 @@ object Chrome {
     )
 
     @Volatile
-    var palette: Palette = from(TerminalColor.SCHEMES.getValue("catppuccin"))
+    var palette: Palette = from(TerminalColor.SCHEMES.getValue("amoled"))
         private set
 
     /** Makes [scheme] the one the interface is drawn in. */
@@ -173,6 +173,13 @@ object Chrome {
         pressable(
             rounded(p.raised, radiusPx, p.outline, strokePx),
             rounded(p.raisedHigh, radiusPx, p.outline, strokePx)
+        )
+
+    /** A flush rectangular key (Termux style): seamless with the bar, borderless, sharp corners. */
+    fun flatKeyBackground(p: Palette): Drawable =
+        pressable(
+            rounded(p.bar, 0f),
+            rounded(p.raisedHigh, 0f)
         )
 
     /** A key that is on (CTRL or ALT waiting for a key): the accent. */

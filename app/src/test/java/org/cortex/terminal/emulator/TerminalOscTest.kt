@@ -195,44 +195,7 @@ class TerminalOscTest {
         assertNull(e.buffer.screen[0].linkAt(0))
     }
 
-    // ---- OSC 133 command timing ----
-
-    @Test
-    fun osc133_reportsDurationAndExitCode() {
-        val e = emulator()
-        var now = 1_000L
-        e.monotonicMs = { now }
-        val results = mutableListOf<Pair<Long, Int?>>()
-        e.onCommandFinished = { ms, code -> results.add(ms to code) }
-
-        e.feed("${esc}]133;C$bel")
-        now += 61_500L
-        e.feed("${esc}]133;D;2$bel")
-
-        assertEquals(listOf(61_500L to 2), results)
-    }
-
-    @Test
-    fun osc133_ignoresPromptsWithoutACommandAndReportsMissingExitCode() {
-        val e = emulator()
-        var now = 0L
-        e.monotonicMs = { now }
-        val results = mutableListOf<Pair<Long, Int?>>()
-        e.onCommandFinished = { ms, code -> results.add(ms to code) }
-
-        e.feed("${esc}]133;D;0$bel") // first prompt of a session, nothing ran
-        e.feed("${esc}]133;A$bel${esc}]133;B$bel")
-        assertTrue(results.isEmpty())
-
-        e.feed("${esc}]133;C$bel")
-        now = 5L
-        e.feed("${esc}]133;D$st")
-        assertEquals(listOf(5L to null), results)
-
-        now = 100L
-        e.feed("${esc}]133;D;0$bel") // a second D without a new C must not fire again
-        assertEquals(1, results.size)
-    }
+    // ---- OSC 133 ----
 
     @Test
     fun osc133_endOfCommandClosesAStrayHyperlink() {

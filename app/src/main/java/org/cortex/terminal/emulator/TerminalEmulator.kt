@@ -51,15 +51,7 @@ class TerminalEmulator(
     /** OSC 52: a program asked to put [String] on the clipboard. Called with the emulator lock held. */
     var onClipboardSet: ((String) -> Unit)? = null
 
-    /**
-     * OSC 133 shell integration: a command that started ([commandStartMs] set by `133;C`) has ended
-     * (`133;D;exit`). Arguments are the duration in milliseconds and the exit status, if reported.
-     * Called with the emulator lock held; handlers must not block.
-     */
-    var onCommandFinished: ((durationMs: Long, exitCode: Int?) -> Unit)? = null
-
     internal var monotonicMs: () -> Long = { System.nanoTime() / 1_000_000L }
-    private var commandStartMs = -1L
     private var oscOverflow = false
     var onSendResponse: ((String) -> Unit)? = null
     var isApplicationCursorKeys = false
@@ -327,7 +319,6 @@ class TerminalEmulator(
             }
             'c' -> { // Full reset (RIS)
                 buffer.currentLink = null
-                commandStartMs = -1L
                 buffer.eraseInDisplay(2)
                 buffer.cursorRow = 0
                 buffer.cursorCol = 0
@@ -822,19 +813,10 @@ class TerminalEmulator(
         onClipboardSet?.invoke(String(bytes, StandardCharsets.UTF_8))
     }
 
-    /** OSC 133 ; C (command output starts) / D ; exit (command finished). Prompt marks A and B are ignored. */
+    /** OSC 133 ; D closes any stray open hyperlink; all other marks are ignored. */
     private fun handleShellIntegration(arg: String) {
-        when (arg.firstOrNull()) {
-            'C' -> commandStartMs = monotonicMs()
-            'D' -> {
-                buffer.currentLink = null
-                val start = commandStartMs
-                commandStartMs = -1L
-                if (start >= 0L) {
-                    val exit = arg.split(';').getOrNull(1)?.toIntOrNull()
-                    onCommandFinished?.invoke((monotonicMs() - start).coerceAtLeast(0L), exit)
-                }
-            }
+        if (arg.firstOrNull() == 'D') {
+            buffer.currentLink = null
         }
     }
 }

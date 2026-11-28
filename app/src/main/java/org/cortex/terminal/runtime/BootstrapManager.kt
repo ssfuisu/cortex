@@ -12,19 +12,23 @@ import java.util.zip.GZIPInputStream
 
 object BootstrapManager {
     private const val TAG = "BootstrapManager"
-    const val CURRENT_BOOTSTRAP_VERSION = 12900
+    const val CURRENT_BOOTSTRAP_VERSION = 12901
 
     fun initializeFileSystem(context: Context) {
         val root = Environment.getCortexRoot(context)
         val home = Environment.getHomeDir(context)
         val tmp = Environment.getTmpDir(context)
 
-        listOf(root, home, tmp).forEach { dir ->
+        listOf(root, home).forEach { dir ->
             if (!dir.exists()) {
                 dir.mkdirs()
             }
             setMode(dir, 448) // 0700
         }
+        if (!tmp.exists()) {
+            tmp.mkdirs()
+        }
+        setMode(tmp, 1023) // 01777
         // Everything else configures the Ubuntu system; before it is extracted there is nothing to
         // configure (the extraction runs this again when it is done).
         if (!File(root, "usr/bin/bash").exists()) return
@@ -44,9 +48,9 @@ object BootstrapManager {
                 if (pText.contains("`id -u`") || pText.contains("$(id -u)")) {
                     etcProfile.writeText(pText.replace("`id -u`", "\${EUID:-0}").replace("$(id -u)", "\${EUID:-0}"))
                 }
-                etcProfile.setReadable(true, true)
+                etcProfile.setReadable(true, false)
                 etcProfile.setWritable(true, true)
-                setMode(etcProfile, 384)
+                setMode(etcProfile, 420) // 0644
             } catch (e: Exception) { Log.w(TAG, "Could not adjust ${etcProfile.path}", e) }
         }
 
@@ -1298,7 +1302,7 @@ object BootstrapManager {
             ensureRootTools(root, context)
             ShellScriptsInstaller.ensureBackupTool(root, context)
             restoreGpgv(root)
-            ensureMachineId(root)
+            ensureMachineId(root, context)
             ensureShm(root)
             ensureSystemdSharedLibs(root)
             ensureMountpoint(root)
@@ -1328,17 +1332,17 @@ object BootstrapManager {
         }
     }
 
-    fun ensureMachineId(root: File) {
+    fun ensureMachineId(root: File, context: Context? = null) {
         try {
             val machineId = File(root, "etc/machine-id")
             if (!machineId.exists() || machineId.length() < 32) {
                 machineId.parentFile?.mkdirs()
                 val uuid = java.util.UUID.randomUUID().toString().replace("-", "")
                 machineId.writeText("$uuid\n")
-                machineId.setReadable(true, true)
-                machineId.setWritable(true, true)
-                setMode(machineId, 384)
             }
+            machineId.setReadable(true, false)
+            machineId.setWritable(true, true)
+            setMode(machineId, 420) // 0644
             val dbusDir = File(root, "var/lib/dbus")
             dbusDir.mkdirs()
             val dbusMachineId = File(dbusDir, "machine-id")
@@ -1352,9 +1356,11 @@ object BootstrapManager {
                 }
             }
 
-            // Ensure dummy exit 0 scripts for systemd tools across bin directories
+            // Ensure dummy exit 0 scripts for systemd tools that cannot run without PID 1,
+            // and install the real POSIX-shell systemd-sysusers shim so package maintainer scripts
+            // (e.g. dbus-system-bus-common creating messagebus) succeed cleanly.
             val scriptContent = "#!/bin/sh\nexit 0\n"
-            val dummyTools = listOf("systemd-machine-id-setup", "systemd-sysusers", "systemd-tmpfiles")
+            val dummyTools = listOf("systemd-machine-id-setup", "systemd-tmpfiles")
             val binDirs = listOf(
                 File(root, "usr/bin"),
                 File(root, "usr/sbin")
@@ -1362,10 +1368,11 @@ object BootstrapManager {
             for (tool in dummyTools) {
                 for (bDir in binDirs) {
                     try {
-                        FileInstaller.install(File(bDir, tool), scriptContent, 448) // 0700
+                        FileInstaller.install(File(bDir, tool), scriptContent, 493) // 0755
                     } catch (e: Exception) { Log.w(TAG, "Could not write $bDir/$tool", e) }
                 }
             }
+            ShellScriptsInstaller.ensureSysusersTool(root, context)
 
             // Ensure dpkg diversions prevent systemd package updates from overwriting dummy scripts
             val dpkgDir = File(root, "var/lib/dpkg")
@@ -1433,10 +1440,10 @@ object BootstrapManager {
         try {
             val tmpShm = File(root, "tmp/shm")
             tmpShm.mkdirs()
-            tmpShm.setReadable(true, true)
-            tmpShm.setWritable(true, true)
-            tmpShm.setExecutable(true, true)
-            setMode(tmpShm, 448)
+            tmpShm.setReadable(true, false)
+            tmpShm.setWritable(true, false)
+            tmpShm.setExecutable(true, false)
+            setMode(tmpShm, 1023) // 01777
 
             val devDir = File(root, "dev")
             devDir.mkdirs()
@@ -1600,7 +1607,7 @@ object BootstrapManager {
                 "        export PULSE_SERVER=\"unix:/tmp/.cortex-desktop/pulse.sock\"\n" +
                 "    fi\n" +
                 "fi\n"
-            FileInstaller.install(envSh, envContent, 384) // 0600
+            FileInstaller.install(envSh, envContent, 420) // 0644
         } catch (e: Exception) {
             Log.e(TAG, "Failed to ensure profile environment", e)
         }

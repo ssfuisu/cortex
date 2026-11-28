@@ -9,7 +9,6 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.view.View
-import android.view.WindowManager
 import android.view.animation.DecelerateInterpolator
 import android.widget.ImageView
 import android.widget.TextView
@@ -271,13 +270,7 @@ class MainActivity : AppCompatActivity() {
         binding.btnDrawerDesktop.setOnClickListener {
             drawerLayout.closeDrawer(GravityCompat.START)
             if (org.cortex.terminal.desktop.DesktopAddon.installedKind(this) == null) {
-                org.cortex.terminal.desktop.DesktopUi.showInstallDialog(this) {
-                    // the installation runs in a new session, where apt's progress can be read
-                    pendingSessionCommand?.let { command ->
-                        pendingSessionCommand = null
-                        createNewSession().write("$command\r")
-                    }
-                }
+                createNewSession().write("${org.cortex.terminal.desktop.DesktopAddon.installCommand()}\r")
             } else {
                 startActivity(Intent(this, org.cortex.terminal.desktop.DesktopActivity::class.java))
             }
@@ -351,7 +344,7 @@ class MainActivity : AppCompatActivity() {
                         return@runOnUiThread
                     }
                     if (success) {
-                        restoreOrCreateSession()
+                        createNewSession()
                         terminalView.post {
                             terminalView.showKeyboard()
                         }
@@ -368,7 +361,7 @@ class MainActivity : AppCompatActivity() {
         } else {
             checkAndRequestStoragePermission()
             if (sessionManager.sessions.isEmpty()) {
-                restoreOrCreateSession()
+                createNewSession()
             } else {
                 val current = sessionManager.currentSession ?: sessionManager.sessions[0]
                 terminalView.session = current
@@ -482,7 +475,7 @@ class MainActivity : AppCompatActivity() {
         if (current != null) {
             terminalView.session = current
         } else if (!isBootstrapping && BootstrapManager.isBootstrapInstalled(this) && sessionManager.sessions.isEmpty()) {
-            restoreOrCreateSession()
+            createNewSession()
         }
         if (!isBootstrapping && BootstrapManager.isBootstrapInstalled(this)) {
             pendingSessionCommand?.let { command ->
@@ -494,12 +487,6 @@ class MainActivity : AppCompatActivity() {
         terminalView.requestLayout()
         terminalView.postInvalidate()
         refreshTabs()
-    }
-
-    override fun onStop() {
-        super.onStop()
-        // Android may end the app from now on: keep the directories and output for then
-        if (::sessionManager.isInitialized) sessionManager.saveState()
     }
 
     override fun onPause() {
@@ -530,7 +517,7 @@ class MainActivity : AppCompatActivity() {
         val fontSize = fontSizeStr.toFloatOrNull() ?: 11f
         terminalView.setTerminalTextSize(fontSize)
 
-        val themeKey = prefs.getString("terminal_theme", "catppuccin") ?: "catppuccin"
+        val themeKey = prefs.getString("terminal_theme", "amoled") ?: "amoled"
         org.cortex.terminal.emulator.TerminalColor.applyTheme(themeKey)
         // The cells of the sessions that were there hold the colors of the scheme they were written
         // under; without this they bring the old one back wherever the terminal shows them again
@@ -548,23 +535,6 @@ class MainActivity : AppCompatActivity() {
         val showTabs = prefs.getBoolean("show_session_tabs", true)
         binding.sessionTabs.visibility = if (showTabs) View.VISIBLE else View.GONE
         binding.tabsDivider.visibility = if (showTabs) View.VISIBLE else View.GONE
-
-        val fontKey = prefs.getString("terminal_font", "jetbrains_mono") ?: "jetbrains_mono"
-        terminalView.setTerminalFont(fontKey)
-
-        val keepScreenOn = prefs.getBoolean("keep_screen_on", false)
-        if (keepScreenOn) {
-            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        } else {
-            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        }
-
-        val secureScreen = prefs.getBoolean("secure_screen", false)
-        if (secureScreen) {
-            window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
-        } else {
-            window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
-        }
     }
 
     /**
@@ -581,7 +551,6 @@ class MainActivity : AppCompatActivity() {
         drawerLayout.setScrimColor(Chrome.withAlpha(Chrome.BLACK, 150))
         binding.sessionTabs.applyPalette()
         binding.tabsDivider.setBackgroundColor(p.outline)
-        binding.dockDivider.setBackgroundColor(p.outline)
         binding.bottomBarContainer.setBackgroundColor(p.bar)
         extraKeysView.applyPalette()
         searchBar.applyPalette()
@@ -713,18 +682,6 @@ class MainActivity : AppCompatActivity() {
             return installed
         } finally {
             synchronized(bootstrapLock) { bootstrapInProgress = false }
-        }
-    }
-
-    /** Brings back the sessions Android ended with the app (Settings > Restore sessions), else starts one. */
-    private fun restoreOrCreateSession() {
-        if (sessionManager.restore(terminalView.rows, terminalView.cols, terminalView.width, terminalView.height)) {
-            terminalView.session = sessionManager.currentSession
-            sessionAdapter.notifyDataSetChanged()
-            refreshTabs()
-            CortexService.updateNotification(this)
-        } else {
-            createNewSession()
         }
     }
 

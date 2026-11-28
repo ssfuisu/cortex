@@ -237,7 +237,7 @@ fi
 x_server() {
     sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends tigervnc-standalone-server x11-utils \
         >/dev/null 2>&1 || { echo "apt-get install failed"; return 1; }
-    sudo mkdir -p /etc/cortex && echo "DESKTOP=light" | sudo tee /etc/cortex/desktop.conf >/dev/null
+    sudo mkdir -p /etc/cortex && echo "DESKTOP=xfce" | sudo tee /etc/cortex/desktop.conf >/dev/null
     # no desktop session is installed here: a stand-in that runs as long as the X server
     local stub=/tmp/e2e-desktop-stub
     mkdir -p "$stub" && printf '#!/bin/bash\nexec -a dbus-launch sleep 600\n' > "$stub/dbus-launch" && chmod +x "$stub/dbus-launch"
@@ -265,6 +265,25 @@ elif [ -z "$NO_APT" ]; then
     expect x-server "rfb banner: RFB 003.008" x_server
 else
     skip x-server "Xvnc is a package"
+fi
+
+# Ubuntu 26.04 dbus + systemd-sysusers: installing dbus must create messagebus via systemd-sysusers,
+# dbus-launch must authenticate over Unix sockets as cortex, and removing dbus must succeed cleanly.
+dbus_sysusers() {
+    sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends dbus dbus-x11 \
+        >/dev/null 2>&1 || { echo "apt-get install dbus failed"; return 1; }
+    getent group messagebus >/dev/null || { echo "messagebus group missing"; return 1; }
+    getent passwd messagebus >/dev/null || { echo "messagebus user missing"; return 1; }
+    dbus-launch --exit-with-session bash -c 'test -n "$DBUS_SESSION_BUS_ADDRESS" && echo "dbus-session-ok"' || { echo "dbus-launch failed"; return 1; }
+    sudo env DEBIAN_FRONTEND=noninteractive apt-get remove --auto-remove -y --no-install-recommends dbus dbus-x11 \
+        >/dev/null 2>&1 || { echo "apt-get remove dbus failed"; return 1; }
+    echo "dbus-remove-ok"
+}
+export -f dbus_sysusers
+if [ -z "$NO_APT" ]; then
+    expect dbus-sysusers "dbus-remove-ok" dbus_sysusers
+else
+    skip dbus-sysusers "dbus is a package"
 fi
 
 # A web server for the notification about it, which run-emulator-test.sh looks for (perl-base is

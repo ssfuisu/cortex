@@ -16,8 +16,8 @@ android {
         // privacy warnings. Writable rootfs binaries (app_data_file) execute via libcortex-exec.so
         // in nativeLibraryDir (apk_data_file), which holds execute_no_trans under targetSdk >= 29.
         targetSdk = 35
-        versionCode = 12900
-        versionName = "1.29.0"
+        versionCode = 12901
+        versionName = "1.29.1"
         // UbuntuOnDeviceTest (app/src/androidTest), on Firebase Test Lab
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -144,6 +144,12 @@ android {
             isIncludeAndroidResources = true
             all {
                 it.maxHeapSize = "2g"
+                // Avoid Maven Central 429 rate-limiting on CI runners when Robolectric downloads android-all jars
+                it.systemProperty(
+                    "robolectric.dependency.repo.url",
+                    System.getProperty("robolectric.dependency.repo.url")
+                        ?: "https://maven-central.storage-download.googleapis.com/maven2"
+                )
                 // The assertion's message in CI's log, not only in the HTML report
                 it.testLogging.exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
             }

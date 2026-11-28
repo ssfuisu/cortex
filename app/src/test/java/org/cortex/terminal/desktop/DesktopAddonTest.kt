@@ -17,7 +17,6 @@ class DesktopAddonTest {
 
     @Test
     fun installCommand() {
-        assertEquals("cortex-desktop install light", DesktopAddon.installCommand(DesktopAddon.KIND_LIGHT, false))
-        assertEquals("cortex-desktop install xfce --firefox", DesktopAddon.installCommand(DesktopAddon.KIND_XFCE, true))
+        assertEquals("cortex-desktop install", DesktopAddon.installCommand())
     }
 }

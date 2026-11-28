@@ -20,8 +20,8 @@ object DesktopAddon {
     const val PREF_MOUSE_MODE = "desktop_mouse_mode" // "touch" (the finger is the pointer) or "touchpad"
     const val PREF_SCALE = "desktop_scale" // size of the desktop's pixels in percent of Android's dp
 
-    const val KIND_LIGHT = "light"
     const val KIND_XFCE = "xfce"
+    const val INSTALL_COMMAND = "cortex-desktop install"
 
     fun stateDir(context: Context) = File(Environment.getCortexRoot(context), "tmp/.cortex-desktop")
 
@@ -29,7 +29,7 @@ object DesktopAddon {
 
     fun audioPipe(context: Context) = File(stateDir(context), "audio.fifo")
 
-    /** "light" or "xfce" once cortex-desktop installed it, else null. */
+    /** "xfce" once cortex-desktop installed it, else null. */
     fun installedKind(context: Context): String? {
         val root = Environment.getCortexRoot(context)
         val hasServer = File(root, "usr/bin/Xtigervnc").exists() || File(root, "usr/bin/Xvnc").exists()
@@ -40,7 +40,7 @@ object DesktopAddon {
         } catch (e: Exception) {
             null
         }
-        return kind?.takeIf { it.isNotEmpty() }
+        return kind?.takeIf { it == KIND_XFCE }
     }
 
     /** Whether the X server runs: its pid (a process of this app) is alive and its socket is there. */
@@ -53,8 +53,7 @@ object DesktopAddon {
         return File("/proc/$pid").exists() && socket(context).exists()
     }
 
-    fun installCommand(kind: String, firefox: Boolean): String =
-        "cortex-desktop install $kind" + if (firefox) " --firefox" else ""
+    fun installCommand(): String = INSTALL_COMMAND
 
     /** The size of the X screen for a view of [widthPx] x [heightPx] pixels at [scalePercent] % of dp. */
     fun desktopSize(widthPx: Int, heightPx: Int, density: Float, scalePercent: Int): Pair<Int, Int> {

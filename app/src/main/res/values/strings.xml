@@ -86,42 +86,19 @@
     <string name="notif_action_acquire_wakelock">Acquire Wakelock</string>
     <string name="notif_action_release_wakelock">Release Wakelock</string>
 
-    <!-- Long command notifications -->
-    <string name="notif_cmd_channel_name">Command notifications</string>
-    <string name="notif_cmd_channel_description">Alerts when long-running terminal commands finish</string>
-    <string name="notif_cmd_finished">Command finished</string>
-    <string name="notif_cmd_failed">Command failed (exit code %1$d)</string>
-    <string name="notif_cmd_text">Took %1$s in session %2$d</string>
-
     <!-- Files app integration -->
     <string name="documents_root_summary">Home directory</string>
 
     <!-- Settings -->
     <string name="pref_cat_appearance">Appearance &amp; Font</string>
-    <string name="pref_font_title">Terminal Font</string>
     <string name="pref_theme_title">Color Scheme</string>
     <string name="pref_font_size_title">Font Size</string>
     <string name="pref_session_tabs_title">Session tabs</string>
     <string name="pref_session_tabs_summary">A strip above the terminal for switching between sessions and starting new ones</string>
-    <string name="pref_keep_screen_on_title">Keep Screen On</string>
-    <string name="pref_keep_screen_on_summary">Prevent the display from turning off while terminal is active</string>
-    <string name="pref_secure_screen_title">Secure Screen</string>
-    <string name="pref_secure_screen_summary">Block screenshots and hide app content in recent tasks (FLAG_SECURE)</string>
 
     <string name="pref_cat_language">Language</string>
     <string name="pref_language_title">App language</string>
     <string name="pref_language_system">System default</string>
-
-    <string name="pref_cat_notifications">Notifications &amp; Clipboard</string>
-    <string name="pref_notify_title">Long command notifications</string>
-    <string name="pref_notify_summary">Notify when a command finishes while Cortex is in the background</string>
-    <string name="pref_notify_threshold_title">Notify after</string>
-    <string name="pref_clipboard_title">Clipboard access from programs</string>
-    <string name="pref_clipboard_summary">Let programs in the terminal (tmux, vim, ssh) copy text to the Android clipboard (OSC 52)</string>
-
-    <string name="pref_cat_files">Files</string>
-    <string name="pref_documents_title">Show in file manager</string>
-    <string name="pref_documents_summary">List the Cortex home directory in Android\'s Files app and file pickers</string>
 
     <string name="pref_cat_support">Community &amp; Support</string>
     <string name="pref_telegram_title">Telegram Support</string>
@@ -138,23 +115,12 @@
     <string name="font_size_medium">Medium (14sp)</string>
     <string name="font_size_large">Large (16sp)</string>
     <string name="font_size_huge">Huge (18sp)</string>
-    <string name="font_jetbrains_default">JetBrains Mono Nerd Font (Default)</string>
-    <string name="font_system_monospace">System Monospace</string>
-    <string name="font_custom">Custom Font (~/.cortex/font.ttf)</string>
-    <string name="theme_catppuccin_default">Catppuccin Mocha (Default)</string>
-    <string name="threshold_15s">15 seconds</string>
-    <string name="threshold_30s">30 seconds</string>
-    <string name="threshold_1m">1 minute</string>
-    <string name="threshold_5m">5 minutes</string>
+    <string name="theme_amoled_default">Black (AMOLED) (Default)</string>
     <!-- Root mode -->
     <!-- cortex-api -->
     <string name="api_channel_name">Messages from commands</string>
     <string name="api_channel_description">Notifications that programs in the terminal show with cortex-api or notify-send</string>
     <string name="extra_keys_error">~/.cortex/keys: %1$s. The default keys are shown.</string>
-    <string name="pref_cat_sessions">Sessions</string>
-    <string name="pref_restore_sessions_title">Restore sessions</string>
-    <string name="pref_restore_sessions_summary">When Android ends Cortex, its sessions come back at the next start, in their folders and with the end of their output (the programs in them start anew)</string>
-    <string name="session_restored">restored: Android had ended Cortex, the programs that ran here have stopped</string>
     <string name="pref_cat_remote">Remote access</string>
     <string name="pref_ssh_title">Start the SSH server</string>
     <string name="pref_ssh_summary">Starts OpenSSH on port 8022 in a new session, to use Cortex from a computer (installs it the first time; cortex-sshd stop ends it)</string>
@@ -165,18 +131,13 @@
     <string name="server_notification_text">Tap to open %1$s</string>
     <string name="server_open">Open</string>
     <string name="server_copy_link">Copy link</string>
-    <string name="pref_servers_title">Local web servers</string>
-    <string name="pref_servers_summary">A notification when a program in Cortex serves web pages (such as npm run dev), to open them in the browser</string>
     <string name="desktop_title">Desktop</string>
     <string name="drawer_desktop">Desktop (X11)</string>
     <string name="pref_cat_desktop">Desktop (X11)</string>
     <string name="pref_desktop_open_title">Open the desktop</string>
     <string name="pref_desktop_open_missing">A Linux desktop with windows and a mouse. Not installed yet</string>
     <string name="pref_desktop_open_installed">Installed: %1$s. Programs started in the terminal open on it too</string>
-    <string name="desktop_kind_light">Light (Openbox)</string>
     <string name="desktop_kind_xfce">XFCE</string>
-    <string name="pref_desktop_install_title">Install or change the desktop</string>
-    <string name="pref_desktop_install_summary">Downloads it from Ubuntu\'s archive in a new session</string>
     <string name="pref_desktop_remove_title">Remove the desktop</string>
     <string name="pref_desktop_mouse_title">Touch on the desktop</string>
     <string name="desktop_mouse_touch">Touch</string>
@@ -185,11 +146,6 @@
     <string name="desktop_scale_small">Small</string>
     <string name="desktop_scale_medium">Medium</string>
     <string name="desktop_scale_large">Large</string>
-    <string name="desktop_install_title">Install a desktop</string>
-    <string name="desktop_install_light">Light: Openbox, a panel, files, a terminal (about 150 MB)</string>
-    <string name="desktop_install_xfce">XFCE: a complete desktop (about 500 MB)</string>
-    <string name="desktop_install_firefox">Also install Firefox (about 250 MB)</string>
-    <string name="desktop_install_note">It is downloaded in a new terminal session. Everything is drawn by the CPU: fine for editors and browsing, slow for games and video.</string>
     <string name="desktop_install_button">Install</string>
     <string name="desktop_remove_confirm">Remove the desktop and the packages it installed?</string>
     <string name="desktop_remove_button">Remove</string>

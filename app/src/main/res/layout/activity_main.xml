@@ -31,18 +31,11 @@
             android:layout_height="0dp"
             android:layout_weight="1" />
 
-        <!-- Dock Divider -->
-        <View
-            android:id="@+id/dockDivider"
-            android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:background="@color/cortex_outline_variant" />
-
         <!-- Bottom Bar: Virtual Keys Toolbar & Terminal Search Bar with Slide Animation -->
         <FrameLayout
             android:id="@+id/bottomBarContainer"
             android:layout_width="match_parent"
-            android:layout_height="86dp"
+            android:layout_height="80dp"
             android:background="@color/cortex_surface_container">
 
             <!-- 2-Row Extra Keys Keyboard Toolbar -->

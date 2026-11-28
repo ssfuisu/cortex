@@ -77,6 +77,7 @@ class RfbClient(input: InputStream, output: OutputStream, private val listener: 
     private var screenId = 0L
     private var screenFlags = 0L
     private var fullUpdateNext = false
+    private var awaitingPixels = false
     private var rowBuffer = ByteArray(0)
 
     /** Version, security ("None"), the server's description, then our pixel format and encodings. */
@@ -224,8 +225,14 @@ class RfbClient(input: InputStream, output: OutputStream, private val listener: 
             val w = ins.readUnsignedShort()
             val h = ins.readUnsignedShort()
             when (val encoding = ins.readInt()) {
-                ENCODING_RAW -> readRaw(x, y, w, h)
-                ENCODING_COPY_RECT -> readCopyRect(x, y, w, h)
+                ENCODING_RAW -> {
+                    readRaw(x, y, w, h)
+                    awaitingPixels = false
+                }
+                ENCODING_COPY_RECT -> {
+                    readCopyRect(x, y, w, h)
+                    awaitingPixels = false
+                }
                 PSEUDO_CURSOR -> readCursor(x, y, w, h)
                 PSEUDO_DESKTOP_SIZE -> resize(w, h)
                 PSEUDO_EXTENDED_DESKTOP_SIZE -> readExtendedDesktopSize(x, y, w, h)
@@ -234,7 +241,10 @@ class RfbClient(input: InputStream, output: OutputStream, private val listener: 
             }
         }
         listener.onUpdateEnd()
-        val full = fullUpdateNext
+        // Keep requesting non-incremental full frames until pixel rectangles actually arrive
+        // for the current size; pseudo-only updates (ExtendedDesktopSize / Cursor) must not
+        // consume the full-frame request and leave a resized framebuffer black.
+        val full = fullUpdateNext || awaitingPixels
         fullUpdateNext = false
         send { writeUpdateRequest(!full) }
     }
@@ -327,6 +337,7 @@ class RfbClient(input: InputStream, output: OutputStream, private val listener: 
             pixels = IntArray(w * h)
         }
         fullUpdateNext = true
+        awaitingPixels = true
         listener.onResize(w, h)
     }
 

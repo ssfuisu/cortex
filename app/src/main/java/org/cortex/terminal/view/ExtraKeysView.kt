@@ -49,8 +49,8 @@ class ExtraKeysView @JvmOverloads constructor(
         /** The height of one row of keys, in dp. */
         const val ROW_HEIGHT_DP = 40
 
-        /** The space around the keys, in dp. */
-        const val PADDING_DP = 3
+        /** The space around the keys, in dp (0: flush edge-to-edge, Termux style). */
+        const val PADDING_DP = 0
 
         /** The height of a bar with [rows] rows of keys, in dp. */
         fun barHeightDp(rows: Int): Int = rows * ROW_HEIGHT_DP + 2 * PADDING_DP
@@ -81,8 +81,6 @@ class ExtraKeysView @JvmOverloads constructor(
     /** Every key shown, to be drawn again when the color scheme changes. */
     private val keyButtons = mutableListOf<Button>()
 
-    private fun dp(v: Float): Float = v * resources.displayMetrics.density
-
     /** The rows of keys shown now. */
     var rowCount = 0
         private set
@@ -90,8 +88,7 @@ class ExtraKeysView @JvmOverloads constructor(
     init {
         orientation = VERTICAL
         setBackgroundColor(Chrome.palette.bar)
-        val pad = (PADDING_DP * resources.displayMetrics.density).toInt()
-        setPadding(pad, pad, pad, pad)
+        setPadding(0, 0, 0, 0)
         setKeys(ExtraKeysLayout.DEFAULT_ROWS)
     }
 
@@ -168,8 +165,6 @@ class ExtraKeysView @JvmOverloads constructor(
             )
         }
 
-        val marginPx = (2.5f * resources.displayMetrics.density).toInt()
-
         for (key in keys) {
             val label = key.label
             val action = key.action
@@ -182,13 +177,14 @@ class ExtraKeysView @JvmOverloads constructor(
                 styleKey(this, false)
                 isAllCaps = false
                 gravity = Gravity.CENTER
+                minWidth = 0
+                minHeight = 0
+                minimumWidth = 0
+                minimumHeight = 0
                 setPadding(0, 0, 0, 0)
                 stateListAnimator = null
 
-                val params = LayoutParams(0, LayoutParams.MATCH_PARENT, 1f).apply {
-                    setMargins(marginPx, marginPx, marginPx, marginPx)
-                }
-                layoutParams = params
+                layoutParams = LayoutParams(0, LayoutParams.MATCH_PARENT, 1f)
 
                 val moveSlopPx = 22 * resources.displayMetrics.density
                 var handledByTouch = false
@@ -201,7 +197,6 @@ class ExtraKeysView @JvmOverloads constructor(
                     when (event.action) {
                         MotionEvent.ACTION_DOWN -> {
                             v.isPressed = true
-                            pressFeedback(v, true)
                             v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
                             keyDownX = event.x
                             keyDownY = event.y
@@ -225,13 +220,11 @@ class ExtraKeysView @JvmOverloads constructor(
                                 cancelPendingKey(v)
                                 cancelRepeat()
                                 v.isPressed = false
-                                pressFeedback(v, false)
                             }
                             true
                         }
                         MotionEvent.ACTION_UP -> {
                             v.isPressed = false
-                            pressFeedback(v, false)
                             handledByTouch = true
                             try {
                                 v.performClick()
@@ -250,7 +243,6 @@ class ExtraKeysView @JvmOverloads constructor(
                         }
                         MotionEvent.ACTION_CANCEL -> {
                             v.isPressed = false
-                            pressFeedback(v, false)
                             cancelPendingKey(v)
                             cancelRepeat()
                             true
@@ -351,19 +343,11 @@ class ExtraKeysView @JvmOverloads constructor(
         updateModifierStyles()
     }
 
-    /** A key in the colors of the scheme: flat and a little lighter than the bar, or the accent when it is on. */
+    /** Flush rectangular key (Termux style): seamless with the bar, no borders or corner radius. */
     private fun styleKey(btn: Button, on: Boolean) {
         val p = Chrome.palette
-        val radius = dp(9f)
-        val stroke = dp(1f).toInt().coerceAtLeast(1)
-        btn.background = if (on) Chrome.activeKeyBackground(p, radius, stroke) else Chrome.keyBackground(p, radius, stroke)
+        btn.background = if (on) Chrome.activeKeyBackground(p, 0f, 0) else Chrome.flatKeyBackground(p)
         btn.setTextColor(if (on) p.onAccent else p.text)
-    }
-
-    /** A key sinks a little under the finger. */
-    private fun pressFeedback(v: View, down: Boolean) {
-        val scale = if (down) 0.94f else 1f
-        v.animate().scaleX(scale).scaleY(scale).setDuration(if (down) 45L else 90L).start()
     }
 
     /** Draws the keys again in the colors of the scheme now in use. */

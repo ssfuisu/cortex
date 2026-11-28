@@ -43,8 +43,8 @@ class ChromeViewsTest {
 
     @Before
     fun setUp() {
-        TerminalColor.applyTheme("catppuccin")
-        Chrome.apply(TerminalColor.SCHEMES.getValue("catppuccin"))
+        TerminalColor.applyTheme("amoled")
+        Chrome.apply(TerminalColor.SCHEMES.getValue("amoled"))
         activity = Robolectric.buildActivity(AppCompatActivity::class.java).create().get()
         activity.setTheme(R.style.Theme_Cortex)
     }
@@ -113,17 +113,28 @@ class ChromeViewsTest {
         Chrome.apply(TerminalColor.SCHEMES.getValue("nord"))
         tabs.applyPalette()
         assertEquals(1, tabRows(tabs).childCount)
-        Chrome.apply(TerminalColor.SCHEMES.getValue("catppuccin"))
+        Chrome.apply(TerminalColor.SCHEMES.getValue("amoled"))
     }
 
     @Test
-    fun theKeysBarHasItsRowsAndFollowsTheScheme() {
+    fun theKeysBarHasFlushRowsAndFollowsTheScheme() {
         val keys = ExtraKeysView(activity)
         assertEquals(2, keys.rowCount)
+        assertEquals(0, keys.paddingLeft)
+        assertEquals(0, keys.paddingTop)
+        assertEquals(0, keys.paddingRight)
+        assertEquals(0, keys.paddingBottom)
+        val firstRow = keys.getChildAt(0) as ViewGroup
+        val firstButton = firstRow.getChildAt(0)
+        val lp = firstButton.layoutParams as ViewGroup.MarginLayoutParams
+        assertEquals(0, lp.leftMargin)
+        assertEquals(0, lp.topMargin)
+        assertEquals(0, lp.rightMargin)
+        assertEquals(0, lp.bottomMargin)
         Chrome.apply(TerminalColor.SCHEMES.getValue("monokai"))
         keys.applyPalette()
         assertEquals(2, keys.rowCount)
-        Chrome.apply(TerminalColor.SCHEMES.getValue("catppuccin"))
+        Chrome.apply(TerminalColor.SCHEMES.getValue("amoled"))
     }
 
     @Test
@@ -168,7 +179,7 @@ class ChromeViewsTest {
             title = "Color scheme"
             entries = TerminalColor.SCHEMES.values.map { it.displayName }.toTypedArray()
             entryValues = TerminalColor.SCHEMES.keys.toTypedArray()
-            value = "catppuccin"
+            value = "amoled"
         }
         ThemePicker.show(activity as Activity, pref)
         val dialog = ShadowDialog.getLatestDialog() as AlertDialog
